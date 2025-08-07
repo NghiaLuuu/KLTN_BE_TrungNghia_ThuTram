@@ -1,7 +1,9 @@
+// auth.service.js
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
-const { generateOtp, isOtpExpired } = require('../utils/otp.util');
+const redis = require('../utils/redis.client');
+const { generateOtp } = require('../utils/otp.util');
 const { sendEmail } = require('../utils/mail.util');
 
 const {
@@ -10,8 +12,7 @@ const {
 } = require('../utils/token.util');
 const userRepo = require('../repositories/user.repository');
 
-// Biến RAM tạm lưu OTP: email => { code, expiresAt }
-const otpStore = new Map();
+const OTP_EXPIRE_SECONDS = 5 * 60; // 5 phút
 
 // Gửi OTP đăng ký
 exports.sendOtpRegister = async (email) => {
@@ -19,9 +20,9 @@ exports.sendOtpRegister = async (email) => {
   if (existingUser) throw new Error('Email đã tồn tại');
 
   const code = generateOtp();
-  const expiresAt = Date.now() + 5 * 60 * 1000;
-
-  otpStore.set(`${email}-register`, { code, expiresAt });
+  await redis.set(`otp:register:${email}`, code, {
+    EX: OTP_EXPIRE_SECONDS,
+  });
 
   await sendEmail(email, 'Mã OTP đăng ký', `Mã OTP là: ${code}`);
   return { message: 'OTP đăng ký đã được gửi đến email' };
@@ -33,29 +34,28 @@ exports.sendOtpResetPassword = async (email) => {
   if (!user) throw new Error('Email chưa đăng ký');
 
   const code = generateOtp();
-  const expiresAt = Date.now() + 5 * 60 * 1000;
-
-  otpStore.set(`${email}-reset`, { code, expiresAt });
+  await redis.set(`otp:reset:${email}`, code, {
+    EX: OTP_EXPIRE_SECONDS,
+  });
 
   await sendEmail(email, 'Mã OTP đặt lại mật khẩu', `Mã OTP là: ${code}`);
   return { message: 'OTP khôi phục mật khẩu đã được gửi đến email' };
 };
 
+
 // Xác minh OTP (có kiểm tra loại)
 exports.verifyOtp = async (email, code, type) => {
-  const key = `${email}-${type}`;
-  const record = otpStore.get(key);
-  if (!record) throw new Error('Không tìm thấy mã OTP');
-  if (record.expiresAt < Date.now()) {
-    otpStore.delete(key);
-    throw new Error('Mã OTP đã hết hạn');
-  }
-  if (record.code !== code) throw new Error('Mã OTP không đúng');
+  const key = `otp:${type}:${email}`;
+  const storedCode = await redis.get(key);
 
-  otpStore.delete(key);
+  if (!storedCode) throw new Error('Không tìm thấy mã OTP hoặc đã hết hạn');
+  if (storedCode !== code) throw new Error('Mã OTP không đúng');
+
+  await redis.del(key); // Xoá sau khi xác minh thành công
   return true;
 };
 
+// Đăng ký
 exports.register = async (data) => {
   const { email, phone, password, role, otp, ...rest } = data;
 
@@ -63,7 +63,7 @@ exports.register = async (data) => {
     throw new Error('Thiếu thông tin bắt buộc: email, mật khẩu hoặc mã OTP');
   }
 
- const [existingEmail, existingPhone] = await Promise.all([
+  const [existingEmail, existingPhone] = await Promise.all([
     userRepo.findByEmail(email),
     userRepo.findByPhone(phone)
   ]);
@@ -71,24 +71,21 @@ exports.register = async (data) => {
   if (existingEmail) throw new Error('Email đã tồn tại');
   if (existingPhone) throw new Error('Số điện thoại đã tồn tại');
 
-  // Kiểm tra OTP loại "register"
   await exports.verifyOtp(email, otp, 'register');
 
   const hashedPassword = await bcrypt.hash(password, 10);
-
   const user = new (require('../models/user.model'))({
-    email,
-    password: hashedPassword,
-    role,
-    ...rest,
-  });
+  email,
+  password: hashedPassword,
+  role,
+  phone,          
+  ...rest,
+});
+
 
   await userRepo.saveUser(user);
-
   return user;
 };
-
-
 
 // Đăng nhập
 exports.login = async ({ email, password }) => {
@@ -114,6 +111,7 @@ exports.refresh = async (refreshToken) => {
   } catch (err) {
     throw new Error('Refresh token không hợp lệ');
   }
+
   const user = await userRepo.findById(payload.userId);
   if (!user || !user.refreshTokens.includes(refreshToken)) {
     throw new Error('Invalid refresh token');
@@ -139,9 +137,9 @@ exports.logout = async (userId, refreshToken) => {
   await userRepo.updateRefreshTokens(user, updatedTokens);
 };
 
+// Đổi mật khẩu
 exports.changePassword = async (userId, currentPassword, newPassword) => {
   const user = await userRepo.findById(userId);
-  console.log("userId: ", user)
   if (!user) throw new Error('User không tồn tại');
 
   const isMatch = await bcrypt.compare(currentPassword, user.password);
@@ -154,8 +152,8 @@ exports.changePassword = async (userId, currentPassword, newPassword) => {
   return { message: 'Đổi mật khẩu thành công' };
 };
 
+// Đặt lại mật khẩu
 exports.resetPassword = async (email, otp, newPassword) => {
-  // Kiểm tra OTP loại "reset"
   await exports.verifyOtp(email, otp, 'reset');
 
   const user = await userRepo.findByEmail(email);
@@ -167,4 +165,3 @@ exports.resetPassword = async (email, otp, newPassword) => {
   await userRepo.saveUser(user);
   return { message: 'Đặt lại mật khẩu thành công' };
 };
-
