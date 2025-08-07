@@ -57,14 +57,19 @@ exports.verifyOtp = async (email, code, type) => {
 };
 
 exports.register = async (data) => {
-  const { email, password, role, otp, ...rest } = data;
+  const { email, phone, password, role, otp, ...rest } = data;
 
   if (!email || !password || !otp) {
     throw new Error('Thiếu thông tin bắt buộc: email, mật khẩu hoặc mã OTP');
   }
 
-  const existingUser = await userRepo.findByEmail(email);
-  if (existingUser) throw new Error('Email đã tồn tại');
+ const [existingEmail, existingPhone] = await Promise.all([
+    userRepo.findByEmail(email),
+    userRepo.findByPhone(phone)
+  ]);
+
+  if (existingEmail) throw new Error('Email đã tồn tại');
+  if (existingPhone) throw new Error('Số điện thoại đã tồn tại');
 
   // Kiểm tra OTP loại "register"
   await exports.verifyOtp(email, otp, 'register');

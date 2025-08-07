@@ -2,6 +2,7 @@
 const User = require('../models/user.model');
 
 exports.findByEmail = (email) => User.findOne({ email });
+exports.findByPhone = (phone) => User.findOne({ phone });
 
 exports.findById = async (id) => {
   return await User.findById(id); 
