@@ -1,8 +1,8 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
-const authRoutes = require('./routes/auth.route');
-const userRoutes = require('./routes/user.route')
+const roomRoutes = require('./routes/room.route');
+
 dotenv.config();
 connectDB();
 
@@ -10,10 +10,10 @@ const app = express();
 app.use(express.json());
 
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/user', userRoutes);
+app.use('/api/room', roomRoutes);
+
 // Server
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
   console.log(`Auth service running on port ${PORT}`);
 });
