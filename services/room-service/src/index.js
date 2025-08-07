@@ -15,5 +15,5 @@ app.use('/api/room', roomRoutes);
 // Server
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
-  console.log(`Auth service running on port ${PORT}`);
+  console.log(`Room service running on port ${PORT}`);
 });

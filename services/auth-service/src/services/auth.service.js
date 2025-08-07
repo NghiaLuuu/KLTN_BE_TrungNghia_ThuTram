@@ -99,13 +99,14 @@ exports.login = async ({ email, password }) => {
   const match = await bcrypt.compare(password, user.password);
   if (!match) throw new Error('Invalid credentials');
 
-  const refreshToken = generateRefreshToken(user._id);
-  const accessToken = generateAccessToken(user._id);
+  const refreshToken = generateRefreshToken(user);
+  const accessToken = generateAccessToken(user); // ✅ truyền toàn bộ user
 
   await userRepo.updateRefreshTokens(user, [refreshToken]);
 
   return { accessToken, refreshToken, user };
 };
+
 
 // Refresh token
 exports.refresh = async (refreshToken) => {

@@ -1,16 +1,32 @@
 const jwt = require('jsonwebtoken');
 
-exports.generateAccessToken = (userId) => {
-  return jwt.sign({ userId }, process.env.ACCESS_TOKEN_SECRET, {
-    expiresIn: '15m',
-  });
+exports.generateAccessToken = (user) => {
+  return jwt.sign(
+    {
+      userId: user._id,
+      role: user.role, // ✅ Thêm role vào đây
+    },
+    process.env.ACCESS_TOKEN_SECRET,
+    {
+      expiresIn: '15m',
+    }
+  );
 };
 
-exports.generateRefreshToken = (userId) => {
-  return jwt.sign({ userId }, process.env.REFRESH_TOKEN_SECRET, {
-    expiresIn: '7d',
-  });
+
+exports.generateRefreshToken = (user) => {
+  return jwt.sign(
+    {
+      userId: user._id,
+      role: user.role, // ✅ Thêm role nếu cần dùng cho refresh token
+    },
+    process.env.REFRESH_TOKEN_SECRET,
+    {
+      expiresIn: '7d',
+    }
+  );
 };
+
 
 exports.isTokenExpired = (token) => {
   try {
