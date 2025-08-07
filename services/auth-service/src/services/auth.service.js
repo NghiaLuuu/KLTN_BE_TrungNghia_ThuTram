@@ -63,6 +63,10 @@ exports.register = async (data) => {
     throw new Error('Thiếu thông tin bắt buộc: email, mật khẩu hoặc mã OTP');
   }
 
+  if (password.length < 8 || password.length > 16) {
+  throw new Error('Mật khẩu phải từ 8 đến 16 ký tự');
+  }
+
   const [existingEmail, existingPhone] = await Promise.all([
     userRepo.findByEmail(email),
     userRepo.findByPhone(phone)
@@ -144,6 +148,9 @@ exports.changePassword = async (userId, currentPassword, newPassword) => {
 
   const isMatch = await bcrypt.compare(currentPassword, user.password);
   if (!isMatch) throw new Error('Mật khẩu hiện tại không đúng');
+  if (newPassword.length < 8 || newPassword.length > 16) {
+  throw new Error('Mật khẩu mới phải từ 8 đến 16 ký tự');
+}
 
   const hashedPassword = await bcrypt.hash(newPassword, 10);
   user.password = hashedPassword;
@@ -158,6 +165,9 @@ exports.resetPassword = async (email, otp, newPassword) => {
 
   const user = await userRepo.findByEmail(email);
   if (!user) throw new Error('Không tìm thấy user');
+  if (newPassword.length < 8 || newPassword.length > 16) {
+  throw new Error('Mật khẩu mới phải từ 8 đến 16 ký tự');
+  }
 
   const hashedPassword = await bcrypt.hash(newPassword, 10);
   user.password = hashedPassword;
