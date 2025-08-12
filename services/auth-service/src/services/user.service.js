@@ -32,6 +32,24 @@ exports.listUsers = async () => {
   return filtered;
 };
 
+exports.getProfile = async (userId) => {
+  if (!userId) throw new Error('UserId is required');
+
+  // Lấy tất cả user từ cache
+  let users = await redis.get(USER_CACHE_KEY);
+  if (users) {
+    users = JSON.parse(users);
+    const user = users.find(u => u._id.toString() === userId.toString());
+    if (user) return user;
+  }
+
+  // Nếu không tìm thấy trong cache hoặc cache trống, lấy trực tiếp từ DB
+  const userFromDb = await userRepo.findById(userId);
+  if (!userFromDb) throw new Error('User not found');
+
+  return userFromDb;
+};
+
 exports.searchUser = async (keyword) => {
   const users = await this.listUsers();
   return users.filter(user =>
