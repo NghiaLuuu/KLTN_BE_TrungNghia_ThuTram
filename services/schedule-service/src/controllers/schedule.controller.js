@@ -56,30 +56,5 @@ exports.viewByStaff = async (req, res) => {
   }
 };
 
-exports.assignStaffToShift = async (req, res) => {
-  if (!isManagerOrAdmin(req.user)) {
-    return res.status(403).json({ message: 'Permission denied: manager or admin only' });
-  }
 
-  try {
-    const schedule = await scheduleService.assignStaffToShift(req.params.id, req.body.staffIds);
-    if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
-    res.json(schedule);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
 
-exports.generateRecurring = async (req, res) => {
-  if (!isManagerOrAdmin(req.user)) {
-    return res.status(403).json({ message: 'Permission denied: manager or admin only' });
-  }
-
-  try {
-    const { type, baseData, occurrences } = req.body;
-    const schedules = await scheduleService.generateRecurring(type, baseData, occurrences);
-    res.json(schedules);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};

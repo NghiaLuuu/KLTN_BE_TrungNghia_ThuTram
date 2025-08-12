@@ -48,3 +48,8 @@ module.exports.deleteSlot = async (id) => {
   const result = await Slot.findByIdAndDelete(id);
   return result;
 };
+
+// Xóa nhiều slot theo điều kiện
+module.exports.deleteMany = async (filter) => {
+  return await Slot.deleteMany(filter);
+};

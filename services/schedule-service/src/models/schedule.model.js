@@ -3,12 +3,12 @@ const mongoose = require('mongoose');
 const scheduleSchema = new mongoose.Schema({
   dentistIds: [{
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User', // hoặc 'Dentist' nếu bạn có model riêng
+    ref: 'User', 
     required: true
   }],
   nurseIds: [{
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User', // hoặc 'Nurse'
+    ref: 'User', 
     required: true
   }],
   roomId: {
@@ -20,14 +20,13 @@ const scheduleSchema = new mongoose.Schema({
     type: Date,
     required: true
   },
-  shift: {
-    type: String,
-    enum: ['morning', 'afternoon', 'evening'],
+  shiftId: {
+    type: mongoose.Schema.Types.ObjectId,
     required: true
   },
   type: {
     type: String,
-    enum: ['fixed', 'extra'], // cố định / tăng cường
+    enum: ['fixed', 'extra'], 
     required: true
   },
   slotDuration: {

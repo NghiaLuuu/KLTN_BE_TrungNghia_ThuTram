@@ -1,6 +1,10 @@
 const mongoose = require('mongoose');
 
 const slotSchema = new mongoose.Schema({
+  date: {
+    type: Date,
+    required: true
+  },
   startTime: {
     type: Date,
     required: true
@@ -18,6 +22,11 @@ const slotSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Appointment',
     default: null
+  },
+  scheduleId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Schedule',
+    required: true
   }
 }, {
   timestamps: true

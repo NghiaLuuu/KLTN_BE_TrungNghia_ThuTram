@@ -18,3 +18,8 @@ exports.updateRefreshTokens = async (user, refreshTokens) => {
   user.refreshTokens = refreshTokens;
   return await user.save();
 };
+
+exports.listUsers = async () => {
+  return await User.find({ role: { $ne: 'patient' } }).select('-password');
+};
+
