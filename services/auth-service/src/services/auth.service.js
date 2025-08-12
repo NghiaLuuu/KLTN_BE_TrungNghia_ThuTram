@@ -23,7 +23,7 @@ exports.sendOtpRegister = async (email) => {
   await redis.set(`otp:register:${email}`, code, {
     EX: OTP_EXPIRE_SECONDS,
   });
-
+  console.log("Ma otp dang ky:${email}:", code);
   await sendEmail(email, 'Mã OTP đăng ký', `Mã OTP là: ${code}`);
   return { message: 'OTP đăng ký đã được gửi đến email' };
 };
@@ -37,6 +37,8 @@ exports.sendOtpResetPassword = async (email) => {
   await redis.set(`otp:reset:${email}`, code, {
     EX: OTP_EXPIRE_SECONDS,
   });
+
+  console.log("Ma otp quen mat khau:${email}:", code);
 
   await sendEmail(email, 'Mã OTP đặt lại mật khẩu', `Mã OTP là: ${code}`);
   return { message: 'OTP khôi phục mật khẩu đã được gửi đến email' };
