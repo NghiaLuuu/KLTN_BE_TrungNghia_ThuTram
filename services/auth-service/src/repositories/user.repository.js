@@ -23,3 +23,7 @@ exports.listUsers = async () => {
   return await User.find({ role: { $ne: 'patient' } }).select('-password');
 };
 
+
+exports.getUserById = async (id) => {
+  return User.findById(id).lean();
+};

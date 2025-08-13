@@ -3,17 +3,14 @@ const mongoose = require('mongoose');
 const scheduleSchema = new mongoose.Schema({
   dentistIds: [{
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User', 
     required: true
   }],
   nurseIds: [{
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User', 
     required: true
   }],
   roomId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Room',
     required: true
   },
   date: {

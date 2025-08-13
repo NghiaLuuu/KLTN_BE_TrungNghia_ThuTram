@@ -32,3 +32,18 @@ exports.findByStaffAndDate = async (staffId, date) => {
     ]
   }).populate('slots');
 };
+
+exports.getScheduleById = async (scheduleId) => {
+  if (!mongoose.Types.ObjectId.isValid(scheduleId)) return null;
+
+  try {
+    const schedule = await Schedule.findById(scheduleId)
+      .populate('dentistIds', 'name role')   // populate thông tin nha sĩ nếu cần
+      .populate('nurseIds', 'name role')     // populate thông tin y tá nếu cần
+      .populate('roomId', 'name type');      // populate thông tin phòng nếu cần
+    return schedule;
+  } catch (err) {
+    console.error('Error in getScheduleById:', err);
+    return null;
+  }
+};

@@ -53,3 +53,11 @@ module.exports.deleteSlot = async (id) => {
 module.exports.deleteMany = async (filter) => {
   return await Slot.deleteMany(filter);
 };
+
+module.exports.updateSlotStatus = async (id, status) => {
+  return Slot.findByIdAndUpdate(
+    id,
+    { status },
+    { new: true }
+  ).lean();
+};
