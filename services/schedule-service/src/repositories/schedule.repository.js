@@ -1,5 +1,5 @@
 const Schedule = require('../models/schedule.model');
-
+const mongoose = require('mongoose');
 
 exports.createSchedule = async (data) => {
   return await Schedule.create(data);
@@ -14,7 +14,10 @@ exports.updateSchedule = async (id, data) => {
 };
 
 exports.findByStaffAndDate = async (staffId, date) => {
-  // Lấy các schedule trong ngày này mà có staffId (dentist hoặc nurse)
+  if (!mongoose.Types.ObjectId.isValid(staffId)) {
+    throw new Error('Invalid staff ID');
+  }
+
   const startOfDay = new Date(date);
   startOfDay.setHours(0, 0, 0, 0);
 
@@ -24,8 +27,8 @@ exports.findByStaffAndDate = async (staffId, date) => {
   return await Schedule.find({
     date: { $gte: startOfDay, $lte: endOfDay },
     $or: [
-      { dentistIds: staffId },
-      { nurseIds: staffId }
+      { dentistIds: { $in: [staffId] } }, // tìm nếu là nha sĩ
+      { nurseIds: { $in: [staffId] } }    // tìm nếu là y tá
     ]
   }).populate('slots');
 };

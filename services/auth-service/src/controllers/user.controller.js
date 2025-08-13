@@ -11,7 +11,7 @@ exports.getProfile = async (req, res) => {
 
 exports.updateProfile = async (req, res) => {
   try {
-    const updated = await userService.updateProfile(req.user.userId, req.body);
+    const updated = await userService.updateUser(req.user.userId, req.body);
     return res.status(200).json(updated);
   } catch (err) {
     return res.status(500).json({ message: 'Server error' });
