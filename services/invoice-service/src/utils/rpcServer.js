@@ -31,12 +31,12 @@ async function startRpcServer() {
           }
           break;
 
-        case 'confirmed':
+        case 'confirm':
           try {
-            const updated = await slotRepo.updateSlotStatus(payload.slotId, 'confirmed');
+            const updated = await slotRepo.updateSlotStatus(payload.slotId, 'confirm');
             response = updated;
           } catch (err) {
-            console.error('Failed to update slot status to confirmed:', err);
+            console.error('Failed to update slot status to confirm:', err);
             response = { error: err.message };
           }
           break;

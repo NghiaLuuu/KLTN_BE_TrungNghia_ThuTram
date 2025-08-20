@@ -5,7 +5,7 @@ const redis = require('../utils/redis.client');
 
 // Tạo mới appointment (chưa chiếm slot)
 exports.createHold = async (data, userIdFromToken) => {
-  const { patientId, serviceId, scheduleId, slotId, preferredDentistId, channel } = data;
+  const { patientId, serviceId, scheduleId, slotId, preferredDentistId, channel} = data;
 
   // 0. Kiểm tra patientId bên Auth/User Service
   const patient = await rpcClient.request('auth_queue', {
@@ -46,8 +46,8 @@ exports.createHold = async (data, userIdFromToken) => {
     throw new Error('Slot does not belong to the schedule');
   }
   // Kiểm tra trạng thái slot
-  if (slot.status === 'booked') {
-    throw new Error('Slot is already booked');
+  if (slot.status === 'confirmed') {
+    throw new Error('Slot is already confirmed');
   }
 
   if (slot.status === 'reserved') {
@@ -68,8 +68,13 @@ exports.createHold = async (data, userIdFromToken) => {
     ...data,
     bookedBy,
     status: 'booked', 
+
     createdAt: new Date()
   }), 'EX', 10 * 60);
+   
+
+  
+
 
   // 🔹 Cập nhật trạng thái slot sang "reserved"
   try {
@@ -82,13 +87,27 @@ exports.createHold = async (data, userIdFromToken) => {
     console.error(`❌ Failed to set slot ${slotId} to reserved:`, err.message);
   }
 
+  // 🔹 Gọi sang Payment Service để tạo payment tạm
+  const payment = await rpcClient.request('payment_queue', {
+    action: 'createTemporaryPayment',
+    payload: {
+      appointmentHoldKey: holdKey,
+      slotId,
+      amount: selectedService.price,  // giá dịch vụ
+      method: channel || 'vnpay'
+    }
+  });
+
+  console.log('💰 Temporary payment created:', payment);
+
   console.log(`✅ Appointment hold created for slot ${slotId}`);
 
   // Tạo timeout để release slot tự động khi hold hết hạn
+  // Tạo timeout để xử lý sau 10 phút
   setTimeout(async () => {
-    const exists = await redis.get(holdKey);
-    if (!exists) {
-      // Nếu key đã hết hạn (10p trôi qua) thì release slot
+    const holdDataRaw = await redis.get(holdKey);
+    if (!holdDataRaw) {
+      // Nếu key đã hết hạn (Redis auto xóa) thì release slot
       try {
         const released = await rpcClient.request('schedule_queue', {
           action: 'releaseSlot',
@@ -98,53 +117,94 @@ exports.createHold = async (data, userIdFromToken) => {
       } catch (err) {
         console.error(`Failed to release slot ${slotId}:`, err.message);
       }
+      return;
+    }
+
+    // Nếu Redis còn tồn tại (nghĩa là vẫn chưa expire sau 10 phút)
+    const holdData = JSON.parse(holdDataRaw);
+
+    if (holdData.status === 'confirmed') {
+      // Nếu appointment đã confirm (do payment confirm RPC), thì push vào DB
+      try {
+        await exports.confirm(slotId);
+        console.log(`✅ Auto-confirmed appointment for slot ${slotId} after payment`);
+      } catch (err) {
+        console.error(`❌ Failed to auto-confirm appointment for slot ${slotId}:`, err.message);
+      }
+    } else {
+      // Nếu chưa confirmed thì release slot
+      try {
+        await rpcClient.request('schedule_queue', {
+          action: 'releaseSlot',
+          payload: { slotId }
+        });
+        await redis.del(holdKey);
+        console.log(`🔄 Slot ${slotId} released after hold expired without confirmed`);
+      } catch (err) {
+        console.error(`❌ Failed to release slot ${slotId}:`, err.message);
+      }
     }
   }, 10 * 60 * 1000); // 10 phút
 
   return {
       message: 'Slot hold created for 10 minutes',
       holdKey,
-      slotId: slot._id 
+      slotId: slot._id
 };
 };
 
 
 
-exports.confirm = async (slotId) => {
-  const holdKey = `appointment_hold:${slotId}`;
-  const holdDataRaw = await redis.get(holdKey);
-  if (!holdDataRaw) throw new Error('Hold expired or not found');
+exports.confirm = async (holdKey) => {
+  console.log('✅ Confirm appointment triggered for holdKey:', holdKey);
+
+  // 1️⃣ Lấy dữ liệu appointment tạm từ Redis
+  const keyStr = typeof holdKey === 'string' ? holdKey : holdKey.holdKey;
+  const holdDataRaw = await redis.get(keyStr);
+
+  console.log('holdDataRaw:', holdDataRaw);
+
+  if (!holdDataRaw) {
+    throw new Error('Hold expired or not found');
+  }
 
   const holdData = JSON.parse(holdDataRaw);
 
-  // 1. Lưu vào DB
+  // 2️⃣ Kiểm tra trạng thái payment đã confirm chưa
+  if (holdData.status !== 'confirmed') {
+    throw new Error('Payment not confirmed yet, cannot create appointment');
+  }
+
+  // 3️⃣ Tạo appointment thật trong DB
   const appointment = await appointmentRepo.create({
     ...holdData,
     status: 'confirmed'
   });
 
-  // 2. Gửi sự kiện sang Schedule Service để đổi trạng thái slot
+  // 4️⃣ Cập nhật trạng thái slot sang "confirmed" trong Schedule Service
   await rpcClient.request('schedule_queue', {
-    action: 'booked',
-    payload: { slotId }
+    action: 'confirmed',
+    payload: { slotId: holdData.slotId }
   });
 
-  // 3. Gửi sự kiện sang Schedule Service để cập nhật appointmentId của slot
-await rpcClient.request('schedule_queue', {
-  action: 'appointmentId',
-  payload: {
-    slotId,
-    appointmentId: appointment._id // gửi đúng id của appointment vừa tạo
-  }
-});
+  // 5️⃣ Gửi appointmentId sang Schedule Service để cập nhật slot
+  await rpcClient.request('schedule_queue', {
+    action: 'appointmentId',
+    payload: {
+      slotId: holdData.slotId,
+      appointmentId: appointment._id
+    }
+  });
 
+  // 6️⃣ Xóa appointment tạm trong Redis
+  await redis.del(keyStr);
 
-  // 4. Xoá khỏi Redis
-  await redis.del(holdKey);
-
-  console.log(`✅ Appointment confirmed for slot ${slotId}`);
+  console.log(`✅ Appointment confirmed and created for slot ${holdData.slotId}`);
   return appointment;
 };
+
+
+
 
 
 // Cập nhật appointment (có xử lý đổi slot)
@@ -183,7 +243,7 @@ exports.update = async (id, data) => {
       action: 'updateSlot',
       payload: {
         slotId: data.slotId,
-        update: { status: 'booked', appointmentId: appointment._id }
+        update: { status: 'confirmed', appointmentId: appointment._id }
       }
     });
   }
