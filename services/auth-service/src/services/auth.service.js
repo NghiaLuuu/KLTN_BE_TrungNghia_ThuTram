@@ -1,11 +1,10 @@
 // auth.service.js
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const nodemailer = require('nodemailer');
 const redis = require('../utils/redis.client');
 const { generateOtp } = require('../utils/otp.util');
 const { sendEmail } = require('../utils/mail.util');
-
+const { refreshUserCache } = require('./user.service');
 const {
   generateAccessToken,
   generateRefreshToken,
@@ -59,14 +58,19 @@ exports.verifyOtp = async (email, code, type) => {
 
 // Đăng ký
 exports.register = async (data) => {
-  const { email, phone, password, role, otp, ...rest } = data;
+  const { email, phone, password, confirmPassword, role, otp, ...rest } = data;
 
-  if (!email || !password || !otp) {
-    throw new Error('Thiếu thông tin bắt buộc: email, mật khẩu hoặc mã OTP');
-  }
+  if (!email) throw new Error('Thiếu email');
+  if (!password) throw new Error('Thiếu mật khẩu');
+  if (!confirmPassword) throw new Error('Thiếu mật khẩu xác nhận');
+  if (!otp) throw new Error('Thiếu mã OTP');
 
   if (password.length < 8 || password.length > 16) {
-  throw new Error('Mật khẩu phải từ 8 đến 16 ký tự');
+    throw new Error('Mật khẩu phải từ 8 đến 16 ký tự');
+  }
+
+  if (password !== confirmPassword) {
+    throw new Error('Mật khẩu xác nhận không khớp');
   }
 
   const [existingEmail, existingPhone] = await Promise.all([
@@ -81,17 +85,21 @@ exports.register = async (data) => {
 
   const hashedPassword = await bcrypt.hash(password, 10);
   const user = new (require('../models/user.model'))({
-  email,
-  password: hashedPassword,
-  role,
-  phone,          
-  ...rest,
-});
+    email,
+    password: hashedPassword,
+    role,
+    phone,
+    ...rest,
+  });
 
+  const savedUser = await user.save();
 
-  await userRepo.saveUser(user);
-  return user;
+  // 👇 Cập nhật lại cache ngay sau khi đăng ký thành công
+  await refreshUserCache();
+
+  return savedUser;
 };
+
 
 // Đăng nhập
 exports.login = async ({ email, password }) => {
@@ -149,12 +157,25 @@ exports.changePassword = async (userId, currentPassword, newPassword) => {
   const user = await userRepo.findById(userId);
   if (!user) throw new Error('User không tồn tại');
 
-  const isMatch = await bcrypt.compare(currentPassword, user.password);
-  if (!isMatch) throw new Error('Mật khẩu hiện tại không đúng');
-  if (newPassword.length < 8 || newPassword.length > 16) {
-  throw new Error('Mật khẩu mới phải từ 8 đến 16 ký tự');
-}
+  // Kiểm tra xem password trong DB đã hash chưa
+  const isHashed = user.password.startsWith('$2');
+  let isMatch = false;
 
+  if (isHashed) {
+    // So sánh với hash
+    isMatch = await bcrypt.compare(currentPassword, user.password);
+  } else {
+    // Trường hợp password chưa hash (plain text)
+    isMatch = currentPassword === user.password;
+  }
+
+  if (!isMatch) throw new Error('Mật khẩu hiện tại không đúng');
+
+  if (newPassword.length < 8 || newPassword.length > 16) {
+    throw new Error('Mật khẩu mới phải từ 8 đến 16 ký tự');
+  }
+
+  // Hash mật khẩu mới trước khi lưu
   const hashedPassword = await bcrypt.hash(newPassword, 10);
   user.password = hashedPassword;
 

@@ -7,11 +7,6 @@ const roomSchema = new mongoose.Schema({
     unique: true,
     trim: true,
   },
-  type: {
-    type: String,
-    required: true,
-    enum: ['general', 'surgery', 'consultation'], // ví dụ các loại phòng
-  },
   maxDoctors: {
     type: Number,
     required: true,

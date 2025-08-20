@@ -4,11 +4,11 @@ exports.generateAccessToken = (user) => {
   return jwt.sign(
     {
       userId: user._id,
-      role: user.role, // ✅ Thêm role vào đây
+      role: user.role, 
     },
     process.env.ACCESS_TOKEN_SECRET,
     {
-      expiresIn: '15m',
+      expiresIn: '60m',
     }
   );
 };

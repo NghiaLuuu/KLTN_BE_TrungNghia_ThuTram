@@ -6,12 +6,6 @@ const serviceSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
-  code: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true,
-  },
   type: {
     type: String,
     enum: ['exam', 'treatment'], // khám / điều trị

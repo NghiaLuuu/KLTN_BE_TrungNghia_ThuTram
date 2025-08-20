@@ -61,3 +61,13 @@ module.exports.updateSlotStatus = async (id, status) => {
     { new: true }
   ).lean();
 };
+
+
+exports.updateAppointmentId = async (slotId, appointmentId) => {
+  const updatedSlot = await Slot.findByIdAndUpdate(
+    slotId,
+    { appointmentId },      
+    { new: true }        
+  );
+  return updatedSlot;
+};

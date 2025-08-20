@@ -37,7 +37,7 @@ exports.createHold = async (data, userIdFromToken) => {
     throw new Error('Preferred dentist is not available in this schedule');
   }
 
-  // 3. Check slot có thuộc schedule và trạng thái khác booked
+  // 3. Check slot có thuộc schedule và trạng thái là available
   const slot = await rpcClient.request('schedule_queue', {
     action: 'getSlotById',
     payload: { slotId }
@@ -45,8 +45,17 @@ exports.createHold = async (data, userIdFromToken) => {
   if (!slot || slot.scheduleId !== scheduleId) {
     throw new Error('Slot does not belong to the schedule');
   }
+  // Kiểm tra trạng thái slot
   if (slot.status === 'booked') {
     throw new Error('Slot is already booked');
+  }
+
+  if (slot.status === 'reserved') {
+    throw new Error('Slot is currently reserved by another appointment');
+  }
+
+  if (slot.status !== 'available') {
+    throw new Error(`Slot is not available (status: ${slot.status})`);
   }
 
   // 4. Xác định bookedBy
@@ -62,7 +71,18 @@ exports.createHold = async (data, userIdFromToken) => {
     createdAt: new Date()
   }), 'EX', 10 * 60);
 
-  console.log(`✅ Appointment hold created for slot ${slotId} (slot status unchanged)`);
+  // 🔹 Cập nhật trạng thái slot sang "reserved"
+  try {
+    await rpcClient.request('schedule_queue', {
+      action: 'reserved',
+      payload: { slotId }
+    });
+    console.log(`✅ Slot ${slotId} status updated to reserved`);
+  } catch (err) {
+    console.error(`❌ Failed to set slot ${slotId} to reserved:`, err.message);
+  }
+
+  console.log(`✅ Appointment hold created for slot ${slotId}`);
 
   // Tạo timeout để release slot tự động khi hold hết hạn
   setTimeout(async () => {
@@ -81,7 +101,11 @@ exports.createHold = async (data, userIdFromToken) => {
     }
   }, 10 * 60 * 1000); // 10 phút
 
-  return { message: 'Slot hold created for 10 minutes', holdKey };
+  return {
+      message: 'Slot hold created for 10 minutes',
+      holdKey,
+      slotId: slot._id 
+};
 };
 
 
@@ -105,7 +129,17 @@ exports.confirm = async (slotId) => {
     payload: { slotId }
   });
 
-  // 3. Xoá khỏi Redis
+  // 3. Gửi sự kiện sang Schedule Service để cập nhật appointmentId của slot
+await rpcClient.request('schedule_queue', {
+  action: 'appointmentId',
+  payload: {
+    slotId,
+    appointmentId: appointment._id // gửi đúng id của appointment vừa tạo
+  }
+});
+
+
+  // 4. Xoá khỏi Redis
   await redis.del(holdKey);
 
   console.log(`✅ Appointment confirmed for slot ${slotId}`);

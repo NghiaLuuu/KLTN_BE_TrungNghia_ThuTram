@@ -22,28 +22,73 @@ async function startRpcServer() {
 
       switch (action) {
         case 'getSlotById':
-          const slot = await slotRepo.getSlotById(payload.slotId);
-          response = slot || null;
+          try {
+            const slot = await slotRepo.getSlotById(payload.slotId);
+            response = slot || null;
+          } catch (err) {
+            console.error('Failed to getSlotById:', err);
+            response = { error: err.message };
+          }
           break;
 
         case 'booked':
-          const updated = await slotRepo.updateSlotStatus(payload.slotId, 'booked');
-          response = updated;
+          try {
+            const updated = await slotRepo.updateSlotStatus(payload.slotId, 'booked');
+            response = updated;
+          } catch (err) {
+            console.error('Failed to update slot status to booked:', err);
+            response = { error: err.message };
+          }
           break;
 
         case 'releaseSlot':
-          const released = await slotRepo.updateSlotStatus(payload.slotId, 'available');
-          response = released;
+          try {
+            const released = await slotRepo.updateSlotStatus(payload.slotId, 'available');
+            response = released;
+          } catch (err) {
+            console.error('Failed to release slot:', err);
+            response = { error: err.message };
+          }
+          break;
+
+        case 'reserved':
+          try {
+            const released = await slotRepo.updateSlotStatus(payload.slotId, 'reserved');
+            response = released;
+          } catch (err) {
+            console.error('Failed to reserved slot:', err);
+            response = { error: err.message };
+          }
           break;
 
         case 'getScheduleById':
-          const schedule = await scheduleRepo.getScheduleById(payload.scheduleId);
-          response = schedule || null;
+          try {
+            const schedule = await scheduleRepo.getScheduleById(payload.scheduleId);
+            response = schedule || null;
+          } catch (err) {
+            console.error('Failed to getScheduleById:', err);
+            response = { error: err.message };
+          }
+          break;
+
+        case 'appointmentId':
+          try {
+            if (!payload.slotId || !payload.appointmentId) {
+              response = { error: 'slotId and appointmentId are required' };
+              break;
+            }
+            const updatedSlot = await slotRepo.updateAppointmentId(payload.slotId, payload.appointmentId);
+            response = updatedSlot;
+          } catch (err) {
+            console.error('Failed to update appointmentId:', err);
+            response = { error: err.message };
+          }
           break;
 
         default:
           response = { error: `Unknown action: ${action}` };
       }
+
     } catch (err) {
       console.error('RPC server error:', err);
       response = { error: err.message };

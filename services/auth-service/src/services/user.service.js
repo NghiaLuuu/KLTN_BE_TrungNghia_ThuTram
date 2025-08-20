@@ -64,4 +64,6 @@ async function refreshUserCache() {
   console.log(`♻ User cache refreshed: ${filtered.length} users`);
 }
 
+exports.refreshUserCache = refreshUserCache;
+
 initUserCache().catch(err => console.error('❌ Failed to load user cache:', err));
