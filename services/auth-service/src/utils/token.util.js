@@ -8,7 +8,7 @@ exports.generateAccessToken = (user) => {
     },
     process.env.ACCESS_TOKEN_SECRET,
     {
-      expiresIn: '60m',
+      expiresIn: '1d',
     }
   );
 };

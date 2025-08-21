@@ -98,7 +98,6 @@ exports.createHold = async (data, userIdFromToken) => {
     }
   });
 
-  console.log('💰 Temporary payment created:', payment);
 
   console.log(`✅ Appointment hold created for slot ${slotId}`);
 

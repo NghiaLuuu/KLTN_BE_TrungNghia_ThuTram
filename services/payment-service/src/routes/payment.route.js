@@ -14,7 +14,13 @@ router.post('/:id/confirm-rpc', paymentController.confirmPaymentRPC);
 // Xem danh sách thanh toán
 router.get('/', paymentController.listPayments);
 
+
+
+// 6️⃣ Webhook từ MoMo (IPN / notify)
+router.post('/momo-webhook', paymentController.momoWebhook);
+
+router.get('/momo-return', paymentController.momoReturn);
+
 // Xem chi tiết 1 payment
 router.get('/:id', paymentController.getPaymentById);
-
 module.exports = router;
