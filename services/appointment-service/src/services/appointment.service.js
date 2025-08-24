@@ -195,7 +195,33 @@ exports.confirm = async (holdKey) => {
     }
   });
 
-  // 6️⃣ Xóa appointment tạm trong Redis
+  // 6️⃣ Tạo Invoice trong Invoice Service qua RabbitMQ
+  try {
+  const invoiceResponse = await rpcClient.request('invoice_queue', {
+    action: 'createInvoiceFromAppointment',
+    payload: {
+      patientId: appointment.patientId,
+      appointmentId: appointment._id,
+      services: appointment.serviceId.map(id => ({
+        serviceId: id,
+        quantity: 1,          // mặc định 1
+        note: `Service from appointment ${appointment._id}`
+      })),
+      method: holdData.paymentMethod || 'cash',
+      notes: `Invoice for appointment ${appointment._id}`
+    }
+  });
+
+
+
+  console.log('✅ Invoice created from appointment:', invoiceResponse);
+} catch (err) {
+  console.error('❌ Failed to create invoice from appointment:', err);
+  // có thể rollback hoặc chỉ log
+}
+
+
+  // 7️⃣ Xóa appointment tạm trong Redis
   await redis.del(keyStr);
 
   console.log(`✅ Appointment confirmed and created for slot ${holdData.slotId}`);

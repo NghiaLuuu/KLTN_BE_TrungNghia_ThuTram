@@ -5,10 +5,10 @@ const appointmentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     required: true
   },
-  serviceId: { // dịch vụ (lấy type, duration, price từ Service)
+  serviceId: [{ // dịch vụ (lấy type, duration, price từ Service)
     type: mongoose.Schema.Types.ObjectId,
     required: true
-  },
+  }],
   preferredDentistId: { // nha sĩ mong muốn (optional)
     type: mongoose.Schema.Types.ObjectId,
     default: null
