@@ -1,0 +1,26 @@
+const dotenv = require('dotenv');
+// ✅ Load .env ngay từ đầu
+dotenv.config();
+
+const express = require('express');
+const connectDB = require('./config/db');
+const medicineRoutes = require('./routes/medicine.routes');
+const prescriptionRoutes = require('./routes/prescription.routes');
+
+// ✅ Kết nối DB
+connectDB();
+
+const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ✅ Routes
+app.use('/api/medicine', medicineRoutes);
+app.use('/api/prescriptionRoutes', prescriptionRoutes);
+
+
+// ✅ Server listen
+const PORT = process.env.PORT || 3009;
+app.listen(PORT, () => {
+  console.log(`🚀 Prescription service running on port ${PORT}`);
+});
