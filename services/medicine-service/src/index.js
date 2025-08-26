@@ -5,7 +5,7 @@ dotenv.config();
 const express = require('express');
 const connectDB = require('./config/db');
 const medicineRoutes = require('./routes/medicine.routes');
-const prescriptionRoutes = require('./routes/prescription.routes');
+
 
 // ✅ Kết nối DB
 connectDB();
@@ -16,7 +16,6 @@ app.use(express.urlencoded({ extended: true }));
 
 // ✅ Routes
 app.use('/api/medicine', medicineRoutes);
-app.use('/api/prescriptionRoutes', prescriptionRoutes);
 
 
 // ✅ Server listen

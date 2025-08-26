@@ -298,9 +298,41 @@ exports.cancelHold = async (slotId) => {
 };
 
 // Check-in
-exports.checkIn = (id) => {
-  return appointmentRepo.updateById(id, { status: 'checked-in' });
+exports.checkIn = async (id) => {
+  // 1️⃣ Lấy appointment từ DB
+  const appointment = await appointmentRepo.findById(id);
+  if (!appointment) throw new Error('Appointment not found');
+
+  if (appointment.status !== 'confirmed') {
+    throw new Error('Only confirmed appointments can be checked-in');
+  }
+
+  // 2️⃣ Cập nhật trạng thái trong DB
+  const updated = await appointmentRepo.updateById(id, { status: 'checked-in' });
+
+  // 3️⃣ Gọi Record Service qua RPC (thay vì publish trực tiếp bằng amqp)
+  try {
+     const recordResponse = await rpcClient.request('record_queue', {
+    action: 'createRecord',
+    payload: {
+      appointmentId: updated._id,
+      patientId: updated.patientId._id || updated.patientId,
+      dentistId: updated.preferredDentistId || null,
+      serviceId: (updated.serviceId || []).map(s => s.toString()), // ✅ đảm bảo array ObjectId string
+      type: updated.type,
+      notes: updated.notes || ""
+      }
+    });
+
+
+    console.log("📤 Check-in RPC request sent to record_queue:", recordResponse);
+  } catch (err) {
+    console.error("❌ Failed to create record on check-in:", err);
+  }
+
+  return updated;
 };
+
 
 // Hoàn thành
 exports.complete = (id) => {
@@ -311,3 +343,5 @@ exports.complete = (id) => {
 exports.search = (filter) => {
   return appointmentRepo.search(filter);
 };
+
+

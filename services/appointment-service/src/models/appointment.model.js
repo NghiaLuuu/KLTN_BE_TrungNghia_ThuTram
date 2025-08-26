@@ -21,6 +21,10 @@ const appointmentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     required: true
   },
+  type: {
+    type: String,
+    enum: ["exam", "treatment"]
+  },
   notes: { // ghi chú cho nha sĩ/lễ tân
     type: String,
     trim: true
@@ -30,10 +34,8 @@ const appointmentSchema = new mongoose.Schema({
     enum: [
       'booked',     // đã đặt
       'confirmed',  // đã xác nhận
-      'checked-in', // bệnh nhân đã đến
-      'in-progress',// đang thực hiện dịch vụ
-      'completed',  // đã hoàn thành
-      'cancelled'   // đã hủy
+      'checked-in' // bệnh nhân đã đến
+
     ],
     default: 'booked'
   },

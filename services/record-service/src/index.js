@@ -4,8 +4,8 @@ dotenv.config();
 
 const express = require('express');
 const connectDB = require('./config/db');
-const invoiceRoutes = require('./routes/invoice.routes');
-const invoiceDetailRoutes = require('./routes/invoiceDetail.routes');
+const recordRoutes = require('./routes/record.routes');
+
 const startRpcServer = require('./utils/rpcServer');
 
 // ✅ Kết nối DB
@@ -16,15 +16,15 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ✅ Routes
-app.use('/api/invoice', invoiceRoutes);
-app.use('/api/invoiceDetail', invoiceDetailRoutes);
+app.use('/api/record', recordRoutes);
+
 
 
 // ✅ RPC Server
 startRpcServer();
 
 // ✅ Server listen
-const PORT = process.env.PORT || 3008;
+const PORT = process.env.PORT || 3010;
 app.listen(PORT, () => {
-  console.log(`🚀 Invoice service running on port ${PORT}`);
+  console.log(`🚀 Record service running on port ${PORT}`);
 });
