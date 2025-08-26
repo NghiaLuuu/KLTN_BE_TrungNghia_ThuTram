@@ -22,5 +22,5 @@ app.use('/api/prescriptionRoutes', prescriptionRoutes);
 // ✅ Server listen
 const PORT = process.env.PORT || 3009;
 app.listen(PORT, () => {
-  console.log(`🚀 Prescription service running on port ${PORT}`);
+  console.log(`🚀 Medicine service running on port ${PORT}`);
 });
