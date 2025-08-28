@@ -24,6 +24,10 @@ const serviceSchema = new mongoose.Schema({
   description: {
     type: String,
   },
+  requireExamFirst: {
+    type: Boolean,
+    default: false, // true = cần có hồ sơ khám trước mới làm được
+  },
   isActive: {
     type: Boolean,
     default: true,

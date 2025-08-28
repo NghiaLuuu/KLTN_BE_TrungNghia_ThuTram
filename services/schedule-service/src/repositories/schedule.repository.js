@@ -47,3 +47,15 @@ exports.getScheduleById = async (scheduleId) => {
     return null;
   }
 };
+
+exports.appendSlots = async (scheduleId, slotIds) => {
+  return await Schedule.findByIdAndUpdate(
+    scheduleId,
+    { $push: { slots: { $each: slotIds } } },
+    { new: true }
+  );
+};
+
+exports.findOne = async (filter) => {
+  return await Schedule.findOne(filter).populate('slots');
+};

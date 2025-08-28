@@ -1,27 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const slotController = require('../controllers/slot.controller');
-const authMiddleware = require('../middlewares/auth.middleware');
 
-// Tạo mới slot
-router.post('/', authMiddleware, slotController.createSlot);
+// POST /api/slots/assign-staff
+router.post('/assign-staff', slotController.assignStaff);
 
-// Cài đặt thời lượng
-router.put('/:id/duration', authMiddleware, slotController.setDuration);
+// Lấy danh sách slot (có thể filter bằng query params: scheduleId, subRoomId, date, status...)
+router.get('/', slotController.getSlots);
 
-// Cập nhật trạng thái
-router.put('/:id/status', authMiddleware, slotController.updateStatus);
+// Lấy chi tiết slot theo id
+router.get('/:id', slotController.getSlotById);
 
-// Cập nhật thông tin slot
-router.put('/:id', authMiddleware, slotController.updateInfo);
 
-// Lấy danh sách slot
-router.get('/', authMiddleware, slotController.getSlots);
 
-// Lấy chi tiết slot
-router.get('/:id', authMiddleware, slotController.getSlotById);
-
-// Xóa slot
-router.delete('/:id', authMiddleware, slotController.deleteSlot);
 
 module.exports = router;

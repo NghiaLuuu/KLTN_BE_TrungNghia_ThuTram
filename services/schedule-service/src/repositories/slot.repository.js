@@ -1,73 +1,33 @@
 const Slot = require('../models/slot.model');
 
-// Create new slot
-module.exports.createSlot = async (data) => {
-  const slot = new Slot(data);
-  return await slot.save();
+
+exports.findSlots = async (filter) => {
+  return await Slot.find(filter); 
 };
 
-// Set duration
-module.exports.setDuration = async (id, duration) => {
-  return await Slot.findByIdAndUpdate(
-    id,
-    { duration },
-    { new: true }
-  );
+exports.updateManySlots = async (filter, updateData) => {
+  return await Slot.updateMany(filter, { $set: updateData });
 };
 
-// Update status
-module.exports.updateStatus = async (id, status) => {
-  return await Slot.findByIdAndUpdate(
-    id,
-    { status },
-    { new: true }
-  );
+exports.updateSlot = async (id, updateData) => {
+  return await Slot.findByIdAndUpdate(id, updateData, { new: true });
 };
 
-// Update info
-module.exports.updateInfo = async (id, data) => {
-  return await Slot.findByIdAndUpdate(
-    id,
-    data,
-    { new: true }
-  );
-};
 
-// Get slots (with optional filter)
-module.exports.getSlots = async (filter) => {
-  return await Slot.find(filter);
-};
-
-// Get slot by ID
-module.exports.getSlotById = async (id) => {
+// Tìm 1 slot theo id
+exports.findById = async (id) => {
   return await Slot.findById(id);
 };
 
-// Delete slot by ID
-module.exports.deleteSlot = async (id) => {
-  const result = await Slot.findByIdAndDelete(id);
-  return result;
+
+// ✅ Tạo nhiều slot
+exports.insertMany = async (slots) => {
+  if (!Array.isArray(slots) || slots.length === 0) {
+    throw new Error("slots must be a non-empty array");
+  }
+  return await Slot.insertMany(slots);
 };
 
-// Xóa nhiều slot theo điều kiện
-module.exports.deleteMany = async (filter) => {
+exports.deleteMany = async (filter) => {
   return await Slot.deleteMany(filter);
-};
-
-module.exports.updateSlotStatus = async (id, status) => {
-  return Slot.findByIdAndUpdate(
-    id,
-    { status },
-    { new: true }
-  ).lean();
-};
-
-
-exports.updateAppointmentId = async (slotId, appointmentId) => {
-  const updatedSlot = await Slot.findByIdAndUpdate(
-    slotId,
-    { appointmentId },      
-    { new: true }        
-  );
-  return updatedSlot;
 };

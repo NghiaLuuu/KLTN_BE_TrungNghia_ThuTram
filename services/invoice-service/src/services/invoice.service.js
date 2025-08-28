@@ -2,8 +2,11 @@ const invoiceRepo = require("../repositories/invoice.repository");
 
 class InvoiceService {
   async createInvoice(data) {
-    return await invoiceRepo.create(data);
-  }
+  const result = await invoiceRepo.create(data);
+  console.log("✅ Invoice created:", result);
+  return result;
+}
+
 
   async updateInvoice(id, data) {
     return await invoiceRepo.update(id, data);

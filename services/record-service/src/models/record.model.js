@@ -18,18 +18,26 @@ const prescriptionSchema = new mongoose.Schema({
 const recordSchema = new mongoose.Schema({
   patientId: { type: mongoose.Schema.Types.ObjectId, required: true },
   date: { type: Date, default: Date.now },
-  serviceId: [{ type: mongoose.Schema.Types.ObjectId, required: true }],
+
+  // dịch vụ chính của hồ sơ (khám hoặc điều trị)
+  serviceId: { type: mongoose.Schema.Types.ObjectId, required: true },
+
   dentistId: { type: mongoose.Schema.Types.ObjectId, required: true },
 
   diagnosis: { type: String, default: "" },
   indications: [{ type: String, default: "" }],
-  notes: { type: String, ReadableStreamDefaultReader: "" },
+  notes: { type: String, default: "" },
 
   type: { type: String, enum: ["exam", "treatment"], required: true }, // loại hồ sơ
+
+  // 🔹 chỉ dùng khi type = "exam"
+  treatmentServiceIds: [{ type: mongoose.Schema.Types.ObjectId}],
+
   prescription: prescriptionSchema, // gộp chung vào hồ sơ
 
   status: { type: String, enum: ["pending", "done"], default: "pending" },
-  createdAt: { type: Date, default: Date.now }
+}, {
+  timestamps: true
 });
 
 module.exports = mongoose.model("Record", recordSchema);

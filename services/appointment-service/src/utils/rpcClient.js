@@ -1,7 +1,7 @@
 const { randomUUID } = require('crypto');
 const { getChannel } = require('./rabbitmq.client');
 
-async function request(queueName, payload, { timeoutMs = 10000 } = {}) {
+async function request(queueName, payload, { timeoutMs = 20000 } = {}) {
   const ch = getChannel(); // nếu chưa connect, sẽ throw lỗi
 
   const { queue: replyTo } = await ch.assertQueue('', { exclusive: true });

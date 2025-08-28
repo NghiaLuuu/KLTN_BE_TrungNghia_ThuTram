@@ -1,6 +1,15 @@
 const mongoose = require('mongoose');
 
 const slotSchema = new mongoose.Schema({
+  scheduleId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Schedule',
+    required: true
+  },
+  subRoomId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
+  },
   date: {
     type: Date,
     required: true
@@ -13,6 +22,14 @@ const slotSchema = new mongoose.Schema({
     type: Date,
     required: true
   },
+  dentistId: [{
+    type: mongoose.Schema.Types.ObjectId,
+    default: null
+  }],
+  nurseId: [{
+    type: mongoose.Schema.Types.ObjectId,
+    default: null
+  }],
   status: {
     type: String,
     enum: ['available', 'confirmed', 'unavailable', 'reserved'],
@@ -20,13 +37,7 @@ const slotSchema = new mongoose.Schema({
   },
   appointmentId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Appointment',
     default: null
-  },
-  scheduleId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Schedule',
-    required: true
   }
 }, {
   timestamps: true
