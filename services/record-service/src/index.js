@@ -1,5 +1,6 @@
 const dotenv = require('dotenv');
 // ✅ Load .env ngay từ đầu
+const cors = require('cors');
 dotenv.config();
 
 const express = require('express');
@@ -13,6 +14,10 @@ connectDB();
 
 const app = express();
 app.use(express.json());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN,
+  credentials: true
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // ✅ Routes

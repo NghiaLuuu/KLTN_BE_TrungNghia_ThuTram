@@ -94,7 +94,6 @@ exports.createSchedule = async (data) => {
 };
 
 // ✅ Update schedule
-// ✅ Update schedule
 exports.updateSchedule = async (id, data) => {
   const schedule = await scheduleRepo.findById(id);
   if (!schedule) throw new Error('Schedule not found');
@@ -158,36 +157,40 @@ exports.updateSchedule = async (id, data) => {
 };
 
 
-// ✅ Tạo slot cho 1 subRoom
+// ✅ Tạo slot cho 1 subRoom, nhưng chỉ nếu chưa có slot trong khoảng ngày đó
 exports.createSlotsForSubRoom = async (scheduleId, subRoomId, overrides = {}) => {
   const schedule = await scheduleRepo.findById(scheduleId);
   if (!schedule) throw new Error('Schedule not found');
 
+  const startDate = overrides.startDate || schedule.startDate;
+  const endDate = overrides.endDate || schedule.endDate;
+
+  // 🔹 Kiểm tra slot đã tồn tại cho subRoom trong khoảng ngày
+  const existingSlots = await slotRepo.findSlots({
+    scheduleId,
+    subRoomId,
+    date: { $gte: new Date(startDate), $lte: new Date(endDate) }
+  });
+
+  if (existingSlots.length > 0) {
+    throw new Error(`SubRoom ${subRoomId} already has slots for the given date range`);
+  }
+
+  // 🔹 Nếu chưa có slot, sinh và lưu mới
   const slotIds = await generateSlotsAndSave(
     scheduleId,
     subRoomId,
     overrides.shiftIds || schedule.shiftIds,
     overrides.slotDuration || schedule.slotDuration,
-    overrides.startDate || schedule.startDate,
-    overrides.endDate || schedule.endDate
+    startDate,
+    endDate
   );
 
   schedule.slots = schedule.slots.concat(slotIds);
   await schedule.save();
 
   return { schedule, createdSlotIds: slotIds };
-};  
-
-
-// ✅ Toggle status
-exports.toggleStatus = async (id) => {
-  const schedule = await scheduleRepo.findById(id);
-  if (!schedule) throw new Error('Schedule not found');
-
-  schedule.status = schedule.status === 'active' ? 'inactive' : 'active';
-  await schedule.save();
-
-  return schedule;
 };
+
 
 

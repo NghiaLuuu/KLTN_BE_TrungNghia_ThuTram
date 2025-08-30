@@ -4,13 +4,17 @@ const connectDB = require('./config/db');
 const authRoutes = require('./routes/auth.route');
 const userRoutes = require('./routes/user.route');
 const startRPCServer = require('./utils/user.rpc'); 
+const cors = require('cors');
 
 dotenv.config();
 connectDB();
 
 const app = express();
 app.use(express.json());
-
+app.use(cors({
+  origin: process.env.CORS_ORIGIN,
+  credentials: true
+}));
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
