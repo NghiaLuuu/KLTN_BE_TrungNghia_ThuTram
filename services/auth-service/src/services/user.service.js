@@ -64,6 +64,12 @@ async function refreshUserCache() {
   console.log(`♻ User cache refreshed: ${filtered.length} users`);
 }
 
+exports.getUsersByRole = async (role) => {
+  if (!role) throw new Error('Role is required');
+  return await userRepo.getUsersByRole(role);
+};
+
+
 exports.refreshUserCache = refreshUserCache;
 
 initUserCache().catch(err => console.error('❌ Failed to load user cache:', err));

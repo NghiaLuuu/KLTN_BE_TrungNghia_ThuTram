@@ -27,3 +27,9 @@ exports.listUsers = async () => {
 exports.getUserById = async (id) => {
   return User.findById(id).lean();
 };
+
+
+// Lấy danh sách user theo role
+exports.getUsersByRole = async (role) => {
+  return await User.find({ role }).select('-password');
+};
