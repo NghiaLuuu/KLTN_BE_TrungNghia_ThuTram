@@ -11,8 +11,16 @@ exports.findById = async (id) => {
 exports.saveUser = (user) => user.save();
 
 exports.updateById = async (id, data) => {
-  return await User.findByIdAndUpdate(id, { $set: data }, { new: true, runValidators: true }).select('-password');
+  // Loại bỏ các field không được phép cập nhật
+  const { password, email, role, ...allowedData } = data;
+
+  return await User.findByIdAndUpdate(
+    id,
+    { $set: allowedData },
+    { new: true, runValidators: true }
+  ).select('-password');
 };
+
 
 exports.updateRefreshTokens = async (user, refreshTokens) => {
   user.refreshTokens = refreshTokens;
