@@ -19,12 +19,27 @@ exports.toggleStatus = async (roomId) => {
   return await room.save();
 };
 
-exports.listRooms = async () => {
-  return await Room.find().sort({ createdAt: -1 });
+exports.listRooms = async (skip = 0, limit = 10) => {
+  return await Room.find()
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
 };
 
-exports.searchRoom = async (keyword) => {
+exports.countRooms = async () => {
+  return await Room.countDocuments();
+};
+
+exports.searchRoom = async (keyword, skip = 0, limit = 10) => {
   return await Room.find({
+    name: { $regex: keyword, $options: 'i' }
+  })
+    .skip(skip)
+    .limit(limit);
+};
+
+exports.countSearchRoom = async (keyword) => {
+  return await Room.countDocuments({
     name: { $regex: keyword, $options: 'i' }
   });
 };

@@ -29,7 +29,14 @@ exports.getUserById = async (id) => {
 };
 
 
-// Lấy danh sách user theo role
-exports.getUsersByRole = async (role) => {
-  return await User.find({ role }).select('-password');
+
+// ✅ Lấy user theo role + phân trang
+exports.getUsersByRole = async (role, skip = 0, limit = 10) => {
+  return await User.find({ role })
+    .select('-password')
+    .skip(skip)
+    .limit(limit);
+};
+exports.countByRole = async (role) => {
+  return await User.countDocuments({ role });
 };

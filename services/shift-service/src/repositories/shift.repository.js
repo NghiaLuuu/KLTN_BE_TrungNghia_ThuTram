@@ -20,15 +20,30 @@ exports.toggleStatus = async (id) => {
   return await shift.save();
 };
 
-exports.listShifts = async () => {
-  return await Shift.find();
+// ✅ danh sách có phân trang
+exports.listShifts = async (skip = 0, limit = 10) => {
+  return await Shift.find()
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
 };
 
-exports.searchShift = async (keyword) => {
+exports.countShifts = async () => {
+  return await Shift.countDocuments();
+};
+
+// search shifts by name
+exports.searchShift = async (keyword, skip = 0, limit = 10) => {
   return await Shift.find({
-    $or: [
-      { name: new RegExp(keyword, 'i') },
-      { code: new RegExp(keyword, 'i') },
-    ],
+    name: { $regex: keyword, $options: 'i' }
+  })
+    .skip(skip)
+    .limit(limit)
+    .sort({ createdAt: -1 });
+};
+
+exports.countSearchShift = async (keyword) => {
+  return await Shift.countDocuments({
+    name: { $regex: keyword, $options: 'i' }
   });
 };

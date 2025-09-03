@@ -7,7 +7,7 @@ async function initUserCache() {
   const users = await userRepo.listUsers(); // cần có method listUsers trong repository
   const filtered = users.filter(user => user.role !== 'patient');
   await redis.set(USER_CACHE_KEY, JSON.stringify(filtered));
-  console.log(`✅ User cache loaded: ${filtered.length} users`);
+  console.log(`✅ Cache người dùng đã được tải: ${filtered.length} người dùng`);
 }
 
 exports.createUser = async (data) => {
@@ -18,6 +18,7 @@ exports.createUser = async (data) => {
 
 exports.updateUser = async (userId, data) => {
   const updated = await userRepo.updateById(userId, data);
+  if (!updated) throw new Error('Không tìm thấy người dùng để cập nhật');
   await refreshUserCache();
   return updated;
 };
@@ -33,7 +34,7 @@ exports.listUsers = async () => {
 };
 
 exports.getProfile = async (userId) => {
-  if (!userId) throw new Error('UserId is required');
+  if (!userId) throw new Error('Thiếu mã người dùng');
 
   // Lấy tất cả user từ cache
   let users = await redis.get(USER_CACHE_KEY);
@@ -45,7 +46,7 @@ exports.getProfile = async (userId) => {
 
   // Nếu không tìm thấy trong cache hoặc cache trống, lấy trực tiếp từ DB
   const userFromDb = await userRepo.findById(userId);
-  if (!userFromDb) throw new Error('User not found');
+  if (!userFromDb) throw new Error('Không tìm thấy người dùng');
 
   return userFromDb;
 };
@@ -53,7 +54,7 @@ exports.getProfile = async (userId) => {
 exports.searchUser = async (keyword) => {
   const users = await this.listUsers();
   return users.filter(user =>
-    user.name.toLowerCase().includes(keyword.toLowerCase())
+    user.name?.toLowerCase().includes(keyword.toLowerCase())
   );
 };
 
@@ -61,15 +62,29 @@ async function refreshUserCache() {
   const users = await userRepo.listUsers();
   const filtered = users.filter(user => user.role !== 'patient');
   await redis.set(USER_CACHE_KEY, JSON.stringify(filtered));
-  console.log(`♻ User cache refreshed: ${filtered.length} users`);
+  console.log(`♻ Cache người dùng đã được làm mới: ${filtered.length} người dùng`);
 }
 
-exports.getUsersByRole = async (role) => {
-  if (!role) throw new Error('Role is required');
-  return await userRepo.getUsersByRole(role);
-};
+exports.getUsersByRole = async (role, page = 1, limit = 10) => {
+  if (!role) throw new Error('Thiếu vai trò để lọc người dùng');
 
+  const skip = (page - 1) * limit;
+  const [users, total] = await Promise.all([
+    userRepo.getUsersByRole(role, skip, limit),
+    userRepo.countByRole(role),
+  ]);
+
+  if (total === 0) throw new Error(`Không tìm thấy người dùng với vai trò "${role}"`);
+
+  return {
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / limit),
+    users,
+  };
+};
 
 exports.refreshUserCache = refreshUserCache;
 
-initUserCache().catch(err => console.error('❌ Failed to load user cache:', err));
+initUserCache().catch(err => console.error('❌ Lỗi khi tải cache người dùng:', err));

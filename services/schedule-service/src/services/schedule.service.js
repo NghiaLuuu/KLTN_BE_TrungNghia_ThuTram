@@ -21,7 +21,7 @@ async function checkScheduleConflict(roomId, shiftIds, startDate, endDate, exclu
 // 🔧 Core: chỉ sinh danh sách slots (chưa save DB)
 async function generateSlotsCore(scheduleId, subRoomId, shiftIds, slotDuration, startDate, endDate) {
   const shiftCache = await redisClient.get('shifts_cache');
-  if (!shiftCache) throw new Error('Shift cache not found');
+  if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
   const shifts = JSON.parse(shiftCache);
   const selectedShifts = shifts.filter(s => shiftIds.includes(s._id.toString()));
   if (!selectedShifts.length) return [];
@@ -66,14 +66,32 @@ async function generateSlotsAndSave(scheduleId, subRoomId, shiftIds, slotDuratio
 // ✅ Tạo schedule
 exports.createSchedule = async (data) => {
   const roomCache = await redisClient.get('rooms_cache');
-  if (!roomCache) throw new Error('Room cache not found');
+  if (!roomCache) throw new Error('Không tìm thấy bộ nhớ đệm phòng');
   const rooms = JSON.parse(roomCache);
   const room = rooms.find(r => r._id.toString() === data.roomId.toString());
-  if (!room) throw new Error('Room not found');
+  if (!room) throw new Error('Không tìm thấy phòng');
 
+  // 🔹 Kiểm tra conflict
   const conflict = await checkScheduleConflict(data.roomId, data.shiftIds, data.startDate, data.endDate);
-  if (conflict) throw new Error(`Conflict: trùng với schedule ${conflict._id}`);
+  if (conflict) throw new Error(`Lịch bị trùng với schedule ${conflict._id}`);
 
+  // 🔹 Lấy shift từ cache để kiểm tra slotDuration
+  const shiftCache = await redisClient.get('shifts_cache');
+  if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
+  const shifts = JSON.parse(shiftCache);
+  const selectedShifts = shifts.filter(s => data.shiftIds.includes(s._id.toString()));
+  if (!selectedShifts.length) throw new Error('Không tìm thấy ca/kíp hợp lệ');
+
+  for (const shift of selectedShifts) {
+    const [startHour, startMinute] = shift.startTime.split(':').map(Number);
+    const [endHour, endMinute] = shift.endTime.split(':').map(Number);
+    const shiftMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+    if (data.slotDuration > shiftMinutes) {
+      throw new Error(`slotDuration (${data.slotDuration} phút) vượt quá độ dài của ca ${shift._id} (${shiftMinutes} phút)`);
+    }
+  }
+
+  // 🔹 Tạo schedule
   const schedule = await scheduleRepo.createSchedule({
     roomId: room._id,
     startDate: data.startDate,
@@ -82,6 +100,7 @@ exports.createSchedule = async (data) => {
     slotDuration: data.slotDuration
   });
 
+  // 🔹 Sinh slot cho tất cả subRoom
   let allSlotIds = [];
   for (const subRoom of room.subRooms) {
     const slotIds = await generateSlotsAndSave(schedule._id, subRoom._id, data.shiftIds, data.slotDuration, data.startDate, data.endDate);
@@ -96,11 +115,11 @@ exports.createSchedule = async (data) => {
 // ✅ Update schedule
 exports.updateSchedule = async (id, data) => {
   const schedule = await scheduleRepo.findById(id);
-  if (!schedule) throw new Error('Schedule not found');
+  if (!schedule) throw new Error('Không tìm thấy lịch');
 
   // Không cho phép update shiftIds
   if (data.shiftIds && data.shiftIds.toString() !== schedule.shiftIds.toString()) {
-    throw new Error('Cannot update shiftIds. To change shifts, create a new schedule.');
+    throw new Error('Không được phép cập nhật shiftIds. Để thay đổi ca/kíp, hãy tạo lịch mới.');
   }
 
   // Không cho phép update startDate/endDate
@@ -111,20 +130,48 @@ exports.updateSchedule = async (id, data) => {
     const newEnd = data.endDate ? new Date(data.endDate) : oldEnd;
 
     if (newStart.getTime() !== oldStart.getTime() || newEnd.getTime() !== oldEnd.getTime()) {
-      throw new Error('Cannot change schedule dates. To create new dates, use createSchedule.');
+      throw new Error('Không thể thay đổi ngày bắt đầu/kết thúc. Nếu muốn tạo lịch mới, hãy dùng createSchedule.');
     }
   }
 
   const slotDurationChanged = data.slotDuration && data.slotDuration !== schedule.slotDuration;
 
   if (slotDurationChanged) {
+    // 🔹 Trước khi regenerate slot, kiểm tra xem có slot nào đã có dentistId/nurseId/appointmentId không
+    const existingSlots = await slotRepo.findSlots({ scheduleId: schedule._id });
+
+    const hasAssignedSlot = existingSlots.some(slot =>
+      (slot.dentistId && slot.dentistId.length > 0) ||
+      (slot.nurseId && slot.nurseId.length > 0) ||
+      (slot.appointmentId !== null)
+    );
+
+    if (hasAssignedSlot) {
+      throw new Error('Không thể thay đổi slotDuration vì đã có slot chứa dentistId, nurseId hoặc appointmentId');
+    }
+
+    // 🔹 Lấy shift từ cache để kiểm tra slotDuration
+    const shiftCache = await redisClient.get('shifts_cache');
+    if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
+    const shifts = JSON.parse(shiftCache);
+    const selectedShifts = shifts.filter(s => schedule.shiftIds.includes(s._id.toString()));
+
+    for (const shift of selectedShifts) {
+      const [startHour, startMinute] = shift.startTime.split(':').map(Number);
+      const [endHour, endMinute] = shift.endTime.split(':').map(Number);
+      const shiftMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+      if (data.slotDuration > shiftMinutes) {
+        throw new Error(`slotDuration (${data.slotDuration} phút) vượt quá độ dài của ca ${shift._id} (${shiftMinutes} phút)`);
+      }
+    }
+
     // 1️⃣ Xóa tất cả slot cũ
     await slotRepo.deleteMany({ scheduleId: schedule._id });
     schedule.slots = [];
 
     // 2️⃣ Lấy room từ cache
     const roomCache = await redisClient.get('rooms_cache');
-    if (!roomCache) throw new Error('Room cache not found');
+    if (!roomCache) throw new Error('Không tìm thấy bộ nhớ đệm phòng');
     const rooms = JSON.parse(roomCache);
     const room = rooms.find(r => r._id.toString() === schedule.roomId.toString());
 
@@ -134,8 +181,8 @@ exports.updateSchedule = async (id, data) => {
       const slotIds = await generateSlotsAndSave(
         schedule._id,
         subRoom._id,
-        schedule.shiftIds,        // giữ nguyên shiftIds
-        data.slotDuration,        // slotDuration mới
+        schedule.shiftIds,
+        data.slotDuration,
         schedule.startDate,
         schedule.endDate
       );
@@ -156,14 +203,30 @@ exports.updateSchedule = async (id, data) => {
   return schedule;
 };
 
-
 // ✅ Tạo slot cho 1 subRoom, nhưng chỉ nếu chưa có slot trong khoảng ngày đó
 exports.createSlotsForSubRoom = async (scheduleId, subRoomId, overrides = {}) => {
   const schedule = await scheduleRepo.findById(scheduleId);
-  if (!schedule) throw new Error('Schedule not found');
+  if (!schedule) throw new Error('Không tìm thấy lịch');
 
   const startDate = overrides.startDate || schedule.startDate;
   const endDate = overrides.endDate || schedule.endDate;
+  const slotDuration = overrides.slotDuration || schedule.slotDuration;
+  const shiftIds = overrides.shiftIds || schedule.shiftIds;
+
+  // 🔹 Kiểm tra slotDuration không vượt quá shift
+  const shiftCache = await redisClient.get('shifts_cache');
+  if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
+  const shifts = JSON.parse(shiftCache);
+  const selectedShifts = shifts.filter(s => shiftIds.includes(s._id.toString()));
+
+  for (const shift of selectedShifts) {
+    const [startHour, startMinute] = shift.startTime.split(':').map(Number);
+    const [endHour, endMinute] = shift.endTime.split(':').map(Number);
+    const shiftMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+    if (slotDuration > shiftMinutes) {
+      throw new Error(`slotDuration (${slotDuration} phút) vượt quá độ dài của ca ${shift._id} (${shiftMinutes} phút)`);
+    }
+  }
 
   // 🔹 Kiểm tra slot đã tồn tại cho subRoom trong khoảng ngày
   const existingSlots = await slotRepo.findSlots({
@@ -173,15 +236,15 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId, overrides = {}) =>
   });
 
   if (existingSlots.length > 0) {
-    throw new Error(`SubRoom ${subRoomId} already has slots for the given date range`);
+    throw new Error(`SubRoom ${subRoomId} đã có slot trong khoảng ngày được chọn`);
   }
 
   // 🔹 Nếu chưa có slot, sinh và lưu mới
   const slotIds = await generateSlotsAndSave(
     scheduleId,
     subRoomId,
-    overrides.shiftIds || schedule.shiftIds,
-    overrides.slotDuration || schedule.slotDuration,
+    shiftIds,
+    slotDuration,
     startDate,
     endDate
   );
@@ -191,6 +254,4 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId, overrides = {}) =>
 
   return { schedule, createdSlotIds: slotIds };
 };
-
-
 

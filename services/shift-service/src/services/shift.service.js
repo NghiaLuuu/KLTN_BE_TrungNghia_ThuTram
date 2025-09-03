@@ -6,7 +6,7 @@ const SHIFT_CACHE_KEY = 'shifts_cache';
 async function initShiftCache() {
   const shifts = await shiftRepo.listShifts();
   await redis.set(SHIFT_CACHE_KEY, JSON.stringify(shifts));
-  console.log(`✅ Shift cache loaded: ${shifts.length} shifts`);
+  console.log(`✅ Đã tải bộ nhớ đệm ca/kíp: ${shifts.length} ca/kíp`);
 }
 
 exports.createShift = async (data) => {
@@ -27,26 +27,44 @@ exports.toggleStatus = async (id) => {
   return toggled;
 };
 
-exports.listShifts = async () => {
-  let cached = await redis.get(SHIFT_CACHE_KEY);
-  if (cached) return JSON.parse(cached);
+exports.listShifts = async (page = 1, limit = 10) => {
+  const skip = (page - 1) * limit;
 
-  const shifts = await shiftRepo.listShifts();
-  await redis.set(SHIFT_CACHE_KEY, JSON.stringify(shifts));
-  return shifts;
+  // 👉 không cache toàn bộ, vì phân trang sẽ query theo skip/limit
+  const [shifts, total] = await Promise.all([
+    shiftRepo.listShifts(skip, limit),
+    shiftRepo.countShifts()
+  ]);
+
+  return {
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / limit),
+    shifts
+  };
 };
 
-exports.searchShift = async (keyword) => {
-  const shifts = await this.listShifts();
-  return shifts.filter(shift =>
-    shift.name.toLowerCase().includes(keyword.toLowerCase())
-  );
+exports.searchShift = async (keyword, page = 1, limit = 10) => {
+  const skip = (page - 1) * limit;
+  const [shifts, total] = await Promise.all([
+    shiftRepo.searchShift(keyword, skip, limit),
+    shiftRepo.countSearchShift(keyword)
+  ]);
+
+  return {
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / limit),
+    shifts
+  };
 };
 
 async function refreshShiftCache() {
   const shifts = await shiftRepo.listShifts();
   await redis.set(SHIFT_CACHE_KEY, JSON.stringify(shifts));
-  console.log(`♻ Shift cache refreshed: ${shifts.length} shifts`);
+  console.log(`♻ Đã làm mới bộ nhớ đệm ca/kíp: ${shifts.length} ca/kíp`);
 }
 
-initShiftCache().catch(err => console.error('❌ Failed to load shift cache:', err));
+initShiftCache().catch(err => console.error('❌ Không thể tải bộ nhớ đệm ca/kíp:', err));

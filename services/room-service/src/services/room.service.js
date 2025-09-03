@@ -6,7 +6,7 @@ const ROOM_CACHE_KEY = 'rooms_cache';
 async function initRoomCache() {
   const rooms = await roomRepo.listRooms();
   await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms));
-  console.log(`✅ Room cache loaded: ${rooms.length} rooms`);
+  console.log(`✅ Đã tải bộ nhớ đệm phòng: ${rooms.length} phòng`);
 }
 
 exports.createRoom = async (data) => {
@@ -27,26 +27,42 @@ exports.toggleStatus = async (roomId) => {
   return toggled;
 };
 
-exports.listRooms = async () => {
-  let cached = await redis.get(ROOM_CACHE_KEY);
-  if (cached) return JSON.parse(cached);
+exports.listRooms = async (page = 1, limit = 10) => {
+  const skip = (page - 1) * limit;
+  const [rooms, total] = await Promise.all([
+    roomRepo.listRooms(skip, limit),
+    roomRepo.countRooms()
+  ]);
 
-  const rooms = await roomRepo.listRooms();
-  await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms));
-  return rooms;
+  return {
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / limit),
+    rooms
+  };
 };
 
-exports.searchRoom = async (keyword) => {
-  const rooms = await this.listRooms();
-  return rooms.filter(room =>
-    room.name.toLowerCase().includes(keyword.toLowerCase())
-  );
+exports.searchRoom = async (keyword, page = 1, limit = 10) => {
+  const skip = (page - 1) * limit;
+  const [rooms, total] = await Promise.all([
+    roomRepo.searchRoom(keyword, skip, limit),
+    roomRepo.countSearchRoom(keyword)
+  ]);
+
+  return {
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / limit),
+    rooms
+  };
 };
 
 async function refreshRoomCache() {
   const rooms = await roomRepo.listRooms();
   await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms));
-  console.log(`♻ Room cache refreshed: ${rooms.length} rooms`);
+  console.log(`♻ Đã làm mới bộ nhớ đệm phòng: ${rooms.length} phòng`);
 }
 
-initRoomCache().catch(err => console.error('❌ Failed to load room cache:', err));
+initRoomCache().catch(err => console.error('❌ Không thể tải bộ nhớ đệm phòng:', err));

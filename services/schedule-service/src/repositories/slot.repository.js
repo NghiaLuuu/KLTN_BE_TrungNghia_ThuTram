@@ -1,8 +1,15 @@
 const Slot = require('../models/slot.model');
 
 
-exports.findSlots = async (filter) => {
-  return await Slot.find(filter); 
+exports.findSlots = async (filter, skip = 0, limit = 10) => {
+  return await Slot.find(filter)
+    .skip(skip)
+    .limit(limit)
+    .sort({ date: 1, startTime: 1 }); // gợi ý: sort theo ngày + giờ
+};
+
+exports.countSlots = async (filter) => {
+  return await Slot.countDocuments(filter);
 };
 
 exports.updateManySlots = async (filter, updateData) => {
