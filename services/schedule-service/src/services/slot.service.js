@@ -2,7 +2,7 @@ const slotRepo = require('../repositories/slot.repository');
 const scheduleRepo = require('../repositories/schedule.repository');
 const redisClient = require('../utils/redis.client');
 
-exports.assignStaffToSlots = async (data) => {
+exports.assignStaff = async (data) => {
   const { scheduleId, subRoomId, dentistIds = [], nurseIds = [], startDate, endDate, shiftIds = [] } = data;
 
   // 1️⃣ Lấy schedule
@@ -191,89 +191,121 @@ exports.getSlotById = async (slotId) => {
 };
 
 
-exports.assignStaffToOneSlot = async (slotId, dentistIds = [], nurseIds = []) => {
-  // 1️⃣ Tìm slot
-  const slot = await slotRepo.findById(slotId);
-  if (!slot) throw new Error('Không tìm thấy slot');
+exports.assignStaffToSlots = async (slotIds = [], dentistIds = [], nurseIds = []) => {
+  if (!slotIds.length) throw new Error('Cần truyền danh sách slotIds');
 
-  // 2️⃣ Tìm schedule để lấy roomId
-  const schedule = await scheduleRepo.findById(slot.scheduleId);
-  if (!schedule) throw new Error('Không tìm thấy lịch làm việc');
-
-  // 3️⃣ Lấy room từ cache
+  // 1️⃣ Lấy cache trước (đỡ phải load lại nhiều lần)
   const roomCache = await redisClient.get('rooms_cache');
   if (!roomCache) throw new Error('Không tìm thấy dữ liệu phòng trong cache');
   const rooms = JSON.parse(roomCache);
 
-  const room = rooms.find(r => r._id === String(schedule.roomId));
-  if (!room) throw new Error('Không tìm thấy phòng trong cache');
-
-  // Tìm subRoom
-  const subRoom = room.subRooms.find(sr => sr._id === String(slot.subRoomId));
-  if (!subRoom) throw new Error(`Không tìm thấy buồng phụ ${slot.subRoomId} trong phòng ${room._id}`);
-
-  // 4️⃣ Kiểm tra users trong cache
   const userCache = await redisClient.get('users_cache');
   if (!userCache) throw new Error('Không tìm thấy dữ liệu người dùng trong cache');
   const users = JSON.parse(userCache);
 
+  // 2️⃣ Kiểm tra users hợp lệ
   for (const dId of dentistIds) {
     const user = users.find(u => u._id === String(dId));
     if (!user) throw new Error(`Không tìm thấy nha sỹ với ID ${dId}`);
     if (user.role !== 'dentist') throw new Error(`Người dùng ${dId} không có vai trò bác sĩ`);
   }
-
   for (const nId of nurseIds) {
     const user = users.find(u => u._id === String(nId));
     if (!user) throw new Error(`Không tìm thấy y tá với ID ${nId}`);
     if (user.role !== 'nurse') throw new Error(`Người dùng ${nId} không có vai trò y tá`);
   }
 
-  // 5️⃣ Kiểm tra giới hạn subRoom
-  if (dentistIds.length > subRoom.maxDoctors) {
-    throw new Error(`Vượt quá giới hạn bác sĩ trong buồng phụ ${subRoom._id}: tối đa ${subRoom.maxDoctors}`);
+  const updatedSlots = [];
+
+  // 3️⃣ Lặp từng slot
+  for (const slotId of slotIds) {
+    const slot = await slotRepo.findById(slotId);
+    if (!slot) throw new Error(`Không tìm thấy slot ${slotId}`);
+
+    // 4️⃣ Lấy schedule
+    const schedule = await scheduleRepo.findById(slot.scheduleId);
+    if (!schedule) throw new Error(`Không tìm thấy lịch làm việc cho slot ${slotId}`);
+
+    // 5️⃣ Lấy room
+    const room = rooms.find(r => r._id === String(schedule.roomId));
+    if (!room) throw new Error(`Không tìm thấy phòng ${schedule.roomId} trong cache`);
+
+    // 6️⃣ Lấy subRoom
+    const subRoom = room.subRooms.find(sr => sr._id === String(slot.subRoomId));
+    if (!subRoom) throw new Error(`Không tìm thấy buồng phụ ${slot.subRoomId} trong phòng ${room._id}`);
+
+    // 7️⃣ Kiểm tra giới hạn subRoom
+    if (dentistIds.length > subRoom.maxDoctors) {
+      throw new Error(`Slot ${slotId}: Vượt quá giới hạn bác sĩ trong buồng phụ ${subRoom._id} (tối đa ${subRoom.maxDoctors})`);
+    }
+    if (nurseIds.length > subRoom.maxNurses) {
+      throw new Error(`Slot ${slotId}: Vượt quá giới hạn y tá trong buồng phụ ${subRoom._id} (tối đa ${subRoom.maxNurses})`);
+    }
+
+    // 8️⃣ Kiểm tra xung đột với slot khác trong cùng schedule
+    const otherSlots = await slotRepo.findSlots({
+      scheduleId: schedule._id,
+      _id: { $ne: slot._id }
+    });
+
+    const slotStart = new Date(slot.startTime);
+    const slotEnd = new Date(slot.endTime);
+
+    // Bác sĩ
+    const dentistConflict = dentistIds.filter(dId =>
+      otherSlots.some(s =>
+        s.dentistId.includes(dId) &&
+        new Date(s.startTime) < slotEnd &&
+        new Date(s.endTime) > slotStart
+      )
+    );
+    if (dentistConflict.length) {
+      throw new Error(`Slot ${slotId}: Bác sĩ ${dentistConflict.join(', ')} đã được phân công trong slot trùng thời gian`);
+    }
+
+    // Y tá
+    const nurseConflict = nurseIds.filter(nId =>
+      otherSlots.some(s =>
+        s.nurseId.includes(nId) &&
+        new Date(s.startTime) < slotEnd &&
+        new Date(s.endTime) > slotStart
+      )
+    );
+    if (nurseConflict.length) {
+      throw new Error(`Slot ${slotId}: Y tá ${nurseConflict.join(', ')} đã được phân công trong slot trùng thời gian`);
+    }
+
+    // 9️⃣ Update slot
+    slot.dentistId = dentistIds;
+    slot.nurseId = nurseIds;
+    await slot.save();
+
+    updatedSlots.push(slot);
   }
-  if (nurseIds.length > subRoom.maxNurses) {
-    throw new Error(`Vượt quá giới hạn y tá trong buồng phụ ${subRoom._id}: tối đa ${subRoom.maxNurses}`);
+
+  return updatedSlots;
+};
+
+
+exports.cancelSlots = async ({ slotIds = [], userId, role, cancelAll = false }) => {
+  if (!userId || !role) throw new Error('Thiếu userId hoặc role');
+
+  let query = {};
+
+  if (cancelAll) {
+    // Hủy toàn bộ slot của user
+    if (role === 'dentist') query = { dentistId: userId };
+    else if (role === 'nurse') query = { nurseId: userId };
+    else throw new Error('Role không hợp lệ');
+  } else if (slotIds.length > 0) {
+    // Hủy theo danh sách slot
+    query = { _id: { $in: slotIds } };
+  } else {
+    throw new Error('Phải truyền slotIds hoặc cancelAll');
   }
 
-  // 6️⃣ Kiểm tra xung đột với slot khác trong cùng schedule
-  const otherSlots = await slotRepo.findSlots({
-    scheduleId: schedule._id,
-    _id: { $ne: slot._id }
-  });
+  // Update status các slot về available (huỷ)
+  const result = await slotRepo.updateMany(query, { $set: { status: 'available', dentistId: [], nurseId: [] } });
 
-  const slotStart = new Date(slot.startTime);
-  const slotEnd = new Date(slot.endTime);
-
-  // Bác sĩ
-  const dentistConflict = dentistIds.filter(dId =>
-    otherSlots.some(s =>
-      s.dentistId.includes(dId) &&
-      new Date(s.startTime) < slotEnd &&
-      new Date(s.endTime) > slotStart
-    )
-  );
-  if (dentistConflict.length) {
-    throw new Error(`Bác sĩ ${dentistConflict.join(', ')} đã được phân công trong slot trùng thời gian`);
-  }
-
-  // Y tá
-  const nurseConflict = nurseIds.filter(nId =>
-    otherSlots.some(s =>
-      s.nurseId.includes(nId) &&
-      new Date(s.startTime) < slotEnd &&
-      new Date(s.endTime) > slotStart
-    )
-  );
-  if (nurseConflict.length) {
-    throw new Error(`Y tá ${nurseConflict.join(', ')} đã được phân công trong slot trùng thời gian`);
-  }
-
-  // 7️⃣ Update slot
-  slot.dentistId = dentistIds;
-  slot.nurseId = nurseIds;
-  await slot.save();
-
-  return slot;
+  return result;
 };

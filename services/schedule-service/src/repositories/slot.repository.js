@@ -38,3 +38,8 @@ exports.insertMany = async (slots) => {
 exports.deleteMany = async (filter) => {
   return await Slot.deleteMany(filter);
 };
+
+// Cập nhật nhiều slot
+exports.updateMany = async (filter, updateData) => {
+  return await Slot.updateMany(filter, updateData);
+};

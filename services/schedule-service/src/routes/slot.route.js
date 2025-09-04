@@ -11,9 +11,11 @@ router.get('/', slotController.getSlots);
 // Lấy chi tiết slot theo id
 router.get('/:id', slotController.getSlotById);
 
-// Gán nha sỹ, y tá vào 1 slot
-router.post('/:id/assign-staff', slotController.assignStaffToOneSlot);
+// Gán nha sỹ, y tá vào 1 hay nhiều slot (có thể chọn slot)
+router.post('/manual-assign', slotController.assignStaffToSlots);
 
+// Hủy 1 hoặc nhiều hoặc toàn bộ slot của nha sĩ hoặc y tá
+router.post('/cancel', slotController.cancelSlots);
 
 
 module.exports = router;

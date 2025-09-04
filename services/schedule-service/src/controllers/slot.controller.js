@@ -3,7 +3,7 @@ const slotService = require('../services/slot.service');
 // ✅ Gán nhân sự vào slot
 exports.assignStaff = async (req, res) => {
   try {
-    const result = await slotService.assignStaffToSlots(req.body);
+    const result = await slotService.assignStaff(req.body);
     res.status(200).json({
       message: 'Phân công nhân sự thành công',
       data: result
@@ -39,18 +39,39 @@ exports.getSlotById = async (req, res) => {
   }
 };
 
-exports.assignStaffToOneSlot = async (req, res) => {
+exports.assignStaffToSlots = async (req, res) => {
   try {
-    const slotId = req.params.id;
-    const { dentistIds = [], nurseIds = [] } = req.body;
+    const { slotIds = [], dentistIds = [], nurseIds = [] } = req.body;
 
-    const updatedSlot = await slotService.assignStaffToOneSlot(slotId, dentistIds, nurseIds);
+    if (!slotIds.length) {
+      return res.status(400).json({ error: 'Cần truyền danh sách slotIds' });
+    }
+
+    const result = await slotService.assignStaffToSlots(slotIds, dentistIds, nurseIds);
 
     res.json({
-      message: 'Phân công nhân sự thành công cho slot',
-      slot: updatedSlot
+      message: 'Phân công nhân sự thành công cho nhiều slot',
+      slots: result
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+};
+
+
+
+// Hủy slot
+exports.cancelSlots = async (req, res) => {
+  try {
+    const { slotIds, userId, role, cancelAll } = req.body;
+
+    const result = await slotService.cancelSlots({ slotIds, userId, role, cancelAll });
+
+    res.status(200).json({
+      message: 'Huỷ slot thành công',
+      data: result
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 };
