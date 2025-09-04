@@ -287,25 +287,58 @@ exports.assignStaffToSlots = async (slotIds = [], dentistIds = [], nurseIds = []
 };
 
 
-exports.cancelSlots = async ({ slotIds = [], userId, role, cancelAll = false }) => {
-  if (!userId || !role) throw new Error('Thiếu userId hoặc role');
+exports.cancelSlots = async ({ slotIds = [], dentistIds = [], nurseIds = [], cancelAll = false }) => {
+  // Ép dữ liệu thành mảng, bỏ phần tử rỗng
+  dentistIds = (Array.isArray(dentistIds) ? dentistIds : dentistIds ? [dentistIds] : []).filter(Boolean);
+  nurseIds   = (Array.isArray(nurseIds) ? nurseIds : nurseIds ? [nurseIds] : []).filter(Boolean);
+
+  if (dentistIds.length === 0 && nurseIds.length === 0) {
+    throw new Error('Phải truyền ít nhất 1 nha sỹ hoặc y tá để hủy');
+  }
 
   let query = {};
 
   if (cancelAll) {
-    // Hủy toàn bộ slot của user
-    if (role === 'dentist') query = { dentistId: userId };
-    else if (role === 'nurse') query = { nurseId: userId };
-    else throw new Error('Role không hợp lệ');
+    query = { $or: [] };
+    if (dentistIds.length) query.$or.push({ dentistId: { $in: dentistIds } });
+    if (nurseIds.length)   query.$or.push({ nurseId: { $in: nurseIds } });
   } else if (slotIds.length > 0) {
-    // Hủy theo danh sách slot
     query = { _id: { $in: slotIds } };
   } else {
-    throw new Error('Phải truyền slotIds hoặc cancelAll');
+    throw new Error('Phải truyền slotIds hoặc bật cancelAll');
   }
 
-  // Update status các slot về available (huỷ)
-  const result = await slotRepo.updateMany(query, { $set: { status: 'available', dentistId: [], nurseId: [] } });
+  // ✅ Kiểm tra từng loại riêng
+  if (dentistIds.length) {
+    const dentistExist = await slotRepo.find({
+      ...query,
+      dentistId: { $in: dentistIds }
+    });
+    if (!dentistExist || dentistExist.length === 0) {
+      throw new Error('Không tìm thấy slot nào có nha sỹ cần hủy');
+    }
+  }
+
+  if (nurseIds.length) {
+    const nurseExist = await slotRepo.find({
+      ...query,
+      nurseId: { $in: nurseIds }
+    });
+    if (!nurseExist || nurseExist.length === 0) {
+      throw new Error('Không tìm thấy slot nào có y tá cần hủy');
+    }
+  }
+
+  // Tạo update object động
+  let update = {};
+  if (dentistIds.length) {
+    update.$pull = { ...(update.$pull || {}), dentistId: { $in: dentistIds } };
+  }
+  if (nurseIds.length) {
+    update.$pull = { ...(update.$pull || {}), nurseId: { $in: nurseIds } };
+  }
+
+  const result = await slotRepo.updateMany(query, update);
 
   return result;
 };

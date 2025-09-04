@@ -61,11 +61,17 @@ exports.assignStaffToSlots = async (req, res) => {
 
 
 // Hủy slot
+// Hủy slot
 exports.cancelSlots = async (req, res) => {
   try {
-    const { slotIds, userId, role, cancelAll } = req.body;
+    const { slotIds = [], dentistIds = [], nurseIds = [], cancelAll = false } = req.body;
 
-    const result = await slotService.cancelSlots({ slotIds, userId, role, cancelAll });
+    const result = await slotService.cancelSlots({
+      slotIds,
+      dentistIds,
+      nurseIds,
+      cancelAll
+    });
 
     res.status(200).json({
       message: 'Huỷ slot thành công',
@@ -75,3 +81,6 @@ exports.cancelSlots = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+
+

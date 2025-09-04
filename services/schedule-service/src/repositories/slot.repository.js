@@ -43,3 +43,7 @@ exports.deleteMany = async (filter) => {
 exports.updateMany = async (filter, updateData) => {
   return await Slot.updateMany(filter, updateData);
 };
+
+exports.find = async (query) => {
+  return await Slot.find(query);
+};
