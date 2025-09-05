@@ -43,23 +43,4 @@ exports.toggleStatus = async (req, res) => {
   }
 };
 
-// ✅ Tạo slots cho buồng con
-exports.createSlotsForSubRoom = async (req, res) => {
-  if (!isManagerOrAdmin(req.user)) {
-    return res.status(403).json({ message: 'Chỉ quản lý hoặc admin mới được phép' });
-  }
-  try {
-    const { scheduleId, subRoomId } = req.params;
-    const { shiftIds, slotDuration, startDate, endDate } = req.body;
 
-    const result = await scheduleService.createSlotsForSubRoom(
-      scheduleId,
-      subRoomId,
-      { shiftIds, slotDuration, startDate, endDate }
-    );
-
-    res.status(201).json(result);
-  } catch (error) {
-    res.status(500).json({ message: error.message || 'Không thể tạo slot cho buồng con' });
-  }
-};

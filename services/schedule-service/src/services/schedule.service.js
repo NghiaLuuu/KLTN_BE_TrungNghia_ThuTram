@@ -273,7 +273,10 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId) => {
   const { startDate, endDate, slotDuration, shiftIds } = schedule;
   console.log(`📅 Bắt đầu tạo slot cho subRoom ${subRoomId} từ ${startDate} đến ${endDate}, slotDuration: ${slotDuration} phút`);
 
-  // Kiểm tra subRoom đã có slot chưa
+  // ✅ Kiểm tra ngày
+  validateDates(startDate, endDate);
+
+  // ✅ Kiểm tra subRoom đã có slot chưa
   const existingSlots = await slotRepo.findSlots({
     scheduleId,
     subRoomId,
@@ -285,7 +288,40 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId) => {
     return { schedule, createdSlotIds: [] };
   }
 
-  // Sinh slot mới
+  // 🔹 Lấy shift từ cache để kiểm tra slotDuration
+  const shiftCache = await redisClient.get('shifts_cache');
+  if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
+  const shifts = JSON.parse(shiftCache);
+  const selectedShifts = shifts.filter(s => shiftIds.includes(s._id.toString()));
+
+  if (!selectedShifts.length) throw new Error('Không tìm thấy ca/kíp hợp lệ');
+
+  // 🔹 Kiểm tra slotDuration cho từng ca
+  for (const shift of selectedShifts) {
+    const [startHour, startMinute] = shift.startTime.split(':').map(Number);
+    const [endHour, endMinute] = shift.endTime.split(':').map(Number);
+
+    const shiftStart = new Date();
+    shiftStart.setHours(startHour, startMinute, 0, 0);
+
+    const shiftEnd = new Date();
+    shiftEnd.setHours(endHour, endMinute, 0, 0);
+
+    const shiftMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+
+    let remainingMinutes = shiftMinutes;
+    const now = new Date();
+    if (now >= shiftStart && now < shiftEnd) {
+      remainingMinutes = Math.floor((shiftEnd - now) / 60000);
+    }
+
+    if (slotDuration >= remainingMinutes) {
+      console.log(`⚠️ slotDuration (${slotDuration} phút) không hợp lệ cho ca ${shift._id}. Chỉ còn ${remainingMinutes} phút khả dụng. Bỏ qua subRoom ${subRoomId}`);
+      return { schedule, createdSlotIds: [] };
+    }
+  }
+
+  // 🔹 Sinh slot mới
   const slotIds = await generateSlotsAndSave(
     schedule._id,
     subRoomId,
@@ -302,6 +338,7 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId) => {
 
   return { schedule, createdSlotIds: slotIds };
 };
+
 
 
 
