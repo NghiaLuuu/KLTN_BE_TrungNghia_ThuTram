@@ -59,3 +59,7 @@ exports.appendSlots = async (scheduleId, slotIds) => {
 exports.findOne = async (filter) => {
   return await Schedule.findOne(filter).populate('slots');
 };
+
+exports.findByRoomId = async (roomId) => {
+  return await Schedule.find({ roomId });
+};

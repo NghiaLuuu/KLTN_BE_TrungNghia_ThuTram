@@ -1,6 +1,6 @@
 const roomRepo = require('../repositories/room.repository');
 const redis = require('../utils/redis.client');
-
+const {publishToQueue} = require('../utils/rabbitClient')
 const ROOM_CACHE_KEY = 'rooms_cache';
 
 async function initRoomCache() {
@@ -15,11 +15,67 @@ exports.createRoom = async (data) => {
   return room;
 };
 
-exports.updateRoom = async (roomId, data) => {
-  const updated = await roomRepo.updateRoom(roomId, data);
-  await refreshRoomCache();
-  return updated;
+exports.updateRoom = async (roomId, updateData) => {
+  const room = await roomRepo.findById(roomId);
+  if (!room) throw new Error("Không tìm thấy phòng");
+
+  // Lưu danh sách subRooms cũ để so sánh
+  const oldSubRooms = room.subRooms.map(sr => sr._id.toString());
+
+  // Update field
+  if (updateData.name) room.name = updateData.name;
+  if (updateData.isActive !== undefined) room.isActive = updateData.isActive;
+
+  // Update subRooms
+  if (Array.isArray(updateData.subRooms)) {
+    for (const subUpdate of updateData.subRooms) {
+      let subRoom = null;
+
+      if (subUpdate._id) {
+        subRoom = room.subRooms.id(subUpdate._id);
+      }
+
+      if (!subRoom && subUpdate.name) {
+        subRoom = room.subRooms.find(sr => sr.name === subUpdate.name);
+      }
+
+      if (subRoom) {
+        subRoom.name = subUpdate.name || subRoom.name;
+        subRoom.maxDoctors = subUpdate.maxDoctors ?? subRoom.maxDoctors;
+        subRoom.maxNurses = subUpdate.maxNurses ?? subRoom.maxNurses;
+      } else {
+        room.subRooms.push(subUpdate);
+      }
+    }
+  }
+
+  await room.save();
+
+  // So sánh danh sách mới và cũ
+  const newSubRooms = room.subRooms.map(sr => sr._id.toString());
+  const added = newSubRooms.filter(id => !oldSubRooms.includes(id));
+
+  // 🔹 Nếu có subRoom mới → gửi event 1 lần với mảng subRoomIds
+  if (added.length > 0) {
+    try {
+      await publishToQueue('schedule_queue', {
+        action: 'subRoomAdded',
+        payload: {
+          roomId: room._id.toString(),
+          subRoomIds: added
+        }
+      });
+      console.log(`📤 Đã gửi sự kiện subRoomAdded cho room ${room._id}, subRooms: ${added.join(', ')}`);
+    } catch (err) {
+      console.error('❌ Gửi sự kiện subRoomAdded thất bại:', err.message);
+    }
+  }
+
+  return room;
 };
+
+
+
 
 exports.toggleStatus = async (roomId) => {
   const toggled = await roomRepo.toggleStatus(roomId);

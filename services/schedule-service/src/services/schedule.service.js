@@ -2,6 +2,23 @@ const scheduleRepo = require('../repositories/schedule.repository');
 const slotRepo = require('../repositories/slot.repository');
 const redisClient = require('../utils/redis.client');
 
+// Helper: kiểm tra ngày hợp lệ
+function validateDates(startDate, endDate) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // so sánh từ đầu ngày
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  if (start < today) {
+    throw new Error('Ngày bắt đầu phải từ hôm nay trở đi');
+  }
+  if (end < start) {
+    throw new Error('Ngày kết thúc phải sau hoặc bằng ngày bắt đầu');
+  }
+}
+
+
 // 🔧 Check conflict chung
 async function checkScheduleConflict(roomId, shiftIds, startDate, endDate, excludeId = null) {
   const filter = {
@@ -29,31 +46,48 @@ async function generateSlotsCore(scheduleId, subRoomId, shiftIds, slotDuration, 
   const slots = [];
   const start = new Date(startDate);
   const end = new Date(endDate);
+  const now = new Date();
+  const minStart = new Date(now.getTime() + 5 * 60000); // sau 5 phút
 
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
     for (const shift of selectedShifts) {
       const [startHour, startMinute] = shift.startTime.split(':').map(Number);
       const [endHour, endMinute] = shift.endTime.split(':').map(Number);
 
-      const shiftStart = new Date(d); shiftStart.setHours(startHour, startMinute, 0, 0);
-      const shiftEnd = new Date(d); shiftEnd.setHours(endHour, endMinute, 0, 0);
+      const shiftStart = new Date(d);
+      shiftStart.setHours(startHour, startMinute, 0, 0);
+
+      const shiftEnd = new Date(d);
+      shiftEnd.setHours(endHour, endMinute, 0, 0);
+
+      // ✅ Nếu ca đã kết thúc hoàn toàn → bỏ qua
+      if (shiftEnd <= now) continue;
 
       for (let cur = new Date(shiftStart); cur < shiftEnd;) {
         const next = new Date(cur.getTime() + slotDuration * 60000);
         if (next > shiftEnd) break;
-        slots.push({
-          date: new Date(d),
-          startTime: new Date(cur),
-          endTime: next,
-          scheduleId,
-          subRoomId
-        });
+
+        // ✅ Chỉ tạo slot bắt đầu sau 5 phút kể từ hiện tại
+        if (cur >= minStart) {
+          slots.push({
+            date: new Date(d),
+            startTime: new Date(cur),
+            endTime: next,
+            scheduleId,
+            subRoomId
+          });
+        }
+
         cur = next;
       }
     }
   }
   return slots;
 }
+
+
+
+
 
 // 🔧 Wrapper: sinh + lưu DB
 async function generateSlotsAndSave(scheduleId, subRoomId, shiftIds, slotDuration, startDate, endDate) {
@@ -83,13 +117,37 @@ exports.createSchedule = async (data) => {
   if (!selectedShifts.length) throw new Error('Không tìm thấy ca/kíp hợp lệ');
 
   for (const shift of selectedShifts) {
-    const [startHour, startMinute] = shift.startTime.split(':').map(Number);
-    const [endHour, endMinute] = shift.endTime.split(':').map(Number);
-    const shiftMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
-    if (data.slotDuration > shiftMinutes) {
-      throw new Error(`slotDuration (${data.slotDuration} phút) vượt quá độ dài của ca ${shift._id} (${shiftMinutes} phút)`);
-    }
+  const [startHour, startMinute] = shift.startTime.split(':').map(Number);
+  const [endHour, endMinute] = shift.endTime.split(':').map(Number);
+
+  const shiftStart = new Date();
+  shiftStart.setHours(startHour, startMinute, 0, 0);
+
+  const shiftEnd = new Date();
+  shiftEnd.setHours(endHour, endMinute, 0, 0);
+
+  // Tổng thời lượng ca (phút)
+  const shiftMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+
+  // Thời lượng còn lại (phút) – nếu ca đang diễn ra thì tính từ "bây giờ" đến khi kết thúc
+  let remainingMinutes = shiftMinutes;
+  const now = new Date();
+  if (now >= shiftStart && now < shiftEnd) {
+    remainingMinutes = Math.floor((shiftEnd - now) / 60000);
   }
+
+  // Nếu slotDuration quá lớn so với thời lượng còn lại
+  if (data.slotDuration >= remainingMinutes) {
+    throw new Error(
+      `slotDuration (${data.slotDuration} phút) không hợp lệ cho ca ${shift._id}. ` +
+      `Chỉ còn ${remainingMinutes} phút khả dụng trong ca này.`
+    );
+  }
+}
+
+  
+  // ✅ Kiểm tra ngày bắt đầu và kết thúc
+  validateDates(data.startDate, data.endDate);
 
   // 🔹 Tạo schedule
   const schedule = await scheduleRepo.createSchedule({
@@ -204,31 +262,18 @@ exports.updateSchedule = async (id, data) => {
 };
 
 // ✅ Tạo slot cho 1 subRoom, nhưng chỉ nếu chưa có slot trong khoảng ngày đó
-exports.createSlotsForSubRoom = async (scheduleId, subRoomId, overrides = {}) => {
+
+exports.createSlotsForSubRoom = async (scheduleId, subRoomId) => {
   const schedule = await scheduleRepo.findById(scheduleId);
-  if (!schedule) throw new Error('Không tìm thấy lịch');
-
-  const startDate = overrides.startDate || schedule.startDate;
-  const endDate = overrides.endDate || schedule.endDate;
-  const slotDuration = overrides.slotDuration || schedule.slotDuration;
-  const shiftIds = overrides.shiftIds || schedule.shiftIds;
-
-  // 🔹 Kiểm tra slotDuration không vượt quá shift
-  const shiftCache = await redisClient.get('shifts_cache');
-  if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
-  const shifts = JSON.parse(shiftCache);
-  const selectedShifts = shifts.filter(s => shiftIds.includes(s._id.toString()));
-
-  for (const shift of selectedShifts) {
-    const [startHour, startMinute] = shift.startTime.split(':').map(Number);
-    const [endHour, endMinute] = shift.endTime.split(':').map(Number);
-    const shiftMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
-    if (slotDuration > shiftMinutes) {
-      throw new Error(`slotDuration (${slotDuration} phút) vượt quá độ dài của ca ${shift._id} (${shiftMinutes} phút)`);
-    }
+  if (!schedule) {
+    console.log(`⚠️ Không tìm thấy lịch ${scheduleId} cho subRoom ${subRoomId}, bỏ qua`);
+    return null;
   }
 
-  // 🔹 Kiểm tra slot đã tồn tại cho subRoom trong khoảng ngày
+  const { startDate, endDate, slotDuration, shiftIds } = schedule;
+  console.log(`📅 Bắt đầu tạo slot cho subRoom ${subRoomId} từ ${startDate} đến ${endDate}, slotDuration: ${slotDuration} phút`);
+
+  // Kiểm tra subRoom đã có slot chưa
   const existingSlots = await slotRepo.findSlots({
     scheduleId,
     subRoomId,
@@ -236,12 +281,13 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId, overrides = {}) =>
   });
 
   if (existingSlots.length > 0) {
-    throw new Error(`SubRoom ${subRoomId} đã có slot trong khoảng ngày được chọn`);
+    console.log(`⚠️ SubRoom ${subRoomId} đã có ${existingSlots.length} slot trong khoảng ngày, bỏ qua`);
+    return { schedule, createdSlotIds: [] };
   }
 
-  // 🔹 Nếu chưa có slot, sinh và lưu mới
+  // Sinh slot mới
   const slotIds = await generateSlotsAndSave(
-    scheduleId,
+    schedule._id,
     subRoomId,
     shiftIds,
     slotDuration,
@@ -249,9 +295,14 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId, overrides = {}) =>
     endDate
   );
 
+  console.log(`✅ Đã tạo ${slotIds.length} slot mới cho subRoom ${subRoomId}`);
+
   schedule.slots = schedule.slots.concat(slotIds);
   await schedule.save();
 
   return { schedule, createdSlotIds: slotIds };
 };
+
+
+
 

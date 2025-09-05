@@ -2,6 +2,7 @@
 const amqp = require('amqplib');
 const slotRepo = require('../repositories/slot.repository');
 const scheduleRepo = require('../repositories/schedule.repository');
+const scheduleService = require('../services/schedule.service')
 
 async function startRpcServer() {
   const connection = await amqp.connect(process.env.RABBITMQ_URL);
@@ -21,6 +22,25 @@ async function startRpcServer() {
       const { action, payload } = JSON.parse(content);
 
       switch (action) {
+        // 👉 Event subRoomAdded
+        case 'subRoomAdded':
+          try {
+            console.log(
+              `📩 Nhận sự kiện subRoomAdded cho room ${payload.roomId}, subRooms: ${payload.subRoomIds.join(', ')}`
+            );
+
+            const schedules = await scheduleRepo.findByRoomId(payload.roomId);
+
+            for (const schedule of schedules) {
+              for (const subRoomId of payload.subRoomIds) {
+                await scheduleService.createSlotsForSubRoom(schedule._id, subRoomId);
+              }
+            }
+          } catch (err) {
+            console.error('Failed to handle subRoomAdded:', err);
+          }
+          break;
+
         case 'getSlotById':
           try {
             const slot = await slotRepo.getSlotById(payload.slotId);

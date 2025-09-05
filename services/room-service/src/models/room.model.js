@@ -22,16 +22,45 @@ const roomSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
-    unique: true,
+    unique: true, // tên phòng phải duy nhất
     trim: true,
   },
   isActive: {
     type: Boolean,
     default: true,
   },
-  subRooms: [subRoomSchema], // mỗi buồng có số lượng bác sĩ/y tá riêng
+  subRooms: [subRoomSchema],
 }, {
   timestamps: true,
 });
 
-module.exports = mongoose.model('Room', roomSchema);
+// 🔹 Hàm dùng chung để check duplicate subRoom
+function checkDuplicateSubRooms(subRooms, next) {
+  if (!Array.isArray(subRooms)) return next();
+  const names = subRooms.map(sr => sr.name.trim().toLowerCase());
+  const hasDuplicate = names.some((name, idx) => names.indexOf(name) !== idx);
+  if (hasDuplicate) {
+    return next(new Error("Tên buồng không được trùng trong cùng một phòng"));
+  }
+  next();
+}
+
+// ✅ Check khi create hoặc save
+roomSchema.pre("save", function (next) {
+  checkDuplicateSubRooms(this.subRooms, next);
+});
+
+// ✅ Check khi update (findOneAndUpdate, findByIdAndUpdate)
+roomSchema.pre("findOneAndUpdate", function (next) {
+  const update = this.getUpdate();
+
+  // Nếu update có $set.subRooms hoặc subRooms
+  const subRooms = update?.$set?.subRooms || update?.subRooms;
+  if (subRooms) {
+    checkDuplicateSubRooms(subRooms, next);
+  } else {
+    next();
+  }
+});
+
+module.exports = mongoose.model("Room", roomSchema);
