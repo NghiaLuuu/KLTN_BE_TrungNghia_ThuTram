@@ -30,6 +30,9 @@ async function startRpcServer() {
             );
 
             const schedules = await scheduleRepo.findByRoomId(payload.roomId);
+            if (!schedules.length) {
+              console.log(`⚠️ Room ${payload.roomId} chưa có schedule, bỏ qua việc tạo slot cho subRooms`);
+            }
 
             for (const schedule of schedules) {
               for (const subRoomId of payload.subRoomIds) {

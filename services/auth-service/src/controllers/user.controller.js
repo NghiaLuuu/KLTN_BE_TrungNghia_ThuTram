@@ -38,3 +38,21 @@ exports.getUsersByRole = async (req, res) => {
     return res.status(500).json({ message: 'Lỗi máy chủ, không thể lấy danh sách người dùng' });
   }
 };
+
+
+exports.getAllStaff = async (req, res) => {
+  try {
+    const currentUserRole = req.user.role;
+    if (!['admin', 'manager'].includes(currentUserRole)) {
+      return res.status(403).json({ message: 'Bạn không có quyền truy cập chức năng này' });
+    }
+
+    const { page = 1, limit = 10 } = req.query;
+
+    const data = await userService.getAllStaff(page, limit);
+    return res.status(200).json(data);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Lỗi máy chủ, không thể lấy danh sách nhân viên' });
+  }
+};

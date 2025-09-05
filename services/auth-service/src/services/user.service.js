@@ -85,6 +85,22 @@ exports.getUsersByRole = async (role, page = 1, limit = 10) => {
   };
 };
 
+exports.getAllStaff = async (page = 1, limit = 10) => {
+  const skip = (page - 1) * limit;
+  const [users, total] = await Promise.all([
+    userRepo.getAllStaff(skip, limit),
+    userRepo.countAllStaff(),
+  ]);
+
+  return {
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / limit),
+    users,
+  };
+};
+
 exports.refreshUserCache = refreshUserCache;
 
 initUserCache().catch(err => console.error('❌ Lỗi khi tải cache người dùng:', err));

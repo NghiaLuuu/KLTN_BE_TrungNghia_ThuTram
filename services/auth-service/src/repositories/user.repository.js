@@ -48,3 +48,15 @@ exports.getUsersByRole = async (role, skip = 0, limit = 10) => {
 exports.countByRole = async (role) => {
   return await User.countDocuments({ role });
 };
+
+exports.getAllStaff = async (skip = 0, limit = 10) => {
+  // Lấy tất cả user trừ patient
+  return await User.find({ role: { $ne: 'patient' } })
+    .select('-password')
+    .skip(skip)
+    .limit(limit);
+};
+
+exports.countAllStaff = async () => {
+  return await User.countDocuments({ role: { $ne: 'patient' } });
+};

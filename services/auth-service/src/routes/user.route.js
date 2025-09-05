@@ -9,5 +9,6 @@ router.put('/profile', authMiddleware, userController.updateProfile);
 
 router.get('/by-role',authMiddleware,userController.getUsersByRole);
 
+router.get('/all-staff', authMiddleware, userController.getAllStaff);
 
 module.exports = router;
