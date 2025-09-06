@@ -56,3 +56,49 @@ exports.getAllStaff = async (req, res) => {
     return res.status(500).json({ message: 'Lỗi máy chủ, không thể lấy danh sách nhân viên' });
   }
 };
+
+// PUT /update/:id
+exports.updateProfileByAdmin = async (req, res) => {
+  try {
+    const currentUser = req.user; // user hiện tại từ middleware auth
+    const userId = req.params.id; // user cần cập nhật
+    const updated = await userService.updateProfileByAdmin(currentUser, userId, req.body);
+
+    return res.status(200).json({
+      message: 'Cập nhật thông tin thành công',
+      user: updated
+    });
+  } catch (err) {
+    return res.status(400).json({ message: err.message });
+  }
+};
+
+// GET /users/:id
+exports.getUserById = async (req, res) => {
+  try {
+    const currentUser = req.user; // user hiện tại từ auth middleware
+    const userId = req.params.id;
+    const user = await userService.getUserById(currentUser, userId);
+
+    return res.status(200).json({ user });
+  } catch (err) {
+    return res.status(400).json({ message: err.message });
+  }
+};
+
+exports.searchStaff = async (req, res) => {
+  try {
+    const currentUserRole = req.user.role;
+    if (!['admin', 'manager'].includes(currentUserRole)) {
+      return res.status(403).json({ message: 'Bạn không có quyền truy cập chức năng này' });
+    }
+
+    const { fullName, email, phone, role, gender, type, page = 1, limit = 10 } = req.query;
+
+    const data = await userService.searchStaff({ fullName, email, phone, role, gender, type }, page, limit);
+    return res.status(200).json(data);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Lỗi máy chủ, không thể tìm kiếm nhân viên' });
+  }
+};

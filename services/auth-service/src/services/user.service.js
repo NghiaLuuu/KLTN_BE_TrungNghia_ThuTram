@@ -1,6 +1,6 @@
 const userRepo = require('../repositories/user.repository');
 const redis = require('../utils/redis.client');
-
+const bcrypt = require('bcrypt');
 const USER_CACHE_KEY = 'users_cache';
 
 async function initUserCache() {
@@ -100,6 +100,70 @@ exports.getAllStaff = async (page = 1, limit = 10) => {
     users,
   };
 };
+
+exports.searchStaff = async (criteria = {}, page = 1, limit = 10) => {
+  const skip = (page - 1) * limit;
+  const [users, total] = await Promise.all([
+    userRepo.searchStaff(criteria, skip, limit),
+    userRepo.countStaff(criteria),
+  ]);
+
+  return {
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / limit),
+    users,
+  };
+};
+
+
+
+// Cập nhật thông tin user theo id (admin/manager, giữ nguyên field không truyền)
+exports.updateProfileByAdmin = async (currentUser, userId, data) => {
+  // Kiểm tra quyền
+  if (!['admin', 'manager'].includes(currentUser.role)) {
+    throw new Error('Bạn không có quyền thực hiện chức năng này');
+  }
+
+  // Lấy user hiện tại
+  const existingUser = await userRepo.findById(userId);
+  if (!existingUser) {
+    throw new Error('Không tìm thấy người dùng để cập nhật');
+  }
+
+  // Merge dữ liệu mới vào dữ liệu cũ
+  const updatedData = { ...existingUser.toObject(), ...data };
+
+  // Cập nhật user nhưng không thay đổi password
+  const updatedUser = await userRepo.updateByIdExcludePassword(userId, updatedData);
+  if (!updatedUser) {
+    throw new Error('Không thể cập nhật người dùng');
+  }
+
+  // Cập nhật cache nếu có
+  await refreshUserCache();
+
+  return updatedUser;
+};
+
+
+// Lấy thông tin user theo id
+exports.getUserById = async (currentUser, userId) => {
+  // Nếu muốn, kiểm tra quyền: chỉ admin/manager mới được xem user khác
+  if (!['admin', 'manager'].includes(currentUser.role) && currentUser._id.toString() !== userId) {
+    throw new Error('Bạn không có quyền truy cập thông tin người dùng này');
+  }
+
+  const user = await userRepo.getUserById(userId);
+  if (!user) {
+    throw new Error('Không tìm thấy người dùng');
+  }
+
+  return user;
+};
+
+
 
 exports.refreshUserCache = refreshUserCache;
 

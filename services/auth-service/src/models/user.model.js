@@ -9,7 +9,9 @@ const userSchema = new Schema({
   },
   type: {
     type: String,
-    required: true,
+    enum: ['fullTime', 'partTime'],
+    default: null,   
+    required: false,
   },
   email: {
     type: String,

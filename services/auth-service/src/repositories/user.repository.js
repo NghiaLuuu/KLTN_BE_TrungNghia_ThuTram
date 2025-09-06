@@ -60,3 +60,53 @@ exports.getAllStaff = async (skip = 0, limit = 10) => {
 exports.countAllStaff = async () => {
   return await User.countDocuments({ role: { $ne: 'patient' } });
 };
+
+// Lấy user theo id
+exports.getUserById = async (id) => {
+  return await User.findById(id).select('-password').lean();
+};
+
+// Cập nhật user theo id, nhưng KHÔNG cập nhật password
+exports.updateByIdExcludePassword = async (id, data) => {
+  // Loại bỏ password nếu có
+  const { password, ...allowedData } = data;
+
+  // Cập nhật
+  return await User.findByIdAndUpdate(
+    id,
+    { $set: allowedData },
+    { new: true, runValidators: true }
+  ).select('-password'); // trả về user nhưng ẩn password
+};
+
+// Tìm nhân viên theo nhiều tiêu chí, trừ patient
+exports.searchStaff = async (criteria, skip = 0, limit = 10) => {
+  const query = { role: { $ne: 'patient' } };
+
+  if (criteria.fullName) query.fullName = { $regex: criteria.fullName, $options: 'i' };
+  if (criteria.email) query.email = { $regex: criteria.email, $options: 'i' };
+  if (criteria.phone) query.phone = { $regex: criteria.phone, $options: 'i' };
+  if (criteria.role) query.role = criteria.role; // ví dụ 'dentist'
+  if (criteria.gender) query.gender = criteria.gender;
+  if (criteria.type) query.type = criteria.type;
+
+  return await User.find(query)
+    .select('-password')
+    .skip(skip)
+    .limit(limit)
+    .sort({ createdAt: -1 });
+};
+
+// Đếm tổng số kết quả phù hợp
+exports.countStaff = async (criteria) => {
+  const query = { role: { $ne: 'patient' } };
+
+  if (criteria.fullName) query.fullName = { $regex: criteria.fullName, $options: 'i' };
+  if (criteria.email) query.email = { $regex: criteria.email, $options: 'i' };
+  if (criteria.phone) query.phone = { $regex: criteria.phone, $options: 'i' };
+  if (criteria.role) query.role = criteria.role;
+  if (criteria.gender) query.gender = criteria.gender;
+  if (criteria.type) query.type = criteria.type;
+
+  return await User.countDocuments(query);
+};
