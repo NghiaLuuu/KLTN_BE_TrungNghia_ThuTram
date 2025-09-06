@@ -1,4 +1,15 @@
 const slotService = require('../services/slot.service');
+const moment = require('moment-timezone');
+
+
+const convertSlotToVNTime = (slot) => ({
+  ...slot,
+  date: slot.date ? moment(slot.date).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD') : slot.date,
+  startTime: slot.startTime ? moment(slot.startTime).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm') : slot.startTime,
+  endTime: slot.endTime ? moment(slot.endTime).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm') : slot.endTime,
+  createdAt: slot.createdAt ? moment(slot.createdAt).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm') : slot.createdAt,
+  updatedAt: slot.updatedAt ? moment(slot.updatedAt).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm') : slot.updatedAt
+});
 
 // ✅ Gán nhân sự vào slot
 exports.assignStaff = async (req, res) => {
@@ -13,31 +24,52 @@ exports.assignStaff = async (req, res) => {
   }
 };
 
-// ✅ Lấy danh sách slot (có phân trang + filter)
+// Lấy danh sách slot (có phân trang + filter)
 exports.getSlots = async (req, res) => {
   try {
     const { page = 1, limit = 10, ...filters } = req.query;
 
     const data = await slotService.getSlots(filters, page, limit);
 
-    res.json(data);
+    let dataWithVNTime;
+
+    if (Array.isArray(data)) {
+      // Trường hợp trả về mảng thuần
+      dataWithVNTime = data.map(slot => convertSlotToVNTime(slot.toObject()));
+    } else if (data && Array.isArray(data.slots)) {
+      // Trường hợp phân trang: map trên data.slots
+      dataWithVNTime = {
+        ...data,
+        slots: data.slots.map(slot => convertSlotToVNTime(slot.toObject()))
+      };
+    } else {
+      dataWithVNTime = data;
+    }
+
+    res.json(dataWithVNTime);
   } catch (err) {
     res.status(400).json({ message: err.message || 'Không thể lấy danh sách slot' });
   }
 };
 
-// ✅ Lấy chi tiết slot theo ID
+// Lấy chi tiết slot theo ID
 exports.getSlotById = async (req, res) => {
   try {
     const slot = await slotService.getSlotById(req.params.id);
     if (!slot) {
       return res.status(404).json({ message: 'Không tìm thấy slot' });
     }
-    res.json(slot);
+
+    // Chuyển sang plain object trước khi convert
+    const slotWithVNTime = convertSlotToVNTime(slot.toObject());
+
+    res.json(slotWithVNTime);
   } catch (err) {
     res.status(404).json({ message: err.message || 'Không thể lấy thông tin slot' });
   }
 };
+
+
 
 exports.assignStaffToSlots = async (req, res) => {
   try {
@@ -61,7 +93,6 @@ exports.assignStaffToSlots = async (req, res) => {
 
 
 // Hủy slot
-// Hủy slot
 exports.cancelSlots = async (req, res) => {
   try {
     const { slotIds = [], dentistIds = [], nurseIds = [], cancelAll = false } = req.body;
@@ -82,5 +113,30 @@ exports.cancelSlots = async (req, res) => {
   }
 };
 
+
+exports.getAvailableSlotsFromNow = async (req, res) => {
+  try {
+    const { serviceId, dentistId } = req.query;
+    if (!serviceId || !dentistId) {
+      return res.status(400).json({ error: 'serviceId và dentistId là bắt buộc' });
+    }
+
+    // Lấy các nhóm slot liên tiếp phù hợp với service
+    const groups = await slotService.findAvailableSlotsForServiceFromNow({ serviceId, dentistId });
+
+    // Chuyển thời gian sang giờ Việt Nam bằng convertSlotToVNTime
+    const groupsWithVNTime = groups.map(group => ({
+      ...group,
+      startTime: group.startTime ? moment(group.startTime).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm') : group.startTime,
+      endTime: group.endTime ? moment(group.endTime).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm') : group.endTime,
+      slots: Array.isArray(group.slots) ? group.slots.map(convertSlotToVNTime) : []
+    }));
+
+    res.status(200).json({ data: groupsWithVNTime });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
 
 

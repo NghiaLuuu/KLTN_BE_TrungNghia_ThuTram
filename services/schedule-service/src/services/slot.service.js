@@ -342,3 +342,64 @@ exports.cancelSlots = async ({ slotIds = [], dentistIds = [], nurseIds = [], can
 
   return result;
 };
+
+// Làm tròn lên khung giờ gần nhất (0,15,30,45)
+function roundUpToNextQuarter(date) {
+  const rounded = new Date(date);
+  const minutes = rounded.getMinutes();
+  const remainder = minutes % 15;
+  if (remainder !== 0) {
+    rounded.setMinutes(minutes + (15 - remainder));
+    rounded.setSeconds(0, 0);
+  }
+  return rounded;
+}
+
+function groupConsecutiveSlots(slots, requiredDuration) {
+  const groups = [];
+  const slotDuration = (slots[0] && (slots[0].endTime - slots[0].startTime) / (1000 * 60)) || 15; // phút
+  const slotsNeeded = Math.ceil(requiredDuration / slotDuration);
+
+  for (let i = 0; i <= slots.length - slotsNeeded; i++) {
+    const group = slots.slice(i, i + slotsNeeded);
+    let continuous = true;
+    for (let j = 0; j < group.length - 1; j++) {
+      if (group[j].endTime.getTime() !== group[j + 1].startTime.getTime()) {
+        continuous = false;
+        break;
+      }
+    }
+    if (continuous) {
+      groups.push({
+        slots: group,
+        startTime: group[0].startTime,
+        endTime: group[group.length - 1].endTime
+      });
+    }
+  }
+
+  return groups;
+}
+
+exports.findAvailableSlotsForServiceFromNow = async ({ serviceId, dentistId }) => {
+  // 1️⃣ Lấy thông tin service từ Redis
+  const servicesCache = await redisClient.get('services_cache');
+  if (!servicesCache) throw new Error('Không tìm thấy cache dịch vụ');
+  const services = JSON.parse(servicesCache);
+  const service = services.find(s => s._id === serviceId);
+  if (!service) throw new Error('Dịch vụ không hợp lệ');
+
+  const requiredDuration = service.duration; // phút
+
+  
+  // 2️⃣ Lấy thời gian hiện tại và làm tròn lên khung giờ 0,15,30,45
+  const now = roundUpToNextQuarter(new Date());
+
+  // 3️⃣ Lấy slot trống từ thời điểm này trở đi
+  const slots = await slotRepo.findSlotsByDentistFromNow(dentistId, now);
+  if (!slots.length) return [];
+
+  // 4️⃣ Gom nhóm slot liên tiếp đủ duration
+  const groups = groupConsecutiveSlots(slots, requiredDuration);
+  return groups;
+};

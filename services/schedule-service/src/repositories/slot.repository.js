@@ -47,3 +47,11 @@ exports.updateMany = async (filter, updateData) => {
 exports.find = async (query) => {
   return await Slot.find(query);
 };
+
+exports.findSlotsByDentistFromNow = async (dentistId, fromTime) => {
+  return Slot.find({
+    dentistId: dentistId,
+    startTime: { $gte: fromTime }, // chỉ lấy từ thời gian hiện tại trở đi
+    status: 'available'
+  }).sort({ startTime: 1 }).lean();
+};

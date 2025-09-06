@@ -18,7 +18,6 @@ function validateDates(startDate, endDate) {
   }
 }
 
-
 // 🔧 Check conflict chung
 async function checkScheduleConflict(roomId, shiftIds, startDate, endDate, excludeId = null) {
   const filter = {
@@ -84,9 +83,6 @@ async function generateSlotsCore(scheduleId, subRoomId, shiftIds, slotDuration, 
   }
   return slots;
 }
-
-
-
 
 
 // 🔧 Wrapper: sinh + lưu DB
