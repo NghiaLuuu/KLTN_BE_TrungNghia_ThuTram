@@ -163,6 +163,18 @@ exports.getUserById = async (currentUser, userId) => {
   return user;
 };
 
+exports.getStaffByIds = async (ids) => {
+  const users = await userRepo.findUsersByIds(ids);
+
+  // map fullName -> name để đúng response yêu cầu
+  const staff = users.map(u => ({
+    _id: u._id,
+    name: u.fullName,
+    role: u.role
+  }));
+
+  return { staff };
+};
 
 
 exports.refreshUserCache = refreshUserCache;

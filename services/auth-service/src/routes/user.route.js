@@ -18,4 +18,6 @@ router.get('/staff/search', authMiddleware, userController.searchStaff);
 // Lấy user theo id
 router.get('/:id', authMiddleware, userController.getUserById);
 
+router.post('/staff/batch', userController.getStaffByIds);
+
 module.exports = router;

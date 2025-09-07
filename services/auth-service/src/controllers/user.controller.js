@@ -102,3 +102,19 @@ exports.searchStaff = async (req, res) => {
     return res.status(500).json({ message: 'Lỗi máy chủ, không thể tìm kiếm nhân viên' });
   }
 };
+
+exports.getStaffByIds = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: "Thiếu danh sách ids" });
+    }
+
+    const result = await userService.getStaffByIds(ids);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: err.message });
+  }
+};
+

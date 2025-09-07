@@ -110,3 +110,10 @@ exports.countStaff = async (criteria) => {
 
   return await User.countDocuments(query);
 };
+
+exports.findUsersByIds = async (ids) => {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  return User.find({ _id: { $in: ids } }, '_id fullName role'); // Chỉ lấy _id, fullName, role
+};
+
+
