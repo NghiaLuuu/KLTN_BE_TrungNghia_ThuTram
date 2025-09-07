@@ -65,3 +65,15 @@ exports.searchRoom = async (req, res) => {
     res.status(500).json({ message: `Lỗi khi tìm phòng: ${err.message}` });
   }
 };
+
+exports.getRoomById = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const room = await roomService.getRoomWithSubRooms(roomId);
+
+    res.status(200).json({ room });
+  } catch (err) {
+    console.error(err);
+    res.status(404).json({ message: err.message });
+  }
+};

@@ -2,8 +2,8 @@
 const amqp = require('amqplib');
 const slotRepo = require('../repositories/slot.repository');
 const scheduleRepo = require('../repositories/schedule.repository');
-const scheduleService = require('../services/schedule.service')
-
+const scheduleService = require('../services/schedule.service');
+const slotService = require('../services/slot.service');
 async function startRpcServer() {
   const connection = await amqp.connect(process.env.RABBITMQ_URL);
   const channel = await connection.createChannel();
@@ -22,6 +22,24 @@ async function startRpcServer() {
       const { action, payload } = JSON.parse(content);
 
       switch (action) {
+        case 'validateSlotsForService':
+          try {
+            if (!payload.serviceId || !payload.dentistId || !Array.isArray(payload.slotIds)) {
+              response = { valid: false, reason: 'Thiếu serviceId, dentistId hoặc slotIds' };
+              break;
+            }
+
+            response = await slotService.validateSlotsForService({
+              serviceId: payload.serviceId,
+              dentistId: payload.dentistId,
+              slotIds: payload.slotIds
+            });
+          } catch (err) {
+            console.error('Failed to validate slots for service:', err);
+            response = { valid: false, reason: err.message };
+          }
+          break;
+
         // 👉 Event subRoomAdded
         case 'subRoomAdded':
           try {

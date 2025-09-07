@@ -112,27 +112,27 @@ exports.createSchedule = async (data) => {
   const selectedShifts = shifts.filter(s => data.shiftIds.includes(s._id.toString()));
   if (!selectedShifts.length) throw new Error('Không tìm thấy ca/kíp hợp lệ');
 
-  for (const shift of selectedShifts) {
+ for (const shift of selectedShifts) {
   const [startHour, startMinute] = shift.startTime.split(':').map(Number);
   const [endHour, endMinute] = shift.endTime.split(':').map(Number);
 
-  const shiftStart = new Date();
+  // Gắn ngày bắt đầu / kết thúc theo data.startDate
+  const shiftStart = new Date(data.startDate);
   shiftStart.setHours(startHour, startMinute, 0, 0);
 
-  const shiftEnd = new Date();
+  const shiftEnd = new Date(data.startDate);
   shiftEnd.setHours(endHour, endMinute, 0, 0);
 
   // Tổng thời lượng ca (phút)
   const shiftMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
 
-  // Thời lượng còn lại (phút) – nếu ca đang diễn ra thì tính từ "bây giờ" đến khi kết thúc
+  // Thời lượng còn lại
   let remainingMinutes = shiftMinutes;
   const now = new Date();
   if (now >= shiftStart && now < shiftEnd) {
     remainingMinutes = Math.floor((shiftEnd - now) / 60000);
   }
 
-  // Nếu slotDuration quá lớn so với thời lượng còn lại
   if (data.slotDuration >= remainingMinutes) {
     throw new Error(
       `slotDuration (${data.slotDuration} phút) không hợp lệ cho ca ${shift._id}. ` +
@@ -140,6 +140,7 @@ exports.createSchedule = async (data) => {
     );
   }
 }
+
 
   
   // ✅ Kiểm tra ngày bắt đầu và kết thúc
@@ -333,6 +334,39 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId) => {
   await schedule.save();
 
   return { schedule, createdSlotIds: slotIds };
+};
+
+exports.listSchedules = async ({ roomId, shiftIds = [], page = 1, limit = 1 }) => {
+  const skip = (page - 1) * limit;
+
+  const { schedules, total } = await scheduleRepo.findSchedules({
+    roomId,
+    shiftIds,
+    skip,
+    limit
+  });
+
+  return {
+    total,
+    totalPages: Math.ceil(total / limit),
+    page: Number(page),
+    limit: Number(limit),
+    schedules
+  };
+};
+
+
+
+exports.getScheduleById = async (id) => {
+  const schedule = await scheduleRepo.findScheduleById(id);
+  if (!schedule) {
+    throw new Error('Không tìm thấy schedule');
+  }
+  return schedule;
+};
+
+exports.getSlotsByScheduleId = async ({ scheduleId, page = 1, limit }) => {
+  return await scheduleRepo.findSlotsByScheduleId(scheduleId, page, limit);
 };
 
 

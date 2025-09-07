@@ -55,3 +55,36 @@ exports.findSlotsByDentistFromNow = async (dentistId, fromTime) => {
     status: 'available'
   }).sort({ startTime: 1 }).lean();
 };
+
+// Cập nhật trạng thái slot
+exports.updateSlotStatus = async (slotId, status) => {
+  return await Slot.findByIdAndUpdate(
+    slotId,
+    { $set: { status } },
+    { new: true }
+  );
+};
+
+exports.findSlotsByEmployee = async ({ employeeId, startDate, endDate }) => {
+  if (!employeeId) {
+    throw new Error('Thiếu employeeId');
+  }
+
+  const filter = {
+    $or: [
+      { dentistId: { $in: [employeeId] } },
+      { nurseId: { $in: [employeeId] } }
+    ]
+  };
+
+  // Nếu truyền startDate / endDate thì lọc theo date
+  if (startDate || endDate) {
+    filter.date = {};
+    if (startDate) filter.date.$gte = new Date(startDate);
+    if (endDate) filter.date.$lte = new Date(endDate);
+  }
+
+  const slots = await Slot.find(filter).sort({ date: 1, startTime: 1 });
+
+  return slots;
+};

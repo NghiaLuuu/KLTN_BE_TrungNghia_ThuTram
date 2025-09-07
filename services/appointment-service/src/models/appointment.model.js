@@ -3,7 +3,12 @@ const mongoose = require('mongoose');
 const appointmentSchema = new mongoose.Schema({
   patientId: { // bệnh nhân
     type: mongoose.Schema.Types.ObjectId,
-    required: true
+    default: null
+  },
+  patientInfo: { // thông tin snapshot hoặc khách vãng lai
+    name: { type: String },
+    phone: { type: String },
+    birthYear: { type: Number }
   },
   serviceId: [{ // dịch vụ (lấy type, duration, price từ Service)
     type: mongoose.Schema.Types.ObjectId,
@@ -13,21 +18,13 @@ const appointmentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     default: null
   },
-  scheduleId: { // lịch làm việc
-    type: mongoose.Schema.Types.ObjectId,
-    required: true
-  },
-  slotId: { // slot thời gian
-    type: mongoose.Schema.Types.ObjectId,
-    required: true
-  },
+  slotIds: [{ // danh sách slot được giữ/đặt
+      type: mongoose.Schema.Types.ObjectId,
+      required: true
+  }],
   type: {
     type: String,
     enum: ["exam", "treatment"]
-  },
-  notes: { // ghi chú cho nha sĩ/lễ tân
-    type: String,
-    trim: true
   },
   status: {
     type: String,
@@ -41,11 +38,6 @@ const appointmentSchema = new mongoose.Schema({
   },
   bookedBy: { // người tạo lịch
     type: mongoose.Schema.Types.ObjectId,
-    required: true
-  },
-  channel: {
-    type: String,
-    enum: ['web', 'app'],
     required: true
   },
   paymentId: {

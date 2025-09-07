@@ -1,4 +1,6 @@
 const Schedule = require('../models/schedule.model');
+const Slot = require('../models/slot.model'); 
+
 const mongoose = require('mongoose');
 
 exports.createSchedule = async (data) => {
@@ -6,7 +8,7 @@ exports.createSchedule = async (data) => {
 };
 
 exports.findById = async (id) => {
-  return await Schedule.findById(id).populate('slots'); 
+  return await Schedule.findById(id); // không populate
 };
 
 exports.updateSchedule = async (id, data) => {
@@ -27,21 +29,17 @@ exports.findByStaffAndDate = async (staffId, date) => {
   return await Schedule.find({
     date: { $gte: startOfDay, $lte: endOfDay },
     $or: [
-      { dentistIds: { $in: [staffId] } }, // tìm nếu là nha sĩ
-      { nurseIds: { $in: [staffId] } }    // tìm nếu là y tá
+      { dentistIds: { $in: [staffId] } },
+      { nurseIds: { $in: [staffId] } }
     ]
-  }).populate('slots');
+  });
 };
 
 exports.getScheduleById = async (scheduleId) => {
   if (!mongoose.Types.ObjectId.isValid(scheduleId)) return null;
 
   try {
-    const schedule = await Schedule.findById(scheduleId)
-      .populate('dentistIds', 'name role')   // populate thông tin nha sĩ nếu cần
-      .populate('nurseIds', 'name role')     // populate thông tin y tá nếu cần
-      .populate('roomId', 'name type');      // populate thông tin phòng nếu cần
-    return schedule;
+    return await Schedule.findById(scheduleId);
   } catch (err) {
     console.error('Error in getScheduleById:', err);
     return null;
@@ -57,9 +55,59 @@ exports.appendSlots = async (scheduleId, slotIds) => {
 };
 
 exports.findOne = async (filter) => {
-  return await Schedule.findOne(filter).populate('slots');
+  return await Schedule.findOne(filter); // không populate
 };
 
 exports.findByRoomId = async (roomId) => {
   return await Schedule.find({ roomId });
+};
+
+
+exports.findSchedules = async ({ roomId, shiftIds = [], skip = 0, limit = 10 }) => {
+  const filter = {};
+
+  if (roomId) filter.roomId = roomId;
+  if (shiftIds.length > 0) filter.shiftIds = { $in: shiftIds };
+
+  const schedules = await Schedule.find(filter)
+    .populate('slots')
+    .sort({ startDate: -1 })
+    .skip(skip)
+    .limit(limit);
+
+  const total = await Schedule.countDocuments(filter);
+
+  return { schedules, total };
+};
+
+exports.findScheduleById = async (id) => {
+  const schedule = await Schedule.findById(id); // chỉ lấy raw document
+  return schedule;
+};
+
+exports.findSlotsByScheduleId = async (scheduleId, page = 1, limit) => {
+  const filter = { scheduleId };
+
+  if (limit) {
+    const skip = (page - 1) * limit;
+    const slots = await Slot.find(filter).sort({ startTime: 1 }).skip(skip).limit(limit);
+    const total = await Slot.countDocuments(filter);
+    return {
+      total,
+      totalPages: Math.ceil(total / limit),
+      page,
+      limit,
+      slots
+    };
+  } else {
+    // Nếu limit không truyền → trả hết
+    const slots = await Slot.find(filter).sort({ startTime: 1 });
+    return {
+      total: slots.length,
+      totalPages: 1,
+      page: 1,
+      limit: slots.length,
+      slots
+    };
+  }
 };

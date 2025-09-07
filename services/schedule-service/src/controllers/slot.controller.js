@@ -139,4 +139,25 @@ exports.getAvailableSlotsFromNow = async (req, res) => {
   }
 };
 
+exports.getEmployeeSchedule = async (req, res) => {
+  try {
+    const { employeeId, startDate, endDate, page = 1, limit = 1 } = req.query;
+
+    if (!employeeId) return res.status(400).json({ message: 'Thiếu employeeId' });
+
+    const result = await slotService.getEmployeeSchedule({
+      employeeId,
+      startDate,
+      endDate,
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+
+    res.status(200).json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ message: err.message });
+  }
+};
+
 

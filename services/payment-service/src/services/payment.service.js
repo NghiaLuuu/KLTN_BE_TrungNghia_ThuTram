@@ -16,7 +16,15 @@ class PaymentService {
       paymentTime: new Date(),
     });
   }
-
+  async createPaymentStaff({ amount, method }) {
+    const paymentMethod = method || 'momo';
+    return paymentRepository.create({
+      amount,
+      method: paymentMethod,
+      status: PaymentStatus.PENDING,
+      paymentTime: new Date(),
+    });
+  }
   async confirmPayment(id) {
     return paymentRepository.update(id, {
       status: PaymentStatus.COMPLETED,

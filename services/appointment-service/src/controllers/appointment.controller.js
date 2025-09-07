@@ -4,10 +4,10 @@ const appointmentService = require('../services/appointment.service');
 // Tạo hold
 exports.createHold = async (req, res) => {
   try {
-    const userIdFromToken = req.user.userId; 
     const data = req.body;
 
-    const result = await appointmentService.createHold(data, userIdFromToken);
+    // ✅ Truyền luôn object đã decode từ token
+    const result = await appointmentService.createHold(data, req.user);
 
     res.status(200).json(result);
   } catch (err) {
@@ -15,6 +15,7 @@ exports.createHold = async (req, res) => {
     res.status(400).json({ message: err.message });
   }
 };
+
 
 exports.confirm = async (req, res) => {
   try {

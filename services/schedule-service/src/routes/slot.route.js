@@ -7,7 +7,7 @@ router.post('/assign-staff', slotController.assignStaff);
 
 // Lấy danh sách slot (có thể filter bằng query params: scheduleId, subRoomId, date, status...)
 router.get('/', slotController.getSlots);
-
+router.get('/employee-schedule', slotController.getEmployeeSchedule);
 
 
 // Gán nha sỹ, y tá vào 1 hay nhiều slot (có thể chọn slot)

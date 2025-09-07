@@ -1,7 +1,7 @@
 const slotRepo = require('../repositories/slot.repository');
 const scheduleRepo = require('../repositories/schedule.repository');
 const redisClient = require('../utils/redis.client');
-
+const Schedule = require('../models/schedule.model');
 exports.assignStaff = async (data) => {
   const { scheduleId, subRoomId, dentistIds = [], nurseIds = [], startDate, endDate, shiftIds = [] } = data;
 
@@ -402,4 +402,101 @@ exports.findAvailableSlotsForServiceFromNow = async ({ serviceId, dentistId }) =
   // 4️⃣ Gom nhóm slot liên tiếp đủ duration
   const groups = groupConsecutiveSlots(slots, requiredDuration);
   return groups;
+};
+
+exports.validateSlotsForService = async ({ serviceId, dentistId, slotIds }) => {
+  if (!slotIds || !slotIds.length) {
+    return { valid: false, reason: 'Chưa chọn slot nào' };
+  }
+
+  // 🔎 Lấy tất cả group slot hợp lệ cho serviceId + dentistId
+  const groups = await exports.findAvailableSlotsForServiceFromNow({ serviceId, dentistId });
+  if (!groups.length) {
+    return { valid: false, reason: 'Không có slot trống nào phù hợp' };
+  }
+
+  // Convert slotIds sang string cho chắc
+  const slotIdStrings = slotIds.map(id => id.toString());
+
+  // Kiểm tra xem slotIds có nằm trong một group hợp lệ không
+  const isValid = groups.some(group => {
+    const groupIds = group.slots.map(s => s._id.toString());
+    return slotIdStrings.every(id => groupIds.includes(id));
+  });
+
+  if (!isValid) {
+    return { valid: false, reason: 'Các slot đã chọn không liên tiếp hoặc không đủ thời lượng cho dịch vụ' };
+  }
+
+  return { valid: true };
+};
+
+// slotService.js
+exports.getEmployeeSchedule = async ({ employeeId, startDate, endDate, page = 1, limit = 1 }) => {
+  if (!employeeId) throw new Error('Thiếu employeeId');
+
+  // Lấy tất cả slot của nhân viên
+  const slots = await slotRepo.findSlotsByEmployee({ employeeId, startDate, endDate });
+  if (slots.length === 0) return { total: 0, page, limit, totalPages: 0, data: [] };
+
+  // Nhóm slot theo ngày Việt Nam
+  const slotsByDay = {};
+  slots.forEach(slot => {
+    const vnDate = new Date(slot.date.getTime() + 7 * 60 * 60 * 1000); // UTC+7
+    const dayKey = vnDate.toISOString().split('T')[0];
+    if (!slotsByDay[dayKey]) slotsByDay[dayKey] = [];
+    slotsByDay[dayKey].push(slot);
+  });
+
+  // Lấy tất cả scheduleId để fetch schedule
+  const scheduleIds = [...new Set(slots.map(s => s.scheduleId.toString()))];
+  const schedules = await Schedule.find({ _id: { $in: scheduleIds } });
+
+  // Sắp xếp các ngày và phân trang theo ngày
+  const sortedDays = Object.keys(slotsByDay).sort();
+  const totalDays = sortedDays.length;
+  const totalPages = Math.ceil(totalDays / limit);
+  const pagedDays = sortedDays.slice((page - 1) * limit, page * limit);
+
+  // Tạo kết quả
+  const data = pagedDays.map(day => {
+    const daySlots = slotsByDay[day];
+
+    // Nhóm slot theo schedule
+    const schedulesMap = {};
+    daySlots.forEach(slot => {
+      const sid = slot.scheduleId.toString();
+      if (!schedulesMap[sid]) schedulesMap[sid] = [];
+      schedulesMap[sid].push(slot);
+    });
+
+    // Tạo array schedule với shiftSlots
+    const schedulesData = Object.entries(schedulesMap).map(([sid, sSlots]) => {
+      const schedule = schedules.find(s => s._id.toString() === sid);
+      const shiftMap = {};
+      schedule.shiftIds.forEach(shiftId => {
+        shiftMap[shiftId] = sSlots.filter(s => schedule.shiftIds.includes(shiftId));
+      });
+      return {
+        scheduleId: schedule._id,
+        roomId: schedule.roomId,
+        startDate: schedule.startDate,
+        endDate: schedule.endDate,
+        shiftSlots: shiftMap
+      };
+    });
+
+    return {
+      date: day,
+      schedules: schedulesData
+    };
+  });
+
+  return {
+    total: totalDays,
+    page,
+    limit,
+    totalPages,
+    data
+  };
 };

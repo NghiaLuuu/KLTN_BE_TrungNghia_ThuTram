@@ -49,6 +49,14 @@ async function startRpcServer() {
             response = { error: err.message };
           }
           break;
+          case 'createPayment':
+            try {
+              response = await paymentService.createPaymentStaff(payload);
+            } catch (err) {
+              console.error('Failed to createPayment:', err);
+              response = { error: err.message };
+            }
+            break;
 
         default:
           response = { error: `Unknown action: ${action}` };

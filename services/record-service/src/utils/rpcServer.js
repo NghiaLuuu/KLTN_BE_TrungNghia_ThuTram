@@ -1,4 +1,3 @@
-// rpc/record.rpc.js
 const amqp = require("amqplib");
 const recordService = require("../services/record.service");
 
@@ -18,57 +17,41 @@ async function startRecordRpcServer() {
     try {
       const { action, payload } = JSON.parse(msg.content.toString());
 
-      switch (action) {
-        case "createRecord":
-          try {
-            const { appointmentId, patientId, dentistId, serviceId, type, notes } = payload;
+      try {
+        switch (action) {
+          case "createRecord":
+            response = await handleCreateRecord(payload);
+            break;
 
-            if (!patientId || !appointmentId) {
-              response = { error: "patientId & appointmentId are required" };
-              break;
-            }
+          case "getRecordById":
+            response = await handleGetRecordById(payload);
+            break;
 
-            // Gọi service tạo record
-            const record = await recordService.createRecord({
-              appointmentId,
-              patientId,
-              dentistId,
-              serviceId,  // 🔑 đồng bộ tên field
-              type,
-              notes: notes || ""
-            });
+          case "updateRecord":
+            response = await handleUpdateRecord(payload);
+            break;
 
-            response = { record };
-          } catch (err) {
-            console.error("❌ Failed to create record:", err);
-            response = { error: err.message };
-          }
-          break;
+          case "completeRecord":
+            response = await handleCompleteRecord(payload);
+            break;
 
+          case "searchRecords":
+            response = await handleSearchRecords(payload);
+            break;
 
-        case "getRecordById":
-          try {
-            if (!payload.id) {
-              response = { error: "recordId is required" };
-              break;
-            }
-            const record = await recordService.getRecordById(payload.id);
-            response = { record };
-          } catch (err) {
-            console.error("❌ Failed to getRecordById:", err);
-            response = { error: err.message };
-          }
-          break;
-
-        default:
-          response = { error: `Unknown action: ${action}` };
+          default:
+            response = { error: `Unknown action: ${action}` };
+        }
+      } catch (err) {
+        console.error(`❌ Error handling action ${action}:`, err);
+        response = { error: err.message };
       }
+
     } catch (err) {
-      console.error("❌ RPC server error:", err);
+      console.error("❌ RPC server parse error:", err);
       response = { error: err.message };
     }
 
-    // Gửi response về cho client (appointment service)
     if (msg.properties.replyTo) {
       channel.sendToQueue(
         msg.properties.replyTo,
@@ -82,3 +65,35 @@ async function startRecordRpcServer() {
 }
 
 module.exports = startRecordRpcServer;
+
+// ------------------- Handlers -------------------
+async function handleCreateRecord(payload) {
+  const record = await recordService.createRecord(payload);
+  return { record };
+}
+
+async function handleGetRecordById(payload) {
+  if (!payload.id) throw new Error("recordId is required");
+  const record = await recordService.getRecordById(payload.id);
+  return { record };
+}
+
+async function handleUpdateRecord(payload) {
+  const { id, updateData } = payload;
+  if (!id) throw new Error("recordId is required");
+  const record = await recordService.updateRecord(id, updateData);
+  return { record };
+}
+
+async function handleCompleteRecord(payload) {
+  const { id } = payload;
+  if (!id) throw new Error("recordId is required");
+  const record = await recordService.completeRecord(id);
+  return { record };
+}
+
+async function handleSearchRecords(payload) {
+  const filter = payload || {};
+  const records = await recordService.searchRecords(filter);
+  return { records };
+}

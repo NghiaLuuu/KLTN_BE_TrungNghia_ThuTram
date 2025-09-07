@@ -7,7 +7,7 @@ const authMiddleware = require('../middlewares/auth.middleware');
 router.post('/', authMiddleware, roomController.createRoom);
 router.put('/:id', authMiddleware, roomController.updateRoom);
 router.patch('/:id/toggle', authMiddleware, roomController.toggleStatus);
-router.get('/', authMiddleware, roomController.listRooms);
-router.get('/search', authMiddleware, roomController.searchRoom);
-
+router.get('/', roomController.listRooms);
+router.get('/search', roomController.searchRoom);
+router.get('/:roomId', roomController.getRoomById);
 module.exports = router;

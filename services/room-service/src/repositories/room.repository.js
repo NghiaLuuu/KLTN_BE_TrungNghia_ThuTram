@@ -47,3 +47,10 @@ exports.countSearchRoom = async (keyword) => {
 exports.findById = async (roomId) => {
   return await Room.findById(roomId);
 };
+
+exports.findById = async (roomId) => {
+  if (!roomId) throw new Error("Thiếu roomId");
+
+  const room = await Room.findById(roomId).select('-__v'); // chọn tất cả fields trừ __v
+  return room; // trả về document Room hoặc null
+};
