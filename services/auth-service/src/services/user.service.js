@@ -7,7 +7,7 @@ async function initUserCache() {
   const users = await userRepo.listUsers(); // cần có method listUsers trong repository
   const filtered = users.filter(user => user.role !== 'patient');
   await redis.set(USER_CACHE_KEY, JSON.stringify(filtered));
-  console.log(`✅ Cache người dùng đã được tải: ${filtered.length} người dùng`);
+  console.log(`✅ Cache nhân viên đã được tải: ${filtered.length} nhân viên`);
 }
 
 exports.createUser = async (data) => {

@@ -88,3 +88,30 @@ exports.findSlotsByEmployee = async ({ employeeId, startDate, endDate }) => {
 
   return slots;
 };
+
+exports.findSlotsByScheduleId = async (scheduleId, page = 1, limit) => {
+  const filter = { scheduleId };
+  let slots;
+
+  if (limit) {
+    const skip = (page - 1) * limit;
+    slots = await Slot.find(filter).sort({ startTime: 1 }).skip(skip).limit(limit);
+    const total = await Slot.countDocuments(filter);
+    return {
+      total,
+      totalPages: Math.ceil(total / limit),
+      page,
+      limit,
+      slots
+    };
+  } else {
+    slots = await Slot.find(filter).sort({ startTime: 1 });
+    return {
+      total: slots.length,
+      totalPages: 1,
+      page: 1,
+      limit: slots.length,
+      slots
+    };
+  }
+};

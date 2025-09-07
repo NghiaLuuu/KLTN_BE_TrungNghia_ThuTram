@@ -365,8 +365,67 @@ exports.getScheduleById = async (id) => {
   return schedule;
 };
 
+
+/**
+ * Lấy thông tin user từ Redis cache theo mảng ids
+ */
+async function getUsersFromCache(ids = []) {
+  if (!ids.length) return [];
+
+  // Lấy toàn bộ cache (string JSON)
+  const cache = await redisClient.get('users_cache');
+  if (!cache) return [];
+
+  let users;
+  try {
+    users = JSON.parse(cache); // users là mảng
+  } catch (err) {
+    console.error('Lỗi parse users_cache:', err);
+    return [];
+  }
+
+  // Lọc và chỉ lấy _id + fullName
+  const filtered = users
+    .filter(u => ids.includes(u._id))
+    .map(u => ({ _id: u._id, fullName: u.fullName, employeeCode: u.employeeCode}));
+
+  return filtered;
+}
+
+
+
+/**
+ * Lấy slot theo scheduleId kèm thông tin nha sỹ và y tá
+ */
 exports.getSlotsByScheduleId = async ({ scheduleId, page = 1, limit }) => {
-  return await scheduleRepo.findSlotsByScheduleId(scheduleId, page, limit);
+  // 1️⃣ Lấy slot từ repository
+  const { total, totalPages, slots: dbSlots } = await slotRepo.findSlotsByScheduleId(scheduleId, page, limit);
+
+  // 2️⃣ Lấy tất cả dentistId / nurseId
+  const dentistIds = [...new Set(dbSlots.flatMap(s => s.dentistId.map(id => id.toString())))];
+  const nurseIds = [...new Set(dbSlots.flatMap(s => s.nurseId.map(id => id.toString())))];
+
+  // 3️⃣ Lấy thông tin từ Redis
+  const dentists = await getUsersFromCache(dentistIds);
+  const nurses = await getUsersFromCache(nurseIds);
+
+  const dentistMap = Object.fromEntries(dentists.map(d => [d._id, d]));
+  const nurseMap = Object.fromEntries(nurses.map(n => [n._id, n]));
+
+  // 4️⃣ Gán thông tin staff vào slot
+  const slots = dbSlots.map(s => ({
+    ...s.toObject(),
+    dentists: s.dentistId.map(id => dentistMap[id.toString()] || { _id: id, fullName: null }),
+    nurses: s.nurseId.map(id => nurseMap[id.toString()] || { _id: id, fullName: null })
+  }));
+
+  return {
+    total,
+    totalPages,
+    page,
+    limit: limit || total,
+    slots
+  };
 };
 
 
