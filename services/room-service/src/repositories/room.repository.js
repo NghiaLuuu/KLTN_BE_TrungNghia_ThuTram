@@ -54,3 +54,11 @@ exports.findById = async (roomId) => {
   const room = await Room.findById(roomId).select('-__v'); // chọn tất cả fields trừ __v
   return room; // trả về document Room hoặc null
 };
+
+exports.findRoomBySubRoomId = async (subRoomId) => {
+  if (!subRoomId) throw new Error("Thiếu subRoomId");
+
+  // Tìm phòng chứa subRoom
+  const room = await Room.findOne({ "subRooms._id": subRoomId });
+  return room; // có thể null nếu không tìm thấy
+};

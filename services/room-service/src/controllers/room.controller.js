@@ -77,3 +77,14 @@ exports.getRoomById = async (req, res) => {
     res.status(404).json({ message: err.message });
   }
 };
+
+exports.getSubRoomById = async (req, res) => {
+  try {
+    const { subRoomId } = req.params;
+    const result = await roomService.getSubRoomById(subRoomId);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ message: err.message });
+  }
+};

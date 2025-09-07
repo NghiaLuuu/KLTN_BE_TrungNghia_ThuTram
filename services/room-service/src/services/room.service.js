@@ -122,6 +122,18 @@ exports.getRoomWithSubRooms = async (roomId) => {
   return room; // trả về cả room object, đã bao gồm mảng subRooms
 };
 
+exports.getSubRoomById = async (subRoomId) => {
+  const room = await roomRepo.findRoomBySubRoomId(subRoomId);
+  if (!room) throw new Error("Không tìm thấy phòng chứa subRoom này");
+
+  const subRoom = room.subRooms.id(subRoomId);
+  if (!subRoom) throw new Error("Không tìm thấy subRoom");
+
+  return {
+    room
+  };
+};
+
 async function refreshRoomCache() {
   const rooms = await roomRepo.listRooms();
   await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms));

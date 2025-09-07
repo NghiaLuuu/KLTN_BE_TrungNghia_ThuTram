@@ -9,5 +9,6 @@ router.put('/:id', authMiddleware, roomController.updateRoom);
 router.patch('/:id/toggle', authMiddleware, roomController.toggleStatus);
 router.get('/', roomController.listRooms);
 router.get('/search', roomController.searchRoom);
+router.get('/subroom/:subRoomId', roomController.getSubRoomById);
 router.get('/:roomId', roomController.getRoomById);
 module.exports = router;
