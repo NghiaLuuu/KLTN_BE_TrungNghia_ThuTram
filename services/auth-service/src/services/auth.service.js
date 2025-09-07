@@ -94,12 +94,13 @@ exports.register = async (data) => {
 };
 
 // Đăng nhập
-exports.login = async ({ email, password }) => {
-  const user = await userRepo.findByEmail(email);
+exports.login = async ({ login, password }) => {
+  // login có thể là email hoặc employeeCode
+  const user = await userRepo.findByLogin(login);
   if (!user) throw new Error('Không tìm thấy người dùng');
 
   const match = await bcrypt.compare(password, user.password);
-  if (!match) throw new Error('Sai email hoặc mật khẩu');
+  if (!match) throw new Error('Sai email/mã nhân viên hoặc mật khẩu');
 
   const refreshToken = generateRefreshToken(user);
   const accessToken = generateAccessToken(user);

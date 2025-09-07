@@ -10,7 +10,7 @@ const userSchema = new Schema({
   type: {
     type: String,
     enum: ['fullTime', 'partTime'],
-    default: "fullTime",   
+    default: "fullTime",
     required: false,
   },
   email: {
@@ -39,6 +39,11 @@ const userSchema = new Schema({
     type: Date,
     required: true,
   },
+  employeeCode: {
+    type: String,
+    unique: true,
+    sparse: true, // cho phép null nếu role = patient
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -51,5 +56,40 @@ const userSchema = new Schema({
     type: String,
   }],
 });
+
+// 🔹 Hook pre-save tự sinh employeeCode
+userSchema.pre('save', async function(next) {
+  const user = this;
+
+  // Chỉ sinh mã cho role khác patient và nếu chưa có mã
+  if (user.role === 'patient' || user.employeeCode) return next();
+
+  const prefixMap = {
+    admin: 'A',
+    dentist: 'D',
+    nurse: 'N',
+    receptionist: 'R',
+    manager: 'M'
+  };
+  const prefix = prefixMap[user.role] || 'X';
+
+  const User = mongoose.model('User');
+
+  // Tìm user có employeeCode cao nhất cùng role
+  const lastUser = await User.findOne({ role: user.role, employeeCode: { $exists: true } })
+                             .sort({ employeeCode: -1 })
+                             .exec();
+
+  let nextNumber = 1;
+  if (lastUser && lastUser.employeeCode) {
+    const match = lastUser.employeeCode.match(/\d+$/);
+    if (match) nextNumber = parseInt(match[0], 10) + 1;
+  }
+
+  // Sinh employeeCode với 7 chữ số
+  user.employeeCode = `${prefix}${String(nextNumber).padStart(7, '0')}`; // ví dụ: D0000001
+  next();
+});
+
 
 module.exports = mongoose.model('User', userSchema);

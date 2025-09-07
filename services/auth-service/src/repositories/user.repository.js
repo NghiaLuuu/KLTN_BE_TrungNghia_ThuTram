@@ -2,6 +2,15 @@
 const User = require('../models/user.model');
 
 exports.findByEmail = (email) => User.findOne({ email });
+// Tìm user theo email hoặc employeeCode
+exports.findByLogin = (login) => {
+  return User.findOne({
+    $or: [
+      { email: login },
+      { employeeCode: login }
+    ]
+  });
+};
 exports.findByPhone = (phone) => User.findOne({ phone });
 
 exports.findById = async (id) => {
