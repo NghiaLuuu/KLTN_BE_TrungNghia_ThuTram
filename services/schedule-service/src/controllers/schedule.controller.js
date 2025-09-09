@@ -97,5 +97,14 @@ exports.getScheduleSlots = async (req, res) => {
   }
 };
 
-
+exports.getRoomSchedulesSummary = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const summary = await scheduleService.getRoomSchedulesSummary(roomId);
+    res.status(200).json(summary);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ message: err.message });
+  }
+};
 

@@ -62,3 +62,15 @@ exports.findRoomBySubRoomId = async (subRoomId) => {
   const room = await Room.findOne({ "subRooms._id": subRoomId });
   return room; // có thể null nếu không tìm thấy
 };
+
+exports.toggleSubRoomStatus = async (roomId, subRoomId) => {
+  const room = await Room.findById(roomId);
+  if (!room) throw new Error('Room not found');
+
+  const subRoom = room.subRooms.id(subRoomId);
+  if (!subRoom) throw new Error('SubRoom not found');
+
+  subRoom.isActive = !subRoom.isActive;
+  await room.save();
+  return room;
+};

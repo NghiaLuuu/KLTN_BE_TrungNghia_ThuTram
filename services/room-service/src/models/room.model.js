@@ -15,6 +15,10 @@ const subRoomSchema = new mongoose.Schema({
     type: Number,
     required: true,
     min: 1,
+  },
+  isActive: {
+    type: Boolean,
+    default: true, // mặc định bật
   }
 }, { _id: true });
 

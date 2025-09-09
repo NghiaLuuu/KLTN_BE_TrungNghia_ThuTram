@@ -115,3 +115,7 @@ exports.findSlotsByScheduleId = async (scheduleId, page = 1, limit) => {
     };
   }
 };
+
+exports.findByIds = async (ids) => {
+  return Slot.find({ _id: { $in: ids } }).select('_id subRoomId');
+};

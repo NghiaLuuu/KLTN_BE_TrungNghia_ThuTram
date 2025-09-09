@@ -100,7 +100,8 @@ exports.createSchedule = async (data) => {
   const rooms = JSON.parse(roomCache);
   const room = rooms.find(r => r._id.toString() === data.roomId.toString());
   if (!room) throw new Error('Không tìm thấy phòng');
-
+  // 🔹 Kiểm tra room có isActive không
+  if (!room.isActive) throw new Error(`Phòng ${room._id} hiện không hoạt động`);
   // 🔹 Kiểm tra conflict
   const conflict = await checkScheduleConflict(data.roomId, data.shiftIds, data.startDate, data.endDate);
   if (conflict) throw new Error(`Lịch bị trùng với schedule ${conflict._id}`);
@@ -109,8 +110,13 @@ exports.createSchedule = async (data) => {
   const shiftCache = await redisClient.get('shifts_cache');
   if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
   const shifts = JSON.parse(shiftCache);
-  const selectedShifts = shifts.filter(s => data.shiftIds.includes(s._id.toString()));
-  if (!selectedShifts.length) throw new Error('Không tìm thấy ca/kíp hợp lệ');
+  
+
+  // Lọc shift hợp lệ + isActive
+  const selectedShifts = shifts.filter(
+    s => data.shiftIds.includes(s._id.toString()) && s.isActive
+  );
+  if (!selectedShifts.length) throw new Error('Không tìm thấy ca/kíp hợp lệ hoặc ca/kíp không hoạt động');
 
  for (const shift of selectedShifts) {
   const [startHour, startMinute] = shift.startTime.split(':').map(Number);
@@ -133,12 +139,13 @@ exports.createSchedule = async (data) => {
     remainingMinutes = Math.floor((shiftEnd - now) / 60000);
   }
 
-  if (data.slotDuration >= remainingMinutes) {
-    throw new Error(
-      `slotDuration (${data.slotDuration} phút) không hợp lệ cho ca ${shift._id}. ` +
-      `Chỉ còn ${remainingMinutes} phút khả dụng trong ca này.`
-    );
-  }
+  if (data.slotDuration > remainingMinutes) {
+      throw new Error(
+        `slotDuration (${data.slotDuration} phút) không hợp lệ cho ca ${shift._id}. ` +
+        `Chỉ còn ${remainingMinutes} phút khả dụng trong ca này.`
+      );
+    }
+
 }
 
 
@@ -346,12 +353,25 @@ exports.listSchedules = async ({ roomId, shiftIds = [], page = 1, limit = 1 }) =
     limit
   });
 
+  // Enrich từng schedule
+  const enrichedSchedules = [];
+  for (const sch of schedules) {
+    const { slots: dbSlots } = await slotRepo.findSlotsByScheduleId(sch._id);
+
+    const enrichedSlots = await enrichSlots(dbSlots);
+
+    enrichedSchedules.push({
+      ...sch.toObject(),
+      slots: enrichedSlots
+    });
+  }
+
   return {
     total,
     totalPages: Math.ceil(total / limit),
     page: Number(page),
     limit: Number(limit),
-    schedules
+    schedules: enrichedSchedules
   };
 };
 
@@ -427,6 +447,160 @@ exports.getSlotsByScheduleId = async ({ scheduleId, page = 1, limit }) => {
     slots
   };
 };
+
+async function getSubRoomMapFromCache() {
+  const roomCache = await redisClient.get('rooms_cache');
+  if (!roomCache) return {};
+
+  let rooms;
+  try {
+    rooms = JSON.parse(roomCache); // mảng room
+  } catch (err) {
+    console.error('Lỗi parse rooms_cache:', err);
+    return {};
+  }
+
+  const subRoomMap = {};
+  for (const r of rooms) {
+    if (r.subRooms && r.subRooms.length) {
+      for (const sub of r.subRooms) {
+        subRoomMap[sub._id] = {
+          subRoomId: sub._id,
+          subRoomName: sub.name,
+          roomId: r._id,
+          roomName: r.name
+        };
+      }
+    }
+  }
+
+  return subRoomMap;
+}
+// 🔹 Hàm enrich slots
+async function enrichSlots(dbSlots) {
+  if (!dbSlots.length) return [];
+
+  // Dentist + Nurse
+  const dentistIds = [...new Set(dbSlots.flatMap(s => s.dentistId.map(id => id.toString())))];
+  const nurseIds = [...new Set(dbSlots.flatMap(s => s.nurseId.map(id => id.toString())))];
+
+  const dentists = await getUsersFromCache(dentistIds);
+  const nurses = await getUsersFromCache(nurseIds);
+
+  const dentistMap = Object.fromEntries(dentists.map(d => [d._id, d]));
+  const nurseMap = Object.fromEntries(nurses.map(n => [n._id, n]));
+
+  // SubRoom
+  const subRoomMap = await getSubRoomMapFromCache();
+
+  return dbSlots.map(s => {
+    const subRoomInfo = subRoomMap[s.subRoomId?.toString()] || {};
+    return {
+      ...s.toObject(),
+      dentists: s.dentistId.map(id => dentistMap[id.toString()] || { _id: id, fullName: null }),
+      nurses: s.nurseId.map(id => nurseMap[id.toString()] || { _id: id, fullName: null }),
+      subRoomId: subRoomInfo.subRoomId || s.subRoomId,
+      subRoomName: subRoomInfo.subRoomName || null,
+      roomId: subRoomInfo.roomId || null,
+      roomName: subRoomInfo.roomName || null
+    };
+  });
+}
+
+exports.getRoomSchedulesSummary = async (roomId) => {
+  if (!roomId) throw new Error("Thiếu roomId");
+
+  const schedules = await scheduleRepo.findByRoomId(roomId);
+
+  if (!schedules.length) {
+    return {
+      roomId,
+      startDate: null,
+      endDate: null,
+      shiftIds: [],
+      shifts: [],
+      subRooms: [],
+      schedules: []
+    };
+  }
+
+  // startDate sớm nhất
+  const startDate = schedules.reduce(
+    (min, s) => (!min || new Date(s.startDate) < min ? new Date(s.startDate) : min),
+    null
+  );
+
+  // endDate trễ nhất
+  const endDate = schedules.reduce(
+    (max, s) => (!max || new Date(s.endDate) > max ? new Date(s.endDate) : max),
+    null
+  );
+
+  // 🔹 Tập hợp shiftIds duy nhất
+  const shiftIds = [
+    ...new Set(schedules.flatMap(s => s.shiftIds.map(id => id.toString())))
+  ];
+
+  // 🔹 Map shiftId → shift info
+  const shiftMap = await getShiftMapFromCache();
+  const shifts = shiftIds
+    .map(id => shiftMap[id])
+    .filter(Boolean); // loại bỏ shift không tồn tại trong cache
+
+  // 🔹 Lấy toàn bộ slot từ schedules
+  const allSlotIds = schedules.flatMap(s => s.slots.map(id => id.toString()));
+  const dbSlots = await slotRepo.findByIds(allSlotIds); // [{_id, subRoomId}]
+
+  // 🔹 Map sang subRoom
+  const subRoomMap = await getSubRoomMapFromCache();
+  const subRooms = [];
+  for (const slot of dbSlots) {
+    const subInfo = subRoomMap[slot.subRoomId?.toString()];
+    if (subInfo && !subRooms.find(sr => sr.subRoomId === subInfo.subRoomId)) {
+      subRooms.push(subInfo);
+    }
+  }
+
+  // 🔹 Chỉ lấy ngày (YYYY-MM-DD)
+  const toDateOnly = (date) =>
+    date ? new Date(date).toISOString().split("T")[0] : null;
+
+  return {
+    roomId,
+    startDate: toDateOnly(startDate),
+    endDate: toDateOnly(endDate),
+    shiftIds,
+    shifts,     // ✅ thêm thông tin ca làm việc
+    subRooms
+  };
+};
+
+
+async function getShiftMapFromCache() {
+  const shiftCache = await redisClient.get('shifts_cache');
+  if (!shiftCache) return {};
+
+  let shifts;
+  try {
+    shifts = JSON.parse(shiftCache); // mảng shift
+  } catch (err) {
+    console.error('Lỗi parse shifts_cache:', err);
+    return {};
+  }
+
+  const shiftMap = {};
+  for (const s of shifts) {
+    shiftMap[s._id] = {
+      shiftId: s._id,
+      shiftName: s.name,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      isActive: s.isActive
+    };
+  }
+
+  return shiftMap;
+}
 
 
 

@@ -111,3 +111,7 @@ exports.findSlotsByScheduleId = async (scheduleId, page = 1, limit) => {
     };
   }
 };
+
+exports.findByRoomId = async (roomId) => {
+  return await Schedule.find({ roomId }).lean();
+};

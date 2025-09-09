@@ -134,6 +134,13 @@ exports.getSubRoomById = async (subRoomId) => {
   };
 };
 
+exports.toggleSubRoomStatus = async (roomId, subRoomId) => {
+  const toggledRoom = await roomRepo.toggleSubRoomStatus(roomId, subRoomId);
+  await refreshRoomCache();
+  return toggledRoom;
+};
+
+
 async function refreshRoomCache() {
   const rooms = await roomRepo.listRooms();
   await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms));

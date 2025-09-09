@@ -88,3 +88,17 @@ exports.getSubRoomById = async (req, res) => {
     res.status(400).json({ message: err.message });
   }
 };
+
+exports.toggleSubRoomStatus = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ message: 'Từ chối quyền: chỉ quản lý hoặc quản trị viên mới được phép' });
+  }
+
+  try {
+    const { roomId, subRoomId } = req.params;
+    const updatedRoom = await roomService.toggleSubRoomStatus(roomId, subRoomId);
+    res.json(updatedRoom);
+  } catch (err) {
+    res.status(404).json({ message: err.message });
+  }
+};

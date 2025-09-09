@@ -10,6 +10,6 @@ router.get('/', scheduleController.getSchedules);
 
 router.get('/:id/slots', scheduleController.getScheduleSlots);
 router.get('/:id', scheduleController.getScheduleDetail);
-
+router.get('/summary/:roomId', scheduleController.getRoomSchedulesSummary);
 
 module.exports = router;
