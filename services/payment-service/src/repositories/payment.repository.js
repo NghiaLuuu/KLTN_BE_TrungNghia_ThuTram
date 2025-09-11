@@ -16,6 +16,9 @@ class PaymentRepository {
   async find(filter = {}) {
     return await Payment.find(filter)
   }
+  async updateOne(filter, updateData) {
+    return Payment.updateOne(filter, { $set: updateData });
+  }
 }
 
 module.exports = new PaymentRepository();

@@ -108,3 +108,69 @@ exports.getRoomSchedulesSummary = async (req, res) => {
   }
 };
 
+
+exports.getSubRoomSchedule = async (req, res) => {
+  try {
+    const { subRoomId, range, page = 1 } = req.query;
+
+    if (!subRoomId) {
+      return res.status(400).json({ message: "Thiếu subRoomId" });
+    }
+
+    const now = new Date();
+    let startDate, endDate;
+    const pageNum = Number.isNaN(parseInt(page, 10)) ? 1 : parseInt(page, 10);
+
+
+    if (range === "week") {
+      const day = now.getDay(); // CN=0, T2=1 ... T7=6
+      const diff = day === 0 ? -6 : 1 - day;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() + diff);
+      monday.setHours(0, 0, 0, 0);
+
+      // dịch theo page (cho phép âm)
+      startDate = new Date(monday);
+      startDate.setDate(monday.getDate() + (pageNum - 1) * 7);
+
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
+      endDate.setHours(23, 59, 59, 999);
+
+      // Điều chỉnh: bỏ thứ 2 & CN
+      startDate.setDate(startDate.getDate() + 1);
+      endDate.setDate(endDate.getDate());
+    } 
+    else if (range === "month") {
+      // Tháng hiện tại
+      const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      // dịch theo page (cho phép âm)
+      firstOfMonth.setMonth(firstOfMonth.getMonth() + (pageNum - 1));
+
+      startDate = new Date(firstOfMonth.getFullYear(), firstOfMonth.getMonth(), 2, 0, 0, 0, 0);
+      endDate = new Date(firstOfMonth.getFullYear(), firstOfMonth.getMonth() + 1, 0, 23, 59, 59, 999);
+    } 
+    else {
+      return res.status(400).json({ message: "range phải là 'week' hoặc 'month'" });
+    }
+
+    const result = await scheduleService.getSubRoomSchedule({
+      subRoomId,
+      startDate,
+      endDate,
+    });
+
+    res.status(200).json({
+      page: pageNum,
+      range,
+      startDate,
+      endDate,
+      result,
+    });
+  } catch (err) {
+    console.error("❌ getSubRoomSchedule error:", err);
+    res.status(400).json({ message: err.message });
+  }
+};
+

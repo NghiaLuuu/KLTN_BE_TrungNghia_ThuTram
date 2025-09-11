@@ -33,11 +33,14 @@ const paymentSchema = new mongoose.Schema({
     type: String,
     enum: Object.values(PaymentStatus),
     default: PaymentStatus.PENDING
+  },
+  appointmentCode: {
+    type: String,   // mã appointment liên kết
+    default: null
   }
 }, {
   timestamps: true
 });
-
 
 const Payment = mongoose.model('Payment', paymentSchema);
 

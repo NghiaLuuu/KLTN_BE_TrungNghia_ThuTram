@@ -57,6 +57,25 @@ async function startRpcServer() {
               response = { error: err.message };
             }
             break;
+          case 'updateAppointmentCode':
+            try {
+              console.log('✅ RPC received updateAppointmentCode payload:', payload); // 🔹 Thêm log debug
+
+              const { paymentId, appointmentCode } = payload; 
+              if (!paymentId || !appointmentCode) {
+                response = { error: 'paymentId và appointmentCode là bắt buộc' };
+                break;
+              }
+
+              response = await paymentService.updateAppointmentCode(paymentId, appointmentCode);
+              console.log('✅ AppointmentCode updated successfully for paymentId:', paymentId);
+
+            } catch (err) {
+              console.error('Failed to updateAppointmentCode:', err);
+              response = { error: err.message };
+            }
+            break;
+
 
         default:
           response = { error: `Unknown action: ${action}` };

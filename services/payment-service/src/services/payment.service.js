@@ -5,7 +5,7 @@ const { PaymentStatus } = require('../models/payment.model');
 const redis = require('../utils/redis.client');
 const rpcClient = require('../utils/rpcClient');
 const { createMoMoPayment } = require('../utils/payment.gateway');
-
+const {Payment} = require('../models/payment.model');
 class PaymentService {
     async createPayment({ amount, method }) {
     const paymentMethod = method || 'momo';
@@ -153,6 +153,53 @@ async createTemporaryPayment(payload) {
     }
     return this.getPaymentById(payload.id);
   }
+
+ async manualConfirmPayment({ paymentId }) {
+  if (!paymentId) throw new Error("Cần cung cấp paymentId");
+
+  // 1️⃣ Lấy payment
+  const payment = await Payment.findById(paymentId);
+  if (!payment) throw new Error(`Không tìm thấy payment với id: ${paymentId}`);
+
+  // 2️⃣ Cập nhật trạng thái
+  payment.status = "completed";
+  payment.paymentTime = new Date();
+  await payment.save();
+
+  return { message: "Xác nhận thanh toán thành công", payment };
+}
+
+  // payment.service.js
+  async updateAppointmentCode(paymentId, appointmentCode) {
+      if (!paymentId || !appointmentCode) {
+        throw new Error('paymentId và appointmentCode là bắt buộc');
+      }
+
+      // 🔹 Lấy payment trước khi update
+      const paymentBefore = await Payment.findById(paymentId).lean();
+      console.log('🔹 Payment trước khi update:', paymentBefore);
+
+      if (!paymentBefore) {
+        throw new Error(`Không tìm thấy payment với id: ${paymentId}`);
+      }
+
+      // 🔹 Cập nhật appointmentCode
+      paymentBefore.appointmentCode = appointmentCode;
+      await Payment.updateOne(
+        { _id: paymentId },
+        { $set: { appointmentCode: String(appointmentCode) } }
+      );
+
+      // 🔹 Lấy payment sau khi update
+      const paymentAfter = await Payment.findById(paymentId).lean();
+      console.log('🔹 Payment sau khi update:', paymentAfter);
+
+      return paymentAfter;
+    }
+
+
+
+
 }
 
 module.exports = new PaymentService();

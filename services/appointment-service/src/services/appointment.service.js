@@ -2,236 +2,188 @@
 const appointmentRepo = require('../repositories/appointment.repository');
 const rpcClient = require('../utils/rpcClient');
 const redis = require('../utils/redis.client');
+const Appointment = require('../models/appointment.model');
+
+async function generateAppointmentCode() {
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(now.getFullYear());
+
+  const startOfDay = new Date(now.setHours(0, 0, 0, 0));
+  const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+
+  const count = await Appointment.countDocuments({
+    createdAt: { $gte: startOfDay, $lte: endOfDay }
+  });
+
+  const seqNumber = String(count + 1).padStart(4, '0'); // 0001, 0002,...
+  return `${seqNumber}-${dd}${mm}${yyyy}`;
+}
 
 // 🔹 Tạo mới appointment hold (chưa chiếm slot)
 exports.createHold = async (data, userFromToken) => {
-  const { serviceId, slotIds = [], preferredDentistId, type, patientId, patientInfo } = data;
+  const { serviceId, slotIds = [], preferredDentistId, patientInfo } = data;
+  let type;
   if (!userFromToken || !userFromToken.userId || !userFromToken.role) {
-  throw new Error("❌ req.user không hợp lệ");
-}
-
-const bookedBy = userFromToken.userId;
-const role = userFromToken.role;
-
-  if (!bookedBy) throw new Error('Không xác định được người đặt cuộc hẹn');
+    throw new Error("❌ req.user không hợp lệ");
+  }
+  const bookedBy = userFromToken.userId;
+  const role = userFromToken.role;
 
   if (!Array.isArray(slotIds) || slotIds.length === 0) {
     throw new Error('Cần chọn ít nhất một slot');
   }
 
-  // 🔹 Logic xác định bệnh nhân
-  let finalPatientId = null;
+  // Validate slot
+  const validateResult = await rpcClient.request('schedule_queue', {
+    action: 'validateSlotsForService',
+    payload: { serviceId, slotIds, preferredDentistId }
+  });
+  if (!validateResult.valid) throw new Error(validateResult.reason);
+  // 🔹 Gán type từ kết quả validate
+  type = validateResult.service.type;
   let finalPatientInfo = null;
-
-  if (role === 'patient') {
-    finalPatientId = bookedBy;
-  } else {
-    if (patientId && patientInfo) {
-      throw new Error('Chỉ được truyền patientId hoặc patientInfo, không được cả hai');
+  if (role !== 'patient') {
+    if (!patientInfo || !patientInfo.name || !patientInfo.phone || !patientInfo.birthYear) {
+      throw new Error('patientInfo không hợp lệ khi nhân viên đặt hộ');
     }
-    if (!patientId && !patientInfo) {
-      throw new Error('Cần có patientId hoặc patientInfo khi nhân viên đặt hộ');
-    }
-    if (patientInfo) {
-      const { name, phone, birthYear } = patientInfo;
-      if (!name || !phone || !birthYear) {
-        throw new Error('patientInfo không hợp lệ (thiếu name, phone hoặc birthYear)');
-      }
-      finalPatientInfo = patientInfo;
-    } else {
-      finalPatientId = patientId;
-    }
+    finalPatientInfo = patientInfo;
   }
 
-  // 🔹 Lấy dịch vụ từ Redis
+  // Lấy service từ Redis
   const servicesCache = await redis.get('services_cache');
   if (!servicesCache) throw new Error('Không tìm thấy cache dịch vụ');
   const services = JSON.parse(servicesCache);
-
   const selectedService = services.find(s => s._id === serviceId);
   if (!selectedService) throw new Error('Dịch vụ không hợp lệ');
 
-  // 🔹 Nếu là dịch vụ điều trị => check hồ sơ (chỉ với patient)
-  if (selectedService.type === 'treatment' && role === 'patient') {
-    const examRecord = await rpcClient.request('record_queue', {
-      action: 'getActiveExamRecord',
-      payload: { patientId: bookedBy }
-    });
-
-    if (!examRecord) throw new Error('Bạn chưa có hồ sơ khám hợp lệ');
-    if (!examRecord.validUntil || new Date(examRecord.validUntil) < new Date()) {
-      throw new Error('Hồ sơ khám đã hết hiệu lực');
-    }
-    if (!examRecord.recommendedServices.includes(serviceId)) {
-      throw new Error('Dịch vụ điều trị này chưa được chỉ định trong hồ sơ khám');
-    }
-  }
-
-  // 🔹 Validate slot hợp lệ
-  const validateResult = await rpcClient.request('schedule_queue', {
-    action: 'validateSlotsForService',
-    payload: { serviceId, dentistId: preferredDentistId, slotIds }
-  });
-  if (!validateResult.valid) {
-    throw new Error(validateResult.reason);
-  }
-
   const totalPrice = selectedService.price || 0;
+  const holdKey = `appointment_hold:${slotIds.join(',')}`;
 
-  // =================================================================
-  // 🔹 Patient flow → giữ tạm trên Redis + confirm khi thanh toán Momo
+  // 🔹 Lưu hold data vào Redis
+  const holdData = {
+    serviceId: [serviceId],
+    slotIds,
+    preferredDentistId,
+    type,
+    bookedBy,
+    role,
+    patientInfo: finalPatientInfo,
+    status: 'hold',
+    createdAt: new Date()
+  };
+  await redis.set(holdKey, JSON.stringify(holdData), 'EX', 10 * 60);
+
+  // 🔹 Reserve slot
+  for (const sid of slotIds) {
+    await rpcClient.request('schedule_queue', {
+      action: 'reserved',
+      payload: { slotIds: [sid] }
+    });
+  }
+
+  // 🔹 Tạo payment tạm (patient) hoặc pending (staff)
+  let payment = null;
   if (role === 'patient') {
-    const holdKey = `appointment_hold:${slotIds.join(',')}`;
-    await redis.set(
-      holdKey,
-      JSON.stringify({
-        serviceId: [serviceId],
-        slotIds,
-        preferredDentistId,
-        type,
-        bookedBy,
-        role,
-        patientId: finalPatientId,
-        patientInfo: finalPatientInfo,
-        status: 'booked',
-        createdAt: new Date()
-      }),
-      'EX',
-      10 * 60
-    );
-
-    // Reserve slot
-    for (const sid of slotIds) {
-      await rpcClient.request('schedule_queue', {
-        action: 'reserved',
-        payload: { slotId: sid }
-      });
-    }
-
-    // Tạo payment tạm
-    const payment = await rpcClient.request('payment_queue', {
+    payment = await rpcClient.request('payment_queue', {
       action: 'createTemporaryPayment',
-      payload: {
-        appointmentHoldKey: holdKey,
-        slotIds,
-        amount: totalPrice,
-        method: 'momo'
-      }
+      payload: { appointmentHoldKey: holdKey, slotIds, amount: totalPrice, method: 'momo' }
     });
-
-    // Auto release nếu quá hạn
-    setTimeout(async () => {
-      const holdDataRaw = await redis.get(holdKey);
-      if (!holdDataRaw) {
-        for (const sid of slotIds) {
-          await rpcClient.request('schedule_queue', {
-            action: 'releaseSlot',
-            payload: { slotId: sid }
-          });
-        }
-        return;
-      }
-      const holdData = JSON.parse(holdDataRaw);
-      if (holdData.status !== 'confirmed') {
-        for (const sid of slotIds) {
-          await rpcClient.request('schedule_queue', {
-            action: 'releaseSlot',
-            payload: { slotId: sid }
-          });
-        }
-        await redis.del(holdKey);
-      }
-    }, 10 * 60 * 1000);
-
-    return {
-      message: 'Các slot được giữ trong 10 phút',
-      holdKey,
-      slotIds,
-      payment
-    };
-  }
-
-  // =================================================================
-  // 🔹 Staff flow → tạo invoice pending ngay, confirm + checkIn luôn
-  else {
-    const holdKey = `appointment_hold:${slotIds.join(',')}`;
-    await redis.set(
-      holdKey,
-      JSON.stringify({
-        serviceId: [serviceId],
-        slotIds,
-        preferredDentistId,
-        type,
-        bookedBy,
-        role,
-        patientId: finalPatientId,
-        patientInfo: finalPatientInfo,
-        status: 'confirmed', // staff => confirm ngay
-        createdAt: new Date()
-      }),
-      'EX',
-      10 * 60
-    );
-
-        // Tạo payment pending (online)
-    const payment = await rpcClient.request('payment_queue', {
+  } else {
+    payment = await rpcClient.request('payment_queue', {
       action: 'createPayment',
-      payload: {
-        appointmentHoldKey: holdKey,
-        slotIds,
-        amount: totalPrice,
-        method: 'momo',
-        status: 'pending'
-      }
+      payload: { appointmentHoldKey: holdKey, slotIds, amount: totalPrice, method: 'momo', status: 'pending' }
     });
-
-
-    // Confirm appointment
-    const appointment = await exports.confirm(holdKey);
-
-    // Check-in luôn
-    const checkedIn = await exports.checkIn(appointment._id);
-
-    return {
-      message: 'Tạo phiếu hẹn thành công (staff tạo, check-in ngay)',
-      appointment: checkedIn,
-    };
   }
+
+  // 🔹 Auto release slot sau 10 phút nếu chưa confirm
+  setTimeout(async () => {
+    const raw = await redis.get(holdKey);
+    if (!raw) {
+      for (const sid of slotIds) {
+        await rpcClient.request('schedule_queue', { action: 'releaseSlot', payload: { slotIds: [sid] } });
+      }
+      return;
+    }
+    const data = JSON.parse(raw);
+    if (data.status !== 'confirmed') {
+      for (const sid of slotIds) {
+        await rpcClient.request('schedule_queue', { action: 'releaseSlot', payload: { slotIds: [sid] } });
+      }
+      await redis.del(holdKey);
+    }
+  }, 10 * 60 * 1000);
+
+  // 🔹 Nếu staff, confirm luôn + check-in
+  if (role !== 'patient') {
+    const appointment = await exports.confirm({ holdKey, paymentId: payment._id });
+    const checkedIn = await exports.checkIn(appointment._id);
+    return { message: 'Tạo phiếu hẹn thành công (staff tạo, check-in ngay)', appointment: checkedIn };
+  }
+
+  return { message: 'Các slot được giữ trong 10 phút', holdKey, slotIds, payment };
 };
 
 // 🔹 Xác nhận appointment
-exports.confirm = async (holdKey) => {
-  const keyStr = typeof holdKey === 'string' ? holdKey : holdKey.holdKey;
-  const holdDataRaw = await redis.get(keyStr);
-  if (!holdDataRaw) throw new Error('Hold đã hết hạn hoặc không tìm thấy');
+exports.confirm = async ({ holdKey, paymentId = null }) => {
+  if (!holdKey) throw new Error("Hold key không tồn tại hoặc đã hết hạn");
 
-  const holdData = JSON.parse(holdDataRaw);
-  if (holdData.status !== 'confirmed') {
-    throw new Error('Thanh toán chưa xác nhận, không thể tạo cuộc hẹn');
-  }
+  const raw = await redis.get(holdKey);
+  if (!raw) throw new Error("Hold key đã hết hạn");
 
+  const holdData = JSON.parse(raw);
+  if (holdData.status !== 'hold') throw new Error("Chỉ có thể confirm khi appointment đang ở trạng thái hold");
+
+  // Tạo appointmentCode
+  const appointmentCode = await generateAppointmentCode();
+
+  // Tạo appointment trong DB
   const appointment = await appointmentRepo.create({
     ...holdData,
     status: 'confirmed',
-    paymentId: holdData.paymentId
+    appointmentCode
   });
-  
-  // 🔹 Xử lý nhiều slot
-  for (const sid of holdData.slotIds) {
-    await rpcClient.request('schedule_queue', {
-      action: 'confirmed',
-      payload: { slotId: sid }
+
+  // Gửi event sang payment để update appointmentCode
+  if (paymentId) {
+  try {
+    const result = await rpcClient.request('payment_queue', {
+      action: 'updateAppointmentCode',
+      payload: { paymentId, appointmentCode }
     });
 
-    await rpcClient.request('schedule_queue', {
-      action: 'appointmentId',
-      payload: { slotId: sid, appointmentId: appointment._id }
-    });
+    // Tuỳ nhu cầu, có thể kiểm tra kết quả trả về
+    if (!result || result.error) {
+      throw new Error(result?.error || 'Failed to update appointmentCode in payment service');
+    }
+  } catch (err) {
+    // Ném lỗi ra để biết thất bại
+    throw new Error(`Không gửi được sự kiện updateAppointmentCode: ${err.message}`);
+  }
+} else {
+  throw new Error('paymentId không tồn tại, không thể gửi sự kiện updateAppointmentCode');
+}
+
+
+  // Update slot status
+  if (Array.isArray(holdData.slotIds)) {
+    for (const sid of holdData.slotIds) {
+      await rpcClient.request('schedule_queue', { action: 'confirmed', payload: { slotIds: [sid] } });
+    }
   }
 
-  await redis.del(keyStr);
+  // Xóa holdKey khỏi Redis
+  await redis.del(holdKey);
+
   return appointment;
 };
+
+
+
+
+
+
 
 // 🔹 Update appointment
 exports.update = async (id, data) => {
@@ -290,22 +242,22 @@ exports.checkIn = async (id) => {
     const payload = {
       appointmentId: updated._id,
       dentistId: updated.preferredDentistId || updated.dentistId || null,
-      serviceId: Array.isArray(updated.serviceId) 
-        ? updated.serviceId.map(s => s.toString()) 
+      serviceId: Array.isArray(updated.serviceId)
+        ? updated.serviceId.map(s => s.toString())
         : updated.serviceId.toString(),
       type: updated.type,
       notes: updated.notes || ""
     };
 
-    // 🔹 Kiểm tra patient
+    // 🔹 Xác định bệnh nhân
     if (updated.patientInfo) {
+      // Staff đặt hộ, bệnh nhân chưa đăng ký
       payload.patientInfo = updated.patientInfo;
     } else if (updated.bookedBy) {
-      payload.bookedBy = updated.bookedBy; // patient tự đặt
-    } else if (updated.patientId) {
-      payload.patientId = updated.patientId; // trường hợp hiếm
+      // Bệnh nhân tự đặt, bookedBy = patientId
+      payload.patientId = updated.bookedBy;
     } else {
-      throw new Error("Không xác định được patient để tạo record");
+      throw new Error("Không xác định được bệnh nhân để tạo record");
     }
 
     await rpcClient.request('record_queue', {
@@ -319,6 +271,7 @@ exports.checkIn = async (id) => {
 
   return updated;
 };
+
 
 
 // 🔹 Tìm kiếm

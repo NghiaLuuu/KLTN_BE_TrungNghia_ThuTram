@@ -57,13 +57,17 @@ exports.findSlotsByDentistFromNow = async (dentistId, fromTime) => {
 };
 
 // Cập nhật trạng thái slot
-exports.updateSlotStatus = async (slotId, status) => {
-  return await Slot.findByIdAndUpdate(
-    slotId,
-    { $set: { status } },
-    { new: true }
+exports.updateSlotsStatus = async (slotIds, status) => {
+  if (!Array.isArray(slotIds) || slotIds.length === 0) {
+    throw new Error("slotIds phải là mảng không rỗng");
+  }
+
+  return await Slot.updateMany(
+    { _id: { $in: slotIds } },
+    { $set: { status } }
   );
 };
+
 
 exports.findSlotsByEmployee = async ({ employeeId, startDate, endDate }) => {
   if (!employeeId) {
@@ -117,5 +121,23 @@ exports.findSlotsByScheduleId = async (scheduleId, page = 1, limit) => {
 };
 
 exports.findByIds = async (ids) => {
-  return Slot.find({ _id: { $in: ids } }).select('_id subRoomId');
+  return Slot.find({ _id: { $in: ids } });
+};
+
+
+exports.findWithSelect = async (filter, fields) => {
+  return await Slot.find(filter).select(fields);
+};
+
+exports.getSlots = async (filter = {}) => {
+  return await Slot.find(filter)
+    .sort({ startTime: 1 }) // sắp xếp theo giờ bắt đầu
+    .lean();
+};
+
+exports.findBySubRoomId = async (subRoomId, startDate, endDate) => {
+  return Slot.find({
+    subRoomId,
+    date: { $gte: startDate, $lte: endDate }
+  }).sort({ startTime: 1 }).lean();
 };

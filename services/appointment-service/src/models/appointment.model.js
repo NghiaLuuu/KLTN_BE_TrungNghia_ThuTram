@@ -1,51 +1,32 @@
 const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
 
-const appointmentSchema = new mongoose.Schema({
-  patientId: { // bệnh nhân
-    type: mongoose.Schema.Types.ObjectId,
-    default: null
+// Counter để quản lý sequence appointment (nếu sau này cần)
+const counterSchema = new Schema({
+  _id: { type: String, required: true },
+  seq: { type: Number, default: 0 }
+});
+const Counter = mongoose.model('Counter', counterSchema);
+
+const appointmentSchema = new Schema({
+  appointmentCode: {
+    type: String,
+    unique: true,   // Optional, bạn có thể gán khi tạo
   },
-  patientInfo: { // thông tin snapshot hoặc khách vãng lai
+  patientInfo: {
     name: { type: String },
     phone: { type: String },
     birthYear: { type: Number }
   },
-  serviceId: [{ // dịch vụ (lấy type, duration, price từ Service)
-    type: mongoose.Schema.Types.ObjectId,
-    required: true
-  }],
-  preferredDentistId: { // nha sĩ mong muốn (optional)
-    type: mongoose.Schema.Types.ObjectId,
-    default: null
-  },
-  slotIds: [{ // danh sách slot được giữ/đặt
-      type: mongoose.Schema.Types.ObjectId,
-      required: true
-  }],
-  type: {
-    type: String,
-    enum: ["exam", "treatment"]
-  },
-  status: {
-    type: String,
-    enum: [
-      'booked',     // đã đặt
-      'confirmed',  // đã xác nhận
-      'checked-in' // bệnh nhân đã đến
+  serviceId: [{ type: mongoose.Schema.Types.ObjectId, required: true }],
+  preferredDentistId: { type: mongoose.Schema.Types.ObjectId, default: null },
+  slotIds: [{ type: mongoose.Schema.Types.ObjectId, required: true }],
+  type: { type: String, enum: ["exam", "treatment"], required: true },
+  status: { type: String, enum: ['booked','confirmed','checked-in'], default: 'booked' },
+  bookedBy: { type: mongoose.Schema.Types.ObjectId, required: true }
+}, { timestamps: true });
 
-    ],
-    default: 'booked'
-  },
-  bookedBy: { // người tạo lịch
-    type: mongoose.Schema.Types.ObjectId,
-    required: true
-  },
-  paymentId: {
-    type: mongoose.Schema.Types.ObjectId,
-    require: true
-  }
-}, {
-  timestamps: true
-});
+// 🔹 Không còn pre-save hook để sinh appointmentCode
+// Bạn sẽ gán appointmentCode khi tạo hold hoặc confirm
 
 module.exports = mongoose.model('Appointment', appointmentSchema);

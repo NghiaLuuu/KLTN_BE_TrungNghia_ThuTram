@@ -85,6 +85,26 @@ async momoReturn(req, res) {
   res.send('Thank you! Payment process finished. Please check your order status.');
 }
 
+// payment.controller.js
+async manualConfirmPayment(req, res){
+  try {
+    const paymentId = req.params.id; // Lấy từ params
+    const user = req.user;
+
+    const allowedRoles = ["admin", "manager", "receptionist"];
+    if (!user || !allowedRoles.includes(user.role)) {
+      return res.status(403).json({ message: "Chỉ admin, manager hoặc receptionist mới được confirm thanh toán thủ công" });
+    }
+
+    const result = await paymentService.manualConfirmPayment({ paymentId });
+    res.status(200).json(result);
+  } catch (err) {
+    console.error("❌ manualConfirmPayment error:", err);
+    res.status(400).json({ message: err.message });
+  }
+};
+
+
 
 
 

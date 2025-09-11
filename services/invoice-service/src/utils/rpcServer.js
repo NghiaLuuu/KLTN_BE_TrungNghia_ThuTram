@@ -24,7 +24,7 @@ async function startInvoiceRpcServer() {
       switch (action) {
         case "createInvoiceFromAppointment":
           try {
-            const { patientId, appointmentId, services, method, notes } = payload;
+            const { patientId, appointmentId, services, method,    } = payload;
 
             if (!patientId || !Array.isArray(services) || services.length === 0) {
               response = { error: "Invalid payload: patientId & services required" };

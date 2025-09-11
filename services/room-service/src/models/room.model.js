@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 
+// ---------------- SubRoom Schema ----------------
 const subRoomSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -18,16 +19,17 @@ const subRoomSchema = new mongoose.Schema({
   },
   isActive: {
     type: Boolean,
-    default: true, // mặc định bật
+    default: true,
   }
 }, { _id: true });
 
+// ---------------- Room Schema ----------------
 const roomSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
-    unique: true, // tên phòng phải duy nhất
     trim: true,
+    unique: true, // index MongoDB, vẫn giữ để performance
   },
   isActive: {
     type: Boolean,
@@ -38,7 +40,7 @@ const roomSchema = new mongoose.Schema({
   timestamps: true,
 });
 
-// 🔹 Hàm dùng chung để check duplicate subRoom
+// ---------------- Helper ----------------
 function checkDuplicateSubRooms(subRooms, next) {
   if (!Array.isArray(subRooms)) return next();
   const names = subRooms.map(sr => sr.name.trim().toLowerCase());
@@ -49,22 +51,46 @@ function checkDuplicateSubRooms(subRooms, next) {
   next();
 }
 
-// ✅ Check khi create hoặc save
-roomSchema.pre("save", function (next) {
-  checkDuplicateSubRooms(this.subRooms, next);
+// ---------------- Pre-save ----------------
+roomSchema.pre('save', async function(next) {
+  const room = this;
+
+  // 1️⃣ Check duplicate subRoom
+  checkDuplicateSubRooms(room.subRooms, (err) => {
+    if (err) return next(err);
+  });
+
+  // 2️⃣ Check duplicate Room.name
+  const existing = await mongoose.models.Room.findOne({ name: room.name });
+  if (existing && existing._id.toString() !== room._id.toString()) {
+    return next(new Error(`Phòng "${room.name}" đã tồn tại`));
+  }
+
+  next();
 });
 
-// ✅ Check khi update (findOneAndUpdate, findByIdAndUpdate)
-roomSchema.pre("findOneAndUpdate", function (next) {
+// ---------------- Pre-update (findOneAndUpdate) ----------------
+roomSchema.pre('findOneAndUpdate', async function(next) {
   const update = this.getUpdate();
 
-  // Nếu update có $set.subRooms hoặc subRooms
+  // 1️⃣ Check subRooms trùng
   const subRooms = update?.$set?.subRooms || update?.subRooms;
   if (subRooms) {
-    checkDuplicateSubRooms(subRooms, next);
-  } else {
-    next();
+    checkDuplicateSubRooms(subRooms, (err) => {
+      if (err) return next(err);
+    });
   }
+
+  // 2️⃣ Check Room.name trùng
+  const newName = update?.$set?.name;
+  if (newName) {
+    const existing = await mongoose.models.Room.findOne({ name: newName });
+    if (existing && existing._id.toString() !== this.getQuery()._id.toString()) {
+      return next(new Error(`Phòng "${newName}" đã tồn tại`));
+    }
+  }
+
+  next();
 });
 
-module.exports = mongoose.model("Room", roomSchema);
+module.exports = mongoose.model('Room', roomSchema);

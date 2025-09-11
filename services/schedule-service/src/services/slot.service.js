@@ -40,7 +40,6 @@ exports.assignStaff = async (data) => {
   if (invalidShifts.length) {
     throw new Error(`Các ca làm không thuộc phạm vi lịch: ${invalidShifts.join(', ')}`);
   }
-
   // 5️⃣ Kiểm tra active room/subRoom
   const subRoom = room.subRooms.find(sr => sr._id === String(subRoomId));
   if (!room.isActive || !subRoom.isActive) {
@@ -62,38 +61,59 @@ exports.assignStaff = async (data) => {
     start: s.startTime,
     end: s.endTime
   }));
+  // Chuyển ca làm sang giờ UTC
+const shiftTimesUtc = validShifts.map(shift => {
+  const [shH, shM] = shift.startTime.split(':').map(Number); // "18:00"
+  const [ehH, ehM] = shift.endTime.split(':').map(Number);   // "20:00"
 
-  // 7️⃣ Lấy slot theo subRoomId + date range
-  const allSlotsData = await exports.getSlots({
-    subRoomId,
-    date: { $gte: reqStart, $lte: reqEnd }
-  }, 1, 10000);
+  const startUTC = new Date();
+  startUTC.setUTCHours(shH - 7, shM, 0, 0); // Giờ VN → UTC
+  const endUTC = new Date();
+  endUTC.setUTCHours(ehH - 7, ehM, 0, 0);
 
-  let slots = allSlotsData.slots;
-  if (!slots.length) throw new Error(`Không tìm thấy slot nào trong buồng phụ ${subRoomId} từ ${startDate} đến ${endDate}`);
+  return { start: startUTC, end: endUTC };
+});
+console.log("Shift giờ UTC:", shiftTimesUtc);
 
-  // 8️⃣ Lọc slot theo shiftIds
-  slots = slots.filter(slot => {
-    const slotStart = new Date(slot.startTime);
-    const slotEnd = new Date(slot.endTime);
+// 7️⃣ Lấy tất cả slot của subRoom
+const nowUtc = new Date();
+const allSlots = await slotRepo.getSlots({ subRoomId });
 
-    return shiftTimes.some(shift => {
-      const [shH, shM] = shift.start.split(':').map(Number);
-      const [ehH, ehM] = shift.end.split(':').map(Number);
+// Lọc slot theo giờ hiện tại + shift
+let slots = allSlots.filter(slot => {
+  const slotStart = new Date(slot.startTime);
+  const slotEnd = new Date(slot.endTime);
 
-      const shiftStart = new Date(slotStart);
-      shiftStart.setHours(shH, shM, 0, 0);
+  // Chỉ lấy slot chưa kết thúc
+  if (slotEnd <= nowUtc) return false;
 
-      const shiftEnd = new Date(slotStart);
-      shiftEnd.setHours(ehH, ehM, 0, 0);
-
-      return slotStart >= shiftStart && slotEnd <= shiftEnd;
-    });
+// ❌ Slot đã bắt đầu rồi (hiện tại > startTime)
+  if (slotStart <= nowUtc) return false;
+  
+  // Kiểm tra slot nằm trong bất kỳ shift nào
+  return shiftTimesUtc.some(shift => {
+    return slotStart >= shift.start && slotEnd <= shift.end;
   });
+});
 
-  if (!slots.length) {
-    throw new Error(`Không có slot nào khớp với ca/kíp đã chọn`);
-  }
+console.log("nowUtc:", nowUtc);
+console.log("Shift giờ UTC:", shiftTimesUtc);
+
+if (!slots.length) {
+  throw new Error(`Không có slot nào khớp với ca/kíp đã chọn trong buồng phụ "${subRoom.name}"`);
+}
+
+// 8️⃣ Lọc slot theo shift (so sánh UTC trực tiếp)
+slots = slots.filter(slot => {
+  const slotStart = new Date(slot.startTime);
+  const slotEnd = new Date(slot.endTime);
+
+  return shiftTimesUtc.some(shift => slotStart >= shift.start && slotEnd <= shift.end);
+});
+
+if (!slots.length) {
+  throw new Error(`Không có slot nào khớp với ca/kíp đã chọn trong buồng phụ "${subRoom.name}"`);
+}
 
   // 9️⃣ Kiểm tra giới hạn nhân sự
   const userCache = await redisClient.get('users_cache');
@@ -129,6 +149,7 @@ exports.assignStaff = async (data) => {
 };
 
 
+
 // Lấy danh sách slot theo filter
 exports.getSlots = async (filters, page = 1, limit = 10) => {
   const skip = (page - 1) * limit;
@@ -158,6 +179,8 @@ exports.getSlotById = async (slotId) => {
 exports.assignStaffToSlots = async (slotIds = [], dentistIds = [], nurseIds = []) => {
   if (!slotIds.length) throw new Error('Cần truyền danh sách slotIds');
 
+  const now = new Date();
+
   // 1️⃣ Lấy cache trước (đỡ phải load lại nhiều lần)
   const roomCache = await redisClient.get('rooms_cache');
   if (!roomCache) throw new Error('Không tìm thấy dữ liệu phòng trong cache');
@@ -170,7 +193,7 @@ exports.assignStaffToSlots = async (slotIds = [], dentistIds = [], nurseIds = []
   // 2️⃣ Kiểm tra users hợp lệ
   for (const dId of dentistIds) {
     const user = users.find(u => u._id === String(dId));
-    if (!user) throw new Error(`Không tìm thấy nha sỹ với ID ${dId}`);
+    if (!user) throw new Error(`Không tìm thấy nha sĩ với ID ${dId}`);
     if (user.role !== 'dentist') throw new Error(`Người dùng ${dId} không có vai trò bác sĩ`);
   }
   for (const nId of nurseIds) {
@@ -179,34 +202,49 @@ exports.assignStaffToSlots = async (slotIds = [], dentistIds = [], nurseIds = []
     if (user.role !== 'nurse') throw new Error(`Người dùng ${nId} không có vai trò y tá`);
   }
 
+  // 3️⃣ Lấy tất cả slot từ DB
+  const slots = await slotRepo.findSlots({ _id: { $in: slotIds } });
+  if (!slots.length) throw new Error('Không tìm thấy slot nào');
+
+  // 4️⃣ Kiểm tra slot từ hiện tại trở đi
+  for (const slot of slots) {
+    if (new Date(slot.startTime) < now) {
+      throw new Error(`Slot ${slot._id} đã diễn ra, không thể gán nhân sự`);
+    }
+  }
+
+  // 5️⃣ Kiểm tra appointmentId
+  const appointmentIds = [...new Set(slots.map(s => s.appointmentId).filter(Boolean))];
+  for (const appId of appointmentIds) {
+    const relatedSlots = await slotRepo.findSlots({ appointmentId: appId });
+    const relatedSlotIds = relatedSlots.map(s => String(s._id));
+    const missingSlotIds = relatedSlotIds.filter(id => !slotIds.includes(id));
+    if (missingSlotIds.length) {
+      throw new Error(`Slot liên quan đến appointment ${appId} chưa được truyền đầy đủ. Cần truyền các slot: ${relatedSlotIds.join(', ')}`);
+    }
+  }
+
   const updatedSlots = [];
 
-  // 3️⃣ Lặp từng slot
-  for (const slotId of slotIds) {
-    const slot = await slotRepo.findById(slotId);
-    if (!slot) throw new Error(`Không tìm thấy slot ${slotId}`);
-
-    // 4️⃣ Lấy schedule
+  // 6️⃣ Lặp từng slot
+  for (const slot of slots) {
     const schedule = await scheduleRepo.findById(slot.scheduleId);
-    if (!schedule) throw new Error(`Không tìm thấy lịch làm việc cho slot ${slotId}`);
+    if (!schedule) throw new Error(`Không tìm thấy lịch làm việc cho slot ${slot._id}`);
 
-    // 5️⃣ Lấy room
     const room = rooms.find(r => r._id === String(schedule.roomId));
     if (!room) throw new Error(`Không tìm thấy phòng ${schedule.roomId} trong cache`);
 
-    // 6️⃣ Lấy subRoom
     const subRoom = room.subRooms.find(sr => sr._id === String(slot.subRoomId));
     if (!subRoom) throw new Error(`Không tìm thấy buồng phụ ${slot.subRoomId} trong phòng ${room._id}`);
 
-    // 7️⃣ Kiểm tra giới hạn subRoom
     if (dentistIds.length > subRoom.maxDoctors) {
-      throw new Error(`Slot ${slotId}: Vượt quá giới hạn bác sĩ trong buồng phụ ${subRoom._id} (tối đa ${subRoom.maxDoctors})`);
+      throw new Error(`Slot ${slot._id}: Vượt quá giới hạn bác sĩ trong buồng phụ ${subRoom._id} (tối đa ${subRoom.maxDoctors})`);
     }
     if (nurseIds.length > subRoom.maxNurses) {
-      throw new Error(`Slot ${slotId}: Vượt quá giới hạn y tá trong buồng phụ ${subRoom._id} (tối đa ${subRoom.maxNurses})`);
+      throw new Error(`Slot ${slot._id}: Vượt quá giới hạn y tá trong buồng phụ ${subRoom._id} (tối đa ${subRoom.maxNurses})`);
     }
 
-    // 8️⃣ Kiểm tra xung đột với slot khác trong cùng schedule
+    // Kiểm tra xung đột với slot khác trong cùng schedule
     const otherSlots = await slotRepo.findSlots({
       scheduleId: schedule._id,
       _id: { $ne: slot._id }
@@ -215,7 +253,6 @@ exports.assignStaffToSlots = async (slotIds = [], dentistIds = [], nurseIds = []
     const slotStart = new Date(slot.startTime);
     const slotEnd = new Date(slot.endTime);
 
-    // Bác sĩ
     const dentistConflict = dentistIds.filter(dId =>
       otherSlots.some(s =>
         s.dentistId.includes(dId) &&
@@ -224,10 +261,9 @@ exports.assignStaffToSlots = async (slotIds = [], dentistIds = [], nurseIds = []
       )
     );
     if (dentistConflict.length) {
-      throw new Error(`Slot ${slotId}: Bác sĩ ${dentistConflict.join(', ')} đã được phân công trong slot trùng thời gian`);
+      throw new Error(`Slot ${slot._id}: Bác sĩ ${dentistConflict.join(', ')} đã được phân công trong slot trùng thời gian`);
     }
 
-    // Y tá
     const nurseConflict = nurseIds.filter(nId =>
       otherSlots.some(s =>
         s.nurseId.includes(nId) &&
@@ -236,10 +272,10 @@ exports.assignStaffToSlots = async (slotIds = [], dentistIds = [], nurseIds = []
       )
     );
     if (nurseConflict.length) {
-      throw new Error(`Slot ${slotId}: Y tá ${nurseConflict.join(', ')} đã được phân công trong slot trùng thời gian`);
+      throw new Error(`Slot ${slot._id}: Y tá ${nurseConflict.join(', ')} đã được phân công trong slot trùng thời gian`);
     }
 
-    // 9️⃣ Update slot
+    // Update slot
     slot.dentistId = dentistIds;
     slot.nurseId = nurseIds;
     await slot.save();
@@ -249,6 +285,7 @@ exports.assignStaffToSlots = async (slotIds = [], dentistIds = [], nurseIds = []
 
   return updatedSlots;
 };
+
 
 
 exports.cancelSlots = async ({ slotIds = [], dentistIds = [], nurseIds = [], cancelAll = false }) => {
@@ -368,32 +405,73 @@ exports.findAvailableSlotsForServiceFromNow = async ({ serviceId, dentistId }) =
   return groups;
 };
 
-exports.validateSlotsForService = async ({ serviceId, dentistId, slotIds }) => {
+exports.validateSlotsForService = async ({ serviceId, preferredDentistId, slotIds }) => {
   if (!slotIds || !slotIds.length) {
-    return { valid: false, reason: 'Chưa chọn slot nào' };
+    return { valid: false, reason: "Chưa chọn slot nào" };
   }
 
-  // 🔎 Lấy tất cả group slot hợp lệ cho serviceId + dentistId
-  const groups = await exports.findAvailableSlotsForServiceFromNow({ serviceId, dentistId });
-  if (!groups.length) {
-    return { valid: false, reason: 'Không có slot trống nào phù hợp' };
+  // 🔹 Lấy slots theo slotIds
+  const slots = await slotRepo.findByIds(slotIds, "dentistId startTime endTime status");
+  if (!slots || !slots.length) {
+    return { valid: false, reason: "Slot không tồn tại" };
   }
 
-  // Convert slotIds sang string cho chắc
-  const slotIdStrings = slotIds.map(id => id.toString());
-
-  // Kiểm tra xem slotIds có nằm trong một group hợp lệ không
-  const isValid = groups.some(group => {
-    const groupIds = group.slots.map(s => s._id.toString());
-    return slotIdStrings.every(id => groupIds.includes(id));
-  });
-
-  if (!isValid) {
-    return { valid: false, reason: 'Các slot đã chọn không liên tiếp hoặc không đủ thời lượng cho dịch vụ' };
+  /// 🔹 Kiểm tra trạng thái slot
+  const invalidSlots = slots.filter(s => s.status !== "available");
+  if (invalidSlots.length > 0) {
+    return {
+      valid: false,
+      reason: `Các slot không khả dụng: ${invalidSlots.map(s => 
+        `${s._id} (status=${s.status})`
+      ).join(", ")}`
+    };
   }
 
-  return { valid: true };
+  // 🔹 Kiểm tra tất cả slot có chứa preferredDentistId
+  const preferredId = String(preferredDentistId);
+  let allMatchDentist = true;
+  for (const s of slots) {
+    const dentistIds = (s.dentistId || []).map(d => String(d));
+    if (!dentistIds.includes(preferredId)) {
+      allMatchDentist = false;
+    }
+  }
+
+  if (!allMatchDentist) {
+    return { valid: false, reason: "Slot không thuộc nha sĩ đã chọn" };
+  }
+
+  // 🔹 Lấy thông tin service
+  const servicesCache = await redisClient.get("services_cache");
+  if (!servicesCache) return { valid: false, reason: "Không tìm thấy cache dịch vụ" };
+  const services = JSON.parse(servicesCache);
+  const service = services.find(s => s._id === serviceId);
+  if (!service) return { valid: false, reason: "Dịch vụ không hợp lệ" };
+
+  // 🔹 Kiểm tra các slot có liên tiếp hay không
+  const sortedSlots = slots.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+  for (let i = 1; i < sortedSlots.length; i++) {
+    if (new Date(sortedSlots[i].startTime).getTime() !== new Date(sortedSlots[i - 1].endTime).getTime()) {
+      return { valid: false, reason: "Các slot đã chọn không liên tiếp" };
+    }
+  }
+
+  // 🔹 Kiểm tra tổng thời lượng có đủ cho service không
+  const totalDuration =
+    (new Date(sortedSlots[sortedSlots.length - 1].endTime) -
+      new Date(sortedSlots[0].startTime)) /
+    (1000 * 60);
+
+  if (totalDuration < service.duration) {
+    return { valid: false, reason: "Thời lượng slot không đủ cho dịch vụ" };
+  }
+
+  return { valid: true, service: { type: service.type, price: service.price } };
 };
+
+
+
+
 
 // slotService.js
 exports.getEmployeeSchedule = async ({ employeeId, startDate, endDate, page = 1, limit = 1 }) => {

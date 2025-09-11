@@ -34,7 +34,46 @@ async function checkScheduleConflict(roomId, shiftIds, startDate, endDate, exclu
   return await scheduleRepo.findOne(filter);
 }
 
-// 🔧 Core: chỉ sinh danh sách slots (chưa save DB)
+// 🔹 Kiểm tra khả năng tạo slot cho tất cả subRoom
+async function checkSlotsAvailability(subRooms, shiftIds, slotDuration, startDate, endDate) {
+  const shiftCache = await redisClient.get('shifts_cache');
+  if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
+  const shifts = JSON.parse(shiftCache);
+  const selectedShifts = shifts.filter(s => shiftIds.includes(s._id.toString()) && s.isActive);
+  if (!selectedShifts.length) throw new Error('Không tìm thấy ca/kíp hợp lệ hoặc ca/kíp không hoạt động');
+
+  const now = new Date();
+  const minStart = new Date(now.getTime() + 5 * 60000); // slot bắt đầu sau 5 phút
+
+  for (let d = new Date(startDate); d <= new Date(endDate); d.setDate(d.getDate() + 1)) {
+    for (const shift of selectedShifts) {
+      const [startHour, startMinute] = shift.startTime.split(':').map(Number);
+      const [endHour, endMinute] = shift.endTime.split(':').map(Number);
+
+      const shiftStart = new Date(d);
+      shiftStart.setHours(startHour, startMinute, 0, 0);
+      const shiftEnd = new Date(d);
+      shiftEnd.setHours(endHour, endMinute, 0, 0);
+
+      // Bỏ ca đã kết thúc hoàn toàn
+      if (shiftEnd <= minStart) continue;
+
+      // Tính thời gian còn lại cho slot đầu tiên
+      const firstSlotStart = shiftStart > minStart ? shiftStart : minStart;
+      const availableMinutes = Math.floor((shiftEnd - firstSlotStart) / 60000);
+
+      if (availableMinutes < slotDuration) {
+        throw new Error(
+          `Không thể tạo slot cho ca ${shift.name} vào ngày ${d.toISOString().split('T')[0]}. ` +
+          `Thời gian còn lại sau 5 phút từ giờ hiện tại là ${availableMinutes} phút, ` +
+          `không đủ cho slotDuration ${slotDuration} phút.`
+        );
+      }
+    }
+  }
+  return true; // có thể tạo slot
+}
+// 🔹 Sinh slot core
 async function generateSlotsCore(scheduleId, subRoomId, shiftIds, slotDuration, startDate, endDate) {
   const shiftCache = await redisClient.get('shifts_cache');
   if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
@@ -46,7 +85,7 @@ async function generateSlotsCore(scheduleId, subRoomId, shiftIds, slotDuration, 
   const start = new Date(startDate);
   const end = new Date(endDate);
   const now = new Date();
-  const minStart = new Date(now.getTime() + 5 * 60000); // sau 5 phút
+  const minStart = new Date(now.getTime() + 5 * 60000); // bắt đầu sau 5 phút
 
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
     for (const shift of selectedShifts) {
@@ -59,101 +98,135 @@ async function generateSlotsCore(scheduleId, subRoomId, shiftIds, slotDuration, 
       const shiftEnd = new Date(d);
       shiftEnd.setHours(endHour, endMinute, 0, 0);
 
-      // ✅ Nếu ca đã kết thúc hoàn toàn → bỏ qua
-      if (shiftEnd <= now) continue;
+      // Bỏ ca đã kết thúc hoàn toàn
+      if (shiftEnd <= minStart) continue;
 
-      for (let cur = new Date(shiftStart); cur < shiftEnd;) {
+      // Bắt đầu slot từ max(shiftStart, minStart)
+      let cur = shiftStart > minStart ? new Date(shiftStart) : new Date(minStart);
+      let slotCreated = false;
+
+      while (cur < shiftEnd) {
         const next = new Date(cur.getTime() + slotDuration * 60000);
+
+        // Nếu slot không còn đủ thời lượng → break
         if (next > shiftEnd) break;
 
-        // ✅ Chỉ tạo slot bắt đầu sau 5 phút kể từ hiện tại
-        if (cur >= minStart) {
-          slots.push({
-            date: new Date(d),
-            startTime: new Date(cur),
-            endTime: next,
-            scheduleId,
-            subRoomId
-          });
-        }
+        slots.push({
+          date: new Date(d),
+          startTime: new Date(cur),
+          endTime: next,
+          scheduleId,
+          subRoomId
+        });
+
+        slotCreated = true;
+        cur = next;
+      }
+
+      // Nếu không tạo được slot nào trong ca → ném lỗi
+      if (!slotCreated) {
+        const availableMinutes = Math.floor((shiftEnd - minStart) / 60000);
+        throw new Error(
+          `Không thể tạo slot cho ca ${shift.name} vào ngày ${d.toISOString().split('T')[0]}. ` +
+          `Thời gian còn lại sau 5 phút từ giờ hiện tại là ${availableMinutes} phút, ` +
+          `không đủ cho slotDuration ${slotDuration} phút.`
+        );
+      }
+    }
+  }
+
+  return slots;
+}
+
+// 🔹 Wrapper: sinh + lưu DB sau khi có schedule._id
+async function generateSlotsAndSave(scheduleId, subRoomId, shiftIds, slotDuration, startDate, endDate) {
+  // 1️⃣ Lấy cache ca/kíp
+  const shiftCache = await redisClient.get('shifts_cache');
+  if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
+
+  const shifts = JSON.parse(shiftCache);
+  const selectedShifts = shifts.filter(s => shiftIds.includes(s._id.toString()) && s.isActive);
+  if (!selectedShifts.length) return [];
+
+  const slots = [];
+  const now = new Date();
+  now.setSeconds(0, 0); // Giây = 0, mili giây = 0
+  const minStart = new Date(now.getTime() + 5 * 60000); // 5 phút sau giờ hiện tại
+
+  // 2️⃣ Lặp qua từng ngày
+  for (let d = new Date(startDate); d <= new Date(endDate); d.setDate(d.getDate() + 1)) {
+    for (const shift of selectedShifts) {
+      const [startHour, startMinute] = shift.startTime.split(':').map(Number);
+      const [endHour, endMinute] = shift.endTime.split(':').map(Number);
+
+      // Tạo giờ bắt đầu và kết thúc ca
+      const shiftStart = new Date(d);
+      shiftStart.setHours(startHour, startMinute, 0, 0); // Giây = 0, mili giây = 0
+      const shiftEnd = new Date(d);
+      shiftEnd.setHours(endHour, endMinute, 0, 0);
+
+      // Bỏ ca đã kết thúc
+      if (shiftEnd <= minStart) continue;
+
+      // Xác định điểm bắt đầu slot: max(shiftStart, minStart)
+      let cur = shiftStart > minStart ? new Date(shiftStart) : new Date(minStart);
+
+      // 🔹 Căn phút theo slotDuration
+      const remainder = cur.getMinutes() % slotDuration;
+      if (remainder !== 0) {
+        cur.setMinutes(cur.getMinutes() + (slotDuration - remainder));
+        cur.setSeconds(0, 0);
+      }
+
+      // 3️⃣ Sinh slot
+      while (cur < shiftEnd) {
+        const next = new Date(cur.getTime() + slotDuration * 60000);
+        next.setSeconds(0, 0); // Giây = 0
+        if (next > shiftEnd) break;
+
+        slots.push({
+          date: new Date(d),
+          startTime: new Date(cur),
+          endTime: new Date(next),
+          scheduleId,
+          subRoomId
+        });
 
         cur = next;
       }
     }
   }
-  return slots;
-}
 
+  if (!slots.length) throw new Error('Không thể tạo slot sau khi check availability.');
 
-// 🔧 Wrapper: sinh + lưu DB
-async function generateSlotsAndSave(scheduleId, subRoomId, shiftIds, slotDuration, startDate, endDate) {
-  const slots = await generateSlotsCore(scheduleId, subRoomId, shiftIds, slotDuration, startDate, endDate);
-  if (!slots.length) return [];
+  // 4️⃣ Lưu slot vào DB
   const inserted = await slotRepo.insertMany(slots);
   return inserted.map(s => s._id);
 }
 
+
+
+
 // ✅ Tạo schedule
+// 🔹 Tạo schedule
 exports.createSchedule = async (data) => {
   const roomCache = await redisClient.get('rooms_cache');
   if (!roomCache) throw new Error('Không tìm thấy bộ nhớ đệm phòng');
   const rooms = JSON.parse(roomCache);
   const room = rooms.find(r => r._id.toString() === data.roomId.toString());
   if (!room) throw new Error('Không tìm thấy phòng');
-  // 🔹 Kiểm tra room có isActive không
   if (!room.isActive) throw new Error(`Phòng ${room._id} hiện không hoạt động`);
-  // 🔹 Kiểm tra conflict
+
   const conflict = await checkScheduleConflict(data.roomId, data.shiftIds, data.startDate, data.endDate);
   if (conflict) throw new Error(`Lịch bị trùng với schedule ${conflict._id}`);
 
-  // 🔹 Lấy shift từ cache để kiểm tra slotDuration
-  const shiftCache = await redisClient.get('shifts_cache');
-  if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
-  const shifts = JSON.parse(shiftCache);
-  
+  // Kiểm tra khả năng tạo slot cho tất cả subRoom
+  await checkSlotsAvailability(room.subRooms, data.shiftIds, data.slotDuration, data.startDate, data.endDate);
 
-  // Lọc shift hợp lệ + isActive
-  const selectedShifts = shifts.filter(
-    s => data.shiftIds.includes(s._id.toString()) && s.isActive
-  );
-  if (!selectedShifts.length) throw new Error('Không tìm thấy ca/kíp hợp lệ hoặc ca/kíp không hoạt động');
-
- for (const shift of selectedShifts) {
-  const [startHour, startMinute] = shift.startTime.split(':').map(Number);
-  const [endHour, endMinute] = shift.endTime.split(':').map(Number);
-
-  // Gắn ngày bắt đầu / kết thúc theo data.startDate
-  const shiftStart = new Date(data.startDate);
-  shiftStart.setHours(startHour, startMinute, 0, 0);
-
-  const shiftEnd = new Date(data.startDate);
-  shiftEnd.setHours(endHour, endMinute, 0, 0);
-
-  // Tổng thời lượng ca (phút)
-  const shiftMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
-
-  // Thời lượng còn lại
-  let remainingMinutes = shiftMinutes;
-  const now = new Date();
-  if (now >= shiftStart && now < shiftEnd) {
-    remainingMinutes = Math.floor((shiftEnd - now) / 60000);
-  }
-
-  if (data.slotDuration > remainingMinutes) {
-      throw new Error(
-        `slotDuration (${data.slotDuration} phút) không hợp lệ cho ca ${shift._id}. ` +
-        `Chỉ còn ${remainingMinutes} phút khả dụng trong ca này.`
-      );
-    }
-
-}
-
-
-  
-  // ✅ Kiểm tra ngày bắt đầu và kết thúc
+  // ✅ Kiểm tra ngày bắt đầu/kết thúc
   validateDates(data.startDate, data.endDate);
 
-  // 🔹 Tạo schedule
+  // Tạo schedule thực
   const schedule = await scheduleRepo.createSchedule({
     roomId: room._id,
     startDate: data.startDate,
@@ -162,10 +235,17 @@ exports.createSchedule = async (data) => {
     slotDuration: data.slotDuration
   });
 
-  // 🔹 Sinh slot cho tất cả subRoom
+  // Sinh slot thực cho tất cả subRoom
   let allSlotIds = [];
   for (const subRoom of room.subRooms) {
-    const slotIds = await generateSlotsAndSave(schedule._id, subRoom._id, data.shiftIds, data.slotDuration, data.startDate, data.endDate);
+    const slotIds = await generateSlotsAndSave(
+      schedule._id,
+      subRoom._id,
+      data.shiftIds,
+      data.slotDuration,
+      data.startDate,
+      data.endDate
+    );
     allSlotIds = allSlotIds.concat(slotIds);
   }
 
@@ -173,6 +253,7 @@ exports.createSchedule = async (data) => {
   await schedule.save();
   return schedule;
 };
+
 
 // ✅ Update schedule
 exports.updateSchedule = async (id, data) => {
@@ -343,35 +424,57 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId) => {
   return { schedule, createdSlotIds: slotIds };
 };
 
-exports.listSchedules = async ({ roomId, shiftIds = [], page = 1, limit = 1 }) => {
-  const skip = (page - 1) * limit;
+exports.listSchedules = async ({ roomId, shiftIds = [], page = 1, limit = 10 }) => {
+  // Nếu có roomId => trả danh sách như cũ
+  if (roomId) {
+    const skip = (page - 1) * limit;
 
-  const { schedules, total } = await scheduleRepo.findSchedules({
-    roomId,
-    shiftIds,
-    skip,
-    limit
-  });
-
-  // Enrich từng schedule
-  const enrichedSchedules = [];
-  for (const sch of schedules) {
-    const { slots: dbSlots } = await slotRepo.findSlotsByScheduleId(sch._id);
-
-    const enrichedSlots = await enrichSlots(dbSlots);
-
-    enrichedSchedules.push({
-      ...sch.toObject(),
-      slots: enrichedSlots
+    const { schedules, total } = await scheduleRepo.findSchedules({
+      roomId,
+      shiftIds,
+      skip,
+      limit
     });
+
+    // Enrich từng schedule
+    const enrichedSchedules = [];
+    for (const sch of schedules) {
+      const { slots: dbSlots } = await slotRepo.findSlotsByScheduleId(sch._id);
+      const enrichedSlots = await enrichSlots(dbSlots);
+
+      enrichedSchedules.push({
+        ...sch.toObject(),
+        slots: enrichedSlots
+      });
+    }
+
+    return {
+      total,
+      totalPages: Math.ceil(total / limit),
+      page: Number(page),
+      limit: Number(limit),
+      schedules: enrichedSchedules
+    };
+  }
+
+  // Nếu không có roomId => gom theo từng roomId và trả summary
+  const schedules = await scheduleRepo.findAll();
+  const grouped = schedules.reduce((acc, s) => {
+    const rid = s.roomId.toString();
+    if (!acc[rid]) acc[rid] = [];
+    acc[rid].push(s);
+    return acc;
+  }, {});
+
+  const summaries = [];
+  for (const [rid, roomSchedules] of Object.entries(grouped)) {
+    const summary = await exports.getRoomSchedulesSummary(rid);
+    summaries.push(summary);
   }
 
   return {
-    total,
-    totalPages: Math.ceil(total / limit),
-    page: Number(page),
-    limit: Number(limit),
-    schedules: enrichedSchedules
+    total: summaries.length,
+    summaries
   };
 };
 
@@ -601,6 +704,61 @@ async function getShiftMapFromCache() {
 
   return shiftMap;
 }
+
+exports.getSubRoomSchedule = async ({ subRoomId, startDate, endDate }) => {
+  if (!subRoomId) throw new Error("Thiếu subRoomId");
+  if (!startDate || !endDate) throw new Error("Thiếu startDate hoặc endDate");
+
+  const schedules = await scheduleRepo.findBySubRoomId(subRoomId, startDate, endDate);
+  const slots = await slotRepo.findBySubRoomId(subRoomId, startDate, endDate);
+
+  const daysMap = {};
+
+  for (const sch of schedules) {
+    const schDate = new Date(sch.startDate).toISOString().split("T")[0];
+
+    if (!daysMap[schDate]) {
+      daysMap[schDate] = { date: schDate, shifts: [] };
+    }
+
+    const shiftObj = {
+      shiftIds: sch.shiftIds,
+      slotDuration: sch.slotDuration,
+      assigned: true, // mặc định đã phân công, sẽ kiểm tra lại
+      slots: []
+    };
+
+    const schSlots = slots.filter(slot => String(slot.scheduleId) === String(sch._id));
+
+    for (const slot of schSlots) {
+      const dentistAssigned = slot.dentistId && slot.dentistId.length > 0;
+      const nurseAssigned = slot.nurseId && slot.nurseId.length > 0;
+
+      // Nếu có slot nào chưa phân công đủ thì shift này coi như chưa phân công
+      if (!dentistAssigned || !nurseAssigned) {
+        shiftObj.assigned = false;
+      }
+
+      shiftObj.slots.push({
+        slotId: slot._id,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        dentistAssigned,
+        nurseAssigned,
+        status: slot.status
+      });
+    }
+
+    daysMap[schDate].shifts.push(shiftObj);
+  }
+
+  return {
+    subRoomId,
+    startDate: new Date(startDate).toISOString().split("T")[0],
+    endDate: new Date(endDate).toISOString().split("T")[0],
+    days: Object.values(daysMap)
+  };
+};
 
 
 

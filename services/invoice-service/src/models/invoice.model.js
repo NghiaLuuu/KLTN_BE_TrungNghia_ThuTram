@@ -10,6 +10,11 @@ const InvoiceSchema = new mongoose.Schema({
     default: "cash" 
   },
   notes: { type: String },
+  status: { 
+    type: String, 
+    enum: ["PAID"], 
+    default: "PAID"   
+  }
 }, { timestamps: true });
 
 module.exports = mongoose.model("Invoice", InvoiceSchema);

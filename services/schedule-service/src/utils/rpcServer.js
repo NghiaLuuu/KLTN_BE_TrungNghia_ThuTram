@@ -24,14 +24,14 @@ async function startRpcServer() {
       switch (action) {
         case 'validateSlotsForService':
           try {
-            if (!payload.serviceId || !payload.dentistId || !Array.isArray(payload.slotIds)) {
-              response = { valid: false, reason: 'Thiếu serviceId, dentistId hoặc slotIds' };
+            if (!payload.serviceId || !Array.isArray(payload.slotIds)) {
+              response = { valid: false, reason: 'Thiếu serviceId hoặc slotIds' };
               break;
             }
 
             response = await slotService.validateSlotsForService({
               serviceId: payload.serviceId,
-              dentistId: payload.dentistId,
+              preferredDentistId: payload.preferredDentistId,
               slotIds: payload.slotIds
             });
           } catch (err) {
@@ -39,6 +39,7 @@ async function startRpcServer() {
             response = { valid: false, reason: err.message };
           }
           break;
+
 
         // 👉 Event subRoomAdded
         case 'subRoomAdded':
@@ -74,30 +75,42 @@ async function startRpcServer() {
 
         case 'confirmed':
           try {
-            const updated = await slotRepo.updateSlotStatus(payload.slotId, 'confirmed');
+            if (!Array.isArray(payload.slotIds)) {
+              response = { error: 'slotIds phải là mảng' };
+              break;
+            }
+            const updated = await slotRepo.updateSlotsStatus(payload.slotIds, 'confirmed');
             response = updated;
           } catch (err) {
-            console.error('Failed to update slot status to confirmed:', err);
+            console.error('Failed to update slots to confirmed:', err);
             response = { error: err.message };
           }
           break;
 
         case 'releaseSlot':
           try {
-            const released = await slotRepo.updateSlotStatus(payload.slotId, 'available');
+            if (!Array.isArray(payload.slotIds)) {
+              response = { error: 'slotIds phải là mảng' };
+              break;
+            }
+            const released = await slotRepo.updateSlotsStatus(payload.slotIds, 'available');
             response = released;
           } catch (err) {
-            console.error('Failed to release slot:', err);
+            console.error('Failed to release slots:', err);
             response = { error: err.message };
           }
           break;
 
         case 'reserved':
           try {
-            const released = await slotRepo.updateSlotStatus(payload.slotId, 'reserved');
-            response = released;
+            if (!Array.isArray(payload.slotIds)) {
+              response = { error: 'slotIds phải là mảng' };
+              break;
+            }
+            const reserved = await slotRepo.updateSlotsStatus(payload.slotIds, 'reserved');
+            response = reserved;
           } catch (err) {
-            console.error('Failed to reserved slot:', err);
+            console.error('Failed to reserve slots:', err);
             response = { error: err.message };
           }
           break;
