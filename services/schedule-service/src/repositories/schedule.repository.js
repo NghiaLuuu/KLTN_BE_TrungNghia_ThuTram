@@ -126,3 +126,8 @@ exports.findBySubRoomId = async (subRoomId, startDate, endDate) => {
     })
     .lean();
 };
+
+// Tìm theo danh sách id
+exports.findByIds = async (scheduleIds) => {
+  return Schedule.find({ _id: { $in: scheduleIds }, status: 'active' }).lean();
+};

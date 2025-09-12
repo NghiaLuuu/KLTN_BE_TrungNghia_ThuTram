@@ -12,6 +12,9 @@ router.get('/', scheduleController.getSchedules);
 // GET /api/schedules/subroom?subRoomId=xxx&range=week
 router.get('/subroom', scheduleController.getSubRoomSchedule);
 
+//schedule/staff?staffId=...&range=week&page=1
+router.get('/staff', scheduleController.getStaffSchedule);
+
 router.get('/:id/slots', scheduleController.getScheduleSlots);
 router.get('/:id', scheduleController.getScheduleDetail);
 router.get('/summary/:roomId', scheduleController.getRoomSchedulesSummary);

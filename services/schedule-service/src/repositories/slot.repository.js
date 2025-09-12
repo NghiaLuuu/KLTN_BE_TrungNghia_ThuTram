@@ -141,3 +141,16 @@ exports.findBySubRoomId = async (subRoomId, startDate, endDate) => {
     date: { $gte: startDate, $lte: endDate }
   }).sort({ startTime: 1 }).lean();
 };
+
+// slotRepo.js
+exports.findByStaffId = async (staffId, startDate, endDate) => {
+  return Slot.find({
+    $or: [
+      { dentistId: staffId },
+      { nurseId: staffId }
+    ],
+    date: { $gte: startDate, $lte: endDate }
+  })
+  .sort({ startTime: 1 })
+  .lean();
+};

@@ -612,9 +612,7 @@ async function enrichSlots(dbSlots) {
 
 exports.getRoomSchedulesSummary = async (roomId) => {
   if (!roomId) throw new Error("Thiếu roomId");
-
   const schedules = await scheduleRepo.findByRoomId(roomId);
-
   if (!schedules.length) {
     return {
       roomId,
@@ -649,11 +647,9 @@ exports.getRoomSchedulesSummary = async (roomId) => {
   const shifts = shiftIds
     .map(id => shiftMap[id])
     .filter(Boolean); // loại bỏ shift không tồn tại trong cache
-
   // 🔹 Lấy toàn bộ slot từ schedules
-  const allSlotIds = schedules.flatMap(s => s.slots.map(id => id.toString()));
+  const allSlotIds = schedules.flatMap(s => s.slots.map(slot => slot._id));
   const dbSlots = await slotRepo.findByIds(allSlotIds); // [{_id, subRoomId}]
-
   // 🔹 Map sang subRoom
   const subRoomMap = await getSubRoomMapFromCache();
   const subRooms = [];
@@ -760,6 +756,64 @@ exports.getSubRoomSchedule = async ({ subRoomId, startDate, endDate }) => {
   };
 };
 
+// scheduleService.js
+exports.getStaffSchedule = async ({ staffId, startDate, endDate }) => {
+  if (!staffId) throw new Error("Thiếu staffId");
+  if (!startDate || !endDate) throw new Error("Thiếu startDate hoặc endDate");
+
+  // lấy tất cả slot có staffId (dentist hoặc nurse)
+  const slots = await slotRepo.findByStaffId(staffId, startDate, endDate);
+
+  // lấy schedule liên quan tới các slot này
+  const scheduleIds = [...new Set(slots.map(s => String(s.scheduleId)))];
+  const schedules = await scheduleRepo.findByIds(scheduleIds);
+
+  const daysMap = {};
+
+  for (const sch of schedules) {
+    const schDate = new Date(sch.startDate).toISOString().split("T")[0];
+
+    if (!daysMap[schDate]) {
+      daysMap[schDate] = { date: schDate, shifts: [] };
+    }
+
+    const shiftObj = {
+      shiftIds: sch.shiftIds,
+      slotDuration: sch.slotDuration,
+      assigned: true,
+      slots: []
+    };
+
+    const schSlots = slots.filter(slot => String(slot.scheduleId) === String(sch._id));
+
+    for (const slot of schSlots) {
+      const dentistAssigned = slot.dentistId && slot.dentistId.length > 0;
+      const nurseAssigned = slot.nurseId && slot.nurseId.length > 0;
+
+      if (!dentistAssigned || !nurseAssigned) {
+        shiftObj.assigned = false;
+      }
+
+      shiftObj.slots.push({
+        slotId: slot._id,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        dentistAssigned,
+        nurseAssigned,
+        status: slot.status
+      });
+    }
+
+    daysMap[schDate].shifts.push(shiftObj);
+  }
+
+  return {
+    staffId,
+    startDate: new Date(startDate).toISOString().split("T")[0],
+    endDate: new Date(endDate).toISOString().split("T")[0],
+    days: Object.values(daysMap)
+  };
+};
 
 
 

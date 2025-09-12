@@ -174,3 +174,52 @@ exports.getSubRoomSchedule = async (req, res) => {
   }
 };
 
+// scheduleController.js
+exports.getStaffSchedule = async (req, res) => {
+  try {
+    const { staffId, range, page = 1 } = req.query;
+    if (!staffId) return res.status(400).json({ message: "Thiếu staffId" });
+
+    const now = new Date();
+    let startDate, endDate;
+    const pageNum = parseInt(page, 10) || 1;
+
+    if (range === "week") {
+      const day = now.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() + diff);
+      monday.setHours(0, 0, 0, 0);
+
+      startDate = new Date(monday);
+      startDate.setDate(monday.getDate() + (pageNum - 1) * 7);
+
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
+      endDate.setHours(23, 59, 59, 999);
+
+      startDate.setDate(startDate.getDate() + 1); // bỏ CN
+    } else if (range === "month") {
+      const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      firstOfMonth.setMonth(firstOfMonth.getMonth() + (pageNum - 1));
+
+      startDate = new Date(firstOfMonth.getFullYear(), firstOfMonth.getMonth(), 2, 0, 0, 0, 0);
+      endDate = new Date(firstOfMonth.getFullYear(), firstOfMonth.getMonth() + 1, 0, 23, 59, 59, 999);
+    } else {
+      return res.status(400).json({ message: "range phải là 'week' hoặc 'month'" });
+    }
+
+    const result = await scheduleService.getStaffSchedule({ staffId, startDate, endDate });
+
+    res.status(200).json({
+      page: pageNum,
+      range,
+      startDate,
+      endDate,
+      result
+    });
+  } catch (err) {
+    console.error("❌ getStaffSchedule error:", err);
+    res.status(400).json({ message: err.message });
+  }
+};

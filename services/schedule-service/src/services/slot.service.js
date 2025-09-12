@@ -17,13 +17,12 @@ exports.assignStaff = async (data) => {
 
   const room = rooms.find(r => r.subRooms.some(sr => sr._id === String(subRoomId)));
   if (!room) throw new Error('Không tìm thấy phòng chứa buồng phụ');
+
   const summary = await scheduleService.getRoomSchedulesSummary(room._id);
 
   // 2️⃣ Kiểm tra subRoomId có hợp lệ trong summary
   const validSubRoom = summary.subRooms.find(sr => sr.subRoomId === String(subRoomId));
-  if (!validSubRoom) {
-    throw new Error(`Buồng phụ ${subRoomId} không thuộc phạm vi lịch làm việc của phòng ${room._id}`);
-  }
+  if (!validSubRoom) throw new Error(`Buồng phụ ${subRoomId} không thuộc phạm vi lịch làm việc của phòng ${room._id}`);
 
   // 3️⃣ Kiểm tra ngày trong phạm vi summary
   const sumStart = new Date(summary.startDate);
@@ -37,9 +36,8 @@ exports.assignStaff = async (data) => {
 
   // 4️⃣ Kiểm tra shiftIds hợp lệ
   const invalidShifts = shiftIds.filter(id => !summary.shiftIds.includes(id));
-  if (invalidShifts.length) {
-    throw new Error(`Các ca làm không thuộc phạm vi lịch: ${invalidShifts.join(', ')}`);
-  }
+  if (invalidShifts.length) throw new Error(`Các ca làm không thuộc phạm vi lịch: ${invalidShifts.join(', ')}`);
+
   // 5️⃣ Kiểm tra active room/subRoom
   const subRoom = room.subRooms.find(sr => sr._id === String(subRoomId));
   if (!room.isActive || !subRoom.isActive) {
@@ -57,65 +55,40 @@ exports.assignStaff = async (data) => {
     throw new Error(`Các ca làm không hợp lệ hoặc bị khóa: ${invalid.join(', ')}`);
   }
 
-  const shiftTimes = validShifts.map(s => ({
-    start: s.startTime,
-    end: s.endTime
-  }));
-  // Chuyển ca làm sang giờ UTC
-const shiftTimesUtc = validShifts.map(shift => {
-  const [shH, shM] = shift.startTime.split(':').map(Number); // "18:00"
-  const [ehH, ehM] = shift.endTime.split(':').map(Number);   // "20:00"
-
-  const startUTC = new Date();
-  startUTC.setUTCHours(shH - 7, shM, 0, 0); // Giờ VN → UTC
-  const endUTC = new Date();
-  endUTC.setUTCHours(ehH - 7, ehM, 0, 0);
-
-  return { start: startUTC, end: endUTC };
-});
-console.log("Shift giờ UTC:", shiftTimesUtc);
-
-// 7️⃣ Lấy tất cả slot của subRoom
-const nowUtc = new Date();
-const allSlots = await slotRepo.getSlots({ subRoomId });
-
-// Lọc slot theo giờ hiện tại + shift
-let slots = allSlots.filter(slot => {
-  const slotStart = new Date(slot.startTime);
-  const slotEnd = new Date(slot.endTime);
-
-  // Chỉ lấy slot chưa kết thúc
-  if (slotEnd <= nowUtc) return false;
-
-// ❌ Slot đã bắt đầu rồi (hiện tại > startTime)
-  if (slotStart <= nowUtc) return false;
-  
-  // Kiểm tra slot nằm trong bất kỳ shift nào
-  return shiftTimesUtc.some(shift => {
-    return slotStart >= shift.start && slotEnd <= shift.end;
+  // 7️⃣ Lấy tất cả slot của subRoom trong khoảng startDate → endDate
+  const allSlots = await slotRepo.getSlots({
+    subRoomId,
+    date: { $gte: startDate, $lte: endDate }
   });
-});
 
-console.log("nowUtc:", nowUtc);
-console.log("Shift giờ UTC:", shiftTimesUtc);
+  // 8️⃣ Chuyển shift sang giờ UTC (chỉ giờ, không đổi ngày)
+  const shiftTimes = validShifts.map(shift => {
+    const [shH, shM] = shift.startTime.split(':').map(Number);
+    const [ehH, ehM] = shift.endTime.split(':').map(Number);
+    return { shH, shM, ehH, ehM };
+  });
 
-if (!slots.length) {
-  throw new Error(`Không có slot nào khớp với ca/kíp đã chọn trong buồng phụ "${subRoom.name}"`);
-}
+  // 9️⃣ Lọc slot theo giờ của shift
+  let slots = allSlots.filter(slot => {
+    const slotStart = new Date(slot.startTime);
+    const slotEnd = new Date(slot.endTime);
 
-// 8️⃣ Lọc slot theo shift (so sánh UTC trực tiếp)
-slots = slots.filter(slot => {
-  const slotStart = new Date(slot.startTime);
-  const slotEnd = new Date(slot.endTime);
+    return shiftTimes.some(shift => {
+      const shiftStart = new Date(slotStart);
+      shiftStart.setHours(shift.shH, shift.shM, 0, 0);
 
-  return shiftTimesUtc.some(shift => slotStart >= shift.start && slotEnd <= shift.end);
-});
+      const shiftEnd = new Date(slotEnd);
+      shiftEnd.setHours(shift.ehH, shift.ehM, 0, 0);
 
-if (!slots.length) {
-  throw new Error(`Không có slot nào khớp với ca/kíp đã chọn trong buồng phụ "${subRoom.name}"`);
-}
+      return slotStart >= shiftStart && slotEnd <= shiftEnd;
+    });
+  });
 
-  // 9️⃣ Kiểm tra giới hạn nhân sự
+  if (!slots.length) {
+    throw new Error(`Không có slot nào khớp với ca/kíp đã chọn trong buồng phụ "${subRoom.name}"`);
+  }
+
+  // 10️⃣ Kiểm tra giới hạn nhân sự
   const userCache = await redisClient.get('users_cache');
   if (!userCache) throw new Error('Không tìm thấy dữ liệu người dùng trong cache');
   const users = JSON.parse(userCache);
@@ -138,7 +111,7 @@ if (!slots.length) {
     throw new Error(`Vượt quá giới hạn y tá trong buồng phụ ${subRoom._id}: tối đa ${subRoom.maxNurses}`);
   }
 
-  // 🔟 Cập nhật slot
+  // 11️⃣ Cập nhật slot
   const slotIds = slots.map(s => s._id);
   await slotRepo.updateManySlots({ _id: { $in: slotIds } }, {
     dentistId: dentistIds,
@@ -147,6 +120,7 @@ if (!slots.length) {
 
   return { updatedCount: slots.length };
 };
+
 
 
 
