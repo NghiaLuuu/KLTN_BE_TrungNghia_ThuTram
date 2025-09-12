@@ -118,3 +118,19 @@ exports.getStaffByIds = async (req, res) => {
   }
 };
 
+exports.uploadAvatar = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const file = req.file;
+
+    const updatedUser = await userService.updateUserAvatar(userId, file);
+
+    res.json({
+      message: 'Cập nhật avatar thành công',
+      user: updatedUser
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+

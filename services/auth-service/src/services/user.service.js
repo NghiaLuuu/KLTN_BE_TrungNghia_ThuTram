@@ -1,6 +1,8 @@
 const userRepo = require('../repositories/user.repository');
 const redis = require('../utils/redis.client');
 const bcrypt = require('bcrypt');
+const { uploadToS3 } = require('./s3.service');
+
 const USER_CACHE_KEY = 'users_cache';
 
 async function initUserCache() {
@@ -175,6 +177,20 @@ exports.getStaffByIds = async (ids) => {
 
   return { staff };
 };
+
+exports.updateUserAvatar = async (userId, file) => {
+  if (!file) throw new Error('Chưa có file upload');
+
+  // Upload lên S3
+  const avatarUrl = await uploadToS3(file.buffer, file.originalname, file.mimetype, 'avatars');
+
+  // Cập nhật vào DB
+  const updatedUser = await userRepo.updateAvatar(userId, avatarUrl);
+  if (!updatedUser) throw new Error('Không tìm thấy người dùng');
+
+  return updatedUser;
+};
+
 
 
 exports.refreshUserCache = refreshUserCache;

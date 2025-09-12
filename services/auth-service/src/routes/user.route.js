@@ -2,6 +2,13 @@ const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/user.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
+const multer = require('multer');
+
+
+// Multer setup: lưu file vào memory để upload S3
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
+router.put('/avatar/:id', authMiddleware,upload.single('avatar'), userController.uploadAvatar);
 
 router.get('/profile', authMiddleware, userController.getProfile);
 

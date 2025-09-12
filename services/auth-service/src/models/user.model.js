@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
 const userSchema = new Schema({
+  avatar: { type: String, default: null },
   role: {
     type: String,
     enum: ['admin', 'dentist', 'nurse', 'receptionist', 'patient', 'manager'],

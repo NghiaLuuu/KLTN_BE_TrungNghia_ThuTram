@@ -125,4 +125,15 @@ exports.findUsersByIds = async (ids) => {
   return User.find({ _id: { $in: ids } }, '_id fullName role'); // Chỉ lấy _id, fullName, role
 };
 
+exports.updateAvatar = async (userId, avatarUrl) => {
+  return User.findByIdAndUpdate(
+    userId,
+    { avatar: avatarUrl },
+    { new: true }
+  ).lean();
+};
+
+exports.findById = async (userId) => {
+  return User.findById(userId).lean();
+};
 
