@@ -571,7 +571,9 @@ async function getSubRoomMapFromCache() {
           subRoomId: sub._id,
           subRoomName: sub.name,
           roomId: r._id,
-          roomName: r.name
+          roomName: r.name,
+          roomStatus: r.isActive,   // ✅ thêm trạng thái của room
+          isActive: sub.isActive    // ✅ thêm trạng thái subRoom
         };
       }
     }
@@ -579,6 +581,7 @@ async function getSubRoomMapFromCache() {
 
   return subRoomMap;
 }
+
 // 🔹 Hàm enrich slots
 async function enrichSlots(dbSlots) {
   if (!dbSlots.length) return [];
