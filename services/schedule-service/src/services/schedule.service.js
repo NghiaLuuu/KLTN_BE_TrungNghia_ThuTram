@@ -468,7 +468,7 @@ exports.listSchedules = async ({ roomId, shiftIds = [], page = 1, limit = 10 }) 
 
   const summaries = [];
   for (const [rid, roomSchedules] of Object.entries(grouped)) {
-    const summary = await exports.getRoomSchedulesSummary(rid);
+    const summary = await exports.getRoomSchedulesSummaryActive(rid);
     summaries.push(summary);
   }
 
@@ -673,6 +673,103 @@ exports.getRoomSchedulesSummary = async (roomId) => {
     subRooms
   };
 };
+
+// Hàm mới: chỉ lấy shift còn hiệu lực, startDate = ngày hiện tại
+exports.getRoomSchedulesSummaryActive = async (roomId) => {
+  if (!roomId) throw new Error("Thiếu roomId");
+  const schedules = await scheduleRepo.findByRoomId(roomId);
+  if (!schedules.length) {
+    return {
+      roomId,
+      startDate: null,
+      endDate: null,
+      shiftIds: [],
+      shifts: [],
+      subRooms: [],
+      schedules: []
+    };
+  }
+
+  const today = new Date((new Date()).getTime() + 7 * 60 * 60 * 1000);
+  const todayStr = today.toISOString().split("T")[0]; // YYYY-MM-DD
+
+  // Chỉ lấy schedule còn hiệu lực (endDate >= hôm nay)
+  const activeSchedules = schedules.filter(s => {
+    const endDate = new Date(s.endDate);
+    return endDate >= today;
+  });
+
+  if (!activeSchedules.length) {
+    return {
+      roomId,
+      startDate: todayStr,   // ✅ startDate = hôm nay
+      endDate: null,
+      shiftIds: [],
+      shifts: [],
+      subRooms: [],
+      schedules: []
+    };
+  }
+
+  // endDate trễ nhất trong các schedule còn hiệu lực
+  const endDate = activeSchedules.reduce(
+    (max, s) => (!max || new Date(s.endDate) > max ? new Date(s.endDate) : max),
+    null
+  );
+
+  // 🔹 Tập hợp shiftIds duy nhất
+  const shiftIds = [
+    ...new Set(activeSchedules.flatMap(s => s.shiftIds.map(id => id.toString())))
+  ];
+
+  // 🔹 Map shiftId → shift info
+  const shiftMap = await getShiftMapFromCache();
+  const shifts = shiftIds
+    .map(id => shiftMap[id])
+    .filter(Boolean) // Loại bỏ shift không tồn tại trong cache
+    .filter(shift => {
+      // Kiểm tra thời gian của shift
+      const [startHour, startMinute] = shift.startTime.split(':').map(Number);
+      const [endHour, endMinute] = shift.endTime.split(':').map(Number);
+
+      const shiftStart = new Date(today);
+      shiftStart.setHours(startHour, startMinute, 0, 0);
+
+      const shiftEnd = new Date(today);
+      shiftEnd.setHours(endHour, endMinute, 0, 0);
+
+      // Chỉ giữ shift nếu thời gian kết thúc lớn hơn thời gian hiện tại
+      return shiftEnd > new Date();
+    });
+
+  // 🔹 Lấy toàn bộ slot từ activeSchedules
+  const allSlotIds = activeSchedules.flatMap(s => s.slots.map(slot => slot._id));
+  const dbSlots = await slotRepo.findByIds(allSlotIds); // [{_id, subRoomId}]
+
+  // 🔹 Map sang subRoom
+  const subRoomMap = await getSubRoomMapFromCache();
+  const subRooms = [];
+  for (const slot of dbSlots) {
+    const subInfo = subRoomMap[slot.subRoomId?.toString()];
+    if (subInfo && !subRooms.find(sr => sr.subRoomId === subInfo.subRoomId)) {
+      subRooms.push(subInfo);
+    }
+  }
+
+  // 🔹 Chỉ lấy ngày (YYYY-MM-DD)
+  const toDateOnly = (date) =>
+    date ? new Date(date).toISOString().split("T")[0] : null;
+
+  return {
+    roomId,
+    startDate: todayStr,       // ✅ cố định = hôm nay
+    endDate: toDateOnly(endDate),
+    shiftIds,
+    shifts,
+    subRooms
+  };
+};
+
 
 
 async function getShiftMapFromCache() {
