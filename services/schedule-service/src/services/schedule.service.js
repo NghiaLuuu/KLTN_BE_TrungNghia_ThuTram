@@ -684,90 +684,85 @@ exports.getRoomSchedulesSummaryActive = async (roomId) => {
   if (!schedules.length) {
     return {
       roomId,
+      roomName: null,
+      isActive: null,
       startDate: null,
       endDate: null,
-      shiftIds: [],
       shifts: [],
-      subRooms: [],
-      schedules: []
+      subRooms: []
     };
   }
 
-  const today = new Date((new Date()).getTime() + 7 * 60 * 60 * 1000);
-  const todayStr = today.toISOString().split("T")[0]; // YYYY-MM-DD
+  const today = new Date(Date.now() + 7 * 60 * 60 * 1000);
+  const todayStr = today.toISOString().split("T")[0];
 
-  // Chỉ lấy schedule còn hiệu lực (endDate >= hôm nay)
-  const activeSchedules = schedules.filter(s => {
-    const endDate = new Date(s.endDate);
-    return endDate >= today;
-  });
-
+  const activeSchedules = schedules.filter(s => new Date(s.endDate) >= today);
   if (!activeSchedules.length) {
     return {
       roomId,
-      startDate: todayStr,   // ✅ startDate = hôm nay
+      roomName: null,
+      isActive: null,
+      startDate: todayStr,
       endDate: null,
-      shiftIds: [],
       shifts: [],
-      subRooms: [],
-      schedules: []
+      subRooms: []
     };
   }
 
-  // endDate trễ nhất trong các schedule còn hiệu lực
   const endDate = activeSchedules.reduce(
     (max, s) => (!max || new Date(s.endDate) > max ? new Date(s.endDate) : max),
     null
   );
 
-  // 🔹 Tập hợp shiftIds duy nhất
-  const shiftIds = [
-    ...new Set(activeSchedules.flatMap(s => s.shiftIds.map(id => id.toString())))
-  ];
-
-  // 🔹 Map shiftId → shift info
+  const shiftIds = [...new Set(activeSchedules.flatMap(s => s.shiftIds.map(id => id.toString())))];
   const shiftMap = await getShiftMapFromCache();
   const shifts = shiftIds
     .map(id => shiftMap[id])
-    .filter(Boolean) // Loại bỏ shift không tồn tại trong cache
+    .filter(Boolean)
     .filter(shift => {
-      // Kiểm tra thời gian của shift
-      const [startHour, startMinute] = shift.startTime.split(':').map(Number);
-      const [endHour, endMinute] = shift.endTime.split(':').map(Number);
-
-      const shiftStart = new Date(today);
-      shiftStart.setHours(startHour, startMinute, 0, 0);
-
+      const [sh, sm] = shift.startTime.split(':').map(Number);
+      const [eh, em] = shift.endTime.split(':').map(Number);
       const shiftEnd = new Date(today);
-      shiftEnd.setHours(endHour, endMinute, 0, 0);
-
-      // Chỉ giữ shift nếu thời gian kết thúc lớn hơn thời gian hiện tại
+      shiftEnd.setHours(eh, em, 0, 0);
       return shiftEnd > new Date();
     });
 
-  // 🔹 Lấy toàn bộ slot từ activeSchedules
   const allSlotIds = activeSchedules.flatMap(s => s.slots.map(slot => slot._id));
-  const dbSlots = await slotRepo.findByIds(allSlotIds); // [{_id, subRoomId}]
+  const dbSlots = await slotRepo.findByIds(allSlotIds);
 
-  // 🔹 Map sang subRoom
   const subRoomMap = await getSubRoomMapFromCache();
+
   const subRooms = [];
+  let roomInfo = { roomId, roomName: null, isActive: null };
+
   for (const slot of dbSlots) {
     const subInfo = subRoomMap[slot.subRoomId?.toString()];
-    if (subInfo && !subRooms.find(sr => sr.subRoomId === subInfo.subRoomId)) {
-      subRooms.push(subInfo);
+    if (subInfo) {
+      // Lấy room info 1 lần duy nhất
+      if (!roomInfo.roomName) {
+        roomInfo = {
+          roomId: subInfo.roomId,
+          roomName: subInfo.roomName, // tên room
+          isActive: subInfo.roomStatus
+        };
+      }
+      // Push subRoom (chỉ giữ id, name, isActive)
+      if (!subRooms.find(sr => sr.subRoomId === subInfo.subRoomId)) {
+        subRooms.push({
+          subRoomId: subInfo.subRoomId,
+          subRoomName: subInfo.subRoomName,
+          isActive: subInfo.isActive
+        });
+      }
     }
   }
 
-  // 🔹 Chỉ lấy ngày (YYYY-MM-DD)
-  const toDateOnly = (date) =>
-    date ? new Date(date).toISOString().split("T")[0] : null;
+  const toDateOnly = (date) => date ? new Date(date).toISOString().split("T")[0] : null;
 
   return {
-    roomId,
-    startDate: todayStr,       // ✅ cố định = hôm nay
+    ...roomInfo,
+    startDate: todayStr,
     endDate: toDateOnly(endDate),
-    shiftIds,
     shifts,
     subRooms
   };
