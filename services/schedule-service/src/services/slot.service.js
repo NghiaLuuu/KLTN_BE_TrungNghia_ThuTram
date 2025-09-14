@@ -68,25 +68,27 @@ exports.assignStaff = async (data) => {
     return { shH, shM, ehH, ehM };
   });
 
-  // 9️⃣ Lọc slot theo giờ của shift
-  let slots = allSlots.filter(slot => {
-    const slotStart = new Date(slot.startTime);
-    const slotEnd = new Date(slot.endTime);
+  // 9️⃣ Lọc slot theo giờ của shift và loại bỏ các slot đã xảy ra
+const now = new Date();
+let slots = allSlots.filter(slot => {
+  const slotStart = new Date(slot.startTime);
+  const slotEnd = new Date(slot.endTime);
 
-    return shiftTimes.some(shift => {
-      const shiftStart = new Date(slotStart);
-      shiftStart.setHours(shift.shH, shift.shM, 0, 0);
-
-      const shiftEnd = new Date(slotEnd);
-      shiftEnd.setHours(shift.ehH, shift.ehM, 0, 0);
-
-      return slotStart >= shiftStart && slotEnd <= shiftEnd;
-    });
-  });
-
-  if (!slots.length) {
-    throw new Error(`Không có slot nào khớp với ca/kíp đã chọn trong buồng phụ "${subRoom.name}"`);
+  // Loại bỏ các slot đã xảy ra
+  if (slotStart <= now) {
+    return false;
   }
+
+  return shiftTimes.some(shift => {
+    const shiftStart = new Date(slotStart);
+    shiftStart.setHours(shift.shH, shift.shM, 0, 0);
+
+    const shiftEnd = new Date(slotEnd);
+    shiftEnd.setHours(shift.ehH, shift.ehM, 0, 0);
+
+    return slotStart >= shiftStart && slotEnd <= shiftEnd;
+  });
+});
 
   // 10️⃣ Kiểm tra giới hạn nhân sự
   const userCache = await redisClient.get('users_cache');
