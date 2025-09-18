@@ -4,7 +4,6 @@ const userService = require('../services/user.service');
 exports.deleteUser = async (req, res) => {
   try {
     const currentUser = req.user;
-    console.log('Current User:', currentUser);
     const userId = req.params.id;
 
     const result = await userService.deleteUser(currentUser, userId);

@@ -154,7 +154,6 @@ exports.getUserById = async (currentUser, userId) => {
 
 // 🆕 DELETE OPERATIONS
 exports.deleteUser = async (currentUser, userId) => {
-  console.log('Attempting to delete user:', userId, 'by', currentUser);
   if (!['admin', 'manager'].includes(currentUser.role)) {
     throw new Error('Bạn không có quyền xóa người dùng');
   }
