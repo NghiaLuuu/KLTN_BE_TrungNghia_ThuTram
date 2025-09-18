@@ -4,41 +4,56 @@ const bcrypt = require('bcrypt');
 const { uploadToS3 } = require('./s3.service');
 
 const USER_CACHE_KEY = 'users_cache';
+const DENTIST_CACHE_KEY = 'dentists_public';
 
+// 🔹 CACHE OPERATIONS
 async function initUserCache() {
-  const users = await userRepo.listUsers(); // cần có method listUsers trong repository
-  const filtered = users.filter(user => user.role !== 'patient');
-  await redis.set(USER_CACHE_KEY, JSON.stringify(filtered));
-  console.log(`✅ Cache nhân viên đã được tải: ${filtered.length} nhân viên`);
+  try {
+    const users = await userRepo.listUsers();
+    await redis.set(USER_CACHE_KEY, JSON.stringify(users));
+    console.log(`✅ Cache nhân viên đã được tải: ${users.length} nhân viên`);
+  } catch (err) {
+    console.error('❌ Lỗi khi tải cache người dùng:', err);
+  }
 }
 
+async function refreshUserCache() {
+  try {
+    const users = await userRepo.listUsers();
+    await redis.set(USER_CACHE_KEY, JSON.stringify(users));
+
+    // pick available repo method (compatibility)
+    const getDentists = userRepo.getDentistsWithDescription
+      || userRepo.getDentistsWithCertificates
+      || userRepo.getDentistsForPatients
+      || (async () => users.filter(u => u.role === 'dentist'));
+
+    const dentists = await getDentists();
+    await redis.set(DENTIST_CACHE_KEY, JSON.stringify(dentists));
+
+    console.log(`♻ Cache người dùng đã được làm mới: ${Array.isArray(users) ? users.length : 0} người dùng`);
+  } catch (err) {
+    console.error('❌ Lỗi khi refresh cache:', err);
+  }
+}
+
+// 🔹 BASIC OPERATIONS
 exports.createUser = async (data) => {
   const user = await userRepo.createUser(data);
   await refreshUserCache();
   return user;
 };
 
-exports.updateUser = async (userId, data) => {
-  const updated = await userRepo.updateById(userId, data);
+exports.updateUser = async (userId, data, updatedBy = null) => {
+  const updated = await userRepo.updateById(userId, data, updatedBy);
   if (!updated) throw new Error('Không tìm thấy người dùng để cập nhật');
   await refreshUserCache();
   return updated;
 };
 
-exports.listUsers = async () => {
-  let cached = await redis.get(USER_CACHE_KEY);
-  if (cached) return JSON.parse(cached);
-
-  const users = await userRepo.listUsers();
-  const filtered = users.filter(user => user.role !== 'patient');
-  await redis.set(USER_CACHE_KEY, JSON.stringify(filtered));
-  return filtered;
-};
-
 exports.getProfile = async (userId) => {
   if (!userId) throw new Error('Thiếu mã người dùng');
 
-  // Lấy tất cả user từ cache
   let users = await redis.get(USER_CACHE_KEY);
   if (users) {
     users = JSON.parse(users);
@@ -46,27 +61,12 @@ exports.getProfile = async (userId) => {
     if (user) return user;
   }
 
-  // Nếu không tìm thấy trong cache hoặc cache trống, lấy trực tiếp từ DB
   const userFromDb = await userRepo.findById(userId);
   if (!userFromDb) throw new Error('Không tìm thấy người dùng');
-
   return userFromDb;
 };
 
-exports.searchUser = async (keyword) => {
-  const users = await this.listUsers();
-  return users.filter(user =>
-    user.name?.toLowerCase().includes(keyword.toLowerCase())
-  );
-};
-
-async function refreshUserCache() {
-  const users = await userRepo.listUsers();
-  const filtered = users.filter(user => user.role !== 'patient');
-  await redis.set(USER_CACHE_KEY, JSON.stringify(filtered));
-  console.log(`♻ Cache người dùng đã được làm mới: ${filtered.length} người dùng`);
-}
-
+// 🔹 LIST & SEARCH OPERATIONS
 exports.getUsersByRole = async (role, page = 1, limit = 10) => {
   if (!role) throw new Error('Thiếu vai trò để lọc người dùng');
 
@@ -75,8 +75,6 @@ exports.getUsersByRole = async (role, page = 1, limit = 10) => {
     userRepo.getUsersByRole(role, skip, limit),
     userRepo.countByRole(role),
   ]);
-
-  if (total === 0) throw new Error(`Không tìm thấy người dùng với vai trò "${role}"`);
 
   return {
     total,
@@ -119,45 +117,34 @@ exports.searchStaff = async (criteria = {}, page = 1, limit = 10) => {
   };
 };
 
-
-
-// Cập nhật thông tin user theo id (admin/manager, giữ nguyên field không truyền)
+// 🔹 ADMIN OPERATIONS
 exports.updateProfileByAdmin = async (currentUser, userId, data) => {
-  // Kiểm tra quyền
   if (!['admin', 'manager'].includes(currentUser.role)) {
     throw new Error('Bạn không có quyền thực hiện chức năng này');
   }
 
-  // Lấy user hiện tại
   const existingUser = await userRepo.findById(userId);
   if (!existingUser) {
     throw new Error('Không tìm thấy người dùng để cập nhật');
   }
 
-  // Merge dữ liệu mới vào dữ liệu cũ
   const updatedData = { ...existingUser.toObject(), ...data };
-
-  // Cập nhật user nhưng không thay đổi password
-  const updatedUser = await userRepo.updateByIdExcludePassword(userId, updatedData);
+  const updatedUser = await userRepo.updateById(userId, updatedData, currentUser._id);
+  
   if (!updatedUser) {
     throw new Error('Không thể cập nhật người dùng');
   }
 
-  // Cập nhật cache nếu có
   await refreshUserCache();
-
   return updatedUser;
 };
 
-
-// Lấy thông tin user theo id
 exports.getUserById = async (currentUser, userId) => {
-  // Nếu muốn, kiểm tra quyền: chỉ admin/manager mới được xem user khác
   if (!['admin', 'manager'].includes(currentUser.role) && currentUser._id.toString() !== userId) {
     throw new Error('Bạn không có quyền truy cập thông tin người dùng này');
   }
 
-  const user = await userRepo.getUserById(userId);
+  const user = await userRepo.findById(userId);
   if (!user) {
     throw new Error('Không tìm thấy người dùng');
   }
@@ -165,14 +152,87 @@ exports.getUserById = async (currentUser, userId) => {
   return user;
 };
 
+// 🆕 DELETE OPERATIONS
+exports.deleteUser = async (currentUser, userId) => {
+  console.log('Attempting to delete user:', userId, 'by', currentUser);
+  if (!['admin', 'manager'].includes(currentUser.role)) {
+    throw new Error('Bạn không có quyền xóa người dùng');
+  }
+
+  if (currentUser.userId.toString() === userId) {
+    throw new Error('Không thể xóa chính mình');
+  }
+
+  const user = await userRepo.findById(userId);
+  if (!user) {
+    throw new Error('Không tìm thấy người dùng để xóa');
+  }
+
+  if (user.role === 'patient') {
+    throw new Error('Không thể xóa bệnh nhân từ auth-service');
+  }
+
+  // 🔹 Kiểm tra xem user có được sử dụng trong hệ thống không
+  const usage = await checkUserUsageInSystem(userId);
+  
+  if (usage.hasAppointments || usage.hasSchedules) {
+    // Chỉ cho phép soft delete
+    const deletedUser = await userRepo.softDeleteUser(userId, currentUser._id|| 'Ngưng hoạt động do đã có lịch sử trong hệ thống');
+    await refreshUserCache();
+    
+    return {
+      type: 'soft_delete',
+      message: `Nhân viên ${user.fullName} đã được ngưng hoạt động do có ${usage.appointmentCount} lịch hẹn và ${usage.scheduleCount} ca làm việc`,
+      user: deletedUser
+    };
+  } else {
+    // Cho phép hard delete nếu chưa có lịch sử
+    await userRepo.hardDeleteUser(userId);
+    await refreshUserCache();
+    
+    return {
+      type: 'hard_delete',
+      message: `Nhân viên ${user.fullName} đã được xóa hoàn toàn khỏi hệ thống`,
+      user: null
+    };
+  }
+};
+
+// 🆕 CHECK USAGE IN OTHER SERVICES
+async function checkUserUsageInSystem(userId) {
+  try {
+    // TODO: Implement RPC calls to other services
+    // const scheduleUsage = await scheduleServiceRPC.checkUserUsage(userId);
+    // const appointmentUsage = await appointmentServiceRPC.checkUserUsage(userId);
+    
+    // Mock implementation for now
+    return {
+      hasAppointments: false,
+      hasSchedules: false,
+      appointmentCount: 0,
+      scheduleCount: 0
+    };
+  } catch (error) {
+    console.error('Error checking user usage:', error);
+    // Nếu không check được, mặc định là có sử dụng để an toàn
+    return {
+      hasAppointments: true,
+      hasSchedules: true,
+      appointmentCount: 1,
+      scheduleCount: 1
+    };
+  }
+}
+
+// 🔹 UTILITY OPERATIONS
 exports.getStaffByIds = async (ids) => {
   const users = await userRepo.findUsersByIds(ids);
-
-  // map fullName -> name để đúng response yêu cầu
   const staff = users.map(u => ({
     _id: u._id,
     name: u.fullName,
-    role: u.role
+    role: u.role,
+    specializations: u.specializations,
+    description: u.description
   }));
 
   return { staff };
@@ -181,18 +241,145 @@ exports.getStaffByIds = async (ids) => {
 exports.updateUserAvatar = async (userId, file) => {
   if (!file) throw new Error('Chưa có file upload');
 
-  // Upload lên S3
   const avatarUrl = await uploadToS3(file.buffer, file.originalname, file.mimetype, 'avatars');
-
-  // Cập nhật vào DB
   const updatedUser = await userRepo.updateAvatar(userId, avatarUrl);
+  
   if (!updatedUser) throw new Error('Không tìm thấy người dùng');
-
+  
+  await refreshUserCache();
   return updatedUser;
 };
 
+// 🆕 CERTIFICATE OPERATIONS (upload ảnh với logic xác thực thông minh)
+exports.uploadCertificate = async (currentUser, userId, file, notes = null) => {
+  // Chỉ admin/manager hoặc chính nha sĩ đó mới được upload
+  if (!['admin', 'manager'].includes(currentUser.role) && currentUser._id.toString() !== userId) {
+    throw new Error('Bạn không có quyền upload chứng chỉ cho người khác');
+  }
 
+  const user = await userRepo.findById(userId);
+  if (!user || user.role !== 'dentist') {
+    throw new Error('Chỉ có thể upload chứng chỉ cho nha sĩ');
+  }
+
+  if (!file) {
+    throw new Error('Chưa có file chứng chỉ để upload');
+  }
+
+  // Validate file type
+  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+  if (!allowedTypes.includes(file.mimetype)) {
+    throw new Error('Chỉ chấp nhận file ảnh (JPG, PNG, WEBP)');
+  }
+
+  // Validate file size (max 5MB)
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error('File ảnh không được vượt quá 5MB');
+  }
+
+  try {
+    // Upload to S3
+    const imageUrl = await uploadToS3(file.buffer, file.originalname, file.mimetype, 'certificates');
+    
+    // 🎯 LOGIC QUAN TRỌNG: Tự động xác thực nếu admin/manager upload
+    const isAutoVerified = ['admin', 'manager'].includes(currentUser.role);
+    
+    // Save to database với trạng thái xác thực phù hợp
+    const certificateData = {
+      imageUrl,
+      notes,
+      isVerified: isAutoVerified,
+      verifiedBy: isAutoVerified ? currentUser._id : null,
+      verifiedAt: isAutoVerified ? new Date() : null
+    };
+
+    const updatedUser = await userRepo.addCertificateImage(userId, certificateData);
+    await refreshUserCache();
+    
+    const message = isAutoVerified 
+      ? 'Upload và xác thực chứng chỉ thành công (tự động)' 
+      : 'Upload chứng chỉ thành công (đang chờ xác thực)';
+    
+    return {
+      success: true,
+      message,
+      user: updatedUser,
+      certificateUrl: imageUrl,
+      isAutoVerified
+    };
+  } catch (error) {
+    throw new Error(`Lỗi upload chứng chỉ: ${error.message}`);
+  }
+};
+
+exports.deleteCertificate = async (currentUser, userId, certificateId) => {
+  if (!['admin', 'manager'].includes(currentUser.role) && currentUser._id.toString() !== userId) {
+    throw new Error('Bạn không có quyền xóa chứng chỉ');
+  }
+
+  const updatedUser = await userRepo.deleteCertificate(userId, certificateId);
+  if (!updatedUser) {
+    throw new Error('Không tìm thấy chứng chỉ để xóa');
+  }
+
+  await refreshUserCache();
+  return updatedUser;
+};
+
+// 🆕 ADMIN-ONLY: Verify certificate
+exports.verifyCertificate = async (currentUser, userId, certificateId, isVerified = true) => {
+  if (!['admin', 'manager'].includes(currentUser.role)) {
+    throw new Error('Chỉ admin/manager mới có quyền xác thực chứng chỉ');
+  }
+
+  const updatedUser = await userRepo.verifyCertificate(userId, certificateId, isVerified, currentUser._id);
+  if (!updatedUser) {
+    throw new Error('Không tìm thấy chứng chỉ để xác thực');
+  }
+
+  await refreshUserCache();
+  return updatedUser;
+};
+
+exports.updateCertificateNotes = async (currentUser, userId, certificateId, notes) => {
+  if (!['admin', 'manager'].includes(currentUser.role) && currentUser._id.toString() !== userId) {
+    throw new Error('Bạn không có quyền cập nhật ghi chú chứng chỉ');
+  }
+
+  const updatedUser = await userRepo.updateCertificateNotes(userId, certificateId, notes);
+  if (!updatedUser) {
+    throw new Error('Không tìm thấy chứng chỉ để cập nhật');
+  }
+
+  await refreshUserCache();
+  return updatedUser;
+};
+
+// 🆕 PUBLIC API: Get dentists with certificates for patient selection
+exports.getDentistsForPatients = async () => {
+  const cached = await redis.get('dentists_public');
+  if (cached) return JSON.parse(cached);
+
+  const dentists = await userRepo.getDentistsWithCertificates();
+  
+  const formattedDentists = dentists.map(dentist => ({
+    id: dentist._id,
+    name: dentist.fullName,
+    avatar: dentist.avatar,
+    certificates: {
+      total: dentist.certificates.length,
+      verified: dentist.certificates.filter(cert => cert.isVerified).length,
+      images: dentist.certificates
+        .filter(cert => cert.isVerified) // chỉ hiển thị chứng chỉ đã xác thực
+        .map(cert => cert.imageUrl)
+    }
+  }));
+
+  await redis.set('dentists_public', JSON.stringify(formattedDentists), 'EX', 3600); // cache 1 hour
+  return formattedDentists;
+};
 
 exports.refreshUserCache = refreshUserCache;
 
+// Initialize cache on startup
 initUserCache().catch(err => console.error('❌ Lỗi khi tải cache người dùng:', err));

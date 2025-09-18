@@ -1,6 +1,35 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
+// 🆕 Schema cho chứng chỉ với tracking xác thực
+const certificateSchema = new Schema({
+  imageUrl: {
+    type: String,
+    required: true
+  },
+  uploadedAt: {
+    type: Date,
+    default: Date.now
+  },
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+  verifiedBy: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    default: null // ID của admin/manager đã xác thực
+  },
+  verifiedAt: {
+    type: Date,
+    default: null // thời gian xác thực
+  },
+  notes: {
+    type: String,
+    maxlength: 200
+  }
+}, { _id: true, timestamps: true });
+
 const userSchema = new Schema({
   avatar: { type: String, default: null },
   role: {
@@ -31,6 +60,12 @@ const userSchema = new Schema({
     type: String,
     required: true,
   },
+  description: {
+    type: String,
+    default: null,
+    trim: true,
+    maxlength: 500
+  },
   gender: {
     type: String,
     enum: ['male', 'female', 'other'],
@@ -43,8 +78,23 @@ const userSchema = new Schema({
   employeeCode: {
     type: String,
     unique: true,
-    sparse: true, // cho phép null nếu role = patient
+    sparse: true,
   },
+  
+  // 🆕 DANH SÁCH CHỨNG CHỈ (chỉ cho dentist)
+  certificates: {
+    type: [certificateSchema],
+    default: [],
+    validate: {
+      validator: function(certificates) {
+        // Chỉ dentist mới được có certificates
+        if (this.role !== 'dentist') return certificates.length === 0;
+        return true;
+      },
+      message: 'Chỉ nha sĩ mới được có danh sách chứng chỉ'
+    }
+  },
+  
   createdAt: {
     type: Date,
     default: Date.now,
@@ -56,18 +106,19 @@ const userSchema = new Schema({
   refreshTokens: [{
     type: String,
   }],
+}, {
+  timestamps: true
 });
 
 // 🔹 Hook pre-save tự sinh employeeCode
 userSchema.pre('save', async function(next) {
   const user = this;
 
-  // Chỉ sinh mã cho role khác patient và nếu chưa có mã
   if (user.role === 'patient' || user.employeeCode) return next();
 
   const prefixMap = {
     admin: 'A',
-    dentist: 'D',
+    dentist: 'D', 
     nurse: 'N',
     receptionist: 'R',
     manager: 'M'
@@ -75,11 +126,10 @@ userSchema.pre('save', async function(next) {
   const prefix = prefixMap[user.role] || 'X';
 
   const User = mongoose.model('User');
-
-  // Tìm user có employeeCode cao nhất cùng role
-  const lastUser = await User.findOne({ role: user.role, employeeCode: { $exists: true } })
-                             .sort({ employeeCode: -1 })
-                             .exec();
+  const lastUser = await User.findOne({ 
+    role: user.role, 
+    employeeCode: { $exists: true } 
+  }).sort({ employeeCode: -1 }).exec();
 
   let nextNumber = 1;
   if (lastUser && lastUser.employeeCode) {
@@ -87,10 +137,19 @@ userSchema.pre('save', async function(next) {
     if (match) nextNumber = parseInt(match[0], 10) + 1;
   }
 
-  // Sinh employeeCode với 7 chữ số
-  user.employeeCode = `${prefix}${String(nextNumber).padStart(7, '0')}`; // ví dụ: D0000001
+  user.employeeCode = `${prefix}${String(nextNumber).padStart(7, '0')}`;
   next();
 });
 
+// 🆕 Method để lấy thống kê chứng chỉ
+userSchema.methods.getCertificateStats = function() {
+  if (this.role !== 'dentist') return { total: 0, verified: 0, pending: 0 };
+  
+  const total = this.certificates.length;
+  const verified = this.certificates.filter(cert => cert.isVerified).length;
+  const pending = total - verified;
+  
+  return { total, verified, pending };
+};
 
 module.exports = mongoose.model('User', userSchema);
