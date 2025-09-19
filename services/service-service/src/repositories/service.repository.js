@@ -1,10 +1,10 @@
 const Service = require('../models/service.model');
 
+// ===== SERVICE OPERATIONS =====
 exports.createService = async (data) => {
   const service = new Service(data);
   return await service.save();
 };
-
 
 exports.updateService = async (serviceId, updateData) => {
   return await Service.findByIdAndUpdate(
@@ -21,7 +21,17 @@ exports.toggleStatus = async (id) => {
   return await service.save();
 };
 
-// ✅ list with pagination
+exports.deleteService = async (serviceId) => {
+  // TODO: Kiểm tra service đã được sử dụng trong appointment/record chưa
+  // Hiện tại luôn trả về false - không cho xóa
+  throw new Error('Không thể xóa dịch vụ - dịch vụ đang được sử dụng hoặc chưa được phép xóa');
+};
+
+exports.findById = async (serviceId) => {
+  return await Service.findById(serviceId);
+};
+
+// ===== LIST AND SEARCH =====
 exports.listServices = async (skip = 0, limit = 10) => {
   return await Service.find()
     .sort({ createdAt: -1 })
@@ -33,10 +43,12 @@ exports.countServices = async () => {
   return await Service.countDocuments();
 };
 
-// ✅ search by name only (model không có code)
 exports.searchService = async (keyword, skip = 0, limit = 10) => {
   return await Service.find({
-    name: { $regex: keyword, $options: 'i' }
+    $or: [
+      { name: { $regex: keyword, $options: 'i' } },
+      { description: { $regex: keyword, $options: 'i' } }
+    ]
   })
     .skip(skip)
     .limit(limit);
@@ -44,7 +56,62 @@ exports.searchService = async (keyword, skip = 0, limit = 10) => {
 
 exports.countSearchService = async (keyword) => {
   return await Service.countDocuments({
-    name: { $regex: keyword, $options: 'i' }
+    $or: [
+      { name: { $regex: keyword, $options: 'i' } },
+      { description: { $regex: keyword, $options: 'i' } }
+    ]
   });
+};
+
+// ===== SERVICE ADD-ON OPERATIONS =====
+exports.addServiceAddOn = async (serviceId, addOnData) => {
+  const service = await Service.findById(serviceId);
+  if (!service) throw new Error('Service not found');
+  
+  // Tự động bỏ basePrice khi thêm serviceAddOn (giống room-subroom logic)
+  if (service.basePrice) {
+    service.basePrice = undefined;
+  }
+  
+  service.serviceAddOns.push(addOnData);
+  return await service.save();
+};
+
+exports.updateServiceAddOn = async (serviceId, addOnId, updateData) => {
+  const service = await Service.findById(serviceId);
+  if (!service) throw new Error('Service not found');
+  
+  const addOn = service.serviceAddOns.id(addOnId);
+  if (!addOn) throw new Error('ServiceAddOn not found');
+  
+  Object.assign(addOn, updateData);
+  return await service.save();
+};
+
+exports.toggleServiceAddOnStatus = async (serviceId, addOnId) => {
+  const service = await Service.findById(serviceId);
+  if (!service) throw new Error('Service not found');
+  
+  const addOn = service.serviceAddOns.id(addOnId);
+  if (!addOn) throw new Error('ServiceAddOn not found');
+  
+  addOn.isActive = !addOn.isActive;
+  return await service.save();
+};
+
+exports.deleteServiceAddOn = async (serviceId, addOnId) => {
+  // TODO: Kiểm tra serviceAddOn đã được sử dụng chưa
+  // Hiện tại luôn trả về false - không cho xóa
+  throw new Error('Không thể xóa dịch vụ bổ sung - đang được sử dụng hoặc chưa được phép xóa');
+};
+
+exports.findServiceAddOnById = async (serviceId, addOnId) => {
+  const service = await Service.findById(serviceId);
+  if (!service) throw new Error('Service not found');
+  
+  const addOn = service.serviceAddOns.id(addOnId);
+  if (!addOn) throw new Error('ServiceAddOn not found');
+  
+  return { service, addOn };
 };
 
