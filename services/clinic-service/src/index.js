@@ -3,12 +3,12 @@ const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/db');
 const redisClient = require('./utils/redis.client');
-const orgRepo = require('./repositories/organization.repository');
+const clinicRepo = require('./repositories/clinic.repository');
 
 const app = express();
 const PORT = process.env.PORT || 3000; // Sử dụng PORT từ .env
 
-const ORG_CACHE_KEY = 'organization_singleton';
+const ORG_CACHE_KEY = 'clinic_singleton';
 
 // 🔹 MIDDLEWARE
 app.use(cors({
@@ -19,12 +19,13 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // 🔹 ROUTES
-app.use('/api/organization', require('./routes/organization.route'));
+app.use('/api/clinic', require('./routes/clinic.route'));
+
 
 // 🔹 HEALTH CHECK
 app.get('/health', (req, res) => {
   res.status(200).json({
-    service: 'Organization Service',
+    service: 'Clinic Service',
     status: 'healthy',
     timestamp: new Date().toISOString(),
     version: '1.0.0'
@@ -50,17 +51,17 @@ app.use((req, res) => {
 
 const pushOrganizationToRedis = async () => {
   try {
-    const org = await orgRepo.getSingleton();
+    const org = await clinicRepo.getSingleton();
     if (org) {
       await redisClient.set(ORG_CACHE_KEY, JSON.stringify(org), 'EX', 3600);
-      console.log('✅ Organization cached to Redis');
+      console.log('✅ Clinic cached to Redis');
     } else {
       // nếu chưa có organization, xóa key cũ (nếu có)
       await redisClient.del(ORG_CACHE_KEY);
-      console.log('ℹ️ No Organization found — Redis key cleared');
+      console.log('ℹ️ No Clinic found — Redis key cleared');
     }
   } catch (err) {
-    console.error('❌ Failed to push Organization to Redis:', err);
+    console.error('❌ Failed to push Clinic to Redis:', err);
   }
 };
 
@@ -69,13 +70,13 @@ const startServer = async () => {
   try {
     await connectDB();
     
-    // Push organization info to Redis on each service start
+  // Push clinic info to Redis on each service start
     await pushOrganizationToRedis();
     
     app.listen(PORT, () => {
-      console.log(`🏥 Organization Service đang chạy tại port ${PORT}`);
+  console.log(`🏥 Clinic Service đang chạy tại port ${PORT}`);
       console.log(`📍 Health check: http://localhost:${PORT}/health`);
-      console.log(`📋 API docs: http://localhost:${PORT}/api/organization`);
+  console.log(`📋 API docs: http://localhost:${PORT}/api/clinic`);
     });
   } catch (error) {
     console.error('❌ Lỗi khởi động server:', error);
