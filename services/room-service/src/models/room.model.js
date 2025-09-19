@@ -6,16 +6,13 @@ const subRoomSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
-  },
-  maxDoctors: {
-    type: Number,
-    required: true,
-    min: 1,
-  },
-  maxNurses: {
-    type: Number,
-    required: true,
-    min: 1,
+    validate: {
+      validator: function(v) {
+        // Chỉ cho phép format "Buồng X" where X là số
+        return /^Buồng \d+$/.test(v);
+      },
+      message: 'Tên buồng phải có định dạng "Buồng X" (X là số)'
+    }
   },
   isActive: {
     type: Boolean,
@@ -30,6 +27,35 @@ const roomSchema = new mongoose.Schema({
     required: true,
     trim: true,
     unique: true, // index MongoDB, vẫn giữ để performance
+  },
+  // Chỉ áp dụng cho phòng KHÔNG có subroom
+  maxDoctors: {
+    type: Number,
+    min: 1,
+    validate: {
+      validator: function(v) {
+        // Nếu có subroom thì không được có maxDoctors
+        if (this.subRooms && this.subRooms.length > 0 && v !== undefined) {
+          return false;
+        }
+        return true;
+      },
+      message: 'Phòng có buồng con không được thiết lập maxDoctors'
+    }
+  },
+  maxNurses: {
+    type: Number,
+    min: 1,
+    validate: {
+      validator: function(v) {
+        // Nếu có subroom thì không được có maxNurses
+        if (this.subRooms && this.subRooms.length > 0 && v !== undefined) {
+          return false;
+        }
+        return true;
+      },
+      message: 'Phòng có buồng con không được thiết lập maxNurses'
+    }
   },
   isActive: {
     type: Boolean,

@@ -44,6 +44,20 @@ exports.toggleStatus = async (req, res) => {
   }
 };
 
+// Xóa phòng
+exports.deleteRoom = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ message: 'Từ chối quyền: chỉ quản lý hoặc quản trị viên mới được phép' });
+  }
+
+  try {
+    const result = await roomService.deleteRoom(req.params.id);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+};
+
 // ✅ Ai cũng xem được danh sách phòng (phân trang)
 exports.listRooms = async (req, res) => {
   try {
@@ -100,5 +114,47 @@ exports.toggleSubRoomStatus = async (req, res) => {
     res.json(updatedRoom);
   } catch (err) {
     res.status(404).json({ message: err.message });
+  }
+};
+
+// Thêm buồng con tự động
+exports.addSubRoom = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ message: 'Từ chối quyền: chỉ quản lý hoặc quản trị viên mới được phép' });
+  }
+
+  try {
+    const { roomId } = req.params;
+    const { count = 1 } = req.body;
+    
+    if (count <= 0 || count > 10) {
+      return res.status(400).json({ message: 'Số lượng buồng phải từ 1 đến 10' });
+    }
+
+    const room = await roomService.addSubRoom(roomId, count);
+    res.json({ 
+      message: `Đã thêm ${count} buồng thành công`, 
+      room 
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+};
+
+// Xóa buồng con
+exports.deleteSubRoom = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ message: 'Từ chối quyền: chỉ quản lý hoặc quản trị viên mới được phép' });
+  }
+
+  try {
+    const { roomId, subRoomId } = req.params;
+    const room = await roomService.deleteSubRoom(roomId, subRoomId);
+    res.json({ 
+      message: 'Đã xóa buồng thành công', 
+      room 
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
   }
 };

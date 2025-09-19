@@ -74,3 +74,7 @@ exports.toggleSubRoomStatus = async (roomId, subRoomId) => {
   await room.save();
   return room;
 };
+
+exports.deleteRoom = async (roomId) => {
+  return await Room.findByIdAndDelete(roomId);
+};
