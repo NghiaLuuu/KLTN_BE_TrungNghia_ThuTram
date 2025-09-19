@@ -12,12 +12,26 @@ async function initServiceCache() {
 
 // ===== SERVICE OPERATIONS =====
 exports.createService = async (data) => {
+  // Kiểm tra tên trùng lặp trước khi tạo
+  const existingService = await serviceRepo.findByName(data.name);
+  if (existingService) {
+    throw new Error(`Dịch vụ với tên "${data.name}" đã tồn tại`);
+  }
+  
   const service = await serviceRepo.createService(data);
   await refreshServiceCache();
   return service;
 };
 
 exports.updateService = async (serviceId, data) => {
+  // Kiểm tra tên trùng lặp nếu đang update name
+  if (data.name) {
+    const existingService = await serviceRepo.findByName(data.name);
+    if (existingService && existingService._id.toString() !== serviceId) {
+      throw new Error(`Dịch vụ với tên "${data.name}" đã tồn tại`);
+    }
+  }
+  
   const updated = await serviceRepo.updateService(serviceId, data);
   await refreshServiceCache();
   return updated;

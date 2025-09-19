@@ -31,6 +31,10 @@ exports.findById = async (serviceId) => {
   return await Service.findById(serviceId);
 };
 
+exports.findByName = async (name) => {
+  return await Service.findOne({ name: name.trim() });
+};
+
 // ===== LIST AND SEARCH =====
 exports.listServices = async (skip = 0, limit = 10) => {
   return await Service.find()

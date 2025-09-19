@@ -14,6 +14,16 @@ exports.createService = async (req, res) => {
     const newService = await serviceService.createService(req.body);
     res.status(201).json(newService);
   } catch (err) {
+    // Handle duplicate name error
+    if (err.message.includes('đã tồn tại')) {
+      return res.status(400).json({ message: err.message });
+    }
+    // Handle MongoDB duplicate key error
+    if (err.code === 11000) {
+      return res.status(400).json({ 
+        message: 'Tên dịch vụ đã tồn tại, vui lòng chọn tên khác' 
+      });
+    }
     res.status(400).json({ message: err.message || 'Không thể tạo dịch vụ' });
   }
 };
@@ -28,6 +38,16 @@ exports.updateService = async (req, res) => {
     console.log('Dữ liệu cập nhật:', req.body);
     res.json(updated);
   } catch (err) {
+    // Handle duplicate name error
+    if (err.message.includes('đã tồn tại')) {
+      return res.status(400).json({ message: err.message });
+    }
+    // Handle MongoDB duplicate key error
+    if (err.code === 11000) {
+      return res.status(400).json({ 
+        message: 'Tên dịch vụ đã tồn tại, vui lòng chọn tên khác' 
+      });
+    }
     res.status(400).json({ message: err.message || 'Không thể cập nhật dịch vụ' });
   }
 };
