@@ -66,6 +66,7 @@ const scheduleConfigSchema = new mongoose.Schema({
     max: 180
   },
   
+  // maxGenerateScheduleMonths removed per new requirement (generation is quarter-based)
   
   maxBookingDays: { 
     type: Number, 

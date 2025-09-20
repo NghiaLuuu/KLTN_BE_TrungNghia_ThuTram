@@ -129,11 +129,16 @@ async function generateQuarterSchedule(quarter, year) {
       throw new Error(`Không thể tạo lịch cho quý ${quarter}/${year} vì đã kết thúc (theo giờ VN)`);
     }
 
-    // If current quarter, start from today (VN), not from the 1st
+    // If current quarter, start from the NEXT day (VN), not from today or the 1st
     const current = getQuarterInfo();
     if (year === current.year && quarter === current.quarter) {
-      const startToday = new Date(nowVN.getFullYear(), nowVN.getMonth(), nowVN.getDate(), 0, 0, 0, 0);
-      if (startToday > startDate) startDate = startToday;
+      const startNextDay = new Date(
+        nowVN.getFullYear(),
+        nowVN.getMonth(),
+        nowVN.getDate() + 1,
+        0, 0, 0, 0
+      );
+      if (startNextDay > startDate) startDate = startNextDay;
     }
     
     // Get current Vietnam time
@@ -244,6 +249,13 @@ async function generateQuarterSchedule(quarter, year) {
 async function generateScheduleForRoom(room, startDate, endDate, config) {
   const schedules = [];
   const currentDate = new Date(startDate);
+  // Enforce start from next VN day at this layer too, in case caller passed earlier date
+  const nowVN = getVietnamDate();
+  const nextVN = new Date(nowVN.getFullYear(), nowVN.getMonth(), nowVN.getDate() + 1, 0, 0, 0, 0);
+  if (currentDate < nextVN) {
+    currentDate.setFullYear(nextVN.getFullYear(), nextVN.getMonth(), nextVN.getDate());
+    currentDate.setHours(0, 0, 0, 0);
+  }
   
   while (currentDate <= endDate) {
     const dateStr = currentDate.toISOString().split('T')[0];

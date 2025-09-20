@@ -92,6 +92,8 @@ exports.updateConfig = async (req, res) => {
       });
     }
 
+    // Note: maxGenerateScheduleMonths removed (generation is strictly quarter-based)
+
     // Validate max booking days
     if (updates.maxBookingDays && (updates.maxBookingDays <= 0 || updates.maxBookingDays > 365)) {
       return res.status(400).json({

@@ -78,9 +78,8 @@ Authorization: Bearer <admin_token>
       "endTime": "21:00", 
       "isActive": true
     },
-    "unitDuration": 15,
-    "maxGenerateScheduleMonths": 3,
-    "maxBookingDays": 30
+  "unitDuration": 15,
+  "maxBookingDays": 30
   }
 }
 ```

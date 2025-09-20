@@ -1,4 +1,4 @@
-const ScheduleConfig = require('../models/scheduleConfig.model');
+const { ScheduleConfig } = require('../models/scheduleConfig.model');
 
 exports.getConfig = async () => {
   // Return the single config document if exists, else null
@@ -18,7 +18,7 @@ exports.updateConfig = async (id, data) => {
   if (!cfg) throw new Error('Không tìm thấy cấu hình');
   return cfg;
 };
-const ScheduleConfig = require('../models/scheduleConfig.model');
+// Note: ScheduleConfig already imported above
 
 class ScheduleConfigRepository {
   /**
@@ -110,15 +110,7 @@ class ScheduleConfigRepository {
     return await this.updateConfig({ unitDuration });
   }
 
-  /**
-   * Update max generate schedule months
-   * @param {number} maxMonths - Maximum months to generate
-   * @returns {Object} Updated configuration
-   */
-  async updateMaxGenerateMonths(maxMonths) {
-    // This configuration option was removed; keep method for compatibility but no-op
-    return await this.updateConfig({});
-  }
+  // maxGenerateScheduleMonths removed: generation is quarter-based only
 
   /**
    * Get configuration with validation
@@ -136,7 +128,7 @@ class ScheduleConfigRepository {
       throw new Error('Invalid unit duration in configuration');
     }
 
-    // maxGenerateScheduleMonths removed; no validation required
+    // maxGenerateScheduleMonths removed: no validation needed
 
     return config;
   }
