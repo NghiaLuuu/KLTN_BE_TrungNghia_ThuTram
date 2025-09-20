@@ -28,16 +28,7 @@ const serviceSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
-    trim: true,
-    unique: true, // Không được trùng tên
-  },
-  basePrice: {
-    type: Number,
-    required: function() {
-      // Chỉ yêu cầu basePrice nếu không có serviceAddOns
-      return !this.serviceAddOns || this.serviceAddOns.length === 0;
-    },
-    min: 0,
+    trim: true
   },
   durationMinutes: {
     type: Number,
@@ -57,8 +48,17 @@ const serviceSchema = new mongoose.Schema({
     type: Boolean,
     default: false, // true = cần có hồ sơ khám trước mới làm được
   },
-  // ServiceAddOn array - tương tự SubRoom trong Room
-  serviceAddOns: [serviceAddOnSchema],
+  // ServiceAddOn array - bắt buộc phải có ít nhất 1 serviceAddOn
+  serviceAddOns: {
+    type: [serviceAddOnSchema],
+    required: true,
+    validate: {
+      validator: function(v) {
+        return v && v.length > 0;
+      },
+      message: 'Service phải có ít nhất 1 serviceAddOn'
+    }
+  },
   isActive: {
     type: Boolean,
     default: true,
@@ -67,10 +67,10 @@ const serviceSchema = new mongoose.Schema({
   timestamps: true,
 });
 
-// Validation: Không thể có basePrice và serviceAddOns cùng lúc
+// Pre-validation để đảm bảo có serviceAddOns
 serviceSchema.pre('validate', function(next) {
-  if (this.serviceAddOns && this.serviceAddOns.length > 0 && this.basePrice) {
-    this.invalidate('basePrice', 'Service có dịch vụ bổ sung không được có basePrice');
+  if (!this.serviceAddOns || this.serviceAddOns.length === 0) {
+    this.invalidate('serviceAddOns', 'Service phải có ít nhất 1 serviceAddOn');
   }
   next();
 });

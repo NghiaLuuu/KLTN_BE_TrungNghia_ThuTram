@@ -7,6 +7,11 @@ exports.createSchedule = async (data) => {
   return await Schedule.create(data);
 };
 
+// 🔹 Alias để tương thích với service (create)
+exports.create = async (data) => {
+  return await Schedule.create(data);
+};
+
 // 🔹 Tìm theo id (raw document, không populate)
 exports.findById = async (id) => {
   return await Schedule.findById(id);
@@ -52,14 +57,14 @@ exports.findOne = async (filter) => {
   return await Schedule.findOne(filter);
 };
 
-// 🔹 Lấy tất cả schedules (có filter roomId, shiftIds, phân trang)
-exports.findSchedules = async ({ roomId, shiftIds = [], skip = 0, limit = 10 }) => {
+// 🔹 Lấy tất cả schedules (có filter roomId, phân trang)
+// Note: shiftIds was removed from the schema. We accept the arg for compatibility but do not
+// filter by it; callers should filter by room/date or by workShifts on the service layer.
+exports.findSchedules = async ({ roomId, /* shiftIds ignored */ skip = 0, limit = 10 }) => {
   const filter = {};
   if (roomId) filter.roomId = roomId;
-  if (shiftIds.length > 0) filter.shiftIds = { $in: shiftIds };
 
   const schedules = await Schedule.find(filter)
-    .populate('slots')
     .sort({ startDate: -1 })
     .skip(skip)
     .limit(limit);
@@ -71,6 +76,11 @@ exports.findSchedules = async ({ roomId, shiftIds = [], skip = 0, limit = 10 }) 
 
 // 🔹 Lấy schedule theo id (raw document)
 exports.findScheduleById = async (id) => {
+  return await Schedule.findById(id);
+};
+
+// 🔹 Alias để tương thích với RPC (getScheduleById)
+exports.getScheduleById = async (id) => {
   return await Schedule.findById(id);
 };
 
@@ -108,26 +118,73 @@ exports.findAll = async () => {
 
 // 🔹 Lấy schedules theo roomId (chỉ active, có populate slots)
 exports.findByRoomId = async (roomId) => {
-  return Schedule.find({ roomId, status: 'active' })
-    .populate('slots')
+  return Schedule.find({ roomId, isActive: true })
     .lean();
 };
 
-// 🔹 Lấy schedules theo subRoom (lọc theo khoảng ngày, có populate slots)
+// 🔹 Lấy schedules theo subRoom (lọc theo khoảng ngày)
 exports.findBySubRoomId = async (subRoomId, startDate, endDate) => {
   return Schedule.find({
-    status: 'active',
+    isActive: true,
     startDate: { $lte: endDate },
     endDate: { $gte: startDate }
   })
-    .populate({
-      path: 'slots',
-      match: { subRoomId }
-    })
     .lean();
 };
 
 // Tìm theo danh sách id
 exports.findByIds = async (scheduleIds) => {
-  return Schedule.find({ _id: { $in: scheduleIds }, status: 'active' }).lean();
+  return Schedule.find({ _id: { $in: scheduleIds }, isActive: true }).lean();
 };
+
+// 🔹 Tìm schedule theo roomId và ngày cụ thể (Vietnam timezone)
+exports.findByRoomAndDate = async (roomId, date) => {
+  const base = new Date(date);
+  const vn = new Date(base.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+  const yyyy = vn.getFullYear();
+  const mm = String(vn.getMonth() + 1).padStart(2, '0');
+  const dd = String(vn.getDate()).padStart(2, '0');
+  const vnStr = `${yyyy}-${mm}-${dd}`;
+
+  // Ưu tiên filter theo dateVNStr để đúng theo ngày VN
+  const byVN = await Schedule.findOne({ roomId, dateVNStr: vnStr }).lean();
+  if (byVN) return byVN;
+
+  // No fallback: we rely solely on dateVNStr to avoid TZ ambiguity
+  return null;
+};
+
+// 🔹 Tìm schedules theo roomId và khoảng ngày (Vietnam timezone)
+exports.findByRoomAndDateRange = async (roomId, startDate, endDate) => {
+  const sBase = new Date(startDate);
+  const eBase = new Date(endDate);
+  const sVN = new Date(sBase.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+  const eVN = new Date(eBase.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+
+  const sStr = `${sVN.getFullYear()}-${String(sVN.getMonth() + 1).padStart(2, '0')}-${String(sVN.getDate()).padStart(2, '0')}`;
+  const eStr = `${eVN.getFullYear()}-${String(eVN.getMonth() + 1).padStart(2, '0')}-${String(eVN.getDate()).padStart(2, '0')}`;
+
+  // Ưu tiên theo dateVNStr
+  const byVN = await Schedule.find({ roomId, dateVNStr: { $gte: sStr, $lte: eStr } }).lean();
+  if (byVN && byVN.length > 0) return byVN;
+
+  // No fallback to Date fields
+  return [];
+};
+
+// 🔹 Lấy schedules theo khoảng ngày (tất cả phòng)
+exports.findByDateRange = async (startDate, endDate) => {
+  const sBase = new Date(startDate);
+  const eBase = new Date(endDate);
+  const sVN = new Date(sBase.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+  const eVN = new Date(eBase.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+
+  const sStr = `${sVN.getFullYear()}-${String(sVN.getMonth() + 1).padStart(2, '0')}-${String(sVN.getDate()).padStart(2, '0')}`;
+  const eStr = `${eVN.getFullYear()}-${String(eVN.getMonth() + 1).padStart(2, '0')}-${String(eVN.getDate()).padStart(2, '0')}`;
+
+  const byVN = await Schedule.find({ dateVNStr: { $gte: sStr, $lte: eStr } }).lean();
+  if (byVN && byVN.length > 0) return byVN;
+
+  return [];
+};
+

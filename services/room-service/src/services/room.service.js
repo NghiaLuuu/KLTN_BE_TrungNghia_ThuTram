@@ -10,52 +10,55 @@ async function initRoomCache() {
 }
 
 exports.createRoom = async (data) => {
-  // Tách subRoomCount khỏi data chính
   const { subRoomCount, ...roomData } = data;
-  
-  // Tạo room trước
-  const room = await roomRepo.createRoom(roomData);
-  
-  // Nếu có yêu cầu tạo subroom
+
+  // Nếu có subRooms
   if (subRoomCount && subRoomCount > 0) {
-    if (subRoomCount > 20) {
-      throw new Error('Số lượng buồng con không được vượt quá 20');
-    }
     
-    // Xóa maxDoctors/maxNurses nếu có subroom
-    if (room.maxDoctors || room.maxNurses) {
-      room.maxDoctors = undefined;
-      room.maxNurses = undefined;
-    }
-    
-    // Tạo các subroom
-    for (let i = 1; i <= subRoomCount; i++) {
-      room.subRooms.push({
-        name: `Buồng ${i}`,
-        isActive: true
-      });
-    }
-    
-    await room.save();
-    
+
+    roomData.hasSubRooms = true;
+
+    // Xóa maxDoctors/maxNurses nếu truyền nhầm
+    delete roomData.maxDoctors;
+    delete roomData.maxNurses;
+
+    // Tạo luôn subRooms trước khi create để qua validation
+    roomData.subRooms = Array.from({ length: subRoomCount }, (_, i) => ({
+      name: `Buồng ${i + 1}`,
+      isActive: true
+    }));
+
+    const room = await roomRepo.createRoom(roomData);
+
     // Gửi event cho schedule service
-    if (room.subRooms.length > 0) {
-      try {
-        const subRoomIds = room.subRooms.map(sr => sr._id.toString());
-        await publishToQueue('schedule_queue', {
-          action: 'subRoomAdded',
-          payload: {
-            roomId: room._id.toString(),
-            subRoomIds: subRoomIds
-          }
-        });
-        console.log(`📤 Đã gửi sự kiện subRoomAdded cho ${subRoomCount} buồng mới`);
-      } catch (err) {
-        console.error('❌ Gửi sự kiện subRoomAdded thất bại:', err.message);
-      }
+    try {
+      const subRoomIds = room.subRooms.map(sr => sr._id.toString());
+      await publishToQueue('schedule_queue', {
+        action: 'subRoomAdded',
+        payload: {
+          roomId: room._id.toString(),
+          subRoomIds
+        }
+      });
+      console.log(`📤 Đã gửi sự kiện subRoomAdded cho ${subRoomCount} buồng mới`);
+    } catch (err) {
+      console.error('❌ Gửi sự kiện subRoomAdded thất bại:', err.message);
     }
+
+    await refreshRoomCache();
+    return room;
   }
-  
+
+  // Nếu không có subRooms
+  roomData.hasSubRooms = false;
+
+  if (!roomData.maxDoctors || !roomData.maxNurses) {
+    throw new Error('Phòng không có buồng con phải có maxDoctors và maxNurses');
+  }
+
+  delete roomData.subRooms;
+
+  const room = await roomRepo.createRoom(roomData);
   await refreshRoomCache();
   return room;
 };
@@ -71,40 +74,80 @@ exports.updateRoom = async (roomId, updateData) => {
   if (updateData.name) room.name = updateData.name;
   if (updateData.isActive !== undefined) room.isActive = updateData.isActive;
   
-  // Update maxDoctors/maxNurses chỉ khi không có subrooms
-  if (room.subRooms.length === 0) {
-    if (updateData.maxDoctors !== undefined) room.maxDoctors = updateData.maxDoctors;
-    if (updateData.maxNurses !== undefined) room.maxNurses = updateData.maxNurses;
+  // Kiểm tra xem có thay đổi loại phòng không
+  if (updateData.hasSubRooms !== undefined && updateData.hasSubRooms !== room.hasSubRooms) {
+    // Thay đổi loại phòng
+    if (updateData.hasSubRooms) {
+      // Chuyển từ phòng thường -> phòng có subrooms
+      room.hasSubRooms = true;
+      room.maxDoctors = undefined;
+      room.maxNurses = undefined;
+      
+      // Nếu không có subrooms thì tạo ít nhất 1
+      if (!room.subRooms || room.subRooms.length === 0) {
+        room.subRooms = [{
+          name: 'Buồng 1',
+          isActive: true
+        }];
+      }
+    } else {
+      // Chuyển từ phòng có subrooms -> phòng thường
+      room.hasSubRooms = false;
+      room.subRooms = [];
+      
+      // Phải có maxDoctors và maxNurses
+      if (!updateData.maxDoctors || !updateData.maxNurses) {
+        throw new Error('Phòng không có buồng con phải có maxDoctors và maxNurses');
+      }
+      room.maxDoctors = updateData.maxDoctors;
+      room.maxNurses = updateData.maxNurses;
+    }
+  } else {
+    // Không thay đổi loại phòng, chỉ update theo loại hiện tại
+    if (room.hasSubRooms) {
+      // Phòng có subrooms: không được update maxDoctors/maxNurses
+      if (updateData.maxDoctors !== undefined || updateData.maxNurses !== undefined) {
+        throw new Error('Phòng có buồng con không được cập nhật maxDoctors hoặc maxNurses');
+      }
+    } else {
+      // Phòng thường: có thể update maxDoctors/maxNurses
+      if (updateData.maxDoctors !== undefined) room.maxDoctors = updateData.maxDoctors;
+      if (updateData.maxNurses !== undefined) room.maxNurses = updateData.maxNurses;
+      
+      // Không được update subRooms
+      if (updateData.subRooms !== undefined) {
+        throw new Error('Phòng không có buồng con không được cập nhật subRooms');
+      }
+    }
   }
 
   await room.save();
 
-  // So sánh danh sách mới và cũ
-  const newSubRooms = room.subRooms.map(sr => sr._id.toString());
-  const added = newSubRooms.filter(id => !oldSubRooms.includes(id));
+  // So sánh danh sách subRooms mới và cũ (chỉ khi có subrooms)
+  if (room.hasSubRooms) {
+    const newSubRooms = room.subRooms.map(sr => sr._id.toString());
+    const added = newSubRooms.filter(id => !oldSubRooms.includes(id));
 
-  // 🔹 Nếu có subRoom mới → gửi event 1 lần với mảng subRoomIds
-  if (added.length > 0) {
-    try {
-      await publishToQueue('schedule_queue', {
-        action: 'subRoomAdded',
-        payload: {
-          roomId: room._id.toString(),
-          subRoomIds: added
-        }
-      });
-      console.log(`📤 Đã gửi sự kiện subRoomAdded cho room ${room._id}, subRooms: ${added.join(', ')}`);
-    } catch (err) {
-      console.error('❌ Gửi sự kiện subRoomAdded thất bại:', err.message);
+    // Nếu có subRoom mới → gửi event
+    if (added.length > 0) {
+      try {
+        await publishToQueue('schedule_queue', {
+          action: 'subRoomAdded',
+          payload: {
+            roomId: room._id.toString(),
+            subRoomIds: added
+          }
+        });
+        console.log(`📤 Đã gửi sự kiện subRoomAdded cho room ${room._id}, subRooms: ${added.join(', ')}`);
+      } catch (err) {
+        console.error('❌ Gửi sự kiện subRoomAdded thất bại:', err.message);
+      }
     }
   }
 
   await refreshRoomCache();
   return room;
 };
-
-
-
 
 exports.toggleStatus = async (roomId) => {
   const toggled = await roomRepo.toggleStatus(roomId);

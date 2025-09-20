@@ -1,25 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const slotController = require('../controllers/slot.controller');
+const authMiddleware = require('../middlewares/auth.middleware');
 
-// POST /api/slots/assign-staff
-router.post('/assign-staff', slotController.assignStaff);
+// Assign staff to slots by schedule (QUÝ) — request MUST include scheduleId
+// Request body example: { scheduleId, roomId, subRoomId?, shifts: ['Ca Sáng'], dentistIds: [], nurseIds: [] }
+router.post('/assign-staff', authMiddleware, slotController.assignStaffToSlots);
 
-// Lấy danh sách slot (có thể filter bằng query params: scheduleId, subRoomId, date, status...)
-router.get('/', slotController.getSlots);
-router.get('/employee-schedule', slotController.getEmployeeSchedule);
+// Update staff for specific slot or multiple slots
+// To update many slots atomically, provide `groupSlotIds` in the body: { groupSlotIds: [..], dentistId?, nurseId? }
+router.patch('/:slotId/staff', authMiddleware, slotController.updateSlotStaff);
 
+// Get available slots for booking
+router.get('/available', slotController.getAvailableSlots);
 
-// Gán nha sỹ, y tá vào 1 hay nhiều slot (có thể chọn slot)
-router.post('/manual-assign', slotController.assignStaffToSlots);
+// Get slots by room and date range
+router.get('/room/:roomId', slotController.getSlotsByRoom);
 
-// Hủy 1 hoặc nhiều hoặc toàn bộ slot của nha sĩ hoặc y tá
-router.post('/cancel', slotController.cancelSlots);
-
-// GET /slots/available-from-now?serviceId=&dentistId=
-router.get('/available-from-now', slotController.getAvailableSlotsFromNow);
-
-// Lấy chi tiết slot theo id
-router.get('/:id', slotController.getSlotById);
+// Get slots by staff and date range
+router.get('/staff/:staffId/:staffType', slotController.getSlotsByStaff);
 
 module.exports = router;

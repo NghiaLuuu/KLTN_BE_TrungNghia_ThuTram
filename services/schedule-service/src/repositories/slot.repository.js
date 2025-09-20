@@ -5,7 +5,7 @@ exports.findSlots = async (filter, skip = 0, limit = 10) => {
   return await Slot.find(filter)
     .skip(skip)
     .limit(limit)
-    .sort({ date: 1, startTime: 1 }); // gợi ý: sort theo ngày + giờ
+    .sort({ startTime: 1 });
 };
 
 exports.countSlots = async (filter) => {
@@ -20,10 +20,20 @@ exports.updateSlot = async (id, updateData) => {
   return await Slot.findByIdAndUpdate(id, updateData, { new: true });
 };
 
+// Alias for compatibility with services
+exports.updateById = async (id, updateData) => {
+  return await Slot.findByIdAndUpdate(id, updateData, { new: true });
+};
+
 
 // Tìm 1 slot theo id
 exports.findById = async (id) => {
   return await Slot.findById(id);
+};
+
+// Alias for RPC
+exports.getSlotById = async (id) => {
+  return await Slot.findById(id).lean();
 };
 
 
@@ -35,8 +45,23 @@ exports.insertMany = async (slots) => {
   return await Slot.insertMany(slots);
 };
 
+// Alias for compatibility with service
+exports.createMany = async (slots) => {
+  return exports.insertMany(slots);
+};
+
+// Another alias used in service code
+exports.createManySlots = async (slots) => {
+  return exports.insertMany(slots);
+};
+
 exports.deleteMany = async (filter) => {
   return await Slot.deleteMany(filter);
+};
+
+// Delete all slots by scheduleId
+exports.deleteByScheduleId = async (scheduleId) => {
+  return await Slot.deleteMany({ scheduleId });
 };
 
 // Cập nhật nhiều slot
@@ -46,6 +71,14 @@ exports.updateMany = async (filter, updateData) => {
 
 exports.find = async (query) => {
   return await Slot.find(query);
+};
+
+// Find slots by room and date range (inclusive)
+exports.findByRoomAndDateRange = async (roomId, startDate, endDate) => {
+  return await Slot.find({
+    roomId,
+    startTime: { $gte: new Date(startDate), $lte: new Date(endDate) }
+  }).sort({ startTime: 1 }).lean();
 };
 
 exports.findSlotsByDentistFromNow = async (dentistId, fromTime) => {
@@ -83,9 +116,9 @@ exports.findSlotsByEmployee = async ({ employeeId, startDate, endDate }) => {
 
   // Nếu truyền startDate / endDate thì lọc theo date
   if (startDate || endDate) {
-    filter.date = {};
-    if (startDate) filter.date.$gte = new Date(startDate);
-    if (endDate) filter.date.$lte = new Date(endDate);
+    filter.startTime = {};
+    if (startDate) filter.startTime.$gte = new Date(startDate);
+    if (endDate) filter.startTime.$lte = new Date(endDate);
   }
 
   const slots = await Slot.find(filter).sort({ date: 1, startTime: 1 });
@@ -129,6 +162,15 @@ exports.findWithSelect = async (filter, fields) => {
   return await Slot.find(filter).select(fields);
 };
 
+// Update appointmentId for slot
+exports.updateAppointmentId = async (slotId, appointmentId) => {
+  return await Slot.findByIdAndUpdate(
+    slotId,
+    { $set: { appointmentId } },
+    { new: true }
+  );
+};
+
 exports.getSlots = async (filter = {}) => {
   return await Slot.find(filter)
     .sort({ startTime: 1 }) // sắp xếp theo giờ bắt đầu
@@ -138,7 +180,7 @@ exports.getSlots = async (filter = {}) => {
 exports.findBySubRoomId = async (subRoomId, startDate, endDate) => {
   return Slot.find({
     subRoomId,
-    date: { $gte: startDate, $lte: endDate }
+    startTime: { $gte: startDate, $lte: endDate }
   }).sort({ startTime: 1 }).lean();
 };
 
@@ -149,7 +191,7 @@ exports.findByStaffId = async (staffId, startDate, endDate) => {
       { dentistId: staffId },
       { nurseId: staffId }
     ],
-    date: { $gte: startDate, $lte: endDate }
+    startTime: { $gte: startDate, $lte: endDate }
   })
   .sort({ startTime: 1 })
   .lean();

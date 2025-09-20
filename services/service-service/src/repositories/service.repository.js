@@ -72,11 +72,6 @@ exports.addServiceAddOn = async (serviceId, addOnData) => {
   const service = await Service.findById(serviceId);
   if (!service) throw new Error('Service not found');
   
-  // Tự động bỏ basePrice khi thêm serviceAddOn (giống room-subroom logic)
-  if (service.basePrice) {
-    service.basePrice = undefined;
-  }
-  
   service.serviceAddOns.push(addOnData);
   return await service.save();
 };

@@ -1,28 +1,543 @@
 const scheduleRepo = require('../repositories/schedule.repository');
 const slotRepo = require('../repositories/slot.repository');
 const redisClient = require('../utils/redis.client');
+const cfgService = require('./scheduleConfig.service');
 
-// Helper: kiểm tra ngày hợp lệ
-function validateDates(startDate, endDate) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0); // so sánh từ đầu ngày
+// Helper: Get Vietnam timezone date
+function getVietnamDate() {
+  const now = new Date();
+  return new Date(now.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
+}
 
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+function toVNDateOnlyString(d) {
+  const vn = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+  const y = vn.getFullYear();
+  const m = String(vn.getMonth() + 1).padStart(2, '0');
+  const day = String(vn.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
-  if (start < today) {
-    throw new Error('Ngày bắt đầu phải từ hôm nay trở đi');
-  }
-  if (end < start) {
-    throw new Error('Ngày kết thúc phải sau hoặc bằng ngày bắt đầu');
+// Convert a Vietnam local date-time (y-m-d h:m) to a UTC Date instance
+function fromVNToUTC(y, m, d, h, min) {
+  // Stable regardless of server TZ: VN is UTC+7 => subtract 7 hours in UTC
+  return new Date(Date.UTC(y, m - 1, d, h - 7, min, 0, 0));
+}
+
+// Get UTC Date that represents Vietnam local midnight for a y-m-d
+function vnMidnightUTC(y, m, d) {
+  // 00:00 VN = previous day 17:00Z; using -7 hours in UTC avoids server TZ issues
+  return new Date(Date.UTC(y, m - 1, d, -7, 0, 0, 0));
+}
+
+// Helper: Calculate quarter info
+function getQuarterInfo(date = null) {
+  const vnDate = date ? new Date(date.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"})) : getVietnamDate();
+  const quarter = Math.ceil((vnDate.getMonth() + 1) / 3);
+  const year = vnDate.getFullYear();
+  return { quarter, year };
+}
+
+// Helper: Get quarter date range (Vietnam timezone)
+function getQuarterDateRange(quarter, year) {
+  const startMonth = (quarter - 1) * 3;
+  
+  // Tạo ngày bắt đầu quý theo timezone Việt Nam
+  const startDate = new Date(year, startMonth, 1);
+  
+  // Tạo ngày kết thúc quý (ngày cuối cùng của quý)
+  const endDate = new Date(year, startMonth + 3, 0, 23, 59, 59, 999);
+  
+  return { startDate, endDate };
+}
+
+// Helper: Quarter dates normalized to UTC (for API response)
+function getQuarterUTCDates(quarter, year) {
+  const startMonth = (quarter - 1) * 3;
+  const startDateUTC = new Date(Date.UTC(year, startMonth, 1, 0, 0, 0, 0));
+  const endDateUTC = new Date(Date.UTC(year, startMonth + 3, 0, 23, 59, 59, 999));
+  return { startDateUTC, endDateUTC };
+}
+
+// Helper: VN date-only strings for display
+function getQuarterVNDateStrings(quarter, year) {
+  const startMonth = (quarter - 1) * 3;
+  const startVN = new Date(Date.UTC(year, startMonth, 1, 17, 0, 0, 0)); // 00:00+07:00
+  const endVN = new Date(Date.UTC(year, startMonth + 3, 0, 17, 0, 0, 0));
+  const toDateOnly = (d) => d.toISOString().split('T')[0];
+  return { startDateVN: toDateOnly(startVN), endDateVN: toDateOnly(endVN) };
+}
+
+// Helper: Get all rooms from Redis cache (rooms_cache)
+async function getAllRooms() {
+  try {
+    const cached = await redisClient.get('rooms_cache');
+    if (!cached) return [];
+    const rooms = JSON.parse(cached);
+    return rooms || [];
+  } catch (error) {
+    console.error('Failed to read rooms_cache from redis:', error);
+    throw new Error('Không thể lấy danh sách phòng từ cache');
   }
 }
 
+// Helper: Check if date is holiday (Vietnam calendar day)
+async function isHoliday(date) {
+  const holidayConfig = await cfgService.getHolidays();
+  const holidays = holidayConfig?.holidays || [];
+
+  const checkVN = toVNDateOnlyString(date);
+  
+  const result = holidays.some(holiday => {
+    const startVN = toVNDateOnlyString(new Date(holiday.startDate));
+    const endVN = toVNDateOnlyString(new Date(holiday.endDate));
+    return checkVN >= startVN && checkVN <= endVN;
+  });
+  
+  return result;
+}
+
+// Main function: Generate schedules for a quarter (all rooms)
+async function generateQuarterSchedule(quarter, year) {
+  try {
+    const config = await cfgService.getConfig();
+    if (!config) {
+      throw new Error('Chưa có cấu hình hệ thống');
+    }
+
+    // Validate quarter
+    if (quarter < 1 || quarter > 4) {
+      throw new Error('Quý phải từ 1 đến 4');
+    }
+
+    // Config marker of last generated quarter (may be missing or partial)
+    const lastGenerated = config.lastQuarterGenerated;
+
+    // Get quarter date range (local VN for internal calculation)
+    let { startDate, endDate } = getQuarterDateRange(quarter, year);
+    const originalStartDate = new Date(startDate);
+    const originalEndDate = new Date(endDate);
+
+    // Hard guard: if any schedules already exist for this quarter, block duplicate generation
+    const existingInQuarter = await scheduleRepo.findByDateRange(originalStartDate, originalEndDate);
+    if (existingInQuarter && existingInQuarter.length > 0) {
+      throw new Error(`Quý ${quarter}/${year} đã được tạo trước đó. Không thể tạo lại.`);
+    }
+
+    // If the requested quarter has fully ended before now (VN), block generation
+    const nowVN = getVietnamDate();
+    if (endDate < nowVN) {
+      throw new Error(`Không thể tạo lịch cho quý ${quarter}/${year} vì đã kết thúc (theo giờ VN)`);
+    }
+
+    // If current quarter, start from today (VN), not from the 1st
+    const current = getQuarterInfo();
+    if (year === current.year && quarter === current.quarter) {
+      const startToday = new Date(nowVN.getFullYear(), nowVN.getMonth(), nowVN.getDate(), 0, 0, 0, 0);
+      if (startToday > startDate) startDate = startToday;
+    }
+    
+    // Get current Vietnam time
+    const currentQuarter = getQuarterInfo();
+    
+    // Validate: không tạo lịch quá trong quá khứ
+    if (year < currentQuarter.year || (year === currentQuarter.year && quarter < currentQuarter.quarter)) {
+      throw new Error('Không thể tạo lịch cho quý trong quá khứ');
+    }
+
+    // Duplicate prevention based on config marker (only if marker is valid)
+    // NOTE: previous behavior blocked recreation purely based on the config.marker even if DB records were removed.
+    // To allow manual cleanup (delete schedules/slots) followed by recreation, we first check the DB: if there are
+    // no schedules in the requested quarter, allow recreation regardless of the config marker. If schedules exist,
+    // keep enforcing the config marker to avoid accidental duplicate generation.
+    const hasValidMarker = lastGenerated && Number.isInteger(lastGenerated.quarter) && Number.isInteger(lastGenerated.year);
+    if (hasValidMarker) {
+      const requestedIdx = year * 4 + quarter;
+      const lastIdx = lastGenerated.year * 4 + lastGenerated.quarter;
+
+      // If there are any schedules in the DB for this quarter, respect the marker and block recreation when appropriate
+      const schedulesInQuarter = await scheduleRepo.findByDateRange(originalStartDate, originalEndDate);
+      const hasSchedules = schedulesInQuarter && schedulesInQuarter.length > 0;
+
+      if (hasSchedules) {
+        if (requestedIdx <= lastIdx) {
+          throw new Error(`Quý ${quarter}/${year} đã được tạo rồi. Không thể tạo lại.`);
+        }
+      } else {
+        // No schedules exist in DB for this quarter: allow recreation even if config marker indicates it was generated before.
+        // This supports manual deletion flows where operator removed schedules and expects to recreate the quarter.
+      }
+    }
+
+    // Enforce sequence from current quarter onward
+    const requestedIdx = year * 4 + quarter;
+    const currentIdx = currentQuarter.year * 4 + currentQuarter.quarter;
+    if (requestedIdx > currentIdx) {
+      if (!hasValidMarker || (lastGenerated.year * 4 + lastGenerated.quarter) < currentIdx) {
+        // Must create current quarter first
+        throw new Error(`Phải tạo lịch quý hiện tại (Quý ${currentQuarter.quarter}/${currentQuarter.year}) trước`);
+      }
+      const lastIdx = lastGenerated.year * 4 + lastGenerated.quarter;
+      if (requestedIdx !== lastIdx + 1) {
+        // Compute next expected quarter after lastGenerated
+        const nextQ = lastGenerated.quarter === 4 ? 1 : lastGenerated.quarter + 1;
+        const nextY = lastGenerated.quarter === 4 ? lastGenerated.year + 1 : lastGenerated.year;
+        throw new Error(`Phải tạo lịch quý ${nextQ}/${nextY} trước khi tạo quý ${quarter}/${year}`);
+      }
+    }
+
+    // Get all rooms
+    const rooms = await getAllRooms();
+    if (!rooms || rooms.length === 0) {
+      throw new Error('Không có phòng nào để tạo lịch');
+    }
+
+    const results = [];
+    
+    // Generate schedule for each room
+    for (const room of rooms) {
+      try {
+        const roomSchedules = await generateScheduleForRoom(room, startDate, endDate, config);
+        results.push({
+          roomId: room._id,
+          roomName: room.name,
+          success: true,
+          scheduleCount: roomSchedules.length,
+          message: `Tạo thành công ${roomSchedules.length} lịch`
+        });
+      } catch (error) {
+        results.push({
+          roomId: room._id,
+          roomName: room.name,
+          success: false,
+          error: error.message
+        });
+      }
+    }
+
+    // Mark quarter as generated if at least some rooms succeeded
+    const successCount = results.filter(r => r.success).length;
+    if (successCount > 0) {
+      await cfgService.markQuarterGenerated(quarter, year);
+    }
+
+    const { startDateUTC, endDateUTC } = getQuarterUTCDates(quarter, year);
+    const { startDateVN, endDateVN } = getQuarterVNDateStrings(quarter, year);
+
+    return {
+      quarter,
+      year,
+      startDate: startDateUTC,
+      endDate: endDateUTC,
+      startDateVN,
+      endDateVN,
+      totalRooms: rooms.length,
+      successCount,
+      results
+    };
+    
+  } catch (error) {
+    throw new Error(`Lỗi tạo lịch quý: ${error.message}`);
+  }
+}
+
+// Generate schedule for a specific room
+async function generateScheduleForRoom(room, startDate, endDate, config) {
+  const schedules = [];
+  const currentDate = new Date(startDate);
+  
+  while (currentDate <= endDate) {
+    const dateStr = currentDate.toISOString().split('T')[0];
+    
+    // Check if it's a holiday (remove weekend check)
+    const isHolidayDay = await isHoliday(currentDate);
+    
+    if (!isHolidayDay) {
+      // Check if schedule already exists
+      const existingSchedule = await scheduleRepo.findByRoomAndDate(
+        room._id, 
+        new Date(currentDate)
+      );
+      
+      if (!existingSchedule) {
+        const schedule = await createDailySchedule(room, new Date(currentDate), config);
+        schedules.push(schedule);
+      }
+    }
+    
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  
+  return schedules;
+}
+
+// Create daily schedule for a room
+async function createDailySchedule(room, date, config) {
+  // Get work shifts
+  const workShifts = config.getWorkShifts();
+  
+  const schedule = {
+    roomId: room._id,
+    // Persist exact Vietnam calendar date string only
+    dateVNStr: toVNDateOnlyString(date),
+    workShifts: workShifts.map(shift => ({
+      name: shift.name,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      isActive: shift.isActive
+    })),
+    isActive: true,
+    createdAt: getVietnamDate()
+  };
+  
+  const savedSchedule = await scheduleRepo.create(schedule);
+  
+  // Generate slots for this schedule
+  await generateSlotsForSchedule(savedSchedule, room, config);
+  
+  return savedSchedule;
+}
+
+// Generate slots for a schedule
+async function generateSlotsForSchedule(schedule, room, config) {
+  const slots = [];
+  
+  for (const shift of schedule.workShifts) {
+    if (!shift.isActive) continue;
+    
+    const shiftSlots = generateSlotsForShift(schedule, room, shift, config);
+    slots.push(...shiftSlots);
+  }
+  
+  if (slots.length > 0) {
+    await slotRepo.createMany(slots);
+  }
+  
+  return slots;
+}
+
+// Generate slots for a specific shift
+function generateSlotsForShift(schedule, room, shift, config) {
+  const slots = [];
+  
+  // Parse start and end time
+  const [startHour, startMin] = shift.startTime.split(':').map(Number);
+  const [endHour, endMin] = shift.endTime.split(':').map(Number);
+  
+  const [y, mo, d] = (schedule.dateVNStr).split('-').map(Number);
+  // Build UTC Date objects that represent the Vietnam-local wall-clock times.
+  // We convert VN local (y,mo,d,h,m) -> UTC instant using fromVNToUTC helper so stored Date is canonical UTC but
+  // when interpreted in VN timezone will show the intended wall-clock time.
+  const startTime = fromVNToUTC(y, mo, d, startHour, startMin);
+  const endTime = fromVNToUTC(y, mo, d, endHour, endMin);
+  
+  // Check if room has subrooms
+  if (room.hasSubRooms && room.subRooms && room.subRooms.length > 0) {
+    // Room has subrooms - create slots based on unitDuration for each subroom
+    const unitDuration = config.unitDuration || 15;
+    let currentTime = startTime.getTime();
+    const endMillis = endTime.getTime();
+    const step = (unitDuration || 15) * 60 * 1000;
+
+    while (currentTime < endMillis) {
+      const slotEndMillis = currentTime + step;
+      if (slotEndMillis <= endMillis) {
+        const slotStartUTC = new Date(currentTime);
+        const slotEndUTC = new Date(slotEndMillis);
+        // Create slot for each active subroom
+        room.subRooms.forEach(subRoom => {
+          if (subRoom.isActive !== false) {
+            slots.push(createSlotData(schedule, room, subRoom, shift, slotStartUTC, slotEndUTC));
+          }
+        });
+      }
+      currentTime += step;
+    }
+  } else {
+    // Room without subrooms - create one slot per shift (entire shift duration)
+  slots.push(createSlotData(schedule, room, null, shift, startTime, endTime));
+  }
+  
+  return slots;
+}
+
+// Create slot data object
+function createSlotData(schedule, room, subRoom, shift, startTime, endTime) {
+  // Helper to format a Date (UTC) into VN local 'YYYY-MM-DDTHH:mm'
+  const toVNLocal = (dt) => {
+    const vn = new Date(dt.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+    const yyyy = vn.getFullYear();
+    const mm = String(vn.getMonth() + 1).padStart(2, '0');
+    const dd = String(vn.getDate()).padStart(2, '0');
+    const hh = String(vn.getHours()).padStart(2, '0');
+    const mi = String(vn.getMinutes()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+  };
+
+  return {
+    roomId: room._id,
+    subRoomId: subRoom ? subRoom._id : null,
+    scheduleId: schedule._id,
+    // date is deprecated, keep null
+    date: null,
+    shiftName: shift.name,
+    // startTime/endTime already UTC of the intended VN times
+    startTime: new Date(startTime),
+    endTime: new Date(endTime),
+  // Note: VN-local display fields removed; caller will apply +7 when formatting on read
+    dentist: null, // Will be assigned later
+    nurse: null,   // Will be assigned later
+    isBooked: false,
+    isActive: true,
+    createdAt: getVietnamDate()
+  };
+}
+
+// Get available quarters to generate
+async function getAvailableQuarters() {
+  const currentQuarter = getQuarterInfo();
+  const availableQuarters = [];
+
+  // Build candidate quarters: from current quarter to Q4 of current year, then Q1-Q4 of next year
+  const candidates = [];
+  for (let q = currentQuarter.quarter; q <= 4; q++) candidates.push({ quarter: q, year: currentQuarter.year });
+  for (let q = 1; q <= 4; q++) candidates.push({ quarter: q, year: currentQuarter.year + 1 });
+
+  const config = await cfgService.getConfig();
+  const lastGenerated = config?.lastQuarterGenerated;
+  const hasValidMarker = lastGenerated && Number.isInteger(lastGenerated.quarter) && Number.isInteger(lastGenerated.year);
+
+  for (const c of candidates) {
+    const { quarter, year } = c;
+    const label = `Quý ${quarter}/${year}`;
+  const isCurrent = year === currentQuarter.year && quarter === currentQuarter.quarter;
+
+    // Determine if schedules exist in DB for this quarter
+    const { startDate, endDate } = getQuarterDateRange(quarter, year);
+    const schedulesInQuarter = await scheduleRepo.findByDateRange(startDate, endDate);
+    const hasSchedules = schedulesInQuarter && schedulesInQuarter.length > 0;
+
+    // Marker info
+    const requestedIdx = year * 4 + quarter;
+    const markerIdx = hasValidMarker ? (lastGenerated.year * 4 + lastGenerated.quarter) : null;
+    const isMarked = hasValidMarker && markerIdx >= requestedIdx;
+
+    // Determine creatable according to the same rules as generateQuarterSchedule (but do not throw)
+    let isCreatable = true;
+
+    // If DB already has schedules -> cannot create (would be duplicate)
+    if (hasSchedules) {
+      isCreatable = false;
+    } else {
+      // If quarter already ended in VN -> cannot create
+      const nowVN = getVietnamDate();
+      if (endDate < nowVN) isCreatable = false;
+
+      // Cannot create quarters in the past (relative to current quarter VN)
+      const currentIdx = currentQuarter.year * 4 + currentQuarter.quarter;
+      if (year < currentQuarter.year || (year === currentQuarter.year && quarter < currentQuarter.quarter)) {
+        isCreatable = false;
+      }
+
+      // If requested quarter is after current, ensure sequence rules
+      if (isCreatable && requestedIdx > currentIdx) {
+        // Need a valid marker and the marker must be >= currentIdx (i.e., current created or at least marker points to a quarter >= current)
+        if (!hasValidMarker || markerIdx < currentIdx) {
+          isCreatable = false;
+        } else {
+          // requested must be exactly lastIdx + 1
+          if (requestedIdx !== markerIdx + 1) isCreatable = false;
+        }
+      }
+
+      // If requested <= markerIdx then it's considered already generated (but since hasSchedules is false, we allow recreation — treat as not creatable)
+      if (hasValidMarker && requestedIdx <= markerIdx) {
+        isCreatable = false;
+      }
+    }
+
+    availableQuarters.push({
+      quarter,
+      year,
+      label,
+      hasSchedules,
+      isCreated: isMarked || hasSchedules,
+      isCreatable
+    });
+  }
+
+  return availableQuarters;
+}
+
+// Get schedules by room and date range
+async function getSchedulesByRoom(roomId, startDate, endDate) {
+  const schedules = await scheduleRepo.findByRoomAndDateRange(roomId, startDate, endDate);
+  return schedules;
+}
+
+// Get schedules by date range (all rooms)
+async function getSchedulesByDateRange(startDate, endDate) {
+  const schedules = await scheduleRepo.findByDateRange(startDate, endDate);
+  return schedules;
+}
+
+
+
+// Get quarter status
+async function getQuarterStatus(quarter, year) {
+  const { startDate, endDate } = getQuarterDateRange(quarter, year);
+  const { startDateUTC, endDateUTC } = getQuarterUTCDates(quarter, year);
+  const { startDateVN, endDateVN } = getQuarterVNDateStrings(quarter, year);
+  const rooms = await getAllRooms();
+  
+  const status = {
+    quarter,
+    year,
+    startDate: startDateUTC,
+    endDate: endDateUTC,
+    startDateVN,
+    endDateVN,
+    totalRooms: rooms.length,
+    roomsWithSchedule: 0,
+    totalSchedules: 0,
+    rooms: []
+  };
+  
+  for (const room of rooms) {
+    const schedules = await scheduleRepo.findByRoomAndDateRange(room._id, startDate, endDate);
+    const hasSchedule = schedules.length > 0;
+    
+    if (hasSchedule) {
+      status.roomsWithSchedule++;
+      status.totalSchedules += schedules.length;
+    }
+    
+    status.rooms.push({
+      roomId: room._id,
+      roomName: room.name,
+      hasSchedule,
+      scheduleCount: schedules.length
+    });
+  }
+  
+  return status;
+}
+
+module.exports = {
+  generateQuarterSchedule,
+  generateScheduleForRoom,
+  getAvailableQuarters,
+  getSchedulesByRoom,
+  getSchedulesByDateRange,
+  getQuarterStatus,
+  getQuarterInfo,
+  getVietnamDate
+};
+
 // 🔧 Check conflict chung
-async function checkScheduleConflict(roomId, shiftIds, startDate, endDate, excludeId = null) {
+// Note: schedules no longer persist shiftIds. Conflict is determined by overlapping start/end for the same room.
+async function checkScheduleConflict(roomId, startDate, endDate, excludeId = null) {
   const filter = {
     roomId,
-    shiftIds: { $in: shiftIds },
     $or: [
       {
         startDate: { $lte: new Date(endDate) },
@@ -35,20 +550,31 @@ async function checkScheduleConflict(roomId, shiftIds, startDate, endDate, exclu
 }
 
 // 🔹 Kiểm tra khả năng tạo slot cho tất cả subRoom
-async function checkSlotsAvailability(subRooms, shiftIds, slotDuration, startDate, endDate) {
-  const shiftCache = await redisClient.get('shifts_cache');
-  if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
-  const shifts = JSON.parse(shiftCache);
-  const selectedShifts = shifts.filter(s => shiftIds.includes(s._id.toString()) && s.isActive);
+async function checkSlotsAvailability(subRooms, shiftIdsOrWorkShifts, slotDuration, startDate, endDate) {
+  // shiftIdsOrWorkShifts may be an array of shift IDs (legacy) or an array of workShift objects
+  const cfg = await cfgService.getConfig();
+  const configShifts = cfg.workShifts || [];
+
+  let selectedShifts = [];
+  if (Array.isArray(shiftIdsOrWorkShifts) && shiftIdsOrWorkShifts.length > 0 && typeof shiftIdsOrWorkShifts[0] === 'object') {
+    // Provided workShift objects directly
+    selectedShifts = shiftIdsOrWorkShifts.filter(s => s.isActive);
+  } else if (Array.isArray(shiftIdsOrWorkShifts)) {
+    // Provided shift ids - map them to config
+    const ids = shiftIdsOrWorkShifts.map(String);
+    selectedShifts = configShifts.filter(s => ids.includes(String(s._id)) && s.isActive);
+  }
+
   if (!selectedShifts.length) throw new Error('Không tìm thấy ca/kíp hợp lệ hoặc ca/kíp không hoạt động');
 
   const now = new Date();
   const minStart = new Date(now.getTime() + 5 * 60000); // slot bắt đầu sau 5 phút
+  const unit = cfg?.unitDuration ?? 15;
 
   for (let d = new Date(startDate); d <= new Date(endDate); d.setDate(d.getDate() + 1)) {
     for (const shift of selectedShifts) {
-      const [startHour, startMinute] = shift.startTime.split(':').map(Number);
-      const [endHour, endMinute] = shift.endTime.split(':').map(Number);
+  const [startHour, startMinute] = shift.startTime.split(':').map(Number);
+  const [endHour, endMinute] = shift.endTime.split(':').map(Number);
 
       const shiftStart = new Date(d);
       shiftStart.setHours(startHour, startMinute, 0, 0);
@@ -59,10 +585,13 @@ async function checkSlotsAvailability(subRooms, shiftIds, slotDuration, startDat
       if (shiftEnd <= minStart) continue;
 
       // Tính thời gian còn lại cho slot đầu tiên
-      const firstSlotStart = shiftStart > minStart ? shiftStart : minStart;
-      const availableMinutes = Math.floor((shiftEnd - firstSlotStart) / 60000);
+  const firstSlotStart = shiftStart > minStart ? shiftStart : minStart;
+  // Align firstSlotStart to unitDuration
+  const rem = firstSlotStart.getMinutes() % unit;
+  if (rem !== 0) firstSlotStart.setMinutes(firstSlotStart.getMinutes() + (unit - rem));
+  const availableMinutes = Math.floor((shiftEnd - firstSlotStart) / 60000);
 
-      if (availableMinutes < slotDuration) {
+  if (availableMinutes < slotDuration) {
         throw new Error(
           `Không thể tạo slot cho ca ${shift.name} vào ngày ${d.toISOString().split('T')[0]}. ` +
           `Thời gian còn lại sau 5 phút từ giờ hiện tại là ${availableMinutes} phút, ` +
@@ -73,64 +602,81 @@ async function checkSlotsAvailability(subRooms, shiftIds, slotDuration, startDat
   }
   return true; // có thể tạo slot
 }
-// 🔹 Sinh slot core
-async function generateSlotsCore(scheduleId, subRoomId, shiftIds, slotDuration, startDate, endDate) {
-  const shiftCache = await redisClient.get('shifts_cache');
-  if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
-  const shifts = JSON.parse(shiftCache);
-  const selectedShifts = shifts.filter(s => shiftIds.includes(s._id.toString()));
-  if (!selectedShifts.length) return [];
+// 🔹 Sinh slot core với Vietnam timezone và scheduleConfig
+async function generateSlotsCore(scheduleId, subRoomId, selectedShifts, slotDuration, startDate, endDate) {
+  // selectedShifts is an array of workShift-like objects ({name,startTime,endTime,isActive})
+  if (!Array.isArray(selectedShifts) || selectedShifts.length === 0) {
+    throw new Error('Không tìm thấy ca làm việc hợp lệ nào để tạo slot');
+  }
 
   const slots = [];
   const start = new Date(startDate);
   const end = new Date(endDate);
-  const now = new Date();
-  const minStart = new Date(now.getTime() + 5 * 60000); // bắt đầu sau 5 phút
+  
+  // Convert to Vietnam timezone for date calculations
+  const vnStart = new Date(start.getTime() + 7 * 60 * 60 * 1000);
+  const vnEnd = new Date(end.getTime() + 7 * 60 * 60 * 1000);
+  const vnNow = new Date(new Date().getTime() + 7 * 60 * 60 * 1000);
+  const minStart = new Date(vnNow.getTime() + 5 * 60000); // start after 5 minutes
 
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    for (const shift of selectedShifts) {
+  // Loop through each day in Vietnam timezone
+  for (let d = new Date(vnStart); d <= vnEnd; d.setDate(d.getDate() + 1)) {
+    const dayString = d.toISOString().split('T')[0]; // YYYY-MM-DD format
+    
+  for (const shift of selectedShifts) {
       const [startHour, startMinute] = shift.startTime.split(':').map(Number);
       const [endHour, endMinute] = shift.endTime.split(':').map(Number);
 
+      // Create shift times in Vietnam timezone
       const shiftStart = new Date(d);
       shiftStart.setHours(startHour, startMinute, 0, 0);
 
       const shiftEnd = new Date(d);
       shiftEnd.setHours(endHour, endMinute, 0, 0);
 
-      // Bỏ ca đã kết thúc hoàn toàn
+      // Skip shifts that have completely ended
       if (shiftEnd <= minStart) continue;
 
-      // Bắt đầu slot từ max(shiftStart, minStart)
+      // Start slot from max(shiftStart, minStart)
       let cur = shiftStart > minStart ? new Date(shiftStart) : new Date(minStart);
       let slotCreated = false;
 
       while (cur < shiftEnd) {
         const next = new Date(cur.getTime() + slotDuration * 60000);
 
-        // Nếu slot không còn đủ thời lượng → break
+        // If slot doesn't fit in remaining time → break
         if (next > shiftEnd) break;
 
+        // Convert back to UTC for storage
+        const slotDate = new Date(dayString + 'T00:00:00.000Z');
+        const utcStartTime = new Date(cur.getTime() - 7 * 60 * 60 * 1000);
+        const utcEndTime = new Date(next.getTime() - 7 * 60 * 60 * 1000);
+
         slots.push({
-          date: new Date(d),
-          startTime: new Date(cur),
-          endTime: next,
+          date: slotDate,
+          startTime: utcStartTime,
+          endTime: utcEndTime,
           scheduleId,
-          subRoomId
+          subRoomId,
+          shiftName: shift.name,
+          roomId: null, // filled when saving (slotRepo.createManySlots should set roomId)
+          status: 'available'
         });
 
         slotCreated = true;
         cur = next;
       }
 
-      // Nếu không tạo được slot nào trong ca → ném lỗi
-      if (!slotCreated) {
+      // If no slot was created in this shift → throw error
+      if (!slotCreated && shiftStart < shiftEnd) {
         const availableMinutes = Math.floor((shiftEnd - minStart) / 60000);
-        throw new Error(
-          `Không thể tạo slot cho ca ${shift.name} vào ngày ${d.toISOString().split('T')[0]}. ` +
-          `Thời gian còn lại sau 5 phút từ giờ hiện tại là ${availableMinutes} phút, ` +
-          `không đủ cho slotDuration ${slotDuration} phút.`
-        );
+        if (availableMinutes > 0) {
+          throw new Error(
+            `Không thể tạo slot cho ca ${shift.name} vào ngày ${dayString}. ` +
+            `Thời gian còn lại là ${availableMinutes} phút, ` +
+            `không đủ cho slotDuration ${slotDuration} phút.`
+          );
+        }
       }
     }
   }
@@ -138,77 +684,37 @@ async function generateSlotsCore(scheduleId, subRoomId, shiftIds, slotDuration, 
   return slots;
 }
 
-// 🔹 Wrapper: sinh + lưu DB sau khi có schedule._id
-async function generateSlotsAndSave(scheduleId, subRoomId, shiftIds, slotDuration, startDate, endDate) {
-  // 1️⃣ Lấy cache ca/kíp
-  const shiftCache = await redisClient.get('shifts_cache');
-  if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
+// 🔹 Wrapper: sinh + lưu DB sau khi có schedule._id  
+async function generateSlotsAndSave(scheduleId, subRoomId, selectedShifts, slotDuration, startDate, endDate) {
+  // Generate slots using the core function with Vietnam timezone handling
+  const slots = await generateSlotsCore(scheduleId, subRoomId, selectedShifts, slotDuration, startDate, endDate);
+  
+  if (slots.length === 0) {
+    console.log(`⚠️ Không có slot nào được tạo cho subRoom ${subRoomId}`);
+    return [];
+  }
 
-  const shifts = JSON.parse(shiftCache);
-  const selectedShifts = shifts.filter(s => shiftIds.includes(s._id.toString()) && s.isActive);
-  if (!selectedShifts.length) return [];
-
-  const slots = [];
-  const now = new Date();
-  now.setSeconds(0, 0); // Giây = 0, mili giây = 0
-  const minStart = new Date(now.getTime() + 5 * 60000); // 5 phút sau giờ hiện tại
-
-  // 2️⃣ Lặp qua từng ngày
-  for (let d = new Date(startDate); d <= new Date(endDate); d.setDate(d.getDate() + 1)) {
-    for (const shift of selectedShifts) {
-      const [startHour, startMinute] = shift.startTime.split(':').map(Number);
-      const [endHour, endMinute] = shift.endTime.split(':').map(Number);
-
-      // Tạo giờ bắt đầu và kết thúc ca
-      const shiftStart = new Date(d);
-      shiftStart.setHours(startHour, startMinute, 0, 0); // Giây = 0, mili giây = 0
-      const shiftEnd = new Date(d);
-      shiftEnd.setHours(endHour, endMinute, 0, 0);
-
-      // Bỏ ca đã kết thúc
-      if (shiftEnd <= minStart) continue;
-
-      // Xác định điểm bắt đầu slot: max(shiftStart, minStart)
-      let cur = shiftStart > minStart ? new Date(shiftStart) : new Date(minStart);
-
-      // 🔹 Căn phút theo slotDuration
-      const remainder = cur.getMinutes() % slotDuration;
-      if (remainder !== 0) {
-        cur.setMinutes(cur.getMinutes() + (slotDuration - remainder));
-        cur.setSeconds(0, 0);
-      }
-
-      // 3️⃣ Sinh slot
-      while (cur < shiftEnd) {
-        const next = new Date(cur.getTime() + slotDuration * 60000);
-        next.setSeconds(0, 0); // Giây = 0
-        if (next > shiftEnd) break;
-
-        slots.push({
-          date: new Date(d),
-          startTime: new Date(cur),
-          endTime: new Date(next),
-          scheduleId,
-          subRoomId
-        });
-
-        cur = next;
-      }
+  // Resolve parent roomId from cache and set on slots
+  const roomCache = await redisClient.get('rooms_cache');
+  const rooms = roomCache ? JSON.parse(roomCache) : [];
+  let roomId = null;
+  for (const r of rooms) {
+    if (r.subRooms && r.subRooms.find(sr => sr._id.toString() === subRoomId.toString())) {
+      roomId = r._id;
+      break;
     }
   }
 
-  if (!slots.length) throw new Error('Không thể tạo slot sau khi check availability.');
+  const slotsToSave = slots.map(s => ({ ...s, roomId }));
 
-  // 4️⃣ Lưu slot vào DB
-  const inserted = await slotRepo.insertMany(slots);
-  return inserted.map(s => s._id);
+  // Save slots to database
+  const savedSlots = await slotRepo.createManySlots(slotsToSave);
+  console.log(`✅ Đã tạo ${savedSlots.length} slot cho subRoom ${subRoomId} từ ${startDate} đến ${endDate}`);
+  
+  return savedSlots.map(s => s._id);
 }
 
-
-
-
 // ✅ Tạo schedule
-// 🔹 Tạo schedule
 exports.createSchedule = async (data) => {
   const roomCache = await redisClient.get('rooms_cache');
   if (!roomCache) throw new Error('Không tìm thấy bộ nhớ đệm phòng');
@@ -217,21 +723,34 @@ exports.createSchedule = async (data) => {
   if (!room) throw new Error('Không tìm thấy phòng');
   if (!room.isActive) throw new Error(`Phòng ${room._id} hiện không hoạt động`);
 
-  const conflict = await checkScheduleConflict(data.roomId, data.shiftIds, data.startDate, data.endDate);
+  // Determine shifts: prefer provided workShifts array; fallback to mapping shiftIds via config
+  const cfg = await cfgService.getConfig();
+  const configShifts = cfg?.workShifts || [];
+
+  let incomingShifts = [];
+  if (Array.isArray(data.workShifts) && data.workShifts.length > 0) {
+    incomingShifts = data.workShifts;
+  } else if (Array.isArray(data.shiftIds) && data.shiftIds.length > 0) {
+    const ids = data.shiftIds.map(String);
+    incomingShifts = configShifts.filter(s => ids.includes(String(s._id)));
+  }
+
+  const conflict = await checkScheduleConflict(data.roomId, data.startDate, data.endDate);
   if (conflict) throw new Error(`Lịch bị trùng với schedule ${conflict._id}`);
 
   // Kiểm tra khả năng tạo slot cho tất cả subRoom
-  await checkSlotsAvailability(room.subRooms, data.shiftIds, data.slotDuration, data.startDate, data.endDate);
+  await checkSlotsAvailability(room.subRooms, incomingShifts, data.slotDuration, data.startDate, data.endDate);
 
-  // ✅ Kiểm tra ngày bắt đầu/kết thúc
-  validateDates(data.startDate, data.endDate);
+  // ✅ Kiểm tra ngày bắt đầu/kết thúc (dùng config)
+  await validateDates(data.startDate, data.endDate);
 
   // Tạo schedule thực
   const schedule = await scheduleRepo.createSchedule({
     roomId: room._id,
     startDate: data.startDate,
     endDate: data.endDate,
-    shiftIds: data.shiftIds,
+    // store workShifts if caller provided them; otherwise schedule keeps no shiftIds
+    workShifts: Array.isArray(incomingShifts) ? incomingShifts.map(s => ({ name: s.name, startTime: s.startTime, endTime: s.endTime, isActive: s.isActive })) : [],
     slotDuration: data.slotDuration
   });
 
@@ -241,7 +760,7 @@ exports.createSchedule = async (data) => {
     const slotIds = await generateSlotsAndSave(
       schedule._id,
       subRoom._id,
-      data.shiftIds,
+      incomingShifts,
       data.slotDuration,
       data.startDate,
       data.endDate
@@ -249,8 +768,7 @@ exports.createSchedule = async (data) => {
     allSlotIds = allSlotIds.concat(slotIds);
   }
 
-  schedule.slots = allSlotIds;
-  await schedule.save();
+  // slots are stored in Slot collection; do not persist slot IDs on schedule
   return schedule;
 };
 
@@ -260,8 +778,8 @@ exports.updateSchedule = async (id, data) => {
   const schedule = await scheduleRepo.findById(id);
   if (!schedule) throw new Error('Không tìm thấy lịch');
 
-  // Không cho phép update shiftIds
-  if (data.shiftIds && data.shiftIds.toString() !== schedule.shiftIds.toString()) {
+  // Không cho phép update shift identifiers via shiftIds (use new schedule creation for different shifts)
+  if (data.shiftIds) {
     throw new Error('Không được phép cập nhật shiftIds. Để thay đổi ca/kíp, hãy tạo lịch mới.');
   }
 
@@ -293,11 +811,12 @@ exports.updateSchedule = async (id, data) => {
       throw new Error('Không thể thay đổi slotDuration vì đã có slot chứa dentistId, nurseId hoặc appointmentId');
     }
 
-    // 🔹 Lấy shift từ cache để kiểm tra slotDuration
-    const shiftCache = await redisClient.get('shifts_cache');
-    if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
-    const shifts = JSON.parse(shiftCache);
-    const selectedShifts = shifts.filter(s => schedule.shiftIds.includes(s._id.toString()));
+    // 🔹 Determine shifts from schedule.workShifts or config
+    const cfg = await cfgService.getConfig();
+    const configShifts = cfg?.workShifts || [];
+    const selectedShifts = (Array.isArray(schedule.workShifts) && schedule.workShifts.length > 0)
+      ? schedule.workShifts
+      : configShifts.filter(s => s.isActive);
 
     for (const shift of selectedShifts) {
       const [startHour, startMinute] = shift.startTime.split(':').map(Number);
@@ -308,9 +827,8 @@ exports.updateSchedule = async (id, data) => {
       }
     }
 
-    // 1️⃣ Xóa tất cả slot cũ
-    await slotRepo.deleteMany({ scheduleId: schedule._id });
-    schedule.slots = [];
+  // 1️⃣ Xóa tất cả slot cũ
+  await slotRepo.deleteMany({ scheduleId: schedule._id });
 
     // 2️⃣ Lấy room từ cache
     const roomCache = await redisClient.get('rooms_cache');
@@ -324,7 +842,7 @@ exports.updateSchedule = async (id, data) => {
       const slotIds = await generateSlotsAndSave(
         schedule._id,
         subRoom._id,
-        schedule.shiftIds,
+        selectedShifts,
         data.slotDuration,
         schedule.startDate,
         schedule.endDate
@@ -332,12 +850,12 @@ exports.updateSchedule = async (id, data) => {
       allSlotIds = allSlotIds.concat(slotIds);
     }
 
-    schedule.slots = allSlotIds;
-    schedule.slotDuration = data.slotDuration;
+  // slots saved in Slot collection; schedule document already has metadata updated
+  schedule.slotDuration = data.slotDuration;
   }
 
-  // Cập nhật các trường khác (status, note, name…)
-  const allowedFields = ['status', 'note', 'name'];
+  // Cập nhật các trường khác (isActive, note, name…)
+  const allowedFields = ['isActive', 'note', 'name'];
   for (const field of allowedFields) {
     if (data[field] !== undefined) schedule[field] = data[field];
   }
@@ -345,6 +863,20 @@ exports.updateSchedule = async (id, data) => {
   await schedule.save();
   return schedule;
 };
+
+// ✅ Toggle schedule status
+exports.toggleStatus = async (id) => {
+  const schedule = await scheduleRepo.findById(id);
+  if (!schedule) throw new Error('Không tìm thấy lịch');
+
+  // Toggle boolean isActive
+  schedule.isActive = schedule.isActive === false ? true : false;
+  await schedule.save();
+  return schedule;
+};
+
+// Ensure the toggle function is available on module.exports (module.exports was assigned earlier)
+module.exports.toggleStatus = exports.toggleStatus;
 
 // ✅ Tạo slot cho 1 subRoom, nhưng chỉ nếu chưa có slot trong khoảng ngày đó
 
@@ -355,11 +887,11 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId) => {
     return null;
   }
 
-  const { startDate, endDate, slotDuration, shiftIds } = schedule;
+  const { startDate, endDate, slotDuration } = schedule;
   console.log(`📅 Bắt đầu tạo slot cho subRoom ${subRoomId} từ ${startDate} đến ${endDate}, slotDuration: ${slotDuration} phút`);
 
-  // ✅ Kiểm tra ngày
-  validateDates(startDate, endDate);
+  // ✅ Kiểm tra ngày (dùng config)
+  await validateDates(startDate, endDate);
 
   // ✅ Kiểm tra subRoom đã có slot chưa
   const existingSlots = await slotRepo.findSlots({
@@ -374,10 +906,12 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId) => {
   }
 
   // 🔹 Lấy shift từ cache để kiểm tra slotDuration
-  const shiftCache = await redisClient.get('shifts_cache');
-  if (!shiftCache) throw new Error('Không tìm thấy bộ nhớ đệm ca/kíp');
-  const shifts = JSON.parse(shiftCache);
-  const selectedShifts = shifts.filter(s => shiftIds.includes(s._id.toString()));
+  // Determine shifts from schedule.workShifts or from config
+  const cfg = await cfgService.getConfig();
+  const configShifts = cfg?.workShifts || [];
+  const selectedShifts = (Array.isArray(schedule.workShifts) && schedule.workShifts.length > 0)
+    ? schedule.workShifts
+    : configShifts.filter(s => s.isActive);
 
   if (!selectedShifts.length) throw new Error('Không tìm thấy ca/kíp hợp lệ');
 
@@ -410,28 +944,25 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId) => {
   const slotIds = await generateSlotsAndSave(
     schedule._id,
     subRoomId,
-    shiftIds,
+    selectedShifts,
     slotDuration,
     startDate,
     endDate
   );
 
   console.log(`✅ Đã tạo ${slotIds.length} slot mới cho subRoom ${subRoomId}`);
-
-  schedule.slots = schedule.slots.concat(slotIds);
-  await schedule.save();
+  // Do not store slot IDs on schedule document; slots persisted in Slot collection
 
   return { schedule, createdSlotIds: slotIds };
 };
 
-exports.listSchedules = async ({ roomId, shiftIds = [], page = 1, limit = 10 }) => {
+exports.listSchedules = async ({ roomId, page = 1, limit = 10 }) => {
   // Nếu có roomId => trả danh sách như cũ
   if (roomId) {
     const skip = (page - 1) * limit;
 
     const { schedules, total } = await scheduleRepo.findSchedules({
       roomId,
-      shiftIds,
       skip,
       limit
     });
@@ -442,8 +973,9 @@ exports.listSchedules = async ({ roomId, shiftIds = [], page = 1, limit = 10 }) 
       const { slots: dbSlots } = await slotRepo.findSlotsByScheduleId(sch._id);
       const enrichedSlots = await enrichSlots(dbSlots);
 
+      const base = (typeof sch.toObject === 'function') ? sch.toObject() : sch;
       enrichedSchedules.push({
-        ...sch.toObject(),
+        ...base,
         slots: enrichedSlots
       });
     }
@@ -621,7 +1153,6 @@ exports.getRoomSchedulesSummary = async (roomId) => {
       roomId,
       startDate: null,
       endDate: null,
-      shiftIds: [],
       shifts: [],
       subRooms: [],
       schedules: []
@@ -640,19 +1171,23 @@ exports.getRoomSchedulesSummary = async (roomId) => {
     null
   );
 
-  // 🔹 Tập hợp shiftIds duy nhất
-  const shiftIds = [
-    ...new Set(schedules.flatMap(s => s.shiftIds.map(id => id.toString())))
-  ];
-
-  // 🔹 Map shiftId → shift info
-  const shiftMap = await getShiftMapFromCache();
-  const shifts = shiftIds
-    .map(id => shiftMap[id])
-    .filter(Boolean); // loại bỏ shift không tồn tại trong cache
+  // 🔹 Tập hợp thông tin ca từ schedules.workShifts (unique)
+  const shiftKeySet = new Set();
+  const shifts = [];
+  for (const s of schedules) {
+    const ws = Array.isArray(s.workShifts) ? s.workShifts : [];
+    for (const sh of ws) {
+      const key = `${sh.name}|${sh.startTime}|${sh.endTime}`;
+      if (!shiftKeySet.has(key)) {
+        shiftKeySet.add(key);
+        shifts.push({ name: sh.name, startTime: sh.startTime, endTime: sh.endTime, isActive: sh.isActive });
+      }
+    }
+  }
   // 🔹 Lấy toàn bộ slot từ schedules
-  const allSlotIds = schedules.flatMap(s => s.slots.map(slot => slot._id));
-  const dbSlots = await slotRepo.findByIds(allSlotIds); // [{_id, subRoomId}]
+  // Collect slots for all schedules by querying Slot repository per schedule
+  const perScheduleSlots = await Promise.all(schedules.map(sch => slotRepo.findSlotsByScheduleId(sch._id).then(res => res.slots)));
+  const dbSlots = perScheduleSlots.flat();
   // 🔹 Map sang subRoom
   const subRoomMap = await getSubRoomMapFromCache();
   const subRooms = [];
@@ -907,6 +1442,121 @@ exports.getStaffSchedule = async ({ staffId, startDate, endDate }) => {
     startDate: new Date(startDate).toISOString().split("T")[0],
     endDate: new Date(endDate).toISOString().split("T")[0],
     days: Object.values(daysMap)
+  };
+};
+
+// ✅ Tạo lịch theo quý
+exports.createQuarterlySchedule = async (data) => {
+  const { roomId, quarter, year } = data;
+  
+  // Kiểm tra config và quyền tạo quý
+  const config = await cfgService.getConfig();
+  if (!config.canGenerateQuarter(quarter, year)) {
+    const currentQuarter = config.getCurrentQuarter();
+    const currentYear = config.getCurrentYear();
+    throw new Error(
+      `Không thể tạo lịch quý ${quarter}/${year}. ` +
+      `Hiện tại là quý ${currentQuarter}/${currentYear}. ` +
+      `Chỉ có thể tạo lịch quý hiện tại hoặc quý tiếp theo.`
+    );
+  }
+
+  // Lấy thông tin phòng từ cache
+  const roomCache = await redisClient.get('rooms_cache');
+  if (!roomCache) throw new Error('Không tìm thấy bộ nhớ đệm phòng');
+  const rooms = JSON.parse(roomCache);
+  const room = rooms.find(r => r._id.toString() === roomId.toString());
+  if (!room) throw new Error('Không tìm thấy phòng');
+  if (!room.isActive) throw new Error(`Phòng ${room._id} hiện không hoạt động`);
+
+  // Tính khoảng thời gian quý
+  const { startDate, endDate } = config.getQuarterDateRange(quarter, year);
+  
+  // Lấy workShifts từ config và tạo shiftIds
+  const activeShifts = config.workShifts.filter(shift => shift.isActive);
+  if (!activeShifts.length) throw new Error('Không có ca làm việc nào được kích hoạt trong cấu hình');
+  
+  const shiftIds = activeShifts.map(shift => shift._id.toString());
+  const slotDuration = config.unitDuration;
+
+  // Kiểm tra xung đột với lịch hiện có
+  const conflict = await checkScheduleConflict(roomId, shiftIds, startDate, endDate);
+  if (conflict) throw new Error(`Lịch bị trùng với schedule ${conflict._id} đã tồn tại`);
+
+  // Kiểm tra và validate theo config constraints
+  await validateDates(startDate, endDate);
+
+  // Tạo schedule
+  const schedule = await scheduleRepo.createSchedule({
+    roomId: room._id,
+    startDate,
+    endDate,
+    shiftIds,
+    slotDuration,
+    quarter,
+    year,
+    generationType: 'quarterly'
+  });
+
+  // Sinh slot dựa trên loại phòng
+  let allSlotIds = [];
+  
+  if (room.hasSubRooms && room.subRooms && room.subRooms.length > 0) {
+    // Phòng có subrooms: tạo slot cho từng subroom
+    for (const subRoom of room.subRooms) {
+      if (!subRoom.isActive) continue; // Skip inactive subrooms
+      
+      const slotIds = await generateSlotsAndSave(
+        schedule._id,
+        subRoom._id,
+        shiftIds,
+        slotDuration,
+        startDate,
+        endDate
+      );
+      allSlotIds = allSlotIds.concat(slotIds);
+    }
+  } else {
+    // Phòng không có subrooms: tạo slot trực tiếp cho phòng
+    // Tạo một "virtual subroom" để xử lý thống nhất
+    const slotIds = await generateSlotsAndSave(
+      schedule._id,
+      room._id, // Dùng roomId làm subRoomId
+      shiftIds,
+      slotDuration,
+      startDate,
+      endDate
+    );
+    allSlotIds = allSlotIds.concat(slotIds);
+  }
+
+  // Do not persist slot ID list on schedule document; slots live in Slot collection
+
+  // Đánh dấu quý đã được tạo
+  await cfgService.markQuarterGenerated(quarter, year);
+
+  return {
+    schedule,
+    quarter,
+    year,
+    slotCount: allSlotIds.length,
+    message: `Đã tạo thành công lịch quý ${quarter}/${year} cho phòng ${room.name}`
+  };
+};
+
+// ✅ Lấy thông tin quý hiện tại và có thể tạo
+exports.getQuarterInfo = async () => {
+  const config = await cfgService.getConfig();
+  const currentQuarter = config.getCurrentQuarter();
+  const currentYear = config.getCurrentYear();
+  const { quarter: nextQuarter, year: nextYear } = config.getNextQuarter(currentQuarter, currentYear);
+  
+  return {
+    current: { quarter: currentQuarter, year: currentYear },
+    next: { quarter: nextQuarter, year: nextYear },
+    lastGenerated: config.lastQuarterGenerated,
+    canGenerateCurrent: config.canGenerateQuarter(currentQuarter, currentYear),
+    canGenerateNext: config.canGenerateQuarter(nextQuarter, nextYear)
   };
 };
 

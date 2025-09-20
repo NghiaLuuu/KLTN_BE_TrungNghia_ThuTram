@@ -3,20 +3,28 @@ const router = express.Router();
 const scheduleController = require('../controllers/schedule.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
 
-router.post('/', authMiddleware,scheduleController.createSchedule);
-router.put('/:id', authMiddleware,scheduleController.updateSchedule);
-router.patch('/:id/toggle', authMiddleware, scheduleController.toggleStatus);
-router.get('/', scheduleController.getSchedules);
+// Generate quarter schedule for all rooms
+router.post('/quarter', authMiddleware, scheduleController.generateQuarterSchedule);
 
-// Lấy lịch subRoom theo tuần / tháng
-// GET /api/schedules/subroom?subRoomId=xxx&range=week
-router.get('/subroom', scheduleController.getSubRoomSchedule);
+// Get available quarters 
+router.get('/quarters/available', scheduleController.getAvailableQuarters);
 
-//schedule/staff?staffId=...&range=week&page=1
-router.get('/staff', scheduleController.getStaffSchedule);
+// Get quarter status
+router.get('/quarter/status', scheduleController.getQuarterStatus);
 
-router.get('/:id/slots', scheduleController.getScheduleSlots);
-router.get('/:id', scheduleController.getScheduleDetail);
-router.get('/summary/:roomId', scheduleController.getRoomSchedulesSummary);
+// Get schedules by room and date range
+router.get('/room/:roomId', scheduleController.getSchedulesByRoom);
+
+// Get schedules by date range (all rooms)
+router.get('/', scheduleController.getSchedulesByDateRange);
+
+// Toggle schedule active/inactive (manager/admin)
+router.patch('/:id/active', authMiddleware, scheduleController.toggleScheduleActive);
+
+
+
+// Note: routes below were removed because their controller handlers were deleted.
+// If you need these endpoints, implement the corresponding controller functions
+// in `src/controllers/schedule.controller.js` and re-enable them here.
 
 module.exports = router;

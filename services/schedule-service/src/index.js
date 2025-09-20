@@ -3,6 +3,7 @@ const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 const scheduleRoutes = require('./routes/schedule.route');
 const slotRoutes = require('./routes/slot.route');
+const scheduleConfigRoutes = require('./routes/scheduleConfig.route');
 const startRpcServer = require('./utils/rpcServer');
 const cors = require('cors');
 
@@ -19,6 +20,7 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/api/schedule', scheduleRoutes);
 app.use('/api/slot', slotRoutes);
+app.use('/api/schedule/config', scheduleConfigRoutes);
 
 startRpcServer();
 // Server

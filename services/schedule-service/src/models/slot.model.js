@@ -6,13 +6,26 @@ const slotSchema = new mongoose.Schema({
     ref: 'Schedule',
     required: true
   },
+  roomId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    index: true
+  },
   subRoomId: {
     type: mongoose.Schema.Types.ObjectId,
-    required: true
+    default: null, // null for rooms without subrooms
+    index: true
   },
+  // Deprecated day marker; startTime encodes the day/time in UTC. Keep optional for BC.
   date: {
     type: Date,
-    required: true
+    required: false,
+    index: true
+  },
+  shiftName: {
+    type: String,
+    required: true,
+    enum: ['Ca Sáng', 'Ca Chiều', 'Ca Tối']
   },
   startTime: {
     type: Date,
@@ -22,25 +35,65 @@ const slotSchema = new mongoose.Schema({
     type: Date,
     required: true
   },
-  dentistId: [{
+  // Staff assignment - single dentist and nurse
+  dentist: {
     type: mongoose.Schema.Types.ObjectId,
     default: null
-  }],
-  nurseId: [{
+  },
+  nurse: {
     type: mongoose.Schema.Types.ObjectId,
     default: null
-  }],
-  status: {
-    type: String,
-    enum: ['available', 'confirmed', 'unavailable', 'reserved'],
-    default: 'available'
+  },
+  // Booking status
+  isBooked: {
+    type: Boolean,
+    default: false
   },
   appointmentId: {
     type: mongoose.Schema.Types.ObjectId,
     default: null
+  },
+  isActive: {
+    type: Boolean,
+    default: true
   }
 }, {
   timestamps: true
 });
+
+// Compound indexes for performance
+slotSchema.index({ roomId: 1, startTime: 1, shiftName: 1 });
+slotSchema.index({ subRoomId: 1, startTime: 1 }); 
+slotSchema.index({ dentist: 1, startTime: 1 });
+slotSchema.index({ nurse: 1, startTime: 1 });
+slotSchema.index({ appointmentId: 1 });
+slotSchema.index({ startTime: 1, isBooked: 1, isActive: 1 });
+
+// Virtual to get Vietnam timezone date
+slotSchema.virtual('dateVN').get(function() {
+  // Derive VN date from startTime if available
+  const base = this.startTime || this.date;
+  if (!base) return null;
+  const vnTime = new Date(base.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
+  return vnTime.toISOString().split('T')[0];
+});
+
+// Virtual to get Vietnam timezone start time
+slotSchema.virtual('startTimeVN').get(function() {
+  if (!this.startTime) return null;
+  const vnTime = new Date(this.startTime.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
+  return vnTime.toTimeString().substr(0, 5);
+});
+
+// Virtual to get Vietnam timezone end time
+slotSchema.virtual('endTimeVN').get(function() {
+  if (!this.endTime) return null;
+  const vnTime = new Date(this.endTime.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
+  return vnTime.toTimeString().substr(0, 5);
+});
+
+// Ensure virtuals are included in JSON output
+slotSchema.set('toJSON', { virtuals: true });
+slotSchema.set('toObject', { virtuals: true });
 
 module.exports = mongoose.model('Slot', slotSchema);
