@@ -306,8 +306,8 @@ Authorization: Bearer <admin_token>
 
 ## 🎯 3. SLOT APIs
 
-### 3.1 Assign Staff to Slots
-**Phân công nhân sự cho slot theo room/subroom và ca (Admin/Manager only)**
+### 3.1 Assign Staff to Slots (PHẢI phân công theo quý)
+**Phân công nhân sự cho nhiều slot trong 1 phòng (hoặc 1 subroom) theo quý — Admin/Manager only**
 
 ```http
 POST /api/slots/assign-staff
@@ -315,46 +315,60 @@ Authorization: Bearer <admin_token>
 Content-Type: application/json
 ```
 
-**Request Body cho phòng CÓ subroom (1-1 constraint):**
+Lưu ý quan trọng: API này yêu cầu phân công theo quý — phải gửi `quarter` (1-4) và `year` cùng với `roomId`. Service sẽ tự động tìm tất cả `scheduleId` của `roomId` trong quý đó và áp cập nhật cho tất cả slot phù hợp.
+
+Trường bắt buộc:
+- `roomId` (string)
+- `quarter` (number) — 1..4
+- `year` (number)
+- `shifts` (array[string]) — ít nhất 1 ca, ví dụ `["Ca Sáng"]`
+
+Tuỳ chọn:
+- `subRoomId` (string) — nếu phòng có subrooms và bạn muốn gán cho subroom cụ thể (khi có subroom, ràng buộc 1 dentist + 1 nurse/người)
+- `dentistIds` (array[string]) — service sẽ dùng phần tử đầu tiên làm `dentist` được gán
+- `nurseIds` (array[string]) — service sẽ dùng phần tử đầu tiên làm `nurse` được gán
+
+Ví dụ — phòng KHÔNG có subroom (gán 1 nha sĩ + 1 y tá cho Ca Sáng và Ca Chiều trong quý 4, 2025):
 ```json
 {
   "roomId": "66f2a1234567890abcdef123",
-  "subRoomId": "66f2a1234567890abcdef456", 
-  "date": "2025-10-01",
+  "quarter": 4,
+  "year": 2025,
   "shifts": ["Ca Sáng", "Ca Chiều"],
-  "dentistIds": ["dentist1_id"],
-  "nurseIds": ["nurse1_id"]
+  "dentistIds": ["66d111aaa222bbb333ccc001"],
+  "nurseIds": ["66e111aaa222bbb333ccc002"]
 }
 ```
 
-**Request Body cho phòng KHÔNG có subroom (maxDoctor/maxNurse constraint):**
+Ví dụ — phòng CÓ subroom (phải truyền `subRoomId`, ràng buộc 1 dentist + 1 nurse):
 ```json
 {
   "roomId": "66f2a1234567890abcdef123",
-  "subRoomId": null,
-  "date": "2025-10-01", 
-  "shifts": ["Ca Sáng", "Ca Tối"],
-  "dentistIds": ["dentist1_id", "dentist2_id"],
-  "nurseIds": ["nurse1_id", "nurse2_id", "nurse3_id"]
+  "subRoomId": "66f2a1234567890abcdef456",
+  "quarter": 4,
+  "year": 2025,
+  "shifts": ["Ca Tối"],
+  "dentistIds": ["66d111aaa222bbb333ccc001"],
+  "nurseIds": ["66e111aaa222bbb333ccc002"]
 }
 ```
 
-**Response Example:**
+Response thành công (ví dụ):
 ```json
 {
   "success": true,
   "data": {
-    "message": "Phân công nhân sự thành công cho 32 slot",
-    "slotsUpdated": 32,
-    "shifts": ["Ca Sáng", "Ca Chiều"],
-    "dentistAssigned": "dentist1_id",
-    "nurseAssigned": "nurse1_id"
+    "message": "Phân công nhân sự thành công cho 24 slot",
+    "slotsUpdated": 24,
+    "shifts": ["Ca Sáng","Ca Chiều"],
+    "dentistAssigned": "66d111aaa222bbb333ccc001",
+    "nurseAssigned": "66e111aaa222bbb333ccc002"
   }
 }
 ```
 
-### 3.2 Update Slot Staff
-**Cập nhật nhân sự cho slot cụ thể (Admin/Manager only)**
+### 3.2 Update Slot Staff (single or atomic group)
+**Cập nhật nhân sự cho 1 slot hoặc nhiều slot (Admin/Manager only)**
 
 ```http
 PATCH /api/slots/{{slotId}}/staff
@@ -362,32 +376,46 @@ Authorization: Bearer <admin_token>
 Content-Type: application/json
 ```
 
-**Request Body:**
+Mô tả:
+- Nếu muốn cập nhật một slot, dùng `slotId` trên đường dẫn và gửi body chứa `dentistId` và/or `nurseId`.
+- Nếu muốn cập nhật nhiều slot cùng lúc (atomic), truyền `groupSlotIds` (mảng ID) trong body. Server sẽ kiểm tra tất cả slot trong `groupSlotIds` (tồn tại, chưa bị đặt) rồi cập nhật hoặc từ chối toàn bộ nếu có lỗi.
+- Trước khi cập nhật, service sẽ kiểm tra xung đột: không cho gán nếu nha sỹ / y tá đã được phân cho slot khác có khoảng thời gian chồng lắp (overlap) với các slot đang được cập nhật.
+
+Body ví dụ (cập nhật 1 slot):
 ```json
 {
-  "dentistId": "new_dentist_id",
-  "nurseId": "new_nurse_id"
+  "dentistId": "66d111aaa222bbb333ccc010",
+  "nurseId": "66e111aaa222bbb333ccc020"
 }
 ```
 
-**Response Example:**
+Body ví dụ (cập nhật nhóm slot atomically):
+```json
+{
+  "groupSlotIds": ["slotId1","slotId2","slotId3"],
+  "dentistId": "66d111aaa222bbb333ccc010",
+  "nurseId": "66e111aaa222bbb333ccc020"
+}
+```
+
+Response thành công (single hoặc group trả về các slot đã cập nhật):
 ```json
 {
   "success": true,
-  "message": "Cập nhật nhân sự slot thành công",
-  "data": {
-    "_id": "slot1_id",
-    "roomId": "room1_id",
-    "subRoomId": "subroom1_id",
-    "date": "2025-10-01T00:00:00.000Z",
-    "shiftName": "Ca Sáng",
-    "startTime": "2025-10-01T01:00:00.000Z",
-    "endTime": "2025-10-01T01:15:00.000Z",
-    "dentist": "new_dentist_id",
-    "nurse": "new_nurse_id", 
-    "isBooked": false,
-    "isActive": true
-  }
+  "data": [
+    {
+      "_id": "slot1_id",
+      "roomId": "room1_id",
+      "subRoomId": "subroom1_id",
+      "shiftName": "Ca Sáng",
+      "startTime": "2025-10-01T01:00:00.000Z",
+      "endTime": "2025-10-01T01:15:00.000Z",
+      "dentist": "66d111aaa222bbb333ccc010",
+      "nurse": "66e111aaa222bbb333ccc020",
+      "isBooked": false,
+      "isActive": true
+    }
+  ]
 }
 ```
 

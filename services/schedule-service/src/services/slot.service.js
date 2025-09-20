@@ -24,8 +24,16 @@ async function getRoomInfo(roomId) {
 // Helper: Validate staff assignment based on room type
 async function validateStaffAssignment(roomId, subRoomId, dentistIds, nurseIds) {
   const room = await getRoomInfo(roomId);
-  
+  // If subRoomId provided, validate it belongs to the given room
   if (subRoomId) {
+    if (!room.subRooms || room.subRooms.length === 0) {
+      throw new Error('Phòng không có subRoom nhưng bạn đã gửi subRoomId');
+    }
+    const found = room.subRooms.find(sr => sr._id && sr._id.toString() === subRoomId.toString());
+    if (!found) {
+      throw new Error('subRoomId không thuộc về roomId đã chỉ định');
+    }
+
     // Room with subrooms - use 1-1 constraint
     if (dentistIds.length > 1 || nurseIds.length > 1) {
       throw new Error('Phòng có subroom chỉ được phân công 1 nha sỹ và 1 y tá cho mỗi slot');
@@ -47,15 +55,17 @@ async function assignStaffToSlots({
   subRoomId = null,
   // legacy: date (single day). new: scheduleId (apply to entire schedule/quarter) + shifts
   date,
-  scheduleId = null,
+  // New: accept quarter/year instead of scheduleId; service will resolve scheduleIds for that quarter
+  quarter = null,
+  year = null,
   shifts = [], // Array of shift names: ['Ca Sáng', 'Ca Chiều', 'Ca Tối']
   dentistIds = [],
   nurseIds = []
 }) {
   try {
-    // Validate input: require scheduleId for quarter-level assignment
-    if (!roomId || !scheduleId) {
-      throw new Error('Room ID và scheduleId là bắt buộc để phân công theo quý');
+    // Validate input: require quarter/year for quarter-level assignment
+    if (!roomId || !quarter || !year) {
+      throw new Error('Room ID, quarter và year là bắt buộc để phân công theo quý');
     }
 
     if (shifts.length === 0) {
@@ -65,8 +75,17 @@ async function assignStaffToSlots({
     // Validate staff assignment based on room type
     await validateStaffAssignment(roomId, subRoomId, dentistIds, nurseIds);
     
-    // Build query filter: schedule-level only
-    const queryFilter = { roomId, scheduleId, isActive: true };
+    // Resolve all schedules for the given quarter/year for this room
+    const { getQuarterDateRange } = require('./schedule.service');
+    const { startDate, endDate } = getQuarterDateRange(quarter, year);
+    const schedules = await require('../repositories/schedule.repository').findByRoomAndDateRange(roomId, startDate, endDate);
+    const scheduleIds = schedules.map(s => s._id);
+    if (!scheduleIds || scheduleIds.length === 0) {
+      throw new Error('Không tìm thấy schedule nào cho phòng trong quý được chỉ định');
+    }
+
+    // Build query filter: all slots in those schedules
+    const queryFilter = { roomId, scheduleId: { $in: scheduleIds }, isActive: true };
     if (shifts && shifts.length) queryFilter.shiftName = { $in: shifts };
     if (subRoomId) queryFilter.subRoomId = subRoomId; else queryFilter.subRoomId = null;
 
@@ -76,20 +95,8 @@ async function assignStaffToSlots({
       throw new Error('Không tìm thấy slot nào phù hợp');
     }
     
-    // Appointment adjacency safety: if any slot belongs to an appointment (appointmentId), do not partially update that appointment's slots.
-    const appointmentGroups = {};
-    for (const s of slots) {
-      if (s.appointmentId) {
-        const key = s.appointmentId.toString();
-        appointmentGroups[key] = appointmentGroups[key] || [];
-        appointmentGroups[key].push(s);
-      }
-    }
-
-    if (Object.keys(appointmentGroups).length > 0 && !scheduleId) {
-      // If appointment-linked slots exist, require schedule-level assignment to change them.
-      throw new Error('Một số slot đang thuộc appointment; để cập nhật các slot này vui lòng dùng thao tác theo scheduleId/shift để cập nhật toàn bộ nhóm liên quan.');
-    }
+    // Note: We allow updating slots even if some belong to an appointment, because this endpoint applies by quarter and shifts.
+    // Atomicity across appointments is enforced in the single/group update API.
 
     // Build update object
     const updateData = {};
@@ -98,6 +105,34 @@ async function assignStaffToSlots({
 
     let updatedSlots = [];
     if (Object.keys(updateData).length > 0) {
+      // Before applying updates, check for conflicts per slot: ensure dentist/nurse are not
+      // already assigned to other slots that overlap each target slot's time interval.
+      const targetSlotIds = new Set(slots.map(s => s._id.toString()));
+      const minStart = new Date(Math.min(...slots.map(s => new Date(s.startTime).getTime())));
+      const maxEnd = new Date(Math.max(...slots.map(s => new Date(s.endTime).getTime())));
+
+      let existingByDentist = [];
+      let existingByNurse = [];
+      if (dentistIds.length > 0 && dentistIds[0]) {
+        existingByDentist = await slotRepo.findByStaffId(dentistIds[0], minStart, maxEnd);
+      }
+      if (nurseIds.length > 0 && nurseIds[0]) {
+        existingByNurse = await slotRepo.findByStaffId(nurseIds[0], minStart, maxEnd);
+      }
+
+      for (const s of slots) {
+        const sStart = new Date(s.startTime);
+        const sEnd = new Date(s.endTime);
+        if (existingByDentist.length) {
+          const conflict = existingByDentist.find(es => es._id.toString() !== s._id.toString() && new Date(es.startTime) < sEnd && new Date(es.endTime) > sStart);
+          if (conflict) throw new Error('Nha sỹ đã được phân công vào slot khác trong cùng khoảng thời gian');
+        }
+        if (existingByNurse.length) {
+          const conflict = existingByNurse.find(es => es._id.toString() !== s._id.toString() && new Date(es.startTime) < sEnd && new Date(es.endTime) > sStart);
+          if (conflict) throw new Error('Y tá đã được phân công vào slot khác trong cùng khoảng thời gian');
+        }
+      }
+
       await slotRepo.updateManySlots(queryFilter, updateData);
       updatedSlots = await slotRepo.find(queryFilter);
     }
@@ -161,6 +196,29 @@ async function updateSlotStaff(slotId, { dentistId, nurseId, groupSlotIds = null
       const nurseIds = nurseId ? [nurseId] : [];
       await validateStaffAssignment(first.roomId, first.subRoomId, dentistIds, nurseIds);
 
+      // Conflict check per slot: ensure dentist/nurse not already assigned to overlapping slots in other rooms/subrooms
+      const providedSet = new Set(provided);
+      const minStart = new Date(Math.min(...targetSlots.map(s => new Date(s.startTime).getTime())));
+      const maxEnd = new Date(Math.max(...targetSlots.map(s => new Date(s.endTime).getTime())));
+
+      let existingByDentist = [];
+      let existingByNurse = [];
+      if (dentistId) existingByDentist = await slotRepo.findByStaffId(dentistId, minStart, maxEnd);
+      if (nurseId) existingByNurse = await slotRepo.findByStaffId(nurseId, minStart, maxEnd);
+
+      for (const s of targetSlots) {
+        const sStart = new Date(s.startTime);
+        const sEnd = new Date(s.endTime);
+        if (dentistId && existingByDentist.length) {
+          const conflict = existingByDentist.find(es => !providedSet.has(es._id.toString()) && new Date(es.startTime) < sEnd && new Date(es.endTime) > sStart);
+          if (conflict) throw new Error('Nha sỹ đã được phân công vào slot khác trong cùng khoảng thời gian');
+        }
+        if (nurseId && existingByNurse.length) {
+          const conflict = existingByNurse.find(es => !providedSet.has(es._id.toString()) && new Date(es.startTime) < sEnd && new Date(es.endTime) > sStart);
+          if (conflict) throw new Error('Y tá đã được phân công vào slot khác trong cùng khoảng thời gian');
+        }
+      }
+
       if (dentistId !== undefined) updateData.dentist = dentistId;
       if (nurseId !== undefined) updateData.nurse = nurseId;
 
@@ -177,6 +235,20 @@ async function updateSlotStaff(slotId, { dentistId, nurseId, groupSlotIds = null
 
     if (dentistId !== undefined) updateData.dentist = dentistId;
     if (nurseId !== undefined) updateData.nurse = nurseId;
+
+    // Conflict check for single slot update: ensure staff not assigned to other overlapping slots
+    const slotStart = new Date(slot.startTime);
+    const slotEnd = new Date(slot.endTime);
+    if (dentistId) {
+      const existing = await slotRepo.findByStaffId(dentistId, slotStart, slotEnd);
+      const conflicts = existing.filter(es => es._id.toString() !== slotId.toString());
+      if (conflicts.length > 0) throw new Error('Nha sỹ đã được phân công vào slot khác trong cùng khoảng thời gian');
+    }
+    if (nurseId) {
+      const existing = await slotRepo.findByStaffId(nurseId, slotStart, slotEnd);
+      const conflicts = existing.filter(es => es._id.toString() !== slotId.toString());
+      if (conflicts.length > 0) throw new Error('Y tá đã được phân công vào slot khác trong cùng khoảng thời gian');
+    }
 
     const updatedSlot = await slotRepo.updateById(slotId, updateData);
 

@@ -542,7 +542,8 @@ module.exports = {
   getSchedulesByDateRange,
   getQuarterStatus,
   getQuarterInfo,
-  getVietnamDate
+  getVietnamDate,
+  getQuarterDateRange
 };
 
 // 🔧 Check conflict chung

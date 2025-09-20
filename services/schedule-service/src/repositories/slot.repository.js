@@ -184,14 +184,16 @@ exports.findBySubRoomId = async (subRoomId, startDate, endDate) => {
   }).sort({ startTime: 1 }).lean();
 };
 
-// slotRepo.js
+// Find any slots for a staff that overlap a given time range
+// Overlap condition: slot.startTime < endDate && slot.endTime > startDate
 exports.findByStaffId = async (staffId, startDate, endDate) => {
   return Slot.find({
     $or: [
-      { dentistId: staffId },
-      { nurseId: staffId }
+      { dentist: staffId },
+      { nurse: staffId }
     ],
-    startTime: { $gte: startDate, $lte: endDate }
+    startTime: { $lt: endDate },
+    endTime: { $gt: startDate }
   })
   .sort({ startTime: 1 })
   .lean();

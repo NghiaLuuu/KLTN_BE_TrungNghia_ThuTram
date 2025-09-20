@@ -17,21 +17,23 @@ exports.assignStaffToSlots = async (req, res) => {
     const {
       roomId,
       subRoomId,
-      scheduleId,
+      quarter,
+      year,
       shifts,
       dentistIds,
       nurseIds
     } = req.body;
 
-    // Enforce schedule-level assignment (phân công theo quý)
-    if (!scheduleId) {
-      return res.status(400).json({ success: false, message: 'Yêu cầu phải gửi scheduleId để phân công theo quý' });
+    // Enforce quarter-level assignment (phải phân công theo quý)
+    if (!quarter || !year) {
+      return res.status(400).json({ success: false, message: 'Yêu cầu phải gửi quarter và year để phân công theo quý' });
     }
 
     const result = await slotService.assignStaffToSlots({
       roomId,
       subRoomId,
-      scheduleId,
+      quarter: parseInt(quarter, 10),
+      year: parseInt(year, 10),
       shifts,
       dentistIds,
       nurseIds
