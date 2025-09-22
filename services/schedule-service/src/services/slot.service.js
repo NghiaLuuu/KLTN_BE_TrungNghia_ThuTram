@@ -21,6 +21,35 @@ async function getRoomInfo(roomId) {
   }
 }
 
+// Helper: Validate staff IDs against Redis users cache
+async function validateStaffIds(dentistIds, nurseIds) {
+  try {
+    const cached = await redisClient.get('users_cache');
+    if (!cached) throw new Error('users_cache không tồn tại');
+    const users = JSON.parse(cached);
+    
+    // Validate dentist IDs
+    for (const dentistId of dentistIds) {
+      if (!dentistId) continue;
+      const dentist = users.find(u => u._id === dentistId && u.role === 'dentist' && u.isActive);
+      if (!dentist) {
+        throw new Error(`dentistId ${dentistId} không hợp lệ hoặc không phải nha sỹ`);
+      }
+    }
+    
+    // Validate nurse IDs
+    for (const nurseId of nurseIds) {
+      if (!nurseId) continue;
+      const nurse = users.find(u => u._id === nurseId && u.role === 'nurse' && u.isActive);
+      if (!nurse) {
+        throw new Error(`nurseId ${nurseId} không hợp lệ hoặc không phải y tá`);
+      }
+    }
+  } catch (error) {
+    throw new Error(`Lỗi kiểm tra thông tin nhân sự: ${error.message}`);
+  }
+}
+
 // Helper: Validate staff assignment based on room type
 async function validateStaffAssignment(roomId, subRoomId, dentistIds, nurseIds) {
   const room = await getRoomInfo(roomId);
@@ -156,196 +185,537 @@ async function assignStaffToSlots({
   }
 }
 
-// Update staff for specific slots
-async function updateSlotStaff(slotId, { dentistId, nurseId, groupSlotIds = null }) {
+// Update staff for single or multiple slots
+async function updateSlotStaff({ slotIds, dentistId, nurseId }) {
   try {
-    const slot = await slotRepo.findById(slotId);
-    if (!slot) {
-      throw new Error('Không tìm thấy slot');
+    if (!slotIds || slotIds.length === 0) {
+      throw new Error('slotIds là bắt buộc và phải là mảng không rỗng');
     }
-    
-    // Check if slot is booked
-    if (slot.isBooked) {
-      throw new Error('Không thể thay đổi nhân sự cho slot đã được đặt');
+
+    // Load provided slots and validate they exist
+    const targetSlots = await slotRepo.find({ _id: { $in: slotIds } });
+    if (targetSlots.length !== slotIds.length) {
+      throw new Error('Một số slot trong slotIds không tồn tại');
     }
-    
-    // Validate staff assignment
+
+    // Ensure all slots are updatable (not booked) 
+    for (const s of targetSlots) {
+      if (s.isBooked) {
+        throw new Error(`Slot ${s._id} đã được đặt, không thể cập nhật`);
+      }
+    }
+
+    // Validate staff assignment across first slot's room/subRoom (assume same room)
+    const first = targetSlots[0];
     const dentistIds = dentistId ? [dentistId] : [];
     const nurseIds = nurseId ? [nurseId] : [];
-    await validateStaffAssignment(slot.roomId, slot.subRoomId, dentistIds, nurseIds);
-    
-    const updateData = {};
+    await validateStaffAssignment(first.roomId, first.subRoomId, dentistIds, nurseIds);
 
-    // If groupSlotIds provided -> perform atomic update for those slots (appointment or not)
-    if (Array.isArray(groupSlotIds) && groupSlotIds.length > 0) {
-      // Load provided slots and validate they belong to the same room/subRoom
-      const provided = groupSlotIds.map(id => id.toString());
-      const targetSlots = await slotRepo.find({ _id: { $in: provided } });
-      if (targetSlots.length !== provided.length) {
-        throw new Error('Một số slot trong groupSlotIds không tồn tại');
-      }
+    // Conflict check per slot: ensure dentist/nurse not already assigned to overlapping slots
+    const targetSlotIds = new Set(slotIds.map(id => id.toString()));
+    const minStart = new Date(Math.min(...targetSlots.map(s => new Date(s.startTime).getTime())));
+    const maxEnd = new Date(Math.max(...targetSlots.map(s => new Date(s.endTime).getTime())));
 
-      // Ensure all slots are updatable (not booked)
-      for (const s of targetSlots) {
-        if (s.isBooked) throw new Error('Không thể cập nhật nhóm vì có slot đã được đặt');
-      }
+    let existingByDentist = [];
+    let existingByNurse = [];
+    if (dentistId) existingByDentist = await slotRepo.findByStaffId(dentistId, minStart, maxEnd);
+    if (nurseId) existingByNurse = await slotRepo.findByStaffId(nurseId, minStart, maxEnd);
 
-      // Validate staff assignment across first slot's room/subRoom (assume same)
-      const first = targetSlots[0];
-      const dentistIds = dentistId ? [dentistId] : [];
-      const nurseIds = nurseId ? [nurseId] : [];
-      await validateStaffAssignment(first.roomId, first.subRoomId, dentistIds, nurseIds);
-
-      // Conflict check per slot: ensure dentist/nurse not already assigned to overlapping slots in other rooms/subrooms
-      const providedSet = new Set(provided);
-      const minStart = new Date(Math.min(...targetSlots.map(s => new Date(s.startTime).getTime())));
-      const maxEnd = new Date(Math.max(...targetSlots.map(s => new Date(s.endTime).getTime())));
-
-      let existingByDentist = [];
-      let existingByNurse = [];
-      if (dentistId) existingByDentist = await slotRepo.findByStaffId(dentistId, minStart, maxEnd);
-      if (nurseId) existingByNurse = await slotRepo.findByStaffId(nurseId, minStart, maxEnd);
-
-      for (const s of targetSlots) {
-        const sStart = new Date(s.startTime);
-        const sEnd = new Date(s.endTime);
-        if (dentistId && existingByDentist.length) {
-          const conflict = existingByDentist.find(es => !providedSet.has(es._id.toString()) && new Date(es.startTime) < sEnd && new Date(es.endTime) > sStart);
-          if (conflict) throw new Error('Nha sỹ đã được phân công vào slot khác trong cùng khoảng thời gian');
-        }
-        if (nurseId && existingByNurse.length) {
-          const conflict = existingByNurse.find(es => !providedSet.has(es._id.toString()) && new Date(es.startTime) < sEnd && new Date(es.endTime) > sStart);
-          if (conflict) throw new Error('Y tá đã được phân công vào slot khác trong cùng khoảng thời gian');
+    for (const s of targetSlots) {
+      const sStart = new Date(s.startTime);
+      const sEnd = new Date(s.endTime);
+      
+      if (dentistId && existingByDentist.length) {
+        const conflict = existingByDentist.find(es => 
+          !targetSlotIds.has(es._id.toString()) && 
+          new Date(es.startTime) < sEnd && 
+          new Date(es.endTime) > sStart
+        );
+        if (conflict) {
+          throw new Error(`Nha sỹ đã được phân công vào slot khác trong cùng khoảng thời gian: ${sStart.toLocaleString()} - ${sEnd.toLocaleString()}`);
         }
       }
-
-      if (dentistId !== undefined) updateData.dentist = dentistId;
-      if (nurseId !== undefined) updateData.nurse = nurseId;
-
-      await slotRepo.updateManySlots({ _id: { $in: provided } }, updateData);
-      const updated = await slotRepo.find({ _id: { $in: provided } });
-
-      // Clear cache for affected rooms/days (best effort)
-      try {
-        await Promise.all(updated.map(s => redisClient.del(`slots:room:${s.roomId}:${s.dateVN}`).catch(() => {})));
-      } catch (e) {}
-
-      return updated;
+      
+      if (nurseId && existingByNurse.length) {
+        const conflict = existingByNurse.find(es => 
+          !targetSlotIds.has(es._id.toString()) && 
+          new Date(es.startTime) < sEnd && 
+          new Date(es.endTime) > sStart
+        );
+        if (conflict) {
+          throw new Error(`Y tá đã được phân công vào slot khác trong cùng khoảng thời gian: ${sStart.toLocaleString()} - ${sEnd.toLocaleString()}`);
+        }
+      }
     }
 
+    const updateData = {};
     if (dentistId !== undefined) updateData.dentist = dentistId;
     if (nurseId !== undefined) updateData.nurse = nurseId;
 
-    // Conflict check for single slot update: ensure staff not assigned to other overlapping slots
-    const slotStart = new Date(slot.startTime);
-    const slotEnd = new Date(slot.endTime);
-    if (dentistId) {
-      const existing = await slotRepo.findByStaffId(dentistId, slotStart, slotEnd);
-      const conflicts = existing.filter(es => es._id.toString() !== slotId.toString());
-      if (conflicts.length > 0) throw new Error('Nha sỹ đã được phân công vào slot khác trong cùng khoảng thời gian');
-    }
-    if (nurseId) {
-      const existing = await slotRepo.findByStaffId(nurseId, slotStart, slotEnd);
-      const conflicts = existing.filter(es => es._id.toString() !== slotId.toString());
-      if (conflicts.length > 0) throw new Error('Y tá đã được phân công vào slot khác trong cùng khoảng thời gian');
-    }
+    await slotRepo.updateManySlots({ _id: { $in: slotIds } }, updateData);
+    const updated = await slotRepo.find({ _id: { $in: slotIds } });
 
-    const updatedSlot = await slotRepo.updateById(slotId, updateData);
+    // Clear cache for affected rooms/days (best effort)
+    try {
+      await Promise.all(updated.map(s => {
+        const dateStr = new Date(s.startTime).toLocaleDateString('en-CA'); // YYYY-MM-DD format
+        return redisClient.del(`slots:room:${s.roomId}:${dateStr}`).catch(() => {});
+      }));
+    } catch (e) {}
 
-    // Clear cache
-    try { await redisClient.del(`slots:room:${slot.roomId}:${slot.dateVN}`); } catch (e) {}
-
-    return updatedSlot;
-    
+    return updated;
   } catch (error) {
     throw new Error(`Lỗi cập nhật nhân sự slot: ${error.message}`);
   }
 }
 
-// Get available slots for booking
-async function getAvailableSlots({
-  roomId,
-  subRoomId = null,
-  date,
-  shiftName = null,
-  serviceId = null
-}) {
+// Get slots by shift and date for easy slot selection
+async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftName }) {
   try {
-    const cacheKey = `available_slots:${roomId}:${subRoomId}:${date}:${shiftName}:${serviceId}`;
+    // Build date range for the day in Vietnam timezone
+    const inputDate = new Date(date);
+    const startOfDayVN = new Date(inputDate.getFullYear(), inputDate.getMonth(), inputDate.getDate(), 0, 0, 0, 0);
+    const endOfDayVN = new Date(inputDate.getFullYear(), inputDate.getMonth(), inputDate.getDate(), 23, 59, 59, 999);
     
-    // Try cache first
-    const cached = await redisClient.get(cacheKey);
-    if (cached) {
-      return JSON.parse(cached);
-    }
-    
-    const base = new Date(new Date(date).toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
-    const startOfDayVN = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
-    const endOfDayVN = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 23, 59, 59, 999);
-    const startUTC = new Date(Date.UTC(startOfDayVN.getFullYear(), startOfDayVN.getMonth(), startOfDayVN.getDate(), -7, 0, 0, 0));
-    const endUTC = new Date(Date.UTC(endOfDayVN.getFullYear(), endOfDayVN.getMonth(), endOfDayVN.getDate(), -7, 59, 59, 999));
+    // Convert VN timezone to UTC (VN is UTC+7)
+    const startUTC = new Date(startOfDayVN.getTime() - 7 * 60 * 60 * 1000);
+    const endUTC = new Date(endOfDayVN.getTime() - 7 * 60 * 60 * 1000);
 
     const queryFilter = {
       roomId,
       startTime: { $gte: startUTC, $lte: endUTC },
-      isBooked: false,
+      shiftName,
       isActive: true
     };
     
     if (subRoomId) {
       queryFilter.subRoomId = subRoomId;
+    } else {
+      queryFilter.subRoomId = null;
     }
-    
-    if (shiftName) {
-      queryFilter.shiftName = shiftName;
-    }
-    
-    // Must have both dentist and nurse assigned
-    queryFilter.dentist = { $ne: null };
-    queryFilter.nurse = { $ne: null };
-    
+
     const slots = await slotRepo.find(queryFilter);
     
-    // Cache for 5 minutes
-    await redisClient.setex(cacheKey, 300, JSON.stringify(slots));
+    // Get user info from cache for staff details
+    const usersCache = await redisClient.get('users_cache');
+    const users = usersCache ? JSON.parse(usersCache) : [];
     
-    return slots;
+    const slotsWithStaffInfo = slots.map(slot => {
+      const dentist = slot.dentist ? users.find(u => u._id === slot.dentist) : null;
+      const nurse = slot.nurse ? users.find(u => u._id === slot.nurse) : null;
+      
+      return {
+        slotId: slot._id,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        startTimeVN: new Date(slot.startTime).toLocaleTimeString('en-GB', { 
+          timeZone: 'Asia/Ho_Chi_Minh', 
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        endTimeVN: new Date(slot.endTime).toLocaleTimeString('en-GB', { 
+          timeZone: 'Asia/Ho_Chi_Minh', 
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        dentist: dentist ? {
+          id: dentist._id,
+          name: dentist.name,
+          role: dentist.role
+        } : null,
+        nurse: nurse ? {
+          id: nurse._id,
+          name: nurse.name,
+          role: nurse.role
+        } : null,
+        isBooked: slot.isBooked || false,
+        appointmentId: slot.appointmentId || null,
+        status: slot.isBooked ? 'booked' : (slot.dentist && slot.nurse ? 'available' : 'no_staff')
+      };
+    });
+    
+    return {
+      roomId,
+      subRoomId,
+      date,
+      shiftName,
+      totalSlots: slotsWithStaffInfo.length,
+      slots: slotsWithStaffInfo
+    };
     
   } catch (error) {
-    throw new Error(`Lỗi lấy slot khả dụng: ${error.message}`);
+    throw new Error(`Lỗi lấy slot theo ca và ngày: ${error.message}`);
   }
 }
 
-// Get slots by room and date range
-async function getSlotsByRoom(roomId, startDate, endDate) {
-  const slots = await slotRepo.findByRoomAndDateRange(roomId, startDate, endDate);
-  return slots;
-}
+// Get room calendar with appointment counts (daily/weekly/monthly view) with pagination
+async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate = null, page = 1, limit = 10 }) {
+  try {
+    // Get schedule config for shift information
+    const { ScheduleConfig } = require('../models/scheduleConfig.model');
+    const scheduleConfig = await ScheduleConfig.getSingleton();
+    
+    // Use current date if startDate not provided
+    const baseDate = startDate ? new Date(startDate) : getVietnamDate();
+    
+    // Calculate date ranges for pagination
+    const periods = [];
+    for (let i = 0; i < limit; i++) {
+      const periodIndex = (page - 1) * limit + i;
+      let periodStart, periodEnd;
+      
+      switch (viewType) {
+        case 'day':
+          // Each period is one day
+          periodStart = new Date(baseDate);
+          periodStart.setDate(baseDate.getDate() + periodIndex);
+          periodEnd = new Date(periodStart);
+          break;
+          
+        case 'week':
+          // Each period is one week (Monday to Sunday)
+          const weekStart = new Date(baseDate);
+          const dayOfWeek = weekStart.getDay();
+          const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+          weekStart.setDate(baseDate.getDate() + mondayOffset + (periodIndex * 7));
+          
+          periodStart = new Date(weekStart);
+          periodEnd = new Date(weekStart);
+          periodEnd.setDate(weekStart.getDate() + 6);
+          break;
+          
+        case 'month':
+          // Each period is one month
+          const targetYear = baseDate.getFullYear();
+          const targetMonth = baseDate.getMonth() + periodIndex;
+          
+          // Use local dates to avoid timezone issues
+          periodStart = new Date(targetYear, targetMonth, 1);
+          periodEnd = new Date(targetYear, targetMonth + 1, 0); // Last day of target month
+          
+          // Adjust for correct local date representation
+          periodStart.setHours(0, 0, 0, 0);
+          periodEnd.setHours(23, 59, 59, 999);
+          break;
+          
+        default:
+          throw new Error('viewType phải là: day, week hoặc month');
+      }
+      
+      periods.push({ start: periodStart, end: periodEnd });
+    }
+    
+    // Get overall date range for database query
+    const overallStart = periods[0].start;
+    const overallEnd = periods[periods.length - 1].end;
 
-// Get slots by staff and date range  
-async function getSlotsByStaff(staffId, staffType, startDate, endDate) {
-  const queryFilter = {
-    startTime: { $gte: new Date(startDate), $lte: new Date(endDate) },
-    isActive: true
-  };
-  
-  if (staffType === 'dentist') {
-    queryFilter.dentist = staffId;
-  } else if (staffType === 'nurse') {
-    queryFilter.nurse = staffId;
-  } else {
-    throw new Error('Staff type phải là "dentist" hoặc "nurse"');
+    // Build UTC range for query
+    const startUTC = new Date(Date.UTC(
+      overallStart.getFullYear(),
+      overallStart.getMonth(),
+      overallStart.getDate(),
+      -7, 0, 0, 0
+    ));
+    const endUTC = new Date(Date.UTC(
+      overallEnd.getFullYear(),
+      overallEnd.getMonth(),
+      overallEnd.getDate(),
+      -7 + 24, 0, 0, 0
+    ));
+
+    const queryFilter = {
+      roomId,
+      startTime: { $gte: startUTC, $lt: endUTC },
+      isActive: true
+    };
+    
+    if (subRoomId) {
+      queryFilter.subRoomId = subRoomId;
+    } else {
+      queryFilter.subRoomId = null;
+    }
+
+    const slots = await slotRepo.find(queryFilter);
+    
+    // Get user info from cache for staff details
+    const usersCache = await redisClient.get('users_cache');
+    const users = usersCache ? JSON.parse(usersCache) : [];
+    
+    // Get rooms cache for room/subroom names
+    const roomsCache = await redisClient.get('rooms_cache');
+    const rooms = roomsCache ? JSON.parse(roomsCache) : [];
+    
+    // Group slots by date and shift
+    const calendar = {};
+    const appointmentCounts = {}; // Track unique appointments
+    const staffStats = {}; // Track staff frequency by date and shift
+    
+    for (const slot of slots) {
+      // Convert to Vietnam date
+      const slotDateVN = new Date(slot.startTime).toLocaleDateString('en-CA', {
+        timeZone: 'Asia/Ho_Chi_Minh'
+      });
+      
+      if (!calendar[slotDateVN]) {
+        calendar[slotDateVN] = {
+          date: slotDateVN,
+          shifts: {
+            'Ca Sáng': { slots: [], appointmentCount: 0, totalSlots: 0 },
+            'Ca Chiều': { slots: [], appointmentCount: 0, totalSlots: 0 },
+            'Ca Tối': { slots: [], appointmentCount: 0, totalSlots: 0 }
+          },
+          totalAppointments: 0,
+          totalSlots: 0
+        };
+        appointmentCounts[slotDateVN] = new Set();
+        staffStats[slotDateVN] = {
+          'Ca Sáng': { dentists: {}, nurses: {} },
+          'Ca Chiều': { dentists: {}, nurses: {} },
+          'Ca Tối': { dentists: {}, nurses: {} }
+        };
+      }
+      
+      const shift = calendar[slotDateVN].shifts[slot.shiftName];
+      const shiftStats = staffStats[slotDateVN][slot.shiftName];
+      
+      if (shift && shiftStats) {
+        shift.totalSlots++;
+        calendar[slotDateVN].totalSlots++;
+        
+        // Count unique appointments
+        if (slot.appointmentId && slot.isBooked) {
+          appointmentCounts[slotDateVN].add(slot.appointmentId.toString());
+        }
+        
+        // Get staff info from cache
+        const dentist = slot.dentist ? users.find(u => u._id === slot.dentist) : null;
+        const nurse = slot.nurse ? users.find(u => u._id === slot.nurse) : null;
+        
+        // Track staff frequency for statistics
+        if (slot.dentist) {
+          const dentistId = slot.dentist.toString();
+          shiftStats.dentists[dentistId] = (shiftStats.dentists[dentistId] || 0) + 1;
+        }
+        if (slot.nurse) {
+          const nurseId = slot.nurse.toString();
+          shiftStats.nurses[nurseId] = (shiftStats.nurses[nurseId] || 0) + 1;
+        }
+        
+        // Add slot info with staff details
+        shift.slots.push({
+          slotId: slot._id,
+          startTimeVN: new Date(slot.startTime).toLocaleTimeString('en-GB', { 
+            timeZone: 'Asia/Ho_Chi_Minh', 
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit'
+          }),
+          endTimeVN: new Date(slot.endTime).toLocaleTimeString('en-GB', { 
+            timeZone: 'Asia/Ho_Chi_Minh', 
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit'
+          }),
+          dentistId: slot.dentist || null,
+          dentistName: dentist ? dentist.name : null,
+          nurseId: slot.nurse || null,
+          nurseName: nurse ? nurse.name : null,
+          hasStaff: !!(slot.dentist && slot.nurse),
+          isBooked: slot.isBooked || false,
+          appointmentId: slot.appointmentId || null
+        });
+      }
+    }
+    
+    // Update appointment counts and add staff statistics
+    for (const [dateStr, appointmentIds] of Object.entries(appointmentCounts)) {
+      const dayData = calendar[dateStr];
+      const dayStats = staffStats[dateStr];
+      
+      if (dayData && dayStats) {
+        dayData.totalAppointments = appointmentIds.size;
+        
+        // Process each shift and add staff statistics
+        for (const shiftName of ['Ca Sáng', 'Ca Chiều', 'Ca Tối']) {
+          const shift = dayData.shifts[shiftName];
+          const shiftStat = dayStats[shiftName];
+          
+          if (shift && shiftStat) {
+            // Count appointments for this shift
+            const shiftAppointments = shift.slots.filter(s => s.isBooked && s.appointmentId);
+            const uniqueShiftAppointments = new Set(
+              shiftAppointments.map(s => s.appointmentId.toString())
+            );
+            shift.appointmentCount = uniqueShiftAppointments.size;
+            
+            // Find most frequent dentist and nurse
+            let mostFrequentDentist = null;
+            let mostFrequentNurse = null;
+            
+            if (Object.keys(shiftStat.dentists).length > 0) {
+              const topDentistId = Object.entries(shiftStat.dentists)
+                .reduce((a, b) => a[1] > b[1] ? a : b)[0];
+              const topDentist = users.find(u => u._id === topDentistId);
+              if (topDentist) {
+                mostFrequentDentist = {
+                  id: topDentistId,
+                  name: topDentist.name,
+                  slotCount: shiftStat.dentists[topDentistId]
+                };
+              }
+            }
+            
+            if (Object.keys(shiftStat.nurses).length > 0) {
+              const topNurseId = Object.entries(shiftStat.nurses)
+                .reduce((a, b) => a[1] > b[1] ? a : b)[0];
+              const topNurse = users.find(u => u._id === topNurseId);
+              if (topNurse) {
+                mostFrequentNurse = {
+                  id: topNurseId,
+                  name: topNurse.name,
+                  slotCount: shiftStat.nurses[topNurseId]
+                };
+              }
+            }
+            
+            // Add staff statistics to shift
+            shift.staffStats = {
+              mostFrequentDentist,
+              mostFrequentNurse
+            };
+          }
+        }
+      }
+    }
+    
+    // Prepare shift overview from schedule config
+    const shiftOverview = {
+      'Ca Sáng': {
+        name: scheduleConfig.morningShift.name,
+        startTime: scheduleConfig.morningShift.startTime,
+        endTime: scheduleConfig.morningShift.endTime,
+        isActive: scheduleConfig.morningShift.isActive
+      },
+      'Ca Chiều': {
+        name: scheduleConfig.afternoonShift.name,
+        startTime: scheduleConfig.afternoonShift.startTime,
+        endTime: scheduleConfig.afternoonShift.endTime,
+        isActive: scheduleConfig.afternoonShift.isActive
+      },
+      'Ca Tối': {
+        name: scheduleConfig.eveningShift.name,
+        startTime: scheduleConfig.eveningShift.startTime,
+        endTime: scheduleConfig.eveningShift.endTime,
+        isActive: scheduleConfig.eveningShift.isActive
+      }
+    };
+    
+    // Get room and subroom names from cache
+    const roomFromCache = rooms.find(r => r._id === roomId);
+    let subRoomInfo = null;
+    let roomInfo = {
+      id: roomId,
+      name: 'Unknown Room'
+    };
+    
+    if (roomFromCache) {
+      roomInfo = {
+        id: roomFromCache._id,
+        name: roomFromCache.name,
+        hasSubRooms: roomFromCache.hasSubRooms,
+        maxDoctors: roomFromCache.maxDoctors,
+        maxNurses: roomFromCache.maxNurses,
+        isActive: roomFromCache.isActive
+      };
+      
+      // Find subroom info if requested
+      if (subRoomId && roomFromCache.subRooms && roomFromCache.subRooms.length > 0) {
+        subRoomInfo = roomFromCache.subRooms.find(sr => sr._id === subRoomId);
+        if (subRoomInfo) {
+          roomInfo.subRoom = {
+            id: subRoomInfo._id,
+            name: subRoomInfo.name,
+            isActive: subRoomInfo.isActive
+          };
+        }
+      }
+    } else {
+      // Fallback to database data if cache not available
+      const room = await getRoomInfo(roomId);
+      roomInfo = {
+        id: room._id,
+        name: room.name
+      };
+      
+      if (subRoomId && room.subRooms) {
+        const subRoom = room.subRooms.find(sr => sr._id === subRoomId);
+        if (subRoom) {
+          roomInfo.subRoom = {
+            id: subRoom._id,
+            name: subRoom.name
+          };
+        }
+      }
+    }
+    
+    // Group calendar data by periods
+    const calendarPeriods = periods.map((period, index) => {
+      const periodCalendar = {};
+      
+      // Format dates properly for local timezone
+      const periodStartStr = period.start.getFullYear() + '-' + 
+        String(period.start.getMonth() + 1).padStart(2, '0') + '-' + 
+        String(period.start.getDate()).padStart(2, '0');
+      const periodEndStr = period.end.getFullYear() + '-' + 
+        String(period.end.getMonth() + 1).padStart(2, '0') + '-' + 
+        String(period.end.getDate()).padStart(2, '0');
+      
+      Object.entries(calendar).forEach(([dateStr, dayData]) => {
+        if (dateStr >= periodStartStr && dateStr <= periodEndStr) {
+          periodCalendar[dateStr] = dayData;
+        }
+      });
+      
+      return {
+        periodIndex: (page - 1) * limit + index + 1,
+        startDate: periodStartStr,
+        endDate: periodEndStr,
+        viewType,
+        totalDays: Object.keys(periodCalendar).length,
+        days: Object.values(periodCalendar).sort((a, b) => a.date.localeCompare(b.date))
+      };
+    });
+    
+    // Calculate pagination info
+    const currentDate = getVietnamDate().toISOString().split('T')[0];
+    
+    return {
+      roomInfo,
+      shiftOverview,
+      pagination: {
+        currentPage: page,
+        limit,
+        viewType,
+        currentDate,
+        hasNext: true, // Always true for calendar pagination
+        hasPrev: page > 1,
+        totalPeriods: calendarPeriods.length
+      },
+      periods: calendarPeriods
+    };
+    
+  } catch (error) {
+    throw new Error(`Lỗi lấy lịch phòng: ${error.message}`);
   }
-  
-  const slots = await slotRepo.find(queryFilter);
-  return slots;
 }
 
 module.exports = {
   assignStaffToSlots,
   updateSlotStaff,
-  getAvailableSlots,
-  getSlotsByRoom,
-  getSlotsByStaff,
-  getVietnamDate
+  getSlotsByShiftAndDate,
+  getRoomCalendar,
+  getVietnamDate,
+  validateStaffIds
 };

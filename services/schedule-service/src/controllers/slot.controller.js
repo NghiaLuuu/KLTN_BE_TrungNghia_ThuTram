@@ -29,6 +29,10 @@ exports.assignStaffToSlots = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Yêu cầu phải gửi quarter và year để phân công theo quý' });
     }
 
+    // Validate dentist and nurse IDs from Redis cache
+    const { validateStaffIds } = require('../services/slot.service');
+    await validateStaffIds(dentistIds || [], nurseIds || []);
+
     const result = await slotService.assignStaffToSlots({
       roomId,
       subRoomId,
@@ -52,7 +56,7 @@ exports.assignStaffToSlots = async (req, res) => {
   }
 };
 
-// Update staff for specific slot
+// Update staff for single or multiple slots
 exports.updateSlotStaff = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({ 
@@ -62,15 +66,44 @@ exports.updateSlotStaff = async (req, res) => {
   }
   
   try {
-  const { slotId } = req.params;
-  const { dentistId, nurseId, groupSlotIds } = req.body;
-    
-  const updatedSlot = await slotService.updateSlotStaff(slotId, { dentistId, nurseId, groupSlotIds });
+    const { slotIds, dentistId, nurseId } = req.body;
+
+    // Support both single slot (backward compatibility) and multiple slots
+    if (!slotIds || (!Array.isArray(slotIds) && typeof slotIds !== 'string') || 
+        (Array.isArray(slotIds) && slotIds.length === 0)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Phải cung cấp slotIds (string cho 1 slot hoặc array cho nhiều slot)' 
+      });
+    }
+
+    // Must provide at least one of dentistId or nurseId
+    if (!dentistId && !nurseId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Phải cung cấp dentistId hoặc nurseId để cập nhật' 
+      });
+    }
+
+    // Validate dentist and nurse IDs from Redis cache
+    const { validateStaffIds } = require('../services/slot.service');
+    const dentistIds = dentistId ? [dentistId] : [];
+    const nurseIds = nurseId ? [nurseId] : [];
+    await validateStaffIds(dentistIds, nurseIds);
+
+    // Convert single slotId to array for unified processing
+    const slotIdArray = Array.isArray(slotIds) ? slotIds : [slotIds];
+
+    const updatedSlots = await slotService.updateSlotStaff({ 
+      slotIds: slotIdArray, 
+      dentistId, 
+      nurseId 
+    });
     
     res.json({
       success: true,
-      message: 'Cập nhật nhân sự slot thành công',
-      data: updatedSlot
+      message: `Cập nhật nhân sự cho ${updatedSlots.length} slot thành công`,
+      data: updatedSlots
     });
     
   } catch (error) {
@@ -81,30 +114,23 @@ exports.updateSlotStaff = async (req, res) => {
   }
 };
 
-// Get available slots for booking
-exports.getAvailableSlots = async (req, res) => {
+// Get slots by shift and date for easy slot selection
+exports.getSlotsByShiftAndDate = async (req, res) => {
   try {
-    const {
-      roomId,
-      subRoomId,
-      date,
-      shiftName,
-      serviceId
-    } = req.query;
+    const { roomId, subRoomId, date, shiftName } = req.query;
     
-    if (!roomId || !date) {
+    if (!roomId || !date || !shiftName) {
       return res.status(400).json({
         success: false,
-        message: 'Room ID và date là bắt buộc'
+        message: 'roomId, date và shiftName là bắt buộc'
       });
     }
     
-    const slots = await slotService.getAvailableSlots({
+    const slots = await slotService.getSlotsByShiftAndDate({
       roomId,
       subRoomId,
       date,
-      shiftName,
-      serviceId
+      shiftName
     });
     
     res.json({
@@ -115,71 +141,66 @@ exports.getAvailableSlots = async (req, res) => {
   } catch (error) {
     res.status(500).json({ 
       success: false,
-      message: error.message || 'Không thể lấy slot khả dụng' 
+      message: error.message || 'Không thể lấy danh sách slot theo ca' 
     });
   }
 };
 
-// Get slots by room and date range
-exports.getSlotsByRoom = async (req, res) => {
+// Get room calendar with appointment counts (daily/weekly/monthly view)
+exports.getRoomCalendar = async (req, res) => {
   try {
     const { roomId } = req.params;
-    const { startDate, endDate } = req.query;
+    const { subRoomId, viewType, startDate, page = 1, limit = 10 } = req.query;
     
-    if (!roomId || !startDate || !endDate) {
+    if (!roomId || !viewType) {
       return res.status(400).json({
         success: false,
-        message: 'Room ID, startDate và endDate là bắt buộc'
+        message: 'roomId và viewType (day|week|month) là bắt buộc'
+      });
+    }
+
+    if (!['day', 'week', 'month'].includes(viewType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'viewType phải là: day, week hoặc month'
+      });
+    }
+
+    // Validate pagination parameters
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    
+    if (pageNum < 1 || limitNum < 1 || limitNum > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'page phải >= 1 và limit phải từ 1-100'
       });
     }
     
-    const slots = await slotService.getSlotsByRoom(roomId, startDate, endDate);
+    const calendar = await slotService.getRoomCalendar({
+      roomId,
+      subRoomId,
+      viewType,
+      startDate,
+      page: pageNum,
+      limit: limitNum
+    });
     
     res.json({
       success: true,
-      data: slots
+      data: calendar
     });
     
   } catch (error) {
     res.status(500).json({ 
       success: false,
-      message: error.message || 'Không thể lấy slot theo phòng' 
+      message: error.message || 'Không thể lấy lịch phòng' 
     });
   }
 };
-
-// Get slots by staff and date range
-exports.getSlotsByStaff = async (req, res) => {
-  try {
-    const { staffId, staffType } = req.params;
-    const { startDate, endDate } = req.query;
-    
-    if (!staffId || !staffType || !startDate || !endDate) {
-      return res.status(400).json({
-        success: false,
-        message: 'Staff ID, staff type, startDate và endDate là bắt buộc'
-      });
-    }
-    
-    const slots = await slotService.getSlotsByStaff(staffId, staffType, startDate, endDate);
-    
-    res.json({
-      success: true,
-      data: slots
-    });
-    
-  } catch (error) {
-    res.status(500).json({ 
-      success: false,
-      message: error.message || 'Không thể lấy lịch nhân viên' 
-    });
-  }
-};
-
 module.exports = {
   assignStaffToSlots: exports.assignStaffToSlots,
   updateSlotStaff: exports.updateSlotStaff,
-  getAvailableSlots: exports.getAvailableSlots,
-  getSlotsByRoom: exports.getSlotsByRoom,
-  getSlotsByStaff: exports.getSlotsByStaff
+  getSlotsByShiftAndDate: exports.getSlotsByShiftAndDate,
+  getRoomCalendar: exports.getRoomCalendar
 };

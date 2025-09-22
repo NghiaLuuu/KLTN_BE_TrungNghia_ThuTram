@@ -7,17 +7,13 @@ const authMiddleware = require('../middlewares/auth.middleware');
 // Request body example: { scheduleId, roomId, subRoomId?, shifts: ['Ca Sáng'], dentistIds: [], nurseIds: [] }
 router.post('/assign-staff', authMiddleware, slotController.assignStaffToSlots);
 
-// Update staff for specific slot or multiple slots
-// To update many slots atomically, provide `groupSlotIds` in the body: { groupSlotIds: [..], dentistId?, nurseId? }
-router.patch('/:slotId/staff', authMiddleware, slotController.updateSlotStaff);
+// Update staff for single or multiple slots
+router.patch('/staff', authMiddleware, slotController.updateSlotStaff);
 
-// Get available slots for booking
-router.get('/available', slotController.getAvailableSlots);
+// Get slots by shift and date for easy slot selection
+router.get('/by-shift', slotController.getSlotsByShiftAndDate);
 
-// Get slots by room and date range
-router.get('/room/:roomId', slotController.getSlotsByRoom);
-
-// Get slots by staff and date range
-router.get('/staff/:staffId/:staffType', slotController.getSlotsByStaff);
+// Get room schedule with appointment counts (daily/weekly/monthly view)
+router.get('/room/:roomId/calendar', slotController.getRoomCalendar);
 
 module.exports = router;
