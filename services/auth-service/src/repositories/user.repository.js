@@ -156,6 +156,19 @@ exports.hardDeleteUser = async (userId) => {
   return await User.findByIdAndDelete(userId);
 };
 
+// 🆕 REACTIVATE USER
+exports.reactivateUser = async (userId) => {
+  return await User.findOneAndUpdate(
+    { _id: userId },
+    { 
+      deletedAt: null,
+      deletedBy: null,
+      isActive: true
+    },
+    { new: true }
+  ).select('-password');
+};
+
 // 🆕 CHECK USAGE IN APPOINTMENTS/SCHEDULES
 exports.checkUserUsageInSystem = async (userId) => {
   // Sẽ call đến các service khác để check
@@ -241,4 +254,13 @@ exports.getDentistsWithCertificates = async () => {
 
 // 🆕 Compatibility alias (some code calls getDentistsWithDescription)
 exports.getDentistsWithDescription = exports.getDentistsWithCertificates;
+
+// 🔄 Update hasBeenUsed when user is assigned to slot
+exports.markUserAsUsed = async (userId) => {
+  return await User.findByIdAndUpdate(
+    userId,
+    { hasBeenUsed: true },
+    { new: true }
+  );
+};
 

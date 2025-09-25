@@ -12,6 +12,8 @@ const holidaySchema = new mongoose.Schema({
   startDate: { type: Date, required: true },
   endDate: { type: Date, required: true },
   note: { type: String },
+  isActive: { type: Boolean, default: true },
+  hasBeenUsed: { type: Boolean, default: false, index: true },
   // Note: removed isRecurring per new requirement
 }, { 
   _id: true,

@@ -160,19 +160,23 @@ exports.deleteRoom = async (roomId) => {
   const room = await roomRepo.findById(roomId);
   if (!room) throw new Error("Không tìm thấy phòng");
 
-  // TODO: Kiểm tra room có đang được sử dụng không
-  // Cần gọi API tới schedule-service để kiểm tra
-  throw new Error("Chức năng xóa phòng chưa được implement - cần kiểm tra với schedule-service trước");
+  // 🔹 Kiểm tra phòng đã được sử dụng chưa
+  if (room.hasBeenUsed) {
+    throw new Error("Không thể xóa phòng đã được sử dụng trong hệ thống");
+  }
+
+  // 🔹 Kiểm tra subRooms đã được sử dụng chưa (nếu có)
+  if (room.hasSubRooms && room.subRooms && room.subRooms.length > 0) {
+    const usedSubRooms = room.subRooms.filter(subRoom => subRoom.hasBeenUsed);
+    if (usedSubRooms.length > 0) {
+      const usedNames = usedSubRooms.map(sr => sr.name).join(', ');
+      throw new Error(`Không thể xóa phòng vì các buồng con đã được sử dụng: ${usedNames}`);
+    }
+  }
   
-  // Code sẽ được implement sau khi có schedule-service:
-  // const isInUse = await checkRoomUsage(roomId);
-  // if (isInUse) {
-  //   throw new Error("Không thể xóa phòng đang được sử dụng");
-  // }
-  
-  // await roomRepo.deleteRoom(roomId);
-  // await refreshRoomCache();
-  // return { message: "Đã xóa phòng thành công" };
+  await roomRepo.deleteRoom(roomId);
+  await refreshRoomCache();
+  return { message: "Đã xóa phòng thành công" };
 };
 
 exports.listRooms = async (page = 1, limit = 10) => {
@@ -293,42 +297,24 @@ exports.deleteSubRoom = async (roomId, subRoomId) => {
   const subRoom = room.subRooms.id(subRoomId);
   if (!subRoom) throw new Error("Không tìm thấy buồng");
 
-  // TODO: Kiểm tra subroom có đang được sử dụng không
-  // Cần gọi API tới schedule-service để kiểm tra
-  throw new Error("Chức năng xóa buồng chưa được implement - cần kiểm tra với schedule-service trước");
+  // 🔹 Kiểm tra subroom đã được sử dụng chưa
+  if (subRoom.hasBeenUsed) {
+    throw new Error("Không thể xóa buồng đã được sử dụng trong hệ thống");
+  }
   
-  // Code sẽ được implement sau khi có schedule-service:
-  // const isInUse = await checkSubRoomUsage(subRoomId);
-  // if (isInUse) {
-  //   throw new Error("Không thể xóa buồng đang được sử dụng");
-  // }
+  // Xóa subroom
+  room.subRooms.pull(subRoomId);
   
-  // // Xóa subroom
-  // room.subRooms.pull(subRoomId);
-  
-  // // Nếu không còn subroom nào thì có thể set lại maxDoctors/maxNurses
-  // if (room.subRooms.length === 0) {
-  //   // Có thể set default values hoặc để undefined
-  // }
+  // Nếu không còn subroom nào thì chuyển về phòng không có subrooms
+  if (room.subRooms.length === 0) {
+    room.hasSubRooms = false;
+    room.maxDoctors = 1; // default value
+    room.maxNurses = 1;  // default value
+  }
 
-  // await room.save();
-
-  // // Gửi event xóa subroom
-  // try {
-  //   await publishToQueue('schedule_queue', {
-  //     action: 'subRoomDeleted',
-  //     payload: {
-  //       roomId: room._id.toString(),
-  //       subRoomId: subRoomId
-  //     }
-  //   });
-  //   console.log(`📤 Đã gửi sự kiện subRoomDeleted cho subRoom ${subRoomId}`);
-  // } catch (err) {
-  //   console.error('❌ Gửi sự kiện subRoomDeleted thất bại:', err.message);
-  // }
-
-  // await refreshRoomCache();
-  // return room;
+  await room.save();
+  await refreshRoomCache();
+  return room;
 };
 
 

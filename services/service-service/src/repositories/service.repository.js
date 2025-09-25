@@ -22,9 +22,7 @@ exports.toggleStatus = async (id) => {
 };
 
 exports.deleteService = async (serviceId) => {
-  // TODO: Kiểm tra service đã được sử dụng trong appointment/record chưa
-  // Hiện tại luôn trả về false - không cho xóa
-  throw new Error('Không thể xóa dịch vụ - dịch vụ đang được sử dụng hoặc chưa được phép xóa');
+  return await Service.findByIdAndDelete(serviceId);
 };
 
 exports.findById = async (serviceId) => {
@@ -99,9 +97,11 @@ exports.toggleServiceAddOnStatus = async (serviceId, addOnId) => {
 };
 
 exports.deleteServiceAddOn = async (serviceId, addOnId) => {
-  // TODO: Kiểm tra serviceAddOn đã được sử dụng chưa
-  // Hiện tại luôn trả về false - không cho xóa
-  throw new Error('Không thể xóa dịch vụ bổ sung - đang được sử dụng hoặc chưa được phép xóa');
+  return await Service.findByIdAndUpdate(
+    serviceId,
+    { $pull: { serviceAddOns: { _id: addOnId } } },
+    { new: true, runValidators: true }
+  );
 };
 
 exports.findServiceAddOnById = async (serviceId, addOnId) => {
@@ -112,5 +112,30 @@ exports.findServiceAddOnById = async (serviceId, addOnId) => {
   if (!addOn) throw new Error('ServiceAddOn not found');
   
   return { service, addOn };
+};
+
+// 🔄 Update hasBeenUsed when service/serviceAddOn is used in appointment
+exports.markServiceAsUsed = async (serviceId) => {
+  return await Service.findByIdAndUpdate(
+    serviceId,
+    { hasBeenUsed: true },
+    { new: true }
+  );
+};
+
+exports.markServiceAddOnAsUsed = async (serviceId, addOnId) => {
+  return await Service.findOneAndUpdate(
+    { 
+      _id: serviceId,
+      'serviceAddOns._id': addOnId 
+    },
+    { 
+      $set: {
+        'serviceAddOns.$.hasBeenUsed': true,
+        hasBeenUsed: true // mark parent service as used too
+      }
+    },
+    { new: true }
+  );
 };
 

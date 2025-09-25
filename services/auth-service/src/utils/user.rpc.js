@@ -1,6 +1,7 @@
 // rpcServer.js
 const amqp = require('amqplib');
 const userRepo = require('../repositories/user.repository'); // repo để lấy user từ DB
+const redis = require('../utils/redis.client');
 
 async function startRpcServer() {
   const connection = await amqp.connect(process.env.RABBITMQ_URL);
@@ -19,6 +20,20 @@ async function startRpcServer() {
       if (action === 'getUserById') {
         const user = await userRepo.getUserById(payload.userId);
         response = user || null;
+      } else if (action === 'markUserAsUsed') {
+        const updatedUser = await userRepo.markUserAsUsed(payload.userId);
+        
+        // 🔄 Refresh users cache to reflect the change
+        try {
+          const users = await userRepo.listUsers();
+          await redis.set('users_cache', JSON.stringify(users));
+          console.log(`♻️ Refreshed users cache after marking user ${payload.userId} as used`);
+        } catch (cacheErr) {
+          console.warn('Failed to refresh users cache:', cacheErr.message);
+        }
+        
+        response = { success: true, userId: payload.userId, hasBeenUsed: true };
+        console.log(`✅ Marked user ${payload.userId} as hasBeenUsed = true`);
       }
       // có thể thêm các action khác sau này
     } catch (err) {

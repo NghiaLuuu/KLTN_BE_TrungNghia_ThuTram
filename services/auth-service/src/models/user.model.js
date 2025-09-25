@@ -103,6 +103,11 @@ const userSchema = new Schema({
     type: Boolean,
     default: true,
   },
+  hasBeenUsed: {
+    type: Boolean,
+    default: false,
+    index: true // Index for performance when checking delete permissions
+  },
   refreshTokens: [{
     type: String,
   }],

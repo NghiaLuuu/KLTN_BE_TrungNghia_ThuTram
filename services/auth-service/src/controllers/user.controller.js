@@ -20,6 +20,25 @@ exports.deleteUser = async (req, res) => {
   }
 };
 
+exports.toggleUserStatus = async (req, res) => {
+  try {
+    const currentUser = req.user;
+    const userId = req.params.id;
+
+    const result = await userService.toggleUserStatus(currentUser, userId);
+    
+    res.status(200).json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    res.status(400).json({ 
+      success: false,
+      message: error.message 
+    });
+  }
+};
+
 // 🔹 CERTIFICATE METHODS
 exports.uploadCertificate = async (req, res) => {
   try {

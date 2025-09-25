@@ -46,7 +46,10 @@ router.patch('/:userId/certificates/:certificateId/notes', authMiddleware, userC
 // PUBLIC API - Get dentists for patient booking (no auth required)
 router.get('/public/dentists', userController.getDentistsForPatients);
 
-// 🔹 DELETE user (add this route)
+// 🔹 DELETE user (only if not used in system)
 router.delete('/:id', authMiddleware, userController.deleteUser);
+
+// 🔹 TOGGLE user status (active ⇄ inactive) - no body required
+router.patch('/:id/toggle-status', authMiddleware, userController.toggleUserStatus);
 
 module.exports = router;

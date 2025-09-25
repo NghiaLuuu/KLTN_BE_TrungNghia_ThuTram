@@ -17,6 +17,10 @@ const subRoomSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true,
+  },
+  hasBeenUsed: {
+    type: Boolean,
+    default: false
   }
 }, { _id: true });
 
@@ -98,6 +102,16 @@ const roomSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true,
+  },
+  autoScheduleEnabled: {
+    type: Boolean,
+    default: true,
+    index: true
+  },
+  hasBeenUsed: {
+    type: Boolean,
+    default: false,
+    index: true
   },
 }, {
   timestamps: true,

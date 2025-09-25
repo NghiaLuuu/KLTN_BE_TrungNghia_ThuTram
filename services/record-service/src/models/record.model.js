@@ -2,61 +2,311 @@ const mongoose = require("mongoose");
 
 // ========== Prescription Medicine Subdoc ==========
 const prescribedMedicineSchema = new mongoose.Schema({
-  medicineId: { type: mongoose.Schema.Types.ObjectId, required: true },
-  dosage: { type: String, required: true },   // liều lượng
-  duration: { type: String, required: true }, // số ngày
-  note: { type: String }
-}, { _id: false });
+  medicineId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    required: true,
+    ref: 'Medicine'
+  },
+  medicineName: { 
+    type: String, 
+    required: true // Store medicine name for historical record
+  },
+  dosage: { 
+    type: String, 
+    required: true,
+    trim: true
+  },
+  duration: { 
+    type: String, 
+    required: true,
+    trim: true
+  },
+  note: { 
+    type: String,
+    trim: true,
+    maxlength: 200
+  },
+  quantity: {
+    type: Number,
+    required: true,
+    min: 1
+  }
+}, { _id: true });
 
 // ========== Prescription Subdoc ==========
 const prescriptionSchema = new mongoose.Schema({
   medicines: [prescribedMedicineSchema],
-  notes: { type: String }
+  notes: { 
+    type: String,
+    trim: true,
+    maxlength: 500
+  },
+  prescribedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    ref: 'User'
+  },
+  prescribedAt: {
+    type: Date,
+    default: Date.now
+  }
 }, { _id: false });
 
 // ========== Treatment Indication Subdoc ==========
 const treatmentIndicationSchema = new mongoose.Schema({
-  serviceId: { type: mongoose.Schema.Types.ObjectId, required: true },
-  used: { type: Boolean, default: false }  // true nếu đã tạo phiếu điều trị
-}, { _id: false });
+  serviceId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    required: true,
+    ref: 'Service'
+  },
+  serviceName: {
+    type: String,
+    required: true // Store service name for historical record
+  },
+  used: { 
+    type: Boolean, 
+    default: false
+  },
+  usedAt: {
+    type: Date
+  },
+  notes: {
+    type: String,
+    trim: true,
+    maxlength: 300
+  }
+}, { _id: true });
 
 // ========== Patient Info Subdoc ==========
 const patientInfoSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  phone: { type: String, required: true },
-  birthYear: { type: Number, required: true }
+  name: { 
+    type: String, 
+    required: true,
+    trim: true,
+    maxlength: 100
+  },
+  phone: { 
+    type: String, 
+    required: true,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        return /^[0-9]{10,11}$/.test(v);
+      },
+      message: 'Số điện thoại không hợp lệ'
+    }
+  },
+  birthYear: { 
+    type: Number, 
+    required: true,
+    min: 1900,
+    max: new Date().getFullYear()
+  },
+  gender: {
+    type: String,
+    enum: ['male', 'female', 'other'],
+    default: 'other'
+  },
+  address: {
+    type: String,
+    trim: true,
+    maxlength: 200
+  }
 }, { _id: false });
 
 // ========== Record Schema ==========
 const recordSchema = new mongoose.Schema({
+  recordCode: {
+    type: String,
+    unique: true,
+    required: true
+  },
+  
   patientId: {
     type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
     required: function() {
-      // Bắt buộc nếu không có patientInfo
       return !this.patientInfo;
     }
   },
-  patientInfo: patientInfoSchema, // chỉ dùng khi staff đặt hộ với patientInfo
+  patientInfo: patientInfoSchema, // Used when staff creates record for walk-in patient
 
-  date: { type: Date, default: Date.now },
+  appointmentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Appointment'
+  },
 
-  serviceId: { type: mongoose.Schema.Types.ObjectId, required: true }, // dịch vụ chính
-  dentistId: { type: mongoose.Schema.Types.ObjectId, required: true },
+  date: { 
+    type: Date, 
+    default: Date.now 
+  },
 
-  diagnosisServiceId: { type: mongoose.Schema.Types.ObjectId }, // dịch vụ dùng để chẩn đoán
-  indications: [{ type: String, default: "" }],
-  notes: { type: String, default: "" },
+  serviceId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    required: true,
+    ref: 'Service'
+  },
+  serviceName: {
+    type: String,
+    required: true // Store service name for historical record
+  },
+  
+  dentistId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    required: true,
+    ref: 'User'
+  },
+  dentistName: {
+    type: String,
+    required: true // Store dentist name for historical record
+  },
 
-  type: { type: String, enum: ["exam", "treatment"], required: true }, // loại hồ sơ
+  roomId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Room'
+  },
+  roomName: {
+    type: String
+  },
 
-  // 🔹 chỉ dùng khi type = "exam"
+  diagnosisServiceId: { 
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Service'
+  },
+  
+  diagnosis: {
+    type: String,
+    trim: true,
+    maxlength: 1000
+  },
+  
+  indications: [{ 
+    type: String, 
+    trim: true,
+    maxlength: 200
+  }],
+  
+  notes: { 
+    type: String, 
+    trim: true,
+    maxlength: 1000
+  },
+
+  type: { 
+    type: String, 
+    enum: ["exam", "treatment"], 
+    required: true 
+  },
+
+  // Only used when type = "exam"
   treatmentIndications: [treatmentIndicationSchema],
 
-  prescription: prescriptionSchema, // gộp chung vào hồ sơ
+  prescription: prescriptionSchema,
 
-  status: { type: String, enum: ["pending", "done"], default: "pending" },
+  status: { 
+    type: String, 
+    enum: ["pending", "in_progress", "completed", "cancelled"], 
+    default: "pending" 
+  },
+
+  priority: {
+    type: String,
+    enum: ["low", "normal", "high", "urgent"],
+    default: "normal"
+  },
+
+  totalCost: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+
+  paymentStatus: {
+    type: String,
+    enum: ["unpaid", "partial", "paid"],
+    default: "unpaid"
+  },
+
+  hasBeenUsed: {
+    type: Boolean,
+    default: false
+  },
+
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    ref: 'User'
+  },
+
+  lastModifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }
 }, {
-  timestamps: true
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
+
+// Virtual for patient age
+recordSchema.virtual('patientAge').get(function() {
+  if (this.patientInfo?.birthYear) {
+    return new Date().getFullYear() - this.patientInfo.birthYear;
+  }
+  return null;
+});
+
+// Indexes for better performance
+recordSchema.index({ recordCode: 1 });
+recordSchema.index({ patientId: 1, date: -1 });
+recordSchema.index({ dentistId: 1, date: -1 });
+recordSchema.index({ appointmentId: 1 });
+recordSchema.index({ status: 1 });
+recordSchema.index({ type: 1 });
+recordSchema.index({ createdAt: -1 });
+
+// Pre-save hook to generate record code
+recordSchema.pre('save', async function(next) {
+  if (this.isNew && !this.recordCode) {
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    
+    const dateStr = `${year}${month}${day}`;
+    const typePrefix = this.type === 'exam' ? 'EX' : 'TR';
+    
+    // Find the last record for today
+    const lastRecord = await this.constructor.findOne({
+      recordCode: { $regex: `^${typePrefix}${dateStr}` }
+    }).sort({ recordCode: -1 });
+    
+    let sequence = 1;
+    if (lastRecord) {
+      const lastSequence = parseInt(lastRecord.recordCode.slice(-3));
+      sequence = lastSequence + 1;
+    }
+    
+    this.recordCode = `${typePrefix}${dateStr}${String(sequence).padStart(3, '0')}`;
+  }
+  next();
+});
+
+// Static methods
+recordSchema.statics.findByPatient = function(patientId) {
+  return this.find({ patientId }).sort({ createdAt: -1 });
+};
+
+recordSchema.statics.findByDentist = function(dentistId, startDate, endDate) {
+  const query = { dentistId };
+  if (startDate && endDate) {
+    query.date = { $gte: startDate, $lte: endDate };
+  }
+  return this.find(query).sort({ date: -1 });
+};
+
+recordSchema.statics.findPending = function() {
+  return this.find({ status: 'pending' }).sort({ priority: -1, createdAt: 1 });
+};
 
 module.exports = mongoose.model("Record", recordSchema);

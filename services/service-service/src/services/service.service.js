@@ -44,14 +44,26 @@ exports.toggleStatus = async (serviceId) => {
 };
 
 exports.deleteService = async (serviceId) => {
-  // Luôn không cho xóa service
   const service = await serviceRepo.findById(serviceId);
   if (!service) {
     throw new Error('Service not found');
   }
   
-  // Luôn trả về error - không cho xóa
-  throw new Error('Không thể xóa dịch vụ - dịch vụ đang được sử dụng hoặc chưa được phép xóa');
+  // 🔹 Kiểm tra service đã được sử dụng chưa
+  if (service.hasBeenUsed) {
+    throw new Error('Không thể xóa dịch vụ đã được sử dụng trong hệ thống');
+  }
+
+  // 🔹 Kiểm tra serviceAddOns đã được sử dụng chưa
+  const usedAddOns = service.serviceAddOns.filter(addOn => addOn.hasBeenUsed);
+  if (usedAddOns.length > 0) {
+    const usedNames = usedAddOns.map(addOn => addOn.name).join(', ');
+    throw new Error(`Không thể xóa dịch vụ vì các dịch vụ bổ sung đã được sử dụng: ${usedNames}`);
+  }
+  
+  await serviceRepo.deleteService(serviceId);
+  await refreshServiceCache();
+  return { message: "Đã xóa dịch vụ thành công" };
 };
 
 exports.getServiceById = async (serviceId) => {
@@ -111,11 +123,21 @@ exports.toggleServiceAddOnStatus = async (serviceId, addOnId) => {
 };
 
 exports.deleteServiceAddOn = async (serviceId, addOnId) => {
-  // Luôn không cho xóa serviceAddOn
   const { service, addOn } = await serviceRepo.findServiceAddOnById(serviceId, addOnId);
   
-  // Luôn trả về error - không cho xóa
-  throw new Error('Không thể xóa dịch vụ bổ sung - đang được sử dụng hoặc chưa được phép xóa');
+  // 🔹 Kiểm tra serviceAddOn đã được sử dụng chưa
+  if (addOn.hasBeenUsed) {
+    throw new Error('Không thể xóa dịch vụ bổ sung đã được sử dụng trong hệ thống');
+  }
+
+  // 🔹 Kiểm tra không được xóa hết serviceAddOns (phải có ít nhất 1)
+  if (service.serviceAddOns.length <= 1) {
+    throw new Error('Không thể xóa dịch vụ bổ sung cuối cùng. Service phải có ít nhất 1 dịch vụ bổ sung');
+  }
+  
+  await serviceRepo.deleteServiceAddOn(serviceId, addOnId);
+  await refreshServiceCache();
+  return { message: "Đã xóa dịch vụ bổ sung thành công" };
 };
 
 exports.getServiceAddOnById = async (serviceId, addOnId) => {

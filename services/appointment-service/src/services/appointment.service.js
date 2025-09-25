@@ -1,280 +1,538 @@
-// services/appointment.service.js
-const appointmentRepo = require('../repositories/appointment.repository');
-const rpcClient = require('../utils/rpcClient');
+const appointmentRepository = require('../repositories/appointment.repository');
 const redis = require('../utils/redis.client');
-const Appointment = require('../models/appointment.model');
+const rpcClient = require('../utils/rpcClient');
 
-async function generateAppointmentCode() {
-  const now = new Date();
-  const dd = String(now.getDate()).padStart(2, '0');
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const yyyy = String(now.getFullYear());
+class AppointmentService {
+  constructor() {
+    this.cacheExpiry = 300; // 5 minutes
+  }
 
-  const startOfDay = new Date(now.setHours(0, 0, 0, 0));
-  const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+  // Cache keys
+  getCacheKey(type, id) {
+    return `appointment:${type}:${id}`;
+  }
 
-  const count = await Appointment.countDocuments({
-    createdAt: { $gte: startOfDay, $lte: endOfDay }
-  });
+  async invalidateCache(appointmentId) {
+    const keys = [
+      this.getCacheKey('id', appointmentId),
+      'appointment:pending',
+      'appointment:today',
+      'appointment:upcoming'
+    ];
+    await Promise.all(keys.map(key => redis.del(key)));
+  }
 
-  const seqNumber = String(count + 1).padStart(4, '0'); // 0001, 0002,...
-  return `${seqNumber}-${dd}${mm}${yyyy}`;
+  // Create new appointment
+  async create(appointmentData, user) {
+    try {
+      // Validate user permissions
+      if (!user || !user.userId) {
+        throw new Error('Thông tin người dùng không hợp lệ');
+      }
+
+      // Validate required fields
+      if (!appointmentData.services || appointmentData.services.length === 0) {
+        throw new Error('Cần chọn ít nhất một dịch vụ');
+      }
+
+      if (!appointmentData.slots || appointmentData.slots.length === 0) {
+        throw new Error('Cần chọn ít nhất một khung thời gian');
+      }
+
+      // Check slot conflicts via RPC
+      const slotIds = appointmentData.slots.map(slot => slot.slotId);
+      const slotValidation = await this.validateSlots(slotIds);
+      if (!slotValidation.valid) {
+        throw new Error(`Xung đột lịch hẹn: ${slotValidation.reason}`);
+      }
+
+      // Prepare appointment data
+      const newAppointment = {
+        ...appointmentData,
+        bookedBy: user.userId,
+        bookedByRole: user.role,
+        totalEstimatedCost: this.calculateTotalCost(appointmentData.services)
+      };
+
+      // Create appointment
+      const appointment = await appointmentRepository.create(newAppointment);
+
+      // Send notification via RPC (optional)
+      try {
+        await this.sendAppointmentNotification(appointment, 'created');
+      } catch (notificationError) {
+        console.error('Notification failed:', notificationError.message);
+      }
+
+      await this.invalidateCache(appointment._id);
+      return appointment;
+    } catch (error) {
+      throw new Error(`Không thể tạo lịch hẹn: ${error.message}`);
+    }
+  }
+
+  // Get appointment by ID
+  async getById(id) {
+    try {
+      const cacheKey = this.getCacheKey('id', id);
+      let appointment = await redis.get(cacheKey);
+
+      if (!appointment) {
+        appointment = await appointmentRepository.findById(id);
+        if (!appointment) {
+          throw new Error('Không tìm thấy lịch hẹn');
+        }
+        await redis.setex(cacheKey, this.cacheExpiry, JSON.stringify(appointment));
+      } else {
+        appointment = JSON.parse(appointment);
+      }
+
+      return appointment;
+    } catch (error) {
+      throw new Error(`Lỗi khi lấy thông tin lịch hẹn: ${error.message}`);
+    }
+  }
+
+  // Get appointment by code
+  async getByCode(code) {
+    try {
+      const appointment = await appointmentRepository.findByCode(code);
+      if (!appointment) {
+        throw new Error('Không tìm thấy lịch hẹn với mã này');
+      }
+      return appointment;
+    } catch (error) {
+      throw new Error(`Lỗi khi lấy thông tin lịch hẹn: ${error.message}`);
+    }
+  }
+
+  // List appointments with filters
+  async getAll(filter = {}, options = {}) {
+    try {
+      return await appointmentRepository.findAll(filter, options);
+    } catch (error) {
+      throw new Error(`Lỗi khi lấy danh sách lịch hẹn: ${error.message}`);
+    }
+  }
+
+  // Get appointments by patient
+  async getByPatient(patientId, options = {}) {
+    try {
+      return await appointmentRepository.findByPatient(patientId, options);
+    } catch (error) {
+      throw new Error(`Lỗi khi lấy lịch hẹn của bệnh nhân: ${error.message}`);
+    }
+  }
+
+  // Get appointments by dentist
+  async getByDentist(dentistId, options = {}) {
+    try {
+      return await appointmentRepository.findByDentist(dentistId, options);
+    } catch (error) {
+      throw new Error(`Lỗi khi lấy lịch hẹn của nha sĩ: ${error.message}`);
+    }
+  }
+
+  // Get appointments by phone
+  async getByPhone(phone, options = {}) {
+    try {
+      return await appointmentRepository.findByPhone(phone, options);
+    } catch (error) {
+      throw new Error(`Lỗi khi tìm lịch hẹn theo số điện thoại: ${error.message}`);
+    }
+  }
+
+  // Get today's appointments
+  async getTodayAppointments(dentistId = null) {
+    try {
+      const cacheKey = `appointment:today:${dentistId || 'all'}`;
+      let appointments = await redis.get(cacheKey);
+
+      if (!appointments) {
+        appointments = await appointmentRepository.findTodayAppointments(dentistId);
+        await redis.setex(cacheKey, 300, JSON.stringify(appointments)); // 5 min cache
+      } else {
+        appointments = JSON.parse(appointments);
+      }
+
+      return appointments;
+    } catch (error) {
+      throw new Error(`Lỗi khi lấy lịch hẹn hôm nay: ${error.message}`);
+    }
+  }
+
+  // Get upcoming appointments
+  async getUpcoming(days = 7, dentistId = null) {
+    try {
+      return await appointmentRepository.findUpcoming(days, dentistId);
+    } catch (error) {
+      throw new Error(`Lỗi khi lấy lịch hẹn sắp tới: ${error.message}`);
+    }
+  }
+
+  // Get pending appointments
+  async getPending(limit = 50) {
+    try {
+      const cacheKey = 'appointment:pending';
+      let appointments = await redis.get(cacheKey);
+
+      if (!appointments) {
+        appointments = await appointmentRepository.findPending(limit);
+        await redis.setex(cacheKey, 180, JSON.stringify(appointments)); // 3 min cache
+      } else {
+        appointments = JSON.parse(appointments);
+      }
+
+      return appointments;
+    } catch (error) {
+      throw new Error(`Lỗi khi lấy lịch hẹn chờ xử lý: ${error.message}`);
+    }
+  }
+
+  // Get overdue appointments
+  async getOverdue() {
+    try {
+      return await appointmentRepository.findOverdue();
+    } catch (error) {
+      throw new Error(`Lỗi khi lấy lịch hẹn quá hạn: ${error.message}`);
+    }
+  }
+
+  // Update appointment
+  async update(id, updateData, user) {
+    try {
+      const appointment = await appointmentRepository.findById(id);
+      if (!appointment) {
+        throw new Error('Không tìm thấy lịch hẹn');
+      }
+
+      // Check permissions
+      if (!appointment.canBeModified()) {
+        throw new Error('Lịch hẹn không thể chỉnh sửa ở trạng thái hiện tại');
+      }
+
+      // Validate slot conflicts if slots are being updated
+      if (updateData.slots) {
+        const slotIds = updateData.slots.map(slot => slot.slotId);
+        const slotValidation = await this.validateSlots(slotIds, id);
+        if (!slotValidation.valid) {
+          throw new Error(`Xung đột lịch hẹn: ${slotValidation.reason}`);
+        }
+      }
+
+      // Update total cost if services changed
+      if (updateData.services) {
+        updateData.totalEstimatedCost = this.calculateTotalCost(updateData.services);
+      }
+
+      const updatedAppointment = await appointmentRepository.update(id, updateData);
+      await this.invalidateCache(id);
+
+      return updatedAppointment;
+    } catch (error) {
+      throw new Error(`Lỗi khi cập nhật lịch hẹn: ${error.message}`);
+    }
+  }
+
+  // Update appointment status
+  async updateStatus(id, status, additionalData = {}, user) {
+    try {
+      const appointment = await appointmentRepository.findById(id);
+      if (!appointment) {
+        throw new Error('Không tìm thấy lịch hẹn');
+      }
+
+      // Add user info to additional data
+      if (user) {
+        switch (status) {
+          case 'checked-in':
+            additionalData.checkedInBy = user.userId;
+            break;
+          case 'cancelled':
+            additionalData.cancelledBy = user.userId;
+            break;
+        }
+      }
+
+      const updatedAppointment = await appointmentRepository.updateStatus(id, status, additionalData);
+      await this.invalidateCache(id);
+
+      // Send status change notification
+      try {
+        await this.sendAppointmentNotification(updatedAppointment, 'status_changed');
+      } catch (notificationError) {
+        console.error('Notification failed:', notificationError.message);
+      }
+
+      return updatedAppointment;
+    } catch (error) {
+      throw new Error(`Lỗi khi cập nhật trạng thái lịch hẹn: ${error.message}`);
+    }
+  }
+
+  // Assign dentist to appointment
+  async assignDentist(id, dentistId, dentistName, user) {
+    try {
+      const appointment = await appointmentRepository.findById(id);
+      if (!appointment) {
+        throw new Error('Không tìm thấy lịch hẹn');
+      }
+
+      // Validate dentist availability via RPC
+      const availability = await this.checkDentistAvailability(dentistId, appointment.slots);
+      if (!availability.available) {
+        throw new Error(`Nha sĩ không có sẵn: ${availability.reason}`);
+      }
+
+      const updatedAppointment = await appointmentRepository.assignDentist(id, dentistId, dentistName);
+      await this.invalidateCache(id);
+
+      return updatedAppointment;
+    } catch (error) {
+      throw new Error(`Lỗi khi phân công nha sĩ: ${error.message}`);
+    }
+  }
+
+  // Cancel appointment
+  async cancel(id, reason, user) {
+    try {
+      const appointment = await appointmentRepository.findById(id);
+      if (!appointment) {
+        throw new Error('Không tìm thấy lịch hẹn');
+      }
+
+      if (!appointment.canBeCancelled()) {
+        throw new Error('Lịch hẹn không thể hủy ở trạng thái hiện tại');
+      }
+
+      const cancelData = {
+        cancellationReason: reason,
+        cancelledBy: user.userId
+      };
+
+      const updatedAppointment = await appointmentRepository.updateStatus(id, 'cancelled', cancelData);
+      await this.invalidateCache(id);
+
+      // Release slots via RPC
+      try {
+        const slotIds = appointment.slots.map(slot => slot.slotId);
+        await this.releaseSlots(slotIds);
+      } catch (slotError) {
+        console.error('Failed to release slots:', slotError.message);
+      }
+
+      return updatedAppointment;
+    } catch (error) {
+      throw new Error(`Lỗi khi hủy lịch hẹn: ${error.message}`);
+    }
+  }
+
+  // Check-in appointment
+  async checkIn(id, user) {
+    try {
+      return await this.updateStatus(id, 'checked-in', {}, user);
+    } catch (error) {
+      throw new Error(`Lỗi khi check-in: ${error.message}`);
+    }
+  }
+
+  // Complete appointment
+  async complete(id, completionData, user) {
+    try {
+      const appointment = await appointmentRepository.findById(id);
+      if (!appointment) {
+        throw new Error('Không tìm thấy lịch hẹn');
+      }
+
+      const data = {
+        ...completionData,
+        actualDuration: completionData.actualDuration || null
+      };
+
+      const updatedAppointment = await appointmentRepository.updateStatus(id, 'completed', data);
+      await this.invalidateCache(id);
+
+      return updatedAppointment;
+    } catch (error) {
+      throw new Error(`Lỗi khi hoàn thành lịch hẹn: ${error.message}`);
+    }
+  }
+
+  // Search appointments
+  async search(searchTerm, options = {}) {
+    try {
+      return await appointmentRepository.search(searchTerm, options);
+    } catch (error) {
+      throw new Error(`Lỗi khi tìm kiếm lịch hẹn: ${error.message}`);
+    }
+  }
+
+  // Get appointment statistics
+  async getStatistics(startDate, endDate, dentistId = null) {
+    try {
+      return await appointmentRepository.getStatistics(startDate, endDate, dentistId);
+    } catch (error) {
+      throw new Error(`Lỗi khi lấy thống kê: ${error.message}`);
+    }
+  }
+
+  // Get daily schedule
+  async getDailySchedule(date, dentistId = null) {
+    try {
+      return await appointmentRepository.getDailySchedule(date, dentistId);
+    } catch (error) {
+      throw new Error(`Lỗi khi lấy lịch trình hàng ngày: ${error.message}`);
+    }
+  }
+
+  // Delete appointment (admin only)
+  async delete(id, user) {
+    try {
+      const appointment = await appointmentRepository.findById(id);
+      if (!appointment) {
+        throw new Error('Không tìm thấy lịch hẹn');
+      }
+
+      await appointmentRepository.delete(id);
+      await this.invalidateCache(id);
+
+      // Release slots if not already released
+      if (!['cancelled', 'completed'].includes(appointment.status)) {
+        try {
+          const slotIds = appointment.slots.map(slot => slot.slotId);
+          await this.releaseSlots(slotIds);
+        } catch (slotError) {
+          console.error('Failed to release slots:', slotError.message);
+        }
+      }
+
+      return { success: true, message: 'Đã xóa lịch hẹn thành công' };
+    } catch (error) {
+      throw new Error(`Lỗi khi xóa lịch hẹn: ${error.message}`);
+    }
+  }
+
+  // Helper methods
+
+  // Validate slots via RPC
+  async validateSlots(slotIds, excludeAppointmentId = null) {
+    try {
+      // Check for conflicts in current appointments
+      const conflicts = await appointmentRepository.checkSlotConflicts(slotIds, excludeAppointmentId);
+      if (conflicts.length > 0) {
+        return {
+          valid: false,
+          reason: 'Khung thời gian đã được đặt bởi lịch hẹn khác'
+        };
+      }
+
+      // Validate with schedule service via RPC
+      const scheduleValidation = await rpcClient.request('schedule_queue', {
+        action: 'validateSlots',
+        payload: { slotIds }
+      });
+
+      return scheduleValidation;
+    } catch (error) {
+      return {
+        valid: false,
+        reason: `Lỗi kiểm tra khung thời gian: ${error.message}`
+      };
+    }
+  }
+
+  // Check dentist availability via RPC
+  async checkDentistAvailability(dentistId, slots) {
+    try {
+      const result = await rpcClient.request('schedule_queue', {
+        action: 'checkDentistAvailability',
+        payload: { dentistId, slots }
+      });
+
+      return result;
+    } catch (error) {
+      return {
+        available: false,
+        reason: `Lỗi kiểm tra lịch trình nha sĩ: ${error.message}`
+      };
+    }
+  }
+
+  // Release slots via RPC
+  async releaseSlots(slotIds) {
+    try {
+      await rpcClient.request('schedule_queue', {
+        action: 'releaseSlots',
+        payload: { slotIds }
+      });
+    } catch (error) {
+      console.error('Failed to release slots via RPC:', error.message);
+      throw error;
+    }
+  }
+
+  // Calculate total cost
+  calculateTotalCost(services) {
+    return services.reduce((total, service) => total + (service.price || 0), 0);
+  }
+
+  // Send notifications via RPC
+  async sendAppointmentNotification(appointment, type) {
+    try {
+      await rpcClient.request('notification_queue', {
+        action: 'sendAppointmentNotification',
+        payload: { appointment, type }
+      });
+    } catch (error) {
+      console.error('Failed to send notification:', error.message);
+      // Don't throw error for notifications
+    }
+  }
+
+  // Update deposit
+  async updateDeposit(id, depositData, user) {
+    try {
+      const appointment = await appointmentRepository.findById(id);
+      if (!appointment) {
+        throw new Error('Không tìm thấy lịch hẹn');
+      }
+
+      const updatedAppointment = await appointmentRepository.updateDeposit(id, depositData);
+      await this.invalidateCache(id);
+
+      return updatedAppointment;
+    } catch (error) {
+      throw new Error(`Lỗi khi cập nhật đặt cọc: ${error.message}`);
+    }
+  }
+
+  // Add notes to appointment
+  async addNotes(id, notes, user) {
+    try {
+      const appointment = await appointmentRepository.findById(id);
+      if (!appointment) {
+        throw new Error('Không tìm thấy lịch hẹn');
+      }
+
+      const updatedAppointment = await appointmentRepository.addNotes(id, notes);
+      await this.invalidateCache(id);
+
+      return updatedAppointment;
+    } catch (error) {
+      throw new Error(`Lỗi khi thêm ghi chú: ${error.message}`);
+    }
+  }
+
+  // Mark reminder as sent
+  async markReminderSent(id) {
+    try {
+      const updatedAppointment = await appointmentRepository.markReminderSent(id);
+      await this.invalidateCache(id);
+      return updatedAppointment;
+    } catch (error) {
+      throw new Error(`Lỗi khi đánh dấu đã gửi nhắc nhở: ${error.message}`);
+    }
+  }
 }
 
-// 🔹 Tạo mới appointment hold (chưa chiếm slot)
-exports.createHold = async (data, userFromToken) => {
-  const { serviceId, slotIds = [], preferredDentistId, patientInfo } = data;
-  let type;
-  if (!userFromToken || !userFromToken.userId || !userFromToken.role) {
-    throw new Error("❌ req.user không hợp lệ");
-  }
-  const bookedBy = userFromToken.userId;
-  const role = userFromToken.role;
-
-  if (!Array.isArray(slotIds) || slotIds.length === 0) {
-    throw new Error('Cần chọn ít nhất một slot');
-  }
-
-  // Validate slot
-  const validateResult = await rpcClient.request('schedule_queue', {
-    action: 'validateSlotsForService',
-    payload: { serviceId, slotIds, preferredDentistId }
-  });
-  if (!validateResult.valid) throw new Error(validateResult.reason);
-  // 🔹 Gán type từ kết quả validate
-  type = validateResult.service.type;
-  let finalPatientInfo = null;
-  if (role !== 'patient') {
-    if (!patientInfo || !patientInfo.name || !patientInfo.phone || !patientInfo.birthYear) {
-      throw new Error('patientInfo không hợp lệ khi nhân viên đặt hộ');
-    }
-    finalPatientInfo = patientInfo;
-  }
-
-  // Lấy service từ Redis
-  const servicesCache = await redis.get('services_cache');
-  if (!servicesCache) throw new Error('Không tìm thấy cache dịch vụ');
-  const services = JSON.parse(servicesCache);
-  const selectedService = services.find(s => s._id === serviceId);
-  if (!selectedService) throw new Error('Dịch vụ không hợp lệ');
-
-  const totalPrice = selectedService.price || 0;
-  const holdKey = `appointment_hold:${slotIds.join(',')}`;
-
-  // 🔹 Lưu hold data vào Redis
-  const holdData = {
-    serviceId: [serviceId],
-    slotIds,
-    preferredDentistId,
-    type,
-    bookedBy,
-    role,
-    patientInfo: finalPatientInfo,
-    status: 'hold',
-    createdAt: new Date()
-  };
-  await redis.set(holdKey, JSON.stringify(holdData), 'EX', 10 * 60);
-
-  // 🔹 Reserve slot
-  for (const sid of slotIds) {
-    await rpcClient.request('schedule_queue', {
-      action: 'reserved',
-      payload: { slotIds: [sid] }
-    });
-  }
-
-  // 🔹 Tạo payment tạm (patient) hoặc pending (staff)
-  let payment = null;
-  if (role === 'patient') {
-    payment = await rpcClient.request('payment_queue', {
-      action: 'createTemporaryPayment',
-      payload: { appointmentHoldKey: holdKey, slotIds, amount: totalPrice, method: 'momo' }
-    });
-  } else {
-    payment = await rpcClient.request('payment_queue', {
-      action: 'createPayment',
-      payload: { appointmentHoldKey: holdKey, slotIds, amount: totalPrice, method: 'momo', status: 'pending' }
-    });
-  }
-
-  // 🔹 Auto release slot sau 10 phút nếu chưa confirm
-  setTimeout(async () => {
-    const raw = await redis.get(holdKey);
-    if (!raw) {
-      for (const sid of slotIds) {
-        await rpcClient.request('schedule_queue', { action: 'releaseSlot', payload: { slotIds: [sid] } });
-      }
-      return;
-    }
-    const data = JSON.parse(raw);
-    if (data.status !== 'confirmed') {
-      for (const sid of slotIds) {
-        await rpcClient.request('schedule_queue', { action: 'releaseSlot', payload: { slotIds: [sid] } });
-      }
-      await redis.del(holdKey);
-    }
-  }, 10 * 60 * 1000);
-
-  // 🔹 Nếu staff, confirm luôn + check-in
-  if (role !== 'patient') {
-    const appointment = await exports.confirm({ holdKey, paymentId: payment._id });
-    const checkedIn = await exports.checkIn(appointment._id);
-    return { message: 'Tạo phiếu hẹn thành công (staff tạo, check-in ngay)', appointment: checkedIn };
-  }
-
-  return { message: 'Các slot được giữ trong 10 phút', holdKey, slotIds, payment };
-};
-
-// 🔹 Xác nhận appointment
-exports.confirm = async ({ holdKey, paymentId = null }) => {
-  if (!holdKey) throw new Error("Hold key không tồn tại hoặc đã hết hạn");
-
-  const raw = await redis.get(holdKey);
-  if (!raw) throw new Error("Hold key đã hết hạn");
-
-  const holdData = JSON.parse(raw);
-  if (holdData.status !== 'hold') throw new Error("Chỉ có thể confirm khi appointment đang ở trạng thái hold");
-
-  // Tạo appointmentCode
-  const appointmentCode = await generateAppointmentCode();
-
-  // Tạo appointment trong DB
-  const appointment = await appointmentRepo.create({
-    ...holdData,
-    status: 'confirmed',
-    appointmentCode
-  });
-
-  // Gửi event sang payment để update appointmentCode
-  if (paymentId) {
-  try {
-    const result = await rpcClient.request('payment_queue', {
-      action: 'updateAppointmentCode',
-      payload: { paymentId, appointmentCode }
-    });
-
-    // Tuỳ nhu cầu, có thể kiểm tra kết quả trả về
-    if (!result || result.error) {
-      throw new Error(result?.error || 'Failed to update appointmentCode in payment service');
-    }
-  } catch (err) {
-    // Ném lỗi ra để biết thất bại
-    throw new Error(`Không gửi được sự kiện updateAppointmentCode: ${err.message}`);
-  }
-} else {
-  throw new Error('paymentId không tồn tại, không thể gửi sự kiện updateAppointmentCode');
-}
-
-
-  // Update slot status
-  if (Array.isArray(holdData.slotIds)) {
-    for (const sid of holdData.slotIds) {
-      await rpcClient.request('schedule_queue', { action: 'confirmed', payload: { slotIds: [sid] } });
-    }
-  }
-
-  // Xóa holdKey khỏi Redis
-  await redis.del(holdKey);
-
-  return appointment;
-};
-
-
-
-
-
-
-
-// 🔹 Update appointment
-exports.update = async (id, data) => {
-  const appointment = await appointmentRepo.findById(id);
-  if (!appointment) throw new Error('Không tìm thấy cuộc hẹn');
-
-  if (data.slotId && data.slotId.toString() !== appointment.slotId.toString()) {
-    if (appointment.status !== 'confirmed') {
-      throw new Error('Chỉ có cuộc hẹn đã xác nhận mới được cập nhật slot');
-    }
-    await rpcClient.request('schedule_queue', {
-      action: 'updateSlot',
-      payload: { slotId: appointment.slotId, update: { status: 'available', appointmentId: null } }
-    });
-
-    const slot = await rpcClient.request('schedule_queue', {
-      action: 'getSlotById',
-      payload: { slotId: data.slotId }
-    });
-    if (!slot || slot.status !== 'available') {
-      throw new Error('Slot mới không khả dụng');
-    }
-    await rpcClient.request('schedule_queue', {
-      action: 'updateSlot',
-      payload: { slotId: data.slotId, update: { status: 'confirmed', appointmentId: appointment._id } }
-    });
-  }
-  return appointmentRepo.updateById(id, data);
-};
-
-// 🔹 Hủy hold
-exports.cancelHold = async (slotId) => {
-  const holdKey = `appointment_hold:${slotId}`;
-  const holdDataRaw = await redis.get(holdKey);
-  if (!holdDataRaw) throw new Error('Không tìm thấy hold');
-
-  await rpcClient.request('schedule_queue', {
-    action: 'releaseSlot',
-    payload: { slotId }
-  });
-  await redis.del(holdKey);
-  return { message: 'Hold đã bị hủy' };
-};
-
-// 🔹 Check-in
-exports.checkIn = async (id) => {
-  const appointment = await appointmentRepo.findById(id);
-  if (!appointment) throw new Error('Không tìm thấy cuộc hẹn');
-  if (appointment.status !== 'confirmed') {
-    throw new Error('Chỉ có cuộc hẹn đã xác nhận mới được check-in');
-  }
-
-  const updated = await appointmentRepo.updateById(id, { status: 'checked-in' });
-
-  try {
-    const payload = {
-      appointmentId: updated._id,
-      dentistId: updated.preferredDentistId || updated.dentistId || null,
-      serviceId: Array.isArray(updated.serviceId)
-        ? updated.serviceId.map(s => s.toString())
-        : updated.serviceId.toString(),
-      type: updated.type,
-      notes: updated.notes || ""
-    };
-
-    // 🔹 Xác định bệnh nhân
-    if (updated.patientInfo) {
-      // Staff đặt hộ, bệnh nhân chưa đăng ký
-      payload.patientInfo = updated.patientInfo;
-    } else if (updated.bookedBy) {
-      // Bệnh nhân tự đặt, bookedBy = patientId
-      payload.patientId = updated.bookedBy;
-    } else {
-      throw new Error("Không xác định được bệnh nhân để tạo record");
-    }
-
-    await rpcClient.request('record_queue', {
-      action: 'createRecord',
-      payload
-    });
-
-  } catch (err) {
-    console.error("❌ Không thể tạo record khi check-in:", err);
-  }
-
-  return updated;
-};
-
-
-
-// 🔹 Tìm kiếm
-exports.search = (filter) => {
-  return appointmentRepo.search(filter);
-};
+module.exports = new AppointmentService();

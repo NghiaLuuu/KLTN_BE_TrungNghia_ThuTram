@@ -152,7 +152,7 @@ exports.getUserById = async (currentUser, userId) => {
   return user;
 };
 
-// 🆕 DELETE OPERATIONS
+// 🆕 DELETE OPERATIONS - Chỉ xóa khi chưa được sử dụng
 exports.deleteUser = async (currentUser, userId) => {
   if (!['admin', 'manager'].includes(currentUser.role)) {
     throw new Error('Bạn không có quyền xóa người dùng');
@@ -171,30 +171,64 @@ exports.deleteUser = async (currentUser, userId) => {
     throw new Error('Không thể xóa bệnh nhân từ auth-service');
   }
 
-  // 🔹 Kiểm tra xem user có được sử dụng trong hệ thống không
-  const usage = await checkUserUsageInSystem(userId);
-  
-  if (usage.hasAppointments || usage.hasSchedules) {
-    // Chỉ cho phép soft delete
-    const deletedUser = await userRepo.softDeleteUser(userId, currentUser._id|| 'Ngưng hoạt động do đã có lịch sử trong hệ thống');
-    await refreshUserCache();
-    
-    return {
-      type: 'soft_delete',
-      message: `Nhân viên ${user.fullName} đã được ngưng hoạt động do có ${usage.appointmentCount} lịch hẹn và ${usage.scheduleCount} ca làm việc`,
-      user: deletedUser
-    };
-  } else {
-    // Cho phép hard delete nếu chưa có lịch sử
-    await userRepo.hardDeleteUser(userId);
-    await refreshUserCache();
-    
-    return {
-      type: 'hard_delete',
-      message: `Nhân viên ${user.fullName} đã được xóa hoàn toàn khỏi hệ thống`,
-      user: null
-    };
+  // � Không cho phép xóa nếu user đã được sử dụng trong hệ thống
+  if (user.hasBeenUsed) {
+    throw new Error(`Không thể xóa nhân viên ${user.fullName} vì đã được sử dụng trong hệ thống. Vui lòng sử dụng chức năng ngưng hoạt động thay thế.`);
   }
+
+  // Chỉ cho phép hard delete nếu chưa có lịch sử
+  await userRepo.hardDeleteUser(userId);
+  await refreshUserCache();
+  
+  return {
+    type: 'hard_delete',
+    message: `Nhân viên ${user.fullName} đã được xóa hoàn toàn khỏi hệ thống`,
+    user: null
+  };
+};
+
+// 🆕 TOGGLE ACTIVE STATUS - Bật/tắt trạng thái hoạt động của user
+exports.toggleUserStatus = async (currentUser, userId) => {
+  if (!['admin', 'manager'].includes(currentUser.role)) {
+    throw new Error('Bạn không có quyền thay đổi trạng thái người dùng');
+  }
+
+  if (currentUser.userId.toString() === userId) {
+    throw new Error('Không thể thay đổi trạng thái của chính mình');
+  }
+
+  const user = await userRepo.findById(userId);
+  if (!user) {
+    throw new Error('Không tìm thấy người dùng');
+  }
+
+  if (user.role === 'patient') {
+    throw new Error('Không thể thay đổi trạng thái bệnh nhân từ auth-service');
+  }
+
+  let updatedUser;
+  let actionType;
+  let message;
+
+  if (user.isActive) {
+    // Đang active -> chuyển thành inactive (deactivate)
+    updatedUser = await userRepo.softDeleteUser(userId, currentUser._id || 'Ngưng hoạt động bởi quản trị viên');
+    actionType = 'deactivate';
+    message = `Nhân viên ${user.fullName} đã được ngưng hoạt động`;
+  } else {
+    // Đang inactive -> chuyển thành active (reactivate)
+    updatedUser = await userRepo.reactivateUser(userId);
+    actionType = 'reactivate';
+    message = `Nhân viên ${user.fullName} đã được kích hoạt lại`;
+  }
+
+  await refreshUserCache();
+  
+  return {
+    type: actionType,
+    message: message,
+    user: updatedUser
+  };
 };
 
 // 🆕 CHECK USAGE IN OTHER SERVICES

@@ -78,3 +78,28 @@ exports.toggleSubRoomStatus = async (roomId, subRoomId) => {
 exports.deleteRoom = async (roomId) => {
   return await Room.findByIdAndDelete(roomId);
 };
+
+// 🔄 Update hasBeenUsed when room/subroom is assigned to slot
+exports.markRoomAsUsed = async (roomId) => {
+  return await Room.findByIdAndUpdate(
+    roomId,
+    { hasBeenUsed: true },
+    { new: true }
+  );
+};
+
+exports.markSubRoomAsUsed = async (roomId, subRoomId) => {
+  return await Room.findOneAndUpdate(
+    { 
+      _id: roomId,
+      'subRooms._id': subRoomId 
+    },
+    { 
+      $set: {
+        'subRooms.$.hasBeenUsed': true,
+        hasBeenUsed: true // mark parent room as used too
+      }
+    },
+    { new: true }
+  );
+};

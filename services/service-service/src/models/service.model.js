@@ -19,6 +19,10 @@ const serviceAddOnSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true,
+  },
+  hasBeenUsed: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true,
@@ -62,6 +66,11 @@ const serviceSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true,
+  },
+  hasBeenUsed: {
+    type: Boolean,
+    default: false,
+    index: true
   }
 }, {
   timestamps: true,

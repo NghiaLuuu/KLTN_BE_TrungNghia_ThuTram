@@ -3,6 +3,13 @@ const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 const roomRoutes = require('./routes/room.route');
 const cors = require('cors');
+const startRpcServer = require('./utils/room.rpc');
+
+dotenv.config();
+connectDB();
+
+// Start RabbitMQ RPC server
+startRpcServer().catch(console.error);
 
 dotenv.config();
 connectDB();

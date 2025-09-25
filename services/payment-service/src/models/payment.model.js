@@ -1,51 +1,430 @@
 const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
 
+// Constants
 const PaymentMethod = {
   CASH: 'cash',
+  CREDIT_CARD: 'credit_card',
+  DEBIT_CARD: 'debit_card',
+  BANK_TRANSFER: 'bank_transfer',
   MOMO: 'momo',
-  ZALO: 'zalo',
+  ZALOPAY: 'zalopay',
   VNPAY: 'vnpay',
-  BANK_TRANSFER: 'bank_transfer'
+  SHOPEEPAY: 'shopeepay',
+  INSURANCE: 'insurance',
+  INSTALLMENT: 'installment'
 };
 
 const PaymentStatus = {
+  PENDING: 'pending',
+  PROCESSING: 'processing',
   COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
   REFUNDED: 'refunded',
-  PENDING: 'pending'
+  PARTIAL_REFUND: 'partial_refund'
 };
 
-const paymentSchema = new mongoose.Schema({
-  amount: {
+const PaymentType = {
+  PAYMENT: 'payment',
+  REFUND: 'refund',
+  ADJUSTMENT: 'adjustment',
+  DEPOSIT: 'deposit',
+  INSURANCE_CLAIM: 'insurance_claim'
+};
+
+// Counter for payment code generation
+const counterSchema = new Schema({
+  _id: { type: String, required: true },
+  seq: { type: Number, default: 0 }
+});
+const Counter = mongoose.model('Counter', counterSchema);
+
+// Sub-schemas
+const cardInfoSchema = new Schema({
+  cardNumber: {
+    type: String,
+    trim: true
+  },
+  cardHolderName: {
+    type: String,
+    trim: true
+  },
+  bankName: {
+    type: String,
+    trim: true
+  },
+  authCode: {
+    type: String,
+    trim: true
+  }
+}, { _id: false });
+
+const digitalWalletInfoSchema = new Schema({
+  walletType: {
+    type: String,
+    enum: ['momo', 'zalopay', 'vnpay', 'shopeepay']
+  },
+  walletAccountId: {
+    type: String,
+    trim: true
+  },
+  transactionId: {
+    type: String,
+    trim: true
+  }
+}, { _id: false });
+
+const insuranceInfoSchema = new Schema({
+  insuranceProvider: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  policyNumber: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  claimNumber: {
+    type: String,
+    trim: true
+  },
+  coveragePercentage: {
+    type: Number,
+    min: 0,
+    max: 100,
+    default: 0
+  },
+  preAuthCode: {
+    type: String,
+    trim: true
+  }
+}, { _id: false });
+
+const installmentInfoSchema = new Schema({
+  totalInstallments: {
+    type: Number,
+    required: true,
+    min: 2
+  },
+  currentInstallment: {
+    type: Number,
+    required: true,
+    min: 1
+  },
+  monthlyAmount: {
     type: Number,
     required: true,
     min: 0
+  },
+  interestRate: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+  nextDueDate: {
+    type: Date,
+    required: true
+  }
+}, { _id: false });
+
+// Main Payment Schema
+const paymentSchema = new Schema({
+  paymentCode: {
+    type: String,
+    unique: true,
+    required: true
+  },
+  
+  // Reference information
+  appointmentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null
+  },
+  invoiceId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null
+  },
+  recordId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null
+  },
+  
+  // Patient information
+  patientId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null
+  },
+  patientInfo: {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 100
+    },
+    phone: {
+      type: String,
+      required: true,
+      match: /^[0-9]{10,11}$/
+    },
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true
+    },
+    address: {
+      type: String,
+      trim: true,
+      maxlength: 200
+    }
+  },
+  
+  // Payment details
+  type: {
+    type: String,
+    enum: Object.values(PaymentType),
+    required: true,
+    default: PaymentType.PAYMENT
   },
   method: {
     type: String,
     enum: Object.values(PaymentMethod),
     required: true
   },
-  paymentTime: {
-    type: Date,
-    default: Date.now
-  },
   status: {
     type: String,
     enum: Object.values(PaymentStatus),
     default: PaymentStatus.PENDING
   },
-  appointmentCode: {
-    type: String,   // mã appointment liên kết
-    default: null
+  
+  // Financial information
+  originalAmount: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  discountAmount: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+  taxAmount: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+  finalAmount: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  paidAmount: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+  changeAmount: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+  
+  // Payment method specific information
+  cardInfo: cardInfoSchema,
+  digitalWalletInfo: digitalWalletInfoSchema,
+  insuranceInfo: insuranceInfoSchema,
+  installmentInfo: installmentInfoSchema,
+  
+  // Transaction details
+  externalTransactionId: {
+    type: String,
+    trim: true
+  },
+  gatewayResponse: {
+    responseCode: String,
+    responseMessage: String,
+    additionalData: Schema.Types.Mixed
+  },
+  
+  // Processing information
+  processedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
+  },
+  processedByName: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  processedAt: {
+    type: Date,
+    default: Date.now
+  },
+  
+  // Refund information
+  refundReason: {
+    type: String,
+    trim: true,
+    maxlength: 500
+  },
+  refundedBy: {
+    type: mongoose.Schema.Types.ObjectId
+  },
+  refundedAt: {
+    type: Date
+  },
+  originalPaymentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Payment'
+  },
+  
+  // Notes and descriptions
+  description: {
+    type: String,
+    trim: true,
+    maxlength: 500
+  },
+  notes: {
+    type: String,
+    trim: true,
+    maxlength: 1000
+  },
+  
+  // Verification
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+  verifiedBy: {
+    type: mongoose.Schema.Types.ObjectId
+  },
+  verifiedAt: {
+    type: Date
+  },
+  
+  // Timestamps
+  dueDate: {
+    type: Date
+  },
+  completedAt: {
+    type: Date
+  },
+  cancelledAt: {
+    type: Date
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-const Payment = mongoose.model('Payment', paymentSchema);
+// Indexes for better performance (paymentCode already unique)
+paymentSchema.index({ appointmentId: 1 });
+paymentSchema.index({ invoiceId: 1 });
+paymentSchema.index({ patientId: 1 });
+paymentSchema.index({ status: 1 });
+paymentSchema.index({ method: 1 });
+paymentSchema.index({ type: 1 });
+paymentSchema.index({ processedAt: -1 });
+paymentSchema.index({ 'patientInfo.phone': 1 });
+paymentSchema.index({ createdAt: -1 });
 
+// Virtual fields
+paymentSchema.virtual('remainingAmount').get(function() {
+  return this.finalAmount - this.paidAmount;
+});
+
+paymentSchema.virtual('isFullyPaid').get(function() {
+  return this.paidAmount >= this.finalAmount;
+});
+
+paymentSchema.virtual('isOverpaid').get(function() {
+  return this.paidAmount > this.finalAmount;
+});
+
+paymentSchema.virtual('discountPercentage').get(function() {
+  if (this.originalAmount === 0) return 0;
+  return (this.discountAmount / this.originalAmount) * 100;
+});
+
+// Pre-save middleware for payment code generation
+paymentSchema.pre('save', async function(next) {
+  if (this.isNew && !this.paymentCode) {
+    try {
+      const counter = await Counter.findByIdAndUpdate(
+        { _id: 'payment' },
+        { $inc: { seq: 1 } },
+        { new: true, upsert: true }
+      );
+      
+      const now = new Date();
+      const year = now.getFullYear().toString().slice(-2);
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const sequence = String(counter.seq).padStart(4, '0');
+      
+      this.paymentCode = `PAY${year}${month}${day}${sequence}`;
+    } catch (error) {
+      return next(error);
+    }
+  }
+  
+  // Calculate final amount if not set
+  if (!this.finalAmount && this.originalAmount !== undefined) {
+    this.finalAmount = this.originalAmount - this.discountAmount + this.taxAmount;
+  }
+  
+  next();
+});
+
+// Static methods
+paymentSchema.statics.findByCode = function(code) {
+  return this.findOne({ paymentCode: code });
+};
+
+paymentSchema.statics.findByPatient = function(patientId, options = {}) {
+  const query = { patientId };
+  if (options.status) query.status = options.status;
+  if (options.method) query.method = options.method;
+  if (options.fromDate) query.processedAt = { $gte: options.fromDate };
+  if (options.toDate) query.processedAt = { ...query.processedAt, $lte: options.toDate };
+  
+  return this.find(query).sort({ processedAt: -1 });
+};
+
+paymentSchema.statics.findByDateRange = function(startDate, endDate, options = {}) {
+  const query = {
+    processedAt: { $gte: startDate, $lte: endDate }
+  };
+  
+  if (options.status) query.status = options.status;
+  if (options.method) query.method = options.method;
+  if (options.type) query.type = options.type;
+  
+  return this.find(query).sort({ processedAt: -1 });
+};
+
+// Instance methods
+paymentSchema.methods.canBeRefunded = function() {
+  return this.status === PaymentStatus.COMPLETED && this.type === PaymentType.PAYMENT;
+};
+
+paymentSchema.methods.canBeCancelled = function() {
+  return [PaymentStatus.PENDING, PaymentStatus.PROCESSING].includes(this.status);
+};
+
+paymentSchema.methods.calculateRefundAmount = function(refundAmount) {
+  if (refundAmount > this.paidAmount) {
+    throw new Error('Số tiền hoàn trả không thể lớn hơn số tiền đã thanh toán');
+  }
+  return refundAmount;
+};
+
+// Export constants and model
 module.exports = {
-  Payment,
+  Payment: mongoose.model('Payment', paymentSchema),
   PaymentMethod,
-  PaymentStatus
+  PaymentStatus,
+  PaymentType
 };

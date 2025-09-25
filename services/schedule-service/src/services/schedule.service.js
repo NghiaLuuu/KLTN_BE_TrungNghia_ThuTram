@@ -2,6 +2,7 @@ const scheduleRepo = require('../repositories/schedule.repository');
 const slotRepo = require('../repositories/slot.repository');
 const redisClient = require('../utils/redis.client');
 const cfgService = require('./scheduleConfig.service');
+const { publishToQueue } = require('../utils/rabbitClient');
 
 // Helper: Get Vietnam timezone date
 function getVietnamDate() {
@@ -67,13 +68,21 @@ function getQuarterVNDateStrings(quarter, year) {
   return { startDateVN: toDateOnly(startVN), endDateVN: toDateOnly(endVN) };
 }
 
-// Helper: Get all rooms from Redis cache (rooms_cache)
+// Helper: Get all active rooms from Redis cache (rooms_cache)
 async function getAllRooms() {
   try {
     const cached = await redisClient.get('rooms_cache');
     if (!cached) return [];
-    const rooms = JSON.parse(cached);
-    return rooms || [];
+    const allRooms = JSON.parse(cached);
+    
+    // ✅ Chỉ lấy rooms đang hoạt động và có autoScheduleEnabled = true
+    const activeRooms = (allRooms || []).filter(room => 
+      room.isActive === true && 
+      room.autoScheduleEnabled !== false // default true nếu không có field này
+    );
+    
+    console.log(`📋 Found ${activeRooms.length} active rooms out of ${allRooms.length} total rooms`);
+    return activeRooms;
   } catch (error) {
     console.error('Failed to read rooms_cache from redis:', error);
     throw new Error('Không thể lấy danh sách phòng từ cache');
@@ -223,6 +232,40 @@ async function generateQuarterSchedule(quarter, year) {
     const successCount = results.filter(r => r.success).length;
     if (successCount > 0) {
       await cfgService.markQuarterGenerated(quarter, year);
+      
+      // 🆕 Mark all successfully scheduled rooms as used
+      try {
+        const successfulResults = results.filter(r => r.success);
+        console.log(`📋 Marking ${successfulResults.length} successfully scheduled rooms as used`);
+        
+        for (const result of successfulResults) {
+          const roomId = result.roomId;
+          
+          // Find the original room data to check for subrooms
+          const originalRoom = rooms.find(r => r._id.toString() === roomId.toString());
+          
+          if (originalRoom) {
+            // Mark main room as used
+            await markMainRoomAsUsed(roomId);
+            
+            // Mark subrooms as used if applicable
+            if (originalRoom.hasSubRooms && originalRoom.subRooms && originalRoom.subRooms.length > 0) {
+              const activeSubRoomIds = originalRoom.subRooms
+                .filter(subRoom => subRoom.isActive)
+                .map(subRoom => subRoom._id);
+              
+              if (activeSubRoomIds.length > 0) {
+                await markSubRoomsAsUsed(roomId, activeSubRoomIds);
+              }
+            }
+          }
+        }
+        
+        console.log(`✅ Successfully marked all scheduled rooms as used`);
+      } catch (markError) {
+        console.error('⚠️ Failed to mark some rooms as used:', markError);
+        // Don't fail the entire operation due to room marking errors
+      }
     }
 
     const { startDateUTC, endDateUTC } = getQuarterUTCDates(quarter, year);
@@ -245,8 +288,139 @@ async function generateQuarterSchedule(quarter, year) {
   }
 }
 
+// ✅ Generate quarter schedule for a single room (for auto-schedule)
+// Uses EXACT same logic as generateQuarterSchedule but for one room only
+async function generateQuarterScheduleForSingleRoom(roomId, quarter, year) {
+  try {
+    const config = await cfgService.getConfig();
+    if (!config) {
+      throw new Error('Chưa có cấu hình hệ thống');
+    }
+
+    // Validate quarter
+    if (quarter < 1 || quarter > 4) {
+      throw new Error('Quý phải từ 1 đến 4');
+    }
+
+    // Get quarter date range (local VN for internal calculation)
+    let { startDate, endDate } = getQuarterDateRange(quarter, year);
+    const originalStartDate = new Date(startDate);
+    const originalEndDate = new Date(endDate);
+
+    // Hard guard: if any schedules already exist for this quarter AND room, block duplicate
+    const existingInQuarter = await scheduleRepo.findByRoomAndDateRange(roomId, originalStartDate, originalEndDate);
+    if (existingInQuarter && existingInQuarter.length > 0) {
+      throw new Error(`Room ${roomId} already has schedules for Q${quarter}/${year}. Cannot recreate.`);
+    }
+
+    // If the requested quarter has fully ended before now (VN), block generation
+    const nowVN = getVietnamDate();
+    if (endDate < nowVN) {
+      throw new Error(`Cannot create schedule for Q${quarter}/${year} as it has already ended (VN time)`);
+    }
+
+    // If current quarter, start from the NEXT day (VN), not from today or the 1st
+    const current = getQuarterInfo();
+    if (year === current.year && quarter === current.quarter) {
+      const startNextDay = new Date(
+        nowVN.getFullYear(),
+        nowVN.getMonth(),
+        nowVN.getDate() + 1,
+        0, 0, 0, 0
+      );
+      if (startNextDay > startDate) startDate = startNextDay;
+    }
+    
+    // Validate: không tạo lịch quá trong quá khứ
+    const currentQuarter = getQuarterInfo();
+    if (year < currentQuarter.year || (year === currentQuarter.year && quarter < currentQuarter.quarter)) {
+      throw new Error('Không thể tạo lịch cho quý trong quá khứ');
+    }
+
+    // Get room from cache
+    const rooms = await getAllRooms();
+    const room = rooms.find(r => r._id.toString() === roomId.toString());
+    if (!room) {
+      throw new Error(`Không tìm thấy phòng ${roomId}`);
+    }
+    
+    if (!room.isActive) {
+      throw new Error(`Phòng ${roomId} hiện không hoạt động`);
+    }
+    
+    if (room.autoScheduleEnabled === false) {
+      throw new Error(`Phòng ${roomId} đã tắt tính năng tự động tạo lịch`);
+    }
+
+    // Generate schedule for the single room using same logic
+    const roomSchedules = await generateScheduleForRoom(room, startDate, endDate, config);
+    
+    if (roomSchedules.length === 0) {
+      throw new Error(`Không thể tạo lịch nào cho phòng ${roomId} trong Q${quarter}/${year}`);
+    }
+
+    // Mark room as used (same as manual generation)
+    try {
+      console.log(`📋 Marking room ${roomId} as used after auto-generation`);
+      
+      // Mark main room as used
+      await markMainRoomAsUsed(roomId);
+      
+      // Mark subrooms as used if applicable
+      if (room.hasSubRooms && room.subRooms && room.subRooms.length > 0) {
+        const activeSubRoomIds = room.subRooms
+          .filter(subRoom => subRoom.isActive)
+          .map(subRoom => subRoom._id);
+        
+        if (activeSubRoomIds.length > 0) {
+          await markSubRoomsAsUsed(roomId, activeSubRoomIds);
+        }
+      }
+      
+      console.log(`✅ Successfully marked room ${roomId} as used`);
+    } catch (markError) {
+      console.error(`⚠️ Failed to mark room ${roomId} as used:`, markError);
+      // Don't fail the entire operation due to room marking errors
+    }
+
+    const { startDateUTC, endDateUTC } = getQuarterUTCDates(quarter, year);
+    const { startDateVN, endDateVN } = getQuarterVNDateStrings(quarter, year);
+
+    return {
+      quarter,
+      year,
+      roomId,
+      roomName: room.name,
+      startDate: startDateUTC,
+      endDate: endDateUTC,
+      startDateVN,
+      endDateVN,
+      scheduleCount: roomSchedules.length,
+      success: true,
+      message: `Successfully generated ${roomSchedules.length} schedules for Q${quarter}/${year}`
+    };
+    
+  } catch (error) {
+    throw new Error(`Failed to generate Q${quarter}/${year} for room ${roomId}: ${error.message}`);
+  }
+}
+
 // Generate schedule for a specific room
 async function generateScheduleForRoom(room, startDate, endDate, config) {
+  // ✅ Kiểm tra room có đang hoạt động không
+  if (!room.isActive) {
+    console.log(`⚠️ Skipping room ${room.name} (ID: ${room._id}) - not active`);
+    return [];
+  }
+
+  // ✅ Kiểm tra room có cho phép tự động tạo lịch không
+  if (room.autoScheduleEnabled === false) {
+    console.log(`⚠️ Skipping room ${room.name} (ID: ${room._id}) - auto schedule disabled`);
+    return [];
+  }
+
+  console.log(`📅 Generating schedule for active room: ${room.name} (ID: ${room._id})`);
+
   const schedules = [];
   const currentDate = new Date(startDate);
   // Enforce start from next VN day at this layer too, in case caller passed earlier date
@@ -272,7 +446,9 @@ async function generateScheduleForRoom(room, startDate, endDate, config) {
       
       if (!existingSchedule) {
         const schedule = await createDailySchedule(room, new Date(currentDate), config);
-        schedules.push(schedule);
+        if (schedule) { // Chỉ push nếu schedule được tạo thành công
+          schedules.push(schedule);
+        }
       }
     }
     
@@ -284,18 +460,26 @@ async function generateScheduleForRoom(room, startDate, endDate, config) {
 
 // Create daily schedule for a room
 async function createDailySchedule(room, date, config) {
-  // Get work shifts
-  const workShifts = config.getWorkShifts();
+  // Get work shifts - chỉ lấy các shift đang hoạt động
+  const allWorkShifts = config.getWorkShifts();
+  const activeWorkShifts = allWorkShifts.filter(shift => shift.isActive === true);
+  
+  if (activeWorkShifts.length === 0) {
+    console.log(`⚠️ No active work shifts found for room ${room.name} on ${toVNDateOnlyString(date)}`);
+    return null; // Không tạo schedule nếu không có shift nào hoạt động
+  }
+  
+  console.log(`📅 Creating daily schedule for room ${room.name} on ${toVNDateOnlyString(date)} with ${activeWorkShifts.length} active shifts`);
   
   const schedule = {
     roomId: room._id,
     // Persist exact Vietnam calendar date string only
     dateVNStr: toVNDateOnlyString(date),
-    workShifts: workShifts.map(shift => ({
+    workShifts: activeWorkShifts.map(shift => ({
       name: shift.name,
       startTime: shift.startTime,
       endTime: shift.endTime,
-      isActive: shift.isActive
+      isActive: shift.isActive // Should all be true since we filtered above
     })),
     isActive: true,
     createdAt: getVietnamDate()
@@ -357,8 +541,12 @@ function generateSlotsForShift(schedule, room, shift, config) {
         const slotEndUTC = new Date(slotEndMillis);
         // Create slot for each active subroom
         room.subRooms.forEach(subRoom => {
-          if (subRoom.isActive !== false) {
+          // ✅ Chỉ tạo slot cho subroom đang hoạt động
+          if (subRoom.isActive === true) {
             slots.push(createSlotData(schedule, room, subRoom, shift, slotStartUTC, slotEndUTC));
+            console.log(`📅 Created slot for active subroom: ${subRoom.name} (ID: ${subRoom._id}) in room ${room.name}`);
+          } else {
+            console.log(`⚠️ Skipped slot for inactive subroom: ${subRoom.name} (ID: ${subRoom._id}) in room ${room.name}`);
           }
         });
       }
@@ -536,6 +724,7 @@ async function getQuarterStatus(quarter, year) {
 
 module.exports = {
   generateQuarterSchedule,
+  generateQuarterScheduleForSingleRoom,
   generateScheduleForRoom,
   getAvailableQuarters,
   getSchedulesByRoom,
@@ -543,7 +732,9 @@ module.exports = {
   getQuarterStatus,
   getQuarterInfo,
   getVietnamDate,
-  getQuarterDateRange
+  getQuarterDateRange,
+  hasScheduleForPeriod,
+  getQuarterAnalysisForRoom
 };
 
 // 🔧 Check conflict chung
@@ -779,6 +970,20 @@ exports.createSchedule = async (data) => {
       data.endDate
     );
     allSlotIds = allSlotIds.concat(slotIds);
+  }
+
+  // 🔹 NEW: Mark any holidays in this date range as used
+  try {
+    const overlappingHolidays = await cfgService.checkHolidaysUsedInDateRange(data.startDate, data.endDate);
+    for (const holiday of overlappingHolidays) {
+      await cfgService.markHolidayAsUsed(holiday._id);
+    }
+    if (overlappingHolidays.length > 0) {
+      console.log(`📅 Đã đánh dấu ${overlappingHolidays.length} holidays đã được sử dụng trong lịch mới`);
+    }
+  } catch (error) {
+    console.error('Error marking holidays as used:', error);
+    // Don't fail schedule creation if holiday marking fails
   }
 
   // slots are stored in Slot collection; do not persist slot IDs on schedule
@@ -1548,12 +1753,34 @@ exports.createQuarterlySchedule = async (data) => {
   // Đánh dấu quý đã được tạo
   await cfgService.markQuarterGenerated(quarter, year);
 
+  // Đánh dấu phòng đã được sử dụng (bao gồm cả subrooms nếu có)
+  try {
+    // Always mark the main room as used
+    await markMainRoomAsUsed(room._id);
+    
+    // If room has subrooms, mark them as used too
+    if (room.hasSubRooms && room.subRooms && room.subRooms.length > 0) {
+      const activeSubRoomIds = room.subRooms
+        .filter(subRoom => subRoom.isActive)
+        .map(subRoom => subRoom._id);
+      
+      if (activeSubRoomIds.length > 0) {
+        await markSubRoomsAsUsed(room._id, activeSubRoomIds);
+      }
+    }
+    
+    console.log('✅ Successfully initiated room usage marking for room:', room._id.toString());
+  } catch (markError) {
+    console.error('⚠️ Failed to mark rooms as used, but continuing with schedule generation:', markError);
+    // Don't fail the entire schedule generation due to room marking error
+  }
+
   return {
     schedule,
     quarter,
     year,
     slotCount: allSlotIds.length,
-    message: `Đã tạo thành công lịch quý ${quarter}/${year} cho phòng ${room.name}`
+    message: `Đá tạo thành công lịch quý ${quarter}/${year} cho phòng ${room.name}`
   };
 };
 
@@ -1572,6 +1799,185 @@ exports.getQuarterInfo = async () => {
     canGenerateNext: config.canGenerateQuarter(nextQuarter, nextYear)
   };
 };
+
+/**
+ * Mark main room as used by sending RabbitMQ events to room service
+ * @param {string} roomId - Room ID to mark as used
+ */
+const markMainRoomAsUsed = async (roomId) => {
+  try {
+    if (!roomId) {
+      console.log('⚠️ No roomId provided to markMainRoomAsUsed');
+      return;
+    }
+
+    const roomIdString = roomId.toString();
+    console.log(`📤 Marking main room as used: ${roomIdString}`);
+
+    await publishToQueue('room_queue', {
+      action: 'markRoomAsUsed',
+      payload: {
+        roomId: roomIdString
+      }
+    });
+    
+    console.log(`✅ Sent markRoomAsUsed for main roomId: ${roomIdString}`);
+  } catch (error) {
+    console.error('❌ Error marking main room as used:', error);
+  }
+};
+
+/**
+ * Mark subrooms as used by sending RabbitMQ events to room service
+ * @param {string} mainRoomId - Main room ID
+ * @param {Array} subRoomIds - Array of subroom IDs to mark as used
+ */
+const markSubRoomsAsUsed = async (mainRoomId, subRoomIds) => {
+  try {
+    if (!subRoomIds || subRoomIds.length === 0) {
+      console.log('⚠️ No subRoomIds provided to markSubRoomsAsUsed');
+      return;
+    }
+
+    const mainRoomIdString = mainRoomId.toString();
+    const uniqueSubRoomIds = [...new Set(subRoomIds.map(id => id.toString()))];
+
+    console.log(`📤 Marking ${uniqueSubRoomIds.length} subrooms as used for room ${mainRoomIdString}:`, uniqueSubRoomIds);
+
+    // Send event for each subroom to mark as used
+    for (const subRoomId of uniqueSubRoomIds) {
+      await publishToQueue('room_queue', {
+        action: 'markSubRoomAsUsed',
+        payload: {
+          roomId: mainRoomIdString,
+          subRoomId: subRoomId
+        }
+      });
+      
+      console.log(`📤 Sent markSubRoomAsUsed for subRoomId: ${subRoomId} in room: ${mainRoomIdString}`);
+    }
+
+    console.log(`✅ Successfully marked ${uniqueSubRoomIds.length} subrooms as used via RabbitMQ`);
+  } catch (error) {
+    console.error('❌ Error marking subrooms as used:', error);
+  }
+};
+
+// Check if a room has schedules for a specific period
+async function hasScheduleForPeriod(roomId, startDate, endDate) {
+  try {
+    const schedules = await scheduleRepo.findByRoomAndDateRange(roomId, startDate, endDate);
+    return schedules && schedules.length > 0;
+  } catch (error) {
+    console.error('Error checking schedule for period:', error);
+    return false; // Return false on error to be safe
+  }
+}
+
+// Get detailed quarter analysis for a room (only check from current date forward)
+async function getQuarterAnalysisForRoom(roomId, quarter, year, fromDate = new Date()) {
+  try {
+    // Get all months in this quarter
+    const startMonth = (quarter - 1) * 3 + 1; // 1, 4, 7, 10
+    const months = [startMonth, startMonth + 1, startMonth + 2];
+    
+    // Filter months to only check from current date forward
+    const currentDate = new Date(fromDate);
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = currentDate.getMonth() + 1; // 1-based
+    
+    const relevantMonths = months.filter(month => {
+      if (year > currentYear) return true; // Future year - check all months
+      if (year < currentYear) return false; // Past year - skip all months
+      
+      // Same year logic
+      if (month > currentMonth) return true; // Future months
+      if (month < currentMonth) return false; // Past months
+      
+      // Current month - skip if after day 28 (considered "too late")
+      const currentDay = currentDate.getDate();
+      return currentDay < 28; // Only check current month if before day 28
+    });
+    
+    console.log(`📅 Checking Q${quarter}/${year} from ${currentMonth}/${currentYear} - Relevant months:`, relevantMonths);
+    
+    const monthStatus = {};
+    const scheduleDetails = [];
+    let totalSchedules = 0;
+
+    for (const month of months) {
+      if (!relevantMonths.includes(month)) {
+        // Skip past months - mark as "past"
+        monthStatus[month] = 'past';
+        continue;
+      }
+      
+      // Check schedules for this specific month
+      const monthStart = new Date(year, month - 1, 1);
+      const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+      
+      const monthSchedules = await scheduleRepo.findByRoomAndDateRange(roomId, monthStart, monthEnd);
+
+      const hasSchedules = monthSchedules && monthSchedules.length > 0;
+      monthStatus[month] = hasSchedules;
+      totalSchedules += monthSchedules ? monthSchedules.length : 0;
+
+      if (hasSchedules) {
+        scheduleDetails.push({
+          month,
+          scheduleCount: monthSchedules.length,
+          dateRange: {
+            start: monthSchedules[0]?.startDate,
+            end: monthSchedules[monthSchedules.length - 1]?.endDate
+          }
+        });
+      }
+    }
+
+    // Determine quarter status based only on relevant (future) months
+    const completedRelevantMonths = relevantMonths.filter(month => monthStatus[month] === true).length;
+    const totalRelevantMonths = relevantMonths.length;
+    
+    const isComplete = totalRelevantMonths > 0 && completedRelevantMonths === totalRelevantMonths;
+    const isPartial = completedRelevantMonths > 0 && completedRelevantMonths < totalRelevantMonths;
+    const isEmpty = completedRelevantMonths === 0 && totalRelevantMonths > 0;
+
+    // Special case: if no relevant months (all past), consider complete
+    const allPastMonths = totalRelevantMonths === 0;
+
+    return {
+      quarter: `Q${quarter}/${year}`,
+      months: monthStatus,
+      relevantMonths,
+      completedRelevantMonths,
+      totalRelevantMonths,
+      allPastMonths,
+      isComplete: isComplete || allPastMonths,
+      isPartial,
+      isEmpty,
+      totalSchedules,
+      scheduleDetails,
+      status: allPastMonths ? 'past' : isComplete ? 'complete' : isPartial ? 'partial' : 'empty',
+      message: allPastMonths
+        ? `Q${quarter}/${year} đã qua - không cần kiểm tra`
+        : isComplete 
+        ? `Đã có đủ lịch cho ${totalRelevantMonths} tháng còn lại trong Q${quarter}/${year}`
+        : isPartial 
+        ? `Đã có lịch cho ${completedRelevantMonths}/${totalRelevantMonths} tháng còn lại trong Q${quarter}/${year}`
+        : `Chưa có lịch nào cho ${totalRelevantMonths} tháng còn lại trong Q${quarter}/${year}`
+    };
+  } catch (error) {
+    console.error('Error getting quarter analysis:', error);
+    return {
+      quarter: `Q${quarter}/${year}`,
+      status: 'error',
+      message: `Lỗi kiểm tra lịch cho Q${quarter}/${year}: ${error.message}`,
+      isComplete: false,
+      isPartial: false,
+      isEmpty: true
+    };
+  }
+}
 
 
 

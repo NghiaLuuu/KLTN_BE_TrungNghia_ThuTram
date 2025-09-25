@@ -4,7 +4,9 @@ const connectDB = require('./config/db');
 const scheduleRoutes = require('./routes/schedule.route');
 const slotRoutes = require('./routes/slot.route');
 const scheduleConfigRoutes = require('./routes/scheduleConfig.route');
+const autoScheduleRoutes = require('./routes/autoSchedule.route');
 const startRpcServer = require('./utils/rpcServer');
+const CronJobManager = require('./utils/cronJobs');
 const cors = require('cors');
 
 dotenv.config();
@@ -21,8 +23,13 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/schedule', scheduleRoutes);
 app.use('/api/slot', slotRoutes);
 app.use('/api/schedule/config', scheduleConfigRoutes);
+app.use('/api/auto-schedule', autoScheduleRoutes);
 
 startRpcServer();
+
+// Initialize cron jobs for auto-schedule
+CronJobManager.init();
+
 // Server
 
 

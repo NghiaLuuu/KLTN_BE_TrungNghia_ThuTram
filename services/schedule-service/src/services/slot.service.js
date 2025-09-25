@@ -1,5 +1,20 @@
 const slotRepo = require('../repositories/slot.repository');
 const redisClient = require('../utils/redis.client');
+const { publishToQueue } = require('../utils/rabbitClient');
+
+// Helper: Check if user already marked as used in cache
+async function isUserAlreadyUsed(userId) {
+  try {
+    const cached = await redisClient.get('users_cache');
+    if (!cached) return false;
+    const users = JSON.parse(cached);
+    const user = users.find(u => u._id === userId);
+    return user && user.hasBeenUsed === true;
+  } catch (error) {
+    console.warn('Failed to check user cache:', error.message);
+    return false; // If cache fails, proceed with marking
+  }
+}
 
 // Helper: Get Vietnam timezone date
 function getVietnamDate() {
@@ -18,6 +33,67 @@ async function getRoomInfo(roomId) {
     return room;
   } catch (error) {
     throw new Error(`Không thể lấy thông tin phòng: ${error.message}`);
+  }
+}
+
+// Helper: Mark entities as used when assigned to slots
+async function markEntitiesAsUsed({ roomId, subRoomId, dentistIds, nurseIds }) {
+  try {
+    // Mark room as used via RabbitMQ
+    if (roomId) {
+      await publishToQueue('room_queue', {
+        action: 'markRoomAsUsed',
+        payload: { roomId }
+      });
+      console.log(`📤 Sent markRoomAsUsed message for room ${roomId}`);
+    }
+    
+    // Mark subRoom as used via RabbitMQ
+    if (subRoomId) {
+      await publishToQueue('room_queue', {
+        action: 'markSubRoomAsUsed',
+        payload: { roomId, subRoomId }
+      });
+      console.log(`📤 Sent markSubRoomAsUsed message for subRoom ${subRoomId}`);
+    }
+    
+    // Mark staff as used via RabbitMQ (check cache first)
+    for (const dentistId of dentistIds) {
+      if (dentistId) {
+        // Check cache first to avoid unnecessary updates
+        const alreadyUsed = await isUserAlreadyUsed(dentistId);
+        if (alreadyUsed) {
+          console.log(`⚡ Skipping dentist ${dentistId} - already marked as used in cache`);
+          continue;
+        }
+        
+        await publishToQueue('auth_queue', {
+          action: 'markUserAsUsed',
+          payload: { userId: dentistId }
+        });
+        console.log(`📤 Sent markUserAsUsed message for dentist ${dentistId}`);
+      }
+    }
+    
+    for (const nurseId of nurseIds) {
+      if (nurseId) {
+        // Check cache first to avoid unnecessary updates
+        const alreadyUsed = await isUserAlreadyUsed(nurseId);
+        if (alreadyUsed) {
+          console.log(`⚡ Skipping nurse ${nurseId} - already marked as used in cache`);
+          continue;
+        }
+        
+        await publishToQueue('auth_queue', {
+          action: 'markUserAsUsed',
+          payload: { userId: nurseId }
+        });
+        console.log(`📤 Sent markUserAsUsed message for nurse ${nurseId}`);
+      }
+    }
+  } catch (error) {
+    console.warn('⚠️ Failed to mark entities as used:', error.message);
+    // Don't throw error - this is non-critical for slot assignment
   }
 }
 
@@ -164,6 +240,9 @@ async function assignStaffToSlots({
 
       await slotRepo.updateManySlots(queryFilter, updateData);
       updatedSlots = await slotRepo.find(queryFilter);
+      
+      // 🔄 Mark entities as used when successfully assigned
+      await markEntitiesAsUsed({ roomId, subRoomId, dentistIds, nurseIds });
     }
     
     // Clear cache - best effort
@@ -254,6 +333,13 @@ async function updateSlotStaff({ slotIds, dentistId, nurseId }) {
 
     await slotRepo.updateManySlots({ _id: { $in: slotIds } }, updateData);
     const updated = await slotRepo.find({ _id: { $in: slotIds } });
+
+    // 🔄 Mark entities as used when successfully assigned
+    const roomId = updated[0]?.roomId; // Get roomId from first slot
+    const subRoomId = updated[0]?.subRoomId; // Get subRoomId from first slot
+    const markDentistIds = dentistId ? [dentistId] : [];
+    const markNurseIds = nurseId ? [nurseId] : [];
+    await markEntitiesAsUsed({ roomId, subRoomId, dentistIds: markDentistIds, nurseIds: markNurseIds });
 
     // Clear cache for affected rooms/days (best effort)
     try {

@@ -168,9 +168,11 @@ exports.addHoliday = async (req, res) => {
       data: holiday
     });
   } catch (error) {
+    console.error('Error adding holiday:', error);
     res.status(400).json({
       success: false,
-      message: error.message
+      message: error.message,
+      type: error.message.includes('lịch đã được sử dụng') ? 'SLOTS_IN_USE' : 'VALIDATION_ERROR'
     });
   }
 };
@@ -199,9 +201,11 @@ exports.removeHoliday = async (req, res) => {
       message: 'Ngày nghỉ đã được xóa thành công'
     });
   } catch (error) {
+    console.error('Error removing holiday:', error);
     res.status(400).json({
       success: false,
-      message: error.message
+      message: error.message,
+      type: error.message.includes('đã được sử dụng') ? 'HOLIDAY_IN_USE' : 'VALIDATION_ERROR'
     });
   }
 };
@@ -237,6 +241,11 @@ exports.updateHoliday = async (req, res) => {
     const updated = await cfgService.updateHolidayById(holidayId, updates);
     res.json({ success: true, message: 'Cập nhật kỳ nghỉ thành công', data: updated });
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    console.error('Error updating holiday:', error);
+    res.status(400).json({ 
+      success: false, 
+      message: error.message,
+      type: error.message.includes('lịch đã được sử dụng') ? 'SLOTS_IN_USE' : 'VALIDATION_ERROR'
+    });
   }
 };

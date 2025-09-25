@@ -1,29 +1,59 @@
 {
-  "name": "room-service",
+  "name": "invoice-service",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "Comprehensive Invoice Management Service with Payment Integration for Dental Clinic System",
+  "main": "src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "nodemon src/index.js"
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "keywords": [
+    "invoice", 
+    "payment", 
+    "dental-clinic", 
+    "microservice", 
+    "nodejs", 
+    "mongodb", 
+    "redis", 
+    "rabbitmq"
+  ],
+  "author": "Dental Clinic System Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
   "dependencies": {
-    "amqplib": "^0.10.8",
-    "axios": "^1.11.0",
-    "body-parser": "^2.2.0",
+    "express": "^4.18.2",
+    "mongoose": "^8.0.3",
+    "redis": "^4.6.10",
+    "amqplib": "^0.10.3",
     "cors": "^2.8.5",
-    "crypto": "^1.0.1",
-    "dateformat": "^5.0.3",
-    "dotenv": "^17.2.1",
-    "express": "^5.1.0",
+    "helmet": "^7.1.0",
+    "compression": "^1.7.4",
+    "dotenv": "^16.3.1",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.17.0",
-    "redis": "^5.8.0"
+    "express-validator": "^7.0.1",
+    "bcryptjs": "^2.4.3",
+    "moment": "^2.29.4",
+    "lodash": "^4.17.21",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
-  }
+    "nodemon": "^3.0.2",
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3",
+    "eslint": "^8.55.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dental-clinic/invoice-service.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dental-clinic/invoice-service/issues"
+  },
+  "homepage": "https://github.com/dental-clinic/invoice-service#readme"
 }
