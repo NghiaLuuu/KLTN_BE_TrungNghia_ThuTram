@@ -13,7 +13,7 @@ async function connectRabbit() {
 
 async function publishToQueue(queue, message) {
   const ch = await connectRabbit();
-  await ch.assertQueue(queue, { durable: false });
+  await ch.assertQueue(queue, { durable: true });
   ch.sendToQueue(queue, Buffer.from(JSON.stringify(message)), { persistent: true });
 }
 

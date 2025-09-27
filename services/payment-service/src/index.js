@@ -1,6 +1,6 @@
+﻿// Load environment variables first
 const dotenv = require('dotenv');
 dotenv.config();
-
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -10,6 +10,8 @@ const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/db');
 const paymentRoutes = require('./routes/payment.route');
 const startRpcServer = require('./utils/rpcServer');
+
+connectDB();
 const redis = require('./utils/redis.client');
 
 // Initialize Express app
@@ -247,3 +249,4 @@ process.on('SIGINT', () => {
 });
 
 module.exports = app;
+

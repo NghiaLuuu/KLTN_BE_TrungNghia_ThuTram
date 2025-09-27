@@ -1,9 +1,11 @@
 const mongoose = require('mongoose');
-const config = require('./index');
 
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(config.MONGO_URI, {
+    const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/KLTN';
+    console.log('🔧 Payment Service - MongoDB URI:', mongoUri);
+    
+    const conn = await mongoose.connect(mongoUri, {
       maxPoolSize: 10, // Maintain up to 10 socket connections
       serverSelectionTimeoutMS: 5000, // Keep trying to send operations for 5 seconds
       socketTimeoutMS: 45000 // Close sockets after 45 seconds of inactivity

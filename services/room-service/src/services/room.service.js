@@ -4,7 +4,7 @@ const {publishToQueue} = require('../utils/rabbitClient')
 const ROOM_CACHE_KEY = 'rooms_cache';
 
 async function initRoomCache() {
-  const rooms = await roomRepo.listRooms();
+  const rooms = await roomRepo.getAllRooms();
   await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms));
   console.log(`✅ Đã tải bộ nhớ đệm phòng: ${rooms.length} phòng`);
 }
@@ -319,7 +319,7 @@ exports.deleteSubRoom = async (roomId, subRoomId) => {
 
 
 async function refreshRoomCache() {
-  const rooms = await roomRepo.listRooms();
+  const rooms = await roomRepo.getAllRooms();
   await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms));
   console.log(`♻ Đã làm mới bộ nhớ đệm phòng: ${rooms.length} phòng`);
 }

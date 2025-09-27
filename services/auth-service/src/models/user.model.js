@@ -37,12 +37,6 @@ const userSchema = new Schema({
     enum: ['admin', 'dentist', 'nurse', 'receptionist', 'patient', 'manager'],
     required: true,
   },
-  type: {
-    type: String,
-    enum: ['fullTime', 'partTime'],
-    default: "fullTime",
-    required: false,
-  },
   email: {
     type: String,
     unique: true,

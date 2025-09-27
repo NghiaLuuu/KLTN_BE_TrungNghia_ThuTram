@@ -9,6 +9,9 @@ router.post('/quarter', authMiddleware, scheduleController.generateQuarterSchedu
 // Get available quarters 
 router.get('/quarters/available', scheduleController.getAvailableQuarters);
 
+// Check quarters status for a room
+router.get('/room/:roomId/quarters/status', scheduleController.checkQuartersStatus);
+
 // Get quarter status
 router.get('/quarter/status', scheduleController.getQuarterStatus);
 

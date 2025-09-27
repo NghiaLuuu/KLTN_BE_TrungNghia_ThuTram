@@ -1,7 +1,9 @@
+﻿// Load environment variables first
 const dotenv = require('dotenv');
+dotenv.config();
 // ✅ Load .env ngay từ đầu
 const cors = require('cors');
-dotenv.config();
+
 
 const express = require('express');
 const connectDB = require('./config/db');
@@ -9,9 +11,9 @@ const recordRoutes = require('./routes/record.routes');
 
 const startRpcServer = require('./utils/rpcServer');
 
-// ✅ Kết nối DB
 connectDB();
 
+// ✅ Kết nối DB
 const app = express();
 app.use(express.json());
 app.use(cors({
@@ -33,3 +35,4 @@ const PORT = process.env.PORT || 3010;
 app.listen(PORT, () => {
   console.log(`🚀 Record service running on port ${PORT}`);
 });
+

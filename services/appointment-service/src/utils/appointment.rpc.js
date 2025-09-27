@@ -5,7 +5,16 @@ async function setupAppointmentRPC() {
   const ch = getChannel();
   const queueName = 'appointment_queue';
 
-  await ch.assertQueue(queueName, { durable: false });
+  try {
+    await ch.deleteQueue(queueName);
+    console.log(`♻️ Refreshing RabbitMQ queue ${queueName} before asserting`);
+  } catch (err) {
+    if (err?.code !== 404) {
+      console.warn(`⚠️ Could not delete queue ${queueName} during refresh:`, err.message || err);
+    }
+  }
+
+  await ch.assertQueue(queueName, { durable: true });
   console.log(`📥 [Appointment Service] Listening RPC on: ${queueName}`);
 
   ch.consume(queueName, async (msg) => {

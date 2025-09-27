@@ -12,6 +12,7 @@ const {
 const userRepo = require('../repositories/user.repository');
 
 const OTP_EXPIRE_SECONDS = 5 * 60; // 5 phút
+const OTP_VERIFIED_EXPIRE_SECONDS = 10 * 60; // 10 phút để hoàn tất đăng ký sau khi xác thực
 
 // Gửi OTP đăng ký
 exports.sendOtpRegister = async (email) => {
@@ -51,14 +52,23 @@ exports.verifyOtp = async (email, code, type) => {
   return true;
 };
 
+// Xác thực OTP đăng ký và lưu trạng thái đã xác thực
+exports.verifyOtpRegister = async (email, code) => {
+  await exports.verifyOtp(email, code, 'register');
+
+  const verifiedKey = `otp:register:verified:${email}`;
+  await redis.set(verifiedKey, 'true', { EX: OTP_VERIFIED_EXPIRE_SECONDS });
+
+  return { message: 'Xác thực OTP thành công' };
+};
+
 // Đăng ký
 exports.register = async (data) => {
-  const { email, phone, password, confirmPassword, role, otp, ...rest } = data;
+  const { email, phone, password, confirmPassword, role, ...rest } = data;
 
   if (!email) throw new Error('Thiếu email');
   if (!password) throw new Error('Thiếu mật khẩu');
   if (!confirmPassword) throw new Error('Thiếu mật khẩu xác nhận');
-  if (!otp) throw new Error('Thiếu mã OTP');
 
   if (password.length < 8 || password.length > 16) {
     throw new Error('Mật khẩu phải có độ dài từ 8 đến 16 ký tự');
@@ -76,7 +86,11 @@ exports.register = async (data) => {
   if (existingEmail) throw new Error('Email đã được sử dụng');
   if (existingPhone) throw new Error('Số điện thoại đã được sử dụng');
 
-  await exports.verifyOtp(email, otp, 'register');
+  const verifiedKey = `otp:register:verified:${email}`;
+  const isVerified = await redis.get(verifiedKey);
+  if (!isVerified) {
+    throw new Error('Email chưa được xác thực OTP');
+  }
 
   const hashedPassword = await bcrypt.hash(password, 10);
   const user = new (require('../models/user.model'))({
@@ -89,6 +103,7 @@ exports.register = async (data) => {
 
   const savedUser = await user.save();
   await refreshUserCache(); // Cập nhật cache ngay sau khi đăng ký
+  await redis.del(verifiedKey);
 
   return savedUser;
 };

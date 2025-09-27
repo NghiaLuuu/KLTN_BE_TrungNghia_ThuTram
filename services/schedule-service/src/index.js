@@ -1,16 +1,18 @@
-const express = require('express');
+﻿// Load environment variables first
 const dotenv = require('dotenv');
+dotenv.config();
+const express = require('express');
 const connectDB = require('./config/db');
 const scheduleRoutes = require('./routes/schedule.route');
 const slotRoutes = require('./routes/slot.route');
 const scheduleConfigRoutes = require('./routes/scheduleConfig.route');
 const autoScheduleRoutes = require('./routes/autoSchedule.route');
 const startRpcServer = require('./utils/rpcServer');
+
+connectDB();
 const CronJobManager = require('./utils/cronJobs');
 const cors = require('cors');
 
-dotenv.config();
-connectDB();
 
 const app = express();
 app.use(express.json());
@@ -37,3 +39,4 @@ const PORT = process.env.PORT || 3005;
 app.listen(PORT, () => {
   console.log(`Schedule service running on port ${PORT}`);
 });
+

@@ -48,6 +48,55 @@ exports.getAvailableQuarters = async (req, res) => {
       success: true,
       data: quarters
     });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Không thể lấy danh sách quý' 
+    });
+  }
+};
+
+// Check quarters status for a specific room
+exports.checkQuartersStatus = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { year } = req.query;
+    
+    if (!roomId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Room ID là bắt buộc'
+      });
+    }
+    
+    const currentYear = year ? parseInt(year) : new Date().getFullYear();
+    const quarters = [1, 2, 3, 4];
+    const quartersStatus = [];
+    
+    for (const quarter of quarters) {
+      const analysis = await scheduleService.getQuarterAnalysisForRoom(roomId, quarter, currentYear);
+      quartersStatus.push({
+        quarter,
+        year: currentYear,
+        ...analysis
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        roomId,
+        year: currentYear,
+        quarters: quartersStatus,
+        summary: {
+          totalQuarters: quarters.length,
+          quartersWithSchedules: quartersStatus.filter(q => q.hasAnySchedule).length,
+          completeQuarters: quartersStatus.filter(q => q.isComplete).length,
+          partialQuarters: quartersStatus.filter(q => q.isPartial).length,
+          emptyQuarters: quartersStatus.filter(q => q.isEmpty).length
+        }
+      }
+    });
     
   } catch (error) {
     res.status(500).json({ 
@@ -161,8 +210,9 @@ exports.getQuarterStatus = async (req, res) => {
 module.exports = {
   generateQuarterSchedule: exports.generateQuarterSchedule,
   getAvailableQuarters: exports.getAvailableQuarters,
+  checkQuartersStatus: exports.checkQuartersStatus,
   getSchedulesByRoom: exports.getSchedulesByRoom,
   getSchedulesByDateRange: exports.getSchedulesByDateRange,
-  getQuarterStatus: exports.getQuarterStatus
-    , toggleScheduleActive: exports.toggleScheduleActive
+  getQuarterStatus: exports.getQuarterStatus,
+  toggleScheduleActive: exports.toggleScheduleActive
 };

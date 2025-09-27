@@ -68,6 +68,33 @@ function getQuarterVNDateStrings(quarter, year) {
   return { startDateVN: toDateOnly(startVN), endDateVN: toDateOnly(endVN) };
 }
 
+// Validate start/end dates against basic constraints
+async function validateDates(startDate, endDate) {
+  if (!startDate || !endDate) {
+    throw new Error('startDate và endDate là bắt buộc');
+  }
+
+  const start = startDate instanceof Date ? new Date(startDate.getTime()) : new Date(startDate);
+  const end = endDate instanceof Date ? new Date(endDate.getTime()) : new Date(endDate);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw new Error('Ngày bắt đầu hoặc kết thúc không hợp lệ');
+  }
+
+  if (start > end) {
+    throw new Error('Ngày bắt đầu phải trước hoặc bằng ngày kết thúc');
+  }
+
+  const nowVN = getVietnamDate();
+  const vnTodayStart = new Date(nowVN.getFullYear(), nowVN.getMonth(), nowVN.getDate(), 0, 0, 0, 0);
+
+  if (end < vnTodayStart) {
+    throw new Error('Khoảng thời gian đã nằm hoàn toàn trong quá khứ');
+  }
+
+  return true;
+}
+
 // Helper: Get all active rooms from Redis cache (rooms_cache)
 async function getAllRooms() {
   try {
@@ -236,19 +263,12 @@ async function generateQuarterSchedule(quarter, year) {
       // 🆕 Mark all successfully scheduled rooms as used
       try {
         const successfulResults = results.filter(r => r.success);
-        console.log(`📋 Marking ${successfulResults.length} successfully scheduled rooms as used`);
-        
         for (const result of successfulResults) {
           const roomId = result.roomId;
-          
-          // Find the original room data to check for subrooms
           const originalRoom = rooms.find(r => r._id.toString() === roomId.toString());
           
           if (originalRoom) {
-            // Mark main room as used
             await markMainRoomAsUsed(roomId);
-            
-            // Mark subrooms as used if applicable
             if (originalRoom.hasSubRooms && originalRoom.subRooms && originalRoom.subRooms.length > 0) {
               const activeSubRoomIds = originalRoom.subRooms
                 .filter(subRoom => subRoom.isActive)
@@ -260,8 +280,6 @@ async function generateQuarterSchedule(quarter, year) {
             }
           }
         }
-        
-        console.log(`✅ Successfully marked all scheduled rooms as used`);
       } catch (markError) {
         console.error('⚠️ Failed to mark some rooms as used:', markError);
         // Don't fail the entire operation due to room marking errors
@@ -361,12 +379,8 @@ async function generateQuarterScheduleForSingleRoom(roomId, quarter, year) {
 
     // Mark room as used (same as manual generation)
     try {
-      console.log(`📋 Marking room ${roomId} as used after auto-generation`);
-      
-      // Mark main room as used
       await markMainRoomAsUsed(roomId);
       
-      // Mark subrooms as used if applicable
       if (room.hasSubRooms && room.subRooms && room.subRooms.length > 0) {
         const activeSubRoomIds = room.subRooms
           .filter(subRoom => subRoom.isActive)
@@ -377,7 +391,6 @@ async function generateQuarterScheduleForSingleRoom(roomId, quarter, year) {
         }
       }
       
-      console.log(`✅ Successfully marked room ${roomId} as used`);
     } catch (markError) {
       console.error(`⚠️ Failed to mark room ${roomId} as used:`, markError);
       // Don't fail the entire operation due to room marking errors
@@ -469,7 +482,6 @@ async function createDailySchedule(room, date, config) {
     return null; // Không tạo schedule nếu không có shift nào hoạt động
   }
   
-  console.log(`📅 Creating daily schedule for room ${room.name} on ${toVNDateOnlyString(date)} with ${activeWorkShifts.length} active shifts`);
   
   const schedule = {
     roomId: room._id,
@@ -544,7 +556,6 @@ function generateSlotsForShift(schedule, room, shift, config) {
           // ✅ Chỉ tạo slot cho subroom đang hoạt động
           if (subRoom.isActive === true) {
             slots.push(createSlotData(schedule, room, subRoom, shift, slotStartUTC, slotEndUTC));
-            console.log(`📅 Created slot for active subroom: ${subRoom.name} (ID: ${subRoom._id}) in room ${room.name}`);
           } else {
             console.log(`⚠️ Skipped slot for inactive subroom: ${subRoom.name} (ID: ${subRoom._id}) in room ${room.name}`);
           }
@@ -666,6 +677,25 @@ async function getAvailableQuarters() {
   }
 
   return availableQuarters;
+}
+
+async function countSlotsForQuarter(subRoomIds, quarter, year) {
+  if (!Array.isArray(subRoomIds) || subRoomIds.length === 0) {
+    return 0;
+  }
+
+  const { startDate, endDate } = getQuarterDateRange(quarter, year);
+
+  const counts = await Promise.all(
+    subRoomIds.map(subRoomId =>
+      slotRepo.countSlots({
+        subRoomId,
+        startTime: { $gte: startDate, $lte: endDate }
+      })
+    )
+  );
+
+  return counts.reduce((sum, val) => sum + (val || 0), 0);
 }
 
 // Get schedules by room and date range
@@ -1096,6 +1126,109 @@ exports.toggleStatus = async (id) => {
 // Ensure the toggle function is available on module.exports (module.exports was assigned earlier)
 module.exports.toggleStatus = exports.toggleStatus;
 
+// 🆕 Tạo lịch thông minh cho subRooms mới - dùng API generateQuarterSchedule để đồng bộ
+exports.createSchedulesForNewSubRooms = async (roomId, subRoomIds) => {
+  try {
+    // Quick check: Validate if these are truly new subRooms by checking existing slots
+    const duplicateCheck = [];
+    for (const subRoomId of subRoomIds) {
+      const existingSlots = await slotRepo.findSlots({ subRoomId });
+      if (existingSlots.length > 0) {
+        duplicateCheck.push({ subRoomId, existingSlots: existingSlots.length });
+      }
+    }
+
+    if (duplicateCheck.length > 0) {
+      const duplicateSummary = duplicateCheck
+        .map(item => `${item.subRoomId} (${item.existingSlots} slots)`)
+        .join('; ');
+      console.warn(`⚠️ Bỏ qua ${duplicateCheck.length} subRoom đã có slot: ${duplicateSummary}`);
+      return { success: true, totalSlotsCreated: 0, subRoomIds, roomId, reason: 'duplicate_event' };
+    }
+
+    const availableQuarters = await getAvailableQuarters();
+    const creatableQuarters = availableQuarters
+      .filter(q => q.isCreatable && !q.hasSchedules)
+      .map(({ quarter, year }) => ({ quarter, year }));
+
+    const existingQuarters = availableQuarters
+      .filter(q => q.hasSchedules)
+      .map(({ quarter, year }) => ({ quarter, year }));
+
+    const allTargetQuarters = [...creatableQuarters, ...existingQuarters];
+    const quarterSlotBaseline = new Map();
+    for (const { quarter, year } of allTargetQuarters) {
+      const key = `${quarter}-${year}`;
+      const total = await countSlotsForQuarter(subRoomIds, quarter, year);
+      quarterSlotBaseline.set(key, total);
+    }
+
+    let totalSlotsCreated = 0;
+    const quarterSummaries = [];
+
+    // Tạo lịch cho các quý có thể tạo mới sử dụng API generateQuarterSchedule
+    for (const { quarter, year } of creatableQuarters) {
+      try {
+        await generateQuarterSchedule(quarter, year);
+      } catch (error) {
+        console.error(`❌ Lỗi tạo lịch Q${quarter}/${year}:`, error.message);
+        continue;
+      }
+    }
+
+    // Tạo slots cho subRooms mới trong các quý đã có lịch
+    for (const { quarter, year } of allTargetQuarters) {
+      try {
+        const { startDate, endDate } = getQuarterDateRange(quarter, year);
+        const key = `${quarter}-${year}`;
+        const beforeQuarter = quarterSlotBaseline.get(key) || 0;
+        const quarterSchedules = await scheduleRepo.findByRoomAndDateRange(roomId, startDate, endDate);
+
+        if (quarterSchedules.length === 0) {
+          try {
+            await generateQuarterScheduleForSingleRoom(roomId, quarter, year);
+            const newSchedules = await scheduleRepo.findByRoomAndDateRange(roomId, startDate, endDate);
+            quarterSchedules.push(...newSchedules);
+          } catch (singleRoomError) {
+            console.error(`❌ Không thể tạo lịch cho room ${roomId} trong Q${quarter}/${year}:`, singleRoomError.message);
+          }
+        }
+
+        for (const schedule of quarterSchedules) {
+          for (const subRoomId of subRoomIds) {
+            const result = await exports.createSlotsForSubRoom(schedule._id, subRoomId);
+          }
+        }
+
+        const afterQuarter = await countSlotsForQuarter(subRoomIds, quarter, year);
+        const createdThisQuarter = Math.max(afterQuarter - beforeQuarter, 0);
+        quarterSlotBaseline.set(key, afterQuarter);
+        totalSlotsCreated += createdThisQuarter;
+        quarterSummaries.push({ quarter, year, slots: createdThisQuarter });
+        console.log(`🗓️ Q${quarter}/${year}: tạo thêm ${createdThisQuarter} slot cho ${subRoomIds.length} subRoom`);
+      } catch (quarterError) {
+        console.error(`❌ Lỗi xử lý Q${quarter}/${year}:`, quarterError.message);
+      }
+    }
+
+    if (totalSlotsCreated === 0) {
+      console.warn('⚠️ Không tạo thêm slot nào vì tất cả subRoom đã có dữ liệu trước đó.');
+    }
+
+    console.log(
+      `📊 Tổng kết: tạo ${totalSlotsCreated} slot cho ${subRoomIds.length} subRoom mới across ${quarterSummaries.length} quý`
+    );
+    return { success: true, totalSlotsCreated, subRoomIds, roomId };
+
+  } catch (error) {
+    console.error('❌ Lỗi trong createSchedulesForNewSubRooms:', error);
+    throw error;
+  }
+};
+
+// Ensure RPC layer can call the helper after module.exports assignment above
+module.exports.createSchedulesForNewSubRooms = exports.createSchedulesForNewSubRooms;
+
 // ✅ Tạo slot cho 1 subRoom, nhưng chỉ nếu chưa có slot trong khoảng ngày đó
 
 exports.createSlotsForSubRoom = async (scheduleId, subRoomId) => {
@@ -1105,27 +1238,45 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId) => {
     return null;
   }
 
-  const { startDate, endDate, slotDuration } = schedule;
-  console.log(`📅 Bắt đầu tạo slot cho subRoom ${subRoomId} từ ${startDate} đến ${endDate}, slotDuration: ${slotDuration} phút`);
+  const cfg = await cfgService.getConfig();
+  const resolvedSlotDuration = schedule.slotDuration || cfg?.unitDuration || 15;
+
+  let resolvedStart = schedule.startDate ? new Date(schedule.startDate) : null;
+  let resolvedEnd = schedule.endDate ? new Date(schedule.endDate) : null;
+
+  if (!resolvedStart || !resolvedEnd) {
+    if (schedule.dateVNStr) {
+      const [y, m, d] = schedule.dateVNStr.split('-').map(Number);
+      resolvedStart = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0));
+      resolvedEnd = new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999));
+    } else {
+      const fallback = schedule.createdAt ? new Date(schedule.createdAt) : new Date();
+      resolvedStart = new Date(fallback);
+      resolvedStart.setHours(0, 0, 0, 0);
+      resolvedEnd = new Date(resolvedStart);
+      resolvedEnd.setHours(23, 59, 59, 999);
+    }
+  }
+
+  
 
   // ✅ Kiểm tra ngày (dùng config)
-  await validateDates(startDate, endDate);
+  await validateDates(resolvedStart, resolvedEnd);
 
-  // ✅ Kiểm tra subRoom đã có slot chưa
+  // ✅ Kiểm tra subRoom đã có slot chưa trong schedule này
   const existingSlots = await slotRepo.findSlots({
     scheduleId,
-    subRoomId,
-    date: { $gte: new Date(startDate), $lte: new Date(endDate) }
+    subRoomId
   });
 
   if (existingSlots.length > 0) {
-    console.log(`⚠️ SubRoom ${subRoomId} đã có ${existingSlots.length} slot trong khoảng ngày, bỏ qua`);
     return { schedule, createdSlotIds: [] };
   }
 
+  console.log(`✅ SubRoom ${subRoomId} chưa có slot trong schedule ${scheduleId}, tiến hành tạo mới`);
+
   // 🔹 Lấy shift từ cache để kiểm tra slotDuration
   // Determine shifts from schedule.workShifts or from config
-  const cfg = await cfgService.getConfig();
   const configShifts = cfg?.workShifts || [];
   const selectedShifts = (Array.isArray(schedule.workShifts) && schedule.workShifts.length > 0)
     ? schedule.workShifts
@@ -1152,27 +1303,33 @@ exports.createSlotsForSubRoom = async (scheduleId, subRoomId) => {
       remainingMinutes = Math.floor((shiftEnd - now) / 60000);
     }
 
-    if (slotDuration >= remainingMinutes) {
-      console.log(`⚠️ slotDuration (${slotDuration} phút) không hợp lệ cho ca ${shift._id}. Chỉ còn ${remainingMinutes} phút khả dụng. Bỏ qua subRoom ${subRoomId}`);
+    if (resolvedSlotDuration >= remainingMinutes) {
+      console.log(`⚠️ slotDuration (${resolvedSlotDuration} phút) không hợp lệ cho ca ${shift.name || shift._id}. Chỉ còn ${remainingMinutes} phút khả dụng. Bỏ qua subRoom ${subRoomId}`);
       return { schedule, createdSlotIds: [] };
     }
   }
+
+  console.log(`🔧 Bắt đầu generateSlotsAndSave với ${selectedShifts.length} shifts cho subRoom ${subRoomId}`);
 
   // 🔹 Sinh slot mới
   const slotIds = await generateSlotsAndSave(
     schedule._id,
     subRoomId,
     selectedShifts,
-    slotDuration,
-    startDate,
-    endDate
+    resolvedSlotDuration,
+    resolvedStart,
+    resolvedEnd
   );
+
+  console.log(`🔧 generateSlotsAndSave trả về ${slotIds ? slotIds.length : 0} slotIds`);
 
   console.log(`✅ Đã tạo ${slotIds.length} slot mới cho subRoom ${subRoomId}`);
   // Do not store slot IDs on schedule document; slots persisted in Slot collection
 
   return { schedule, createdSlotIds: slotIds };
 };
+
+module.exports.createSlotsForSubRoom = exports.createSlotsForSubRoom;
 
 exports.listSchedules = async ({ roomId, page = 1, limit = 10 }) => {
   // Nếu có roomId => trả danh sách như cũ
@@ -1812,16 +1969,12 @@ const markMainRoomAsUsed = async (roomId) => {
     }
 
     const roomIdString = roomId.toString();
-    console.log(`📤 Marking main room as used: ${roomIdString}`);
-
     await publishToQueue('room_queue', {
       action: 'markRoomAsUsed',
       payload: {
         roomId: roomIdString
       }
     });
-    
-    console.log(`✅ Sent markRoomAsUsed for main roomId: ${roomIdString}`);
   } catch (error) {
     console.error('❌ Error marking main room as used:', error);
   }
@@ -1842,8 +1995,6 @@ const markSubRoomsAsUsed = async (mainRoomId, subRoomIds) => {
     const mainRoomIdString = mainRoomId.toString();
     const uniqueSubRoomIds = [...new Set(subRoomIds.map(id => id.toString()))];
 
-    console.log(`📤 Marking ${uniqueSubRoomIds.length} subrooms as used for room ${mainRoomIdString}:`, uniqueSubRoomIds);
-
     // Send event for each subroom to mark as used
     for (const subRoomId of uniqueSubRoomIds) {
       await publishToQueue('room_queue', {
@@ -1853,11 +2004,7 @@ const markSubRoomsAsUsed = async (mainRoomId, subRoomIds) => {
           subRoomId: subRoomId
         }
       });
-      
-      console.log(`📤 Sent markSubRoomAsUsed for subRoomId: ${subRoomId} in room: ${mainRoomIdString}`);
     }
-
-    console.log(`✅ Successfully marked ${uniqueSubRoomIds.length} subrooms as used via RabbitMQ`);
   } catch (error) {
     console.error('❌ Error marking subrooms as used:', error);
   }
@@ -1877,6 +2024,10 @@ async function hasScheduleForPeriod(roomId, startDate, endDate) {
 // Get detailed quarter analysis for a room (only check from current date forward)
 async function getQuarterAnalysisForRoom(roomId, quarter, year, fromDate = new Date()) {
   try {
+    const { startDate: quarterStart, endDate: quarterEnd } = getQuarterDateRange(quarter, year);
+    const quarterSchedules = await scheduleRepo.findByRoomAndDateRange(roomId, quarterStart, quarterEnd);
+    const totalQuarterSchedules = Array.isArray(quarterSchedules) ? quarterSchedules.length : 0;
+
     // Get all months in this quarter
     const startMonth = (quarter - 1) * 3 + 1; // 1, 4, 7, 10
     const months = [startMonth, startMonth + 1, startMonth + 2];
@@ -1903,7 +2054,7 @@ async function getQuarterAnalysisForRoom(roomId, quarter, year, fromDate = new D
     
     const monthStatus = {};
     const scheduleDetails = [];
-    let totalSchedules = 0;
+    let totalSchedules = totalQuarterSchedules;
 
     for (const month of months) {
       if (!relevantMonths.includes(month)) {
@@ -1920,7 +2071,6 @@ async function getQuarterAnalysisForRoom(roomId, quarter, year, fromDate = new D
 
       const hasSchedules = monthSchedules && monthSchedules.length > 0;
       monthStatus[month] = hasSchedules;
-      totalSchedules += monthSchedules ? monthSchedules.length : 0;
 
       if (hasSchedules) {
         scheduleDetails.push({
@@ -1945,6 +2095,9 @@ async function getQuarterAnalysisForRoom(roomId, quarter, year, fromDate = new D
     // Special case: if no relevant months (all past), consider complete
     const allPastMonths = totalRelevantMonths === 0;
 
+    // Check if quarter has ANY schedule (including past months) - for subRoom creation logic
+    const hasAnySchedule = totalQuarterSchedules > 0 || Object.values(monthStatus).some(status => status === true);
+
     return {
       quarter: `Q${quarter}/${year}`,
       months: monthStatus,
@@ -1955,7 +2108,9 @@ async function getQuarterAnalysisForRoom(roomId, quarter, year, fromDate = new D
       isComplete: isComplete || allPastMonths,
       isPartial,
       isEmpty,
+      hasAnySchedule,
       totalSchedules,
+      quarterScheduleCount: totalQuarterSchedules,
       scheduleDetails,
       status: allPastMonths ? 'past' : isComplete ? 'complete' : isPartial ? 'partial' : 'empty',
       message: allPastMonths

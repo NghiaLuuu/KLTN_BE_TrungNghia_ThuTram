@@ -1,11 +1,13 @@
-const express = require('express');
+﻿// Load environment variables first
 const dotenv = require('dotenv');
+dotenv.config();
+const express = require('express');
 const connectDB = require('./config/db');
+
+connectDB();
 const serviceRoutes = require('./routes/service.route');
 const cors = require('cors');
 
-dotenv.config();
-connectDB();
 
 const app = express();
 app.use(express.json());
@@ -24,3 +26,4 @@ const PORT = process.env.PORT || 3003;
 app.listen(PORT, () => {
   console.log(`Service service running on port ${PORT}`);
 });
+

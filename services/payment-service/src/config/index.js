@@ -2,9 +2,10 @@ require('dotenv').config();
 
 module.exports = {
   PORT: process.env.PORT || 3007,
-  MONGO_URI: process.env.MONGO_URI || 'mongodb://localhost:27017/KLTN',
+  MONGO_URI: process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/KLTN',
   ACCESS_TOKEN_SECRET: process.env.ACCESS_TOKEN_SECRET || 'default-access-secret',
   REFRESH_TOKEN_SECRET: process.env.REFRESH_TOKEN_SECRET || 'default-refresh-secret',
+  REDIS_URL: process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || '127.0.0.1'}:${process.env.REDIS_PORT || 6379}`,
   REDIS_HOST: process.env.REDIS_HOST || '127.0.0.1',
   REDIS_PORT: process.env.REDIS_PORT || 6379,
   MOMO_PARTNER_CODE: process.env.MOMO_PARTNER_CODE || '',

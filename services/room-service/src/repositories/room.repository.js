@@ -26,6 +26,10 @@ exports.listRooms = async (skip = 0, limit = 10) => {
     .limit(limit);
 };
 
+exports.getAllRooms = async () => {
+  return await Room.find().sort({ createdAt: -1 }).lean();
+};
+
 exports.countRooms = async () => {
   return await Room.countDocuments();
 };

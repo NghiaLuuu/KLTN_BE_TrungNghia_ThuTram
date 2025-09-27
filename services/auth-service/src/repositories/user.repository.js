@@ -95,7 +95,6 @@ exports.searchStaff = async (criteria, skip = 0, limit = 10) => {
   if (criteria.phone) query.phone = { $regex: criteria.phone, $options: 'i' };
   if (criteria.role) query.role = criteria.role;
   if (criteria.gender) query.gender = criteria.gender;
-  if (criteria.type) query.type = criteria.type;
   if (criteria.specialization) query.specializations = { $in: [criteria.specialization] };
 
   return await User.find(query)
@@ -116,7 +115,6 @@ exports.countStaff = async (criteria) => {
   if (criteria.phone) query.phone = { $regex: criteria.phone, $options: 'i' };
   if (criteria.role) query.role = criteria.role;
   if (criteria.gender) query.gender = criteria.gender;
-  if (criteria.type) query.type = criteria.type;
   if (criteria.specialization) query.specializations = { $in: [criteria.specialization] };
 
   return await User.countDocuments(query);

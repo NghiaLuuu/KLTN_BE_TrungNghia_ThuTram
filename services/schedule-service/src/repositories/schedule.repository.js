@@ -168,8 +168,14 @@ exports.findByRoomAndDateRange = async (roomId, startDate, endDate) => {
   const byVN = await Schedule.find({ roomId, dateVNStr: { $gte: sStr, $lte: eStr } }).lean();
   if (byVN && byVN.length > 0) return byVN;
 
-  // No fallback to Date fields
-  return [];
+  // 🔁 Fallback for legacy schedules that may miss dateVNStr
+  const fallback = await Schedule.find({
+    roomId,
+    startDate: { $lte: eBase },
+    endDate: { $gte: sBase }
+  }).lean();
+
+  return fallback;
 };
 
 // 🔹 Lấy schedules theo khoảng ngày (tất cả phòng)
@@ -185,6 +191,12 @@ exports.findByDateRange = async (startDate, endDate) => {
   const byVN = await Schedule.find({ dateVNStr: { $gte: sStr, $lte: eStr } }).lean();
   if (byVN && byVN.length > 0) return byVN;
 
-  return [];
+  // 🔁 Fallback for legacy schedules without dateVNStr
+  const fallback = await Schedule.find({
+    startDate: { $lte: eBase },
+    endDate: { $gte: sBase }
+  }).lean();
+
+  return fallback;
 };
 

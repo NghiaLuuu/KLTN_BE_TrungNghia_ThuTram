@@ -1,6 +1,6 @@
+﻿// Load environment variables first
 const dotenv = require('dotenv');
 dotenv.config();
-
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -17,6 +17,8 @@ const invoiceDetailRoutes = require('./routes/invoiceDetail.routes');
 
 // ============ SERVICES & UTILS ============
 const startRpcServer = require('./utils/rpcServer');
+
+connectDB();
 const invoiceService = require('./services/invoice.service');
 
 // ============ INITIALIZE APPLICATION ============
@@ -25,9 +27,7 @@ async function initializeApp() {
     console.log('🚀 Starting Invoice Service...');
 
     // Connect to MongoDB
-    await connectDB();
-
-    // Connect to Redis
+    await     // Connect to Redis
     await RedisClient.connect();
 
     // Connect RPC Client
@@ -251,3 +251,4 @@ async function startServer() {
 
 // Initialize and start the server
 startServer();
+

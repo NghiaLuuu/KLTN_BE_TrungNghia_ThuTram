@@ -171,6 +171,16 @@ exports.deleteUser = async (currentUser, userId) => {
     throw new Error('Không thể xóa bệnh nhân từ auth-service');
   }
 
+  // Không cho phép xóa user có role admin (không ai có thể xóa admin)
+  if (user.role === 'admin') {
+    throw new Error(`Không thể xóa admin ${user.fullName}. Admin không thể bị xóa.`);
+  }
+
+  // Chỉ admin mới có thể xóa manager
+  if (user.role === 'manager' && currentUser.role !== 'admin') {
+    throw new Error(`Chỉ admin mới có thể xóa manager ${user.fullName}.`);
+  }
+
   // � Không cho phép xóa nếu user đã được sử dụng trong hệ thống
   if (user.hasBeenUsed) {
     throw new Error(`Không thể xóa nhân viên ${user.fullName} vì đã được sử dụng trong hệ thống. Vui lòng sử dụng chức năng ngưng hoạt động thay thế.`);
@@ -204,6 +214,16 @@ exports.toggleUserStatus = async (currentUser, userId) => {
 
   if (user.role === 'patient') {
     throw new Error('Không thể thay đổi trạng thái bệnh nhân từ auth-service');
+  }
+
+  // Không cho phép thay đổi trạng thái admin (không ai có thể tác động admin)
+  if (user.role === 'admin') {
+    throw new Error(`Không thể thay đổi trạng thái admin ${user.fullName}. Admin không thể bị tác động.`);
+  }
+
+  // Chỉ admin mới có thể thay đổi trạng thái manager
+  if (user.role === 'manager' && currentUser.role !== 'admin') {
+    throw new Error(`Chỉ admin mới có thể thay đổi trạng thái manager ${user.fullName}.`);
   }
 
   let updatedUser;

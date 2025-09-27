@@ -60,6 +60,16 @@ exports.sendOtpRegister = async (req, res) => {
   }
 };
 
+exports.verifyOtpRegister = async (req, res) => {
+  const { email, otp } = req.body;
+  try {
+    const result = await authService.verifyOtpRegister(email, otp);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ message: err.message || 'Xác thực OTP đăng ký thất bại' });
+  }
+};
+
 exports.sendOtpResetPassword = async (req, res) => {
   const { email } = req.body;
   try {

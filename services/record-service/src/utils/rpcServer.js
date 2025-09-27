@@ -6,7 +6,17 @@ async function startRecordRpcServer() {
   const channel = await connection.createChannel();
 
   const queue = "record_queue";
-  await channel.assertQueue(queue, { durable: false });
+
+  try {
+    await channel.deleteQueue(queue);
+    console.log(`♻️ Refreshing RabbitMQ queue ${queue} before asserting`);
+  } catch (err) {
+    if (err?.code !== 404) {
+      console.warn(`⚠️ Could not delete queue ${queue} during refresh:`, err.message || err);
+    }
+  }
+
+  await channel.assertQueue(queue, { durable: true });
 
   console.log(`✅ Record RPC server listening on queue: ${queue}`);
 

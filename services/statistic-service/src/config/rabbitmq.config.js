@@ -34,6 +34,15 @@ class RabbitMQClient {
     ];
 
     for (const queue of queues) {
+      try {
+        await this.channel.deleteQueue(queue);
+        console.log(`♻️ Refreshing RabbitMQ queue ${queue} before asserting`);
+      } catch (err) {
+        if (err?.code !== 404) {
+          console.warn(`⚠️ Could not delete queue ${queue} during refresh:`, err.message || err);
+        }
+      }
+
       await this.channel.assertQueue(queue, { durable: true });
     }
   }

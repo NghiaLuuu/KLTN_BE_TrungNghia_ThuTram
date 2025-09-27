@@ -5,6 +5,7 @@ const authMiddleware = require('../middlewares/auth.middleware');
 
 // Auth routes
 router.post('/send-otp-register', authController.sendOtpRegister);
+router.post('/verify-otp-register', authController.verifyOtpRegister);
 router.post('/register', authController.register);
 router.post('/login', authController.login);
 router.post('/logout', authMiddleware, authController.logout);

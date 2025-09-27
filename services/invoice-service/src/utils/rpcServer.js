@@ -17,6 +17,16 @@ class InvoiceRPCServer {
       this.channel = await this.connection.createChannel();
 
       const queueName = 'invoice-service_rpc_queue';
+
+      try {
+        await this.channel.deleteQueue(queueName);
+        console.log(`♻️ Refreshing RabbitMQ queue ${queueName} before asserting`);
+      } catch (err) {
+        if (err?.code !== 404) {
+          console.warn(`⚠️ Could not delete queue ${queueName} during refresh:`, err.message || err);
+        }
+      }
+
       await this.channel.assertQueue(queueName, { durable: true });
 
       // Set prefetch to handle one message at a time

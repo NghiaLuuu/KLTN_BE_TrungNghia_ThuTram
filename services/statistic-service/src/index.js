@@ -1,6 +1,11 @@
+﻿// Load environment variables first
+const dotenv = require('dotenv');
+dotenv.config();
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+
+connectDB();
 const connectDB = require('./config/db');
 const redisClient = require('./config/redis.config');
 
@@ -10,8 +15,6 @@ const statisticRoutes = require('./routes/statistic.routes');
 const app = express();
 
 // Connect to database
-connectDB();
-
 // Middleware
 app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
@@ -45,15 +48,15 @@ app.use((err, req, res, next) => {
   });
 });
 
-// 404 handler
-app.use('*', (req, res) => {
+// 404 handler - must be at the end
+app.use((req, res) => {
   res.status(404).json({
     success: false,
     message: 'Endpoint không tồn tại'
   });
 });
 
-const PORT = process.env.PORT || 3010;
+const PORT = process.env.PORT || 3011;
 
 app.listen(PORT, () => {
   console.log(`🚀 Statistic service đang chạy trên port ${PORT}`);

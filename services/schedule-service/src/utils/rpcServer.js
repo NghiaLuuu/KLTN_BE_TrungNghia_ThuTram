@@ -9,7 +9,17 @@ async function startRpcServer() {
   const channel = await connection.createChannel();
 
   const queue = 'schedule_queue';
-  await channel.assertQueue(queue, { durable: false });
+
+  try {
+    await channel.deleteQueue(queue);
+    console.log(`♻️ Refreshing RabbitMQ queue ${queue} before asserting`);
+  } catch (err) {
+    if (err?.code !== 404) {
+      console.warn(`⚠️ Could not delete queue ${queue} during refresh:`, err.message || err);
+    }
+  }
+
+  await channel.assertQueue(queue, { durable: true });
 
   console.log(`✅ Schedule RPC server listening on queue: ${queue}`);
 
@@ -48,16 +58,8 @@ async function startRpcServer() {
               `📩 Nhận sự kiện subRoomAdded cho room ${payload.roomId}, subRooms: ${payload.subRoomIds.join(', ')}`
             );
 
-            const schedules = await scheduleRepo.findByRoomId(payload.roomId);
-            if (!schedules.length) {
-              console.log(`⚠️ Room ${payload.roomId} chưa có schedule, bỏ qua việc tạo slot cho subRooms`);
-            }
-
-            for (const schedule of schedules) {
-              for (const subRoomId of payload.subRoomIds) {
-                await scheduleService.createSlotsForSubRoom(schedule._id, subRoomId);
-              }
-            }
+            // Sử dụng function mới để tạo lịch thông minh cho subrooms
+            await scheduleService.createSchedulesForNewSubRooms(payload.roomId, payload.subRoomIds);
           } catch (err) {
             console.error('Failed to handle subRoomAdded:', err);
           }

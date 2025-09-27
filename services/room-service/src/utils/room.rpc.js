@@ -7,11 +7,26 @@ async function startRpcServer() {
   const channel = await connection.createChannel();
 
   const queue = 'room_queue';
-  await channel.assertQueue(queue, { durable: false });
+
+  try {
+    await channel.deleteQueue(queue);
+    console.log(`♻️ Refreshing RabbitMQ queue ${queue} before asserting`);
+  } catch (err) {
+    if (err?.code !== 404) {
+      console.warn(`⚠️ Could not delete queue ${queue} during refresh:`, err.message || err);
+    }
+  }
+
+  await channel.assertQueue(queue, { durable: true });
 
   console.log(`✅ Room RPC server listening on queue: ${queue}`);
 
   channel.consume(queue, async (msg) => {
+    if (!msg) {
+      console.warn('⚠️ Room RPC received null message, consumer might be cancelled');
+      return;
+    }
+
     const { action, payload } = JSON.parse(msg.content.toString());
     let response;
 
