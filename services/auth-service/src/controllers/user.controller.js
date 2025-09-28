@@ -47,10 +47,47 @@ exports.uploadCertificate = async (req, res) => {
     const file = req.file;
     const { notes } = req.body;
 
+    // Debug logging
+    console.log('🔍 Upload Certificate Debug:', {
+      hasCurrentUser: !!currentUser,
+      currentUserId: currentUser?._id || currentUser?.id || currentUser?.userId,
+      currentUserRole: currentUser?.role,
+      targetUserId: userId,
+      hasFile: !!file,
+      allUserFields: Object.keys(currentUser || {})
+    });
+
     const result = await userService.uploadCertificate(currentUser, userId, file, notes);
     
     res.status(200).json(result);
   } catch (error) {
+    console.error('❌ Upload Certificate Error:', error.message);
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+exports.uploadMultipleCertificates = async (req, res) => {
+  try {
+    const currentUser = req.user;
+    const userId = req.params.id;
+    const files = req.files;
+    const { notes } = req.body;
+
+    console.log('🔍 Upload Multiple Certificates Debug:', {
+      hasCurrentUser: !!currentUser,
+      currentUserRole: currentUser?.role,
+      targetUserId: userId,
+      filesCount: files?.length || 0
+    });
+
+    const result = await userService.uploadMultipleCertificates(currentUser, userId, files, notes);
+    
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('❌ Upload Multiple Certificates Error:', error.message);
     res.status(400).json({
       success: false,
       message: error.message

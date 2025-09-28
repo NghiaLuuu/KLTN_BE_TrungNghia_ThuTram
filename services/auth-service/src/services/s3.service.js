@@ -22,7 +22,7 @@ const uploadToS3 = async (fileBuffer, fileName, mimeType, folder = 'avatars') =>
     Bucket: process.env.AWS_BUCKET_NAME,
     Key: key,
     Body: fileBuffer,
-    ContentType: mimeType,
+    ContentType: mimeType
   };
 
   const data = await s3.upload(params).promise();

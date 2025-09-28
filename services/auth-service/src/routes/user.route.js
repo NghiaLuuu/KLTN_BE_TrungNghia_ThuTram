@@ -39,6 +39,7 @@ router.put('/avatar/:id', authMiddleware, upload.single('avatar'), userControlle
 
 // 🆕 CERTIFICATE ROUTES (chỉ upload ảnh)
 router.post('/:id/certificates', authMiddleware, upload.single('certificate'), userController.uploadCertificate);
+router.post('/:id/certificates/batch', authMiddleware, upload.array('certificates', 5), userController.uploadMultipleCertificates);
 router.delete('/:userId/certificates/:certificateId', authMiddleware, userController.deleteCertificate);
 router.patch('/:userId/certificates/:certificateId/verify', authMiddleware, userController.verifyCertificate);
 router.patch('/:userId/certificates/:certificateId/notes', authMiddleware, userController.updateCertificateNotes);

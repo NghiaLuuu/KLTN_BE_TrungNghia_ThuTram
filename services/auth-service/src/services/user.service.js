@@ -305,9 +305,20 @@ exports.updateUserAvatar = async (userId, file) => {
 
 // 🆕 CERTIFICATE OPERATIONS (upload ảnh với logic xác thực thông minh)
 exports.uploadCertificate = async (currentUser, userId, file, notes = null) => {
-  // Chỉ admin/manager hoặc chính nha sĩ đó mới được upload
-  if (!['admin', 'manager'].includes(currentUser.role) && currentUser._id.toString() !== userId) {
-    throw new Error('Bạn không có quyền upload chứng chỉ cho người khác');
+  // Validate currentUser và lấy ID linh hoạt
+  if (!currentUser || !currentUser.role) {
+    throw new Error('Thông tin người dùng không hợp lệ hoặc token đã hết hạn');
+  }
+
+  // Lấy ID từ các field có thể có trong JWT payload
+  const currentUserId = currentUser._id || currentUser.id || currentUser.userId;
+  if (!currentUserId) {
+    throw new Error('Token không chứa thông tin ID người dùng hợp lệ');
+  }
+
+  // Chỉ admin/manager mới được upload chứng chỉ
+  if (!['admin', 'manager'].includes(currentUser.role)) {
+    throw new Error('Chỉ admin và manager mới có quyền upload chứng chỉ');
   }
 
   const user = await userRepo.findById(userId);
@@ -331,8 +342,8 @@ exports.uploadCertificate = async (currentUser, userId, file, notes = null) => {
   }
 
   try {
-    // Upload to S3
-    const imageUrl = await uploadToS3(file.buffer, file.originalname, file.mimetype, 'certificates');
+    // Upload to S3 (sử dụng folder avatars để đảm bảo public như avatar)
+    const imageUrl = await uploadToS3(file.buffer, file.originalname, file.mimetype, 'avatars');
     
     // 🎯 LOGIC QUAN TRỌNG: Tự động xác thực nếu admin/manager upload
     const isAutoVerified = ['admin', 'manager'].includes(currentUser.role);
@@ -342,7 +353,7 @@ exports.uploadCertificate = async (currentUser, userId, file, notes = null) => {
       imageUrl,
       notes,
       isVerified: isAutoVerified,
-      verifiedBy: isAutoVerified ? currentUser._id : null,
+      verifiedBy: isAutoVerified ? currentUserId : null,
       verifiedAt: isAutoVerified ? new Date() : null
     };
 
@@ -363,6 +374,96 @@ exports.uploadCertificate = async (currentUser, userId, file, notes = null) => {
   } catch (error) {
     throw new Error(`Lỗi upload chứng chỉ: ${error.message}`);
   }
+};
+
+exports.uploadMultipleCertificates = async (currentUser, userId, files, notes = null) => {
+  // Validate currentUser và lấy ID linh hoạt
+  if (!currentUser || !currentUser.role) {
+    throw new Error('Thông tin người dùng không hợp lệ hoặc token đã hết hạn');
+  }
+
+  const currentUserId = currentUser._id || currentUser.id || currentUser.userId;
+  if (!currentUserId) {
+    throw new Error('Token không chứa thông tin ID người dùng hợp lệ');
+  }
+
+  // Chỉ admin/manager mới được upload chứng chỉ
+  if (!['admin', 'manager'].includes(currentUser.role)) {
+    throw new Error('Chỉ admin và manager mới có quyền upload chứng chỉ');
+  }
+
+  const user = await userRepo.findById(userId);
+  if (!user || user.role !== 'dentist') {
+    throw new Error('Chỉ có thể upload chứng chỉ cho nha sĩ');
+  }
+
+  if (!files || files.length === 0) {
+    throw new Error('Chưa có file chứng chỉ để upload');
+  }
+
+  if (files.length > 5) {
+    throw new Error('Chỉ cho phép upload tối đa 5 chứng chỉ cùng lúc');
+  }
+
+  const results = [];
+  const errors = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    
+    try {
+      // Validate file type
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+      if (!allowedTypes.includes(file.mimetype)) {
+        throw new Error(`File ${file.originalname}: Chỉ chấp nhận file ảnh (JPG, PNG, WEBP)`);
+      }
+
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error(`File ${file.originalname}: File ảnh không được vượt quá 5MB`);
+      }
+
+      // Upload to S3
+      const imageUrl = await uploadToS3(file.buffer, file.originalname, file.mimetype, 'avatars');
+      
+      // Auto verify for admin/manager
+      const isAutoVerified = ['admin', 'manager'].includes(currentUser.role);
+      
+      // Save to database
+      const certificateData = {
+        imageUrl,
+        notes: Array.isArray(notes) ? notes[i] : notes,
+        isVerified: isAutoVerified,
+        verifiedBy: isAutoVerified ? currentUserId : null,
+        verifiedAt: isAutoVerified ? new Date() : null
+      };
+
+      await userRepo.addCertificateImage(userId, certificateData);
+      
+      results.push({
+        fileName: file.originalname,
+        imageUrl,
+        success: true
+      });
+
+    } catch (error) {
+      errors.push({
+        fileName: file.originalname,
+        error: error.message,
+        success: false
+      });
+    }
+  }
+
+  await refreshUserCache();
+  
+  return {
+    success: errors.length === 0,
+    message: `Upload hoàn tất: ${results.length} thành công, ${errors.length} lỗi`,
+    results,
+    errors,
+    totalUploaded: results.length
+  };
 };
 
 exports.deleteCertificate = async (currentUser, userId, certificateId) => {
