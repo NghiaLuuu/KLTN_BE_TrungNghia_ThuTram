@@ -51,6 +51,22 @@ async function startRpcServer() {
           break;
 
 
+        // 👉 Event roomCreated - Tạo lịch cho room mới (không bắt buộc thành công)
+        case 'roomCreated':
+          try {
+            console.log(
+              `📩 Nhận sự kiện roomCreated cho room ${payload.roomId}, hasSubRooms: ${payload.hasSubRooms}`
+            );
+
+            // Tạo lịch cho room mới theo logic generateQuarterSchedule
+            const result = await scheduleService.createSchedulesForNewRoom(payload);
+            console.log(`✅ Kết quả tạo lịch:`, result);
+            // Không cần response vì đây là event, không phải RPC request
+          } catch (err) {
+            console.warn('⚠️ Không thể tạo lịch cho room mới (room vẫn tồn tại):', err.message);
+          }
+          break;
+
         // 👉 Event subRoomAdded
         case 'subRoomAdded':
           try {
@@ -61,7 +77,7 @@ async function startRpcServer() {
             // Sử dụng function mới để tạo lịch thông minh cho subrooms
             await scheduleService.createSchedulesForNewSubRooms(payload.roomId, payload.subRoomIds);
           } catch (err) {
-            console.error('Failed to handle subRoomAdded:', err);
+            console.warn('⚠️ Không thể tạo lịch cho subRooms mới:', err.message);
           }
           break;
 

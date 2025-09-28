@@ -95,15 +95,15 @@ const holidayConfigSchema = new mongoose.Schema({
 // Singleton methods for ScheduleConfig
 scheduleConfigSchema.statics.getSingleton = async function() {
   let config = await this.findOne({ singletonKey: 'SCHEDULE_CONFIG_SINGLETON' });
-  if (!config) {
-    config = new this({});
-    await config.save();
-  }
+  // Không tự động tạo config mới nếu chưa có, trả về null để caller xử lý
   return config;
 };
 
 scheduleConfigSchema.statics.updateSingleton = async function(updateData) {
   const config = await this.getSingleton();
+  if (!config) {
+    throw new Error('Schedule config chưa được khởi tạo. Vui lòng tạo config trước khi cập nhật.');
+  }
   Object.assign(config, updateData);
   return await config.save();
 };

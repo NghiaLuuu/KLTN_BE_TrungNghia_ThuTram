@@ -442,6 +442,9 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
     // Get schedule config for shift information
     const { ScheduleConfig } = require('../models/scheduleConfig.model');
     const scheduleConfig = await ScheduleConfig.getSingleton();
+    if (!scheduleConfig) {
+      throw new Error('Cấu hình lịch làm việc chưa được khởi tạo. Vui lòng liên hệ admin để thiết lập.');
+    }
     
     // Use current date if startDate not provided
     const baseDate = startDate ? new Date(startDate) : getVietnamDate();

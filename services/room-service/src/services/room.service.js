@@ -1,6 +1,6 @@
 const roomRepo = require('../repositories/room.repository');
 const redis = require('../utils/redis.client');
-const {publishToQueue} = require('../utils/rabbitClient')
+const {publishToQueue, sendRpcRequest} = require('../utils/rabbitClient')
 const ROOM_CACHE_KEY = 'rooms_cache';
 
 async function initRoomCache() {
@@ -30,19 +30,19 @@ exports.createRoom = async (data) => {
 
     const room = await roomRepo.createRoom(roomData);
 
-    // Gửi event cho schedule service
+    // Gửi event cho schedule service để tạo lịch cho room có subRooms (không bắt buộc)
     try {
-      const subRoomIds = room.subRooms.map(sr => sr._id.toString());
       await publishToQueue('schedule_queue', {
-        action: 'subRoomAdded',
+        action: 'roomCreated',
         payload: {
           roomId: room._id.toString(),
-          subRoomIds
+          hasSubRooms: true,
+          subRoomIds: room.subRooms.map(sr => sr._id.toString())
         }
       });
-      console.log(`📤 Đã gửi sự kiện subRoomAdded cho ${subRoomCount} buồng mới`);
+      console.log(`📤 Đã gửi sự kiện tạo lịch cho room có ${subRoomCount} buồng con`);
     } catch (err) {
-      console.error('❌ Gửi sự kiện subRoomAdded thất bại:', err.message);
+      console.warn('⚠️ Không thể gửi sự kiện tạo lịch (room vẫn được tạo thành công):', err.message);
     }
 
     await refreshRoomCache();
@@ -59,6 +59,23 @@ exports.createRoom = async (data) => {
   delete roomData.subRooms;
 
   const room = await roomRepo.createRoom(roomData);
+  
+  // Gửi event cho schedule service để tạo lịch cho room không có subRooms (không bắt buộc)
+  try {
+    await publishToQueue('schedule_queue', {
+      action: 'roomCreated',
+      payload: {
+        roomId: room._id.toString(),
+        hasSubRooms: false,
+        maxDoctors: room.maxDoctors,
+        maxNurses: room.maxNurses
+      }
+    });
+    console.log(`📤 Đã gửi sự kiện tạo lịch cho room không có buồng con`);
+  } catch (err) {
+    console.warn('⚠️ Không thể gửi sự kiện tạo lịch (room vẫn được tạo thành công):', err.message);
+  }
+
   await refreshRoomCache();
   return room;
 };

@@ -7,6 +7,14 @@ const AutoScheduleConfig = require('../models/autoScheduleConfig.model');
 const { getVietnamDate } = require('../utils/vietnamTime.util');
 const scheduleConfigService = require('./scheduleConfig.service');
 
+// Import helper functions từ schedule.service để đồng bộ logic
+const { 
+  isLastDayOfQuarter, 
+  getNextQuarterForScheduling,
+  getQuarterInfo,
+  isLastDayOfMonth
+} = scheduleService;
+
 // Helper: Get all active rooms from Redis cache
 async function getAllRooms() {
   try {
@@ -28,13 +36,7 @@ async function getAllRooms() {
   }
 }
 
-// Helper: Calculate quarter info
-function getQuarterInfo(date = null) {
-  const vnDate = date ? new Date(date.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"})) : getVietnamDate();
-  const quarter = Math.ceil((vnDate.getMonth() + 1) / 3);
-  const year = vnDate.getFullYear();
-  return { quarter, year };
-}
+
 
 // Helper: Get quarter date range (Vietnam timezone)
 function getQuarterDateRange(quarter, year) {
@@ -91,9 +93,16 @@ async function checkQuarterStatus(roomId, quarter, year) {
 // Main function: Auto generate schedules for room
 async function autoGenerateSchedulesForRoom(roomId) {
   const currentDate = getVietnamDate();
-  const { quarter: currentQuarter, year: currentYear } = getQuarterInfo(currentDate);
   
-  console.log(`🔍 Auto-generating schedules for room ${roomId} - Current: Q${currentQuarter} ${currentYear}`);
+  // 🆕 LOGIC NGÀY CUỐI QUÝ: Kiểm tra ngày hiện tại
+  if (isLastDayOfQuarter(currentDate)) {
+    console.log(`📅 Hôm nay là ngày cuối quý - không tạo lịch auto cho quý hiện tại`);
+    const nextQuarter = getNextQuarterForScheduling(currentDate);
+    console.log(`🔄 Sẽ tạo lịch cho quý tiếp theo: Q${nextQuarter.quarter}/${nextQuarter.year}`);
+  }
+  
+  const { quarter: currentQuarter, year: currentYear } = getQuarterInfo(currentDate);
+  console.log(`🔍 Auto-schedule: Room ${roomId} - Q${currentQuarter}/${currentYear}`);
   
   const results = [];
 
@@ -104,46 +113,43 @@ async function autoGenerateSchedulesForRoom(roomId) {
     // ✅ ĐỒNG BỘ HÓA HOÀN TOÀN: Sử dụng chính xác generateQuarterSchedule
     // Nhưng chỉ tạo cho từng room riêng lẻ (không tạo toàn bộ như thủ công)
     
-    // Strategy 1: Kiểm tra và tạo quý hiện tại nếu cần
-    const currentAnalysis = await scheduleService.getQuarterAnalysisForRoom(roomId, currentQuarter, currentYear, currentDate);
-    
-    if (currentAnalysis.needGenerate && !currentAnalysis.allPastMonths) {
-      console.log(`📅 Auto-generating Q${currentQuarter}/${currentYear} for room ${roomId}`);
+    // Strategy 1: Kiểm tra và tạo quý hiện tại (chỉ khi KHÔNG phải ngày cuối quý)
+    if (!isLastDayOfQuarter(currentDate)) {
+      const currentAnalysis = await scheduleService.getQuarterAnalysisForRoom(roomId, currentQuarter, currentYear, currentDate);
       
-      try {
-        // ✅ ĐỒNG BỘ HOÀN TOÀN: Sử dụng generateQuarterScheduleForSingleRoom
-        // Sử dụng CHÍNH XÁC logic của generateQuarterSchedule cho 1 room
-        const quarterResult = await scheduleService.generateQuarterScheduleForSingleRoom(roomId, currentQuarter, currentYear);
+      if (currentAnalysis.needGenerate && !currentAnalysis.allPastMonths) {
+        console.log(`📅 Creating Q${currentQuarter}/${currentYear} for room ${roomId}`);
         
-        results.push({
-          quarter: currentQuarter,
-          year: currentYear,
-          action: 'current_quarter',
-          status: 'success',
-          message: `✅ Generated Q${currentQuarter}/${currentYear} for room ${roomId}`,
-          details: quarterResult
-        });
-        
-        console.log(`✅ Auto-generated Q${currentQuarter}/${currentYear} for room ${roomId}`);
-        
-      } catch (error) {
-        results.push({
-          quarter: currentQuarter,
-          year: currentYear,
-          action: 'current_quarter',
-          status: 'error',
-          message: `Failed to generate Q${currentQuarter}/${currentYear}: ${error.message}`
-        });
+        try {
+          const quarterResult = await scheduleService.generateQuarterScheduleForSingleRoom(roomId, currentQuarter, currentYear);
+          
+          results.push({
+            quarter: currentQuarter,
+            year: currentYear,
+            action: 'current_quarter',
+            status: 'success',
+            message: `✅ Q${currentQuarter}/${currentYear} created`,
+            details: quarterResult
+          });
+          
+        } catch (error) {
+          results.push({
+            quarter: currentQuarter,
+            year: currentYear,
+            action: 'current_quarter', 
+            status: 'error',
+            message: `❌ Q${currentQuarter}/${currentYear} failed: ${error.message}`
+          });
+        }
+      } else {
+        console.log(`ℹ️ Q${currentQuarter}/${currentYear} already exists or past`);
       }
-    } else if (currentAnalysis.allPastMonths) {
-      console.log(`⏰ Q${currentQuarter}/${currentYear} is in the past, skipping`);
     } else {
-      console.log(`ℹ️ Q${currentQuarter}/${currentYear} already complete for room ${roomId}`);
+      console.log(`⏭️ Skipped Q${currentQuarter}/${currentYear} (last day of quarter)`);
     }
 
     // Strategy 2: Kiểm tra và tạo quý tiếp theo nếu cần
-    const nextQuarter = currentQuarter === 4 ? 1 : currentQuarter + 1;
-    const nextYear = currentQuarter === 4 ? currentYear + 1 : currentYear;
+    const { quarter: nextQuarter, year: nextYear } = getNextQuarterForScheduling();
     
     const nextAnalysis = await scheduleService.getQuarterAnalysisForRoom(roomId, nextQuarter, nextYear, currentDate);
     
@@ -303,15 +309,22 @@ async function shouldRunAutoGeneration(date = null) {
     }
 
     const vnDate = date || getVietnamDate();
-    const day = vnDate.getDate();
     
-    // Chạy từ ngày 28 trở đi (logic phù hợp với việc coi tháng hiện tại như past)
-    const shouldRun = day >= 28;
+    // Chỉ chạy khi là ngày cuối tháng chính xác
+    const shouldRun = isLastDayOfMonth(vnDate);
     
     if (shouldRun) {
-      console.log(`🟢 Auto-generation should run (day ${day}, after day 27 threshold)`);
+      const day = vnDate.getDate();
+      const year = vnDate.getFullYear();
+      const month = vnDate.getMonth();
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      console.log(`🟢 Auto-generation should run (day ${day}/${lastDay}, last day of month)`);
     } else {
-      console.log(`🔴 Auto-generation not needed (day ${day}, before day 27 threshold)`);
+      const day = vnDate.getDate();
+      const year = vnDate.getFullYear();
+      const month = vnDate.getMonth();
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      console.log(`🔴 Auto-generation not needed (day ${day}/${lastDay}, not last day of month)`);
     }
     
     return shouldRun;
@@ -353,12 +366,27 @@ async function simulateAutoGeneration(simulateDate = new Date()) {
     };
   }
 
-  // Calculate current and next quarter
-  const currentQuarterInfo = getQuarterInfo(simulateDate);
-  const nextQuarterInfo = getNextQuarterInfo(currentQuarterInfo);
+  // Calculate current and next quarter với logic quarter-end day
+  const currentDate = simulateDate;
+  const currentQuarterInfo = getQuarterInfo(currentDate);
+  
+  // Tính next quarter dựa trên current quarter (cho simulation)
+  let nextQuarter = currentQuarterInfo.quarter + 1;
+  let nextYear = currentQuarterInfo.year;
+  if (nextQuarter > 4) {
+    nextQuarter = 1;
+    nextYear++;
+  }
+  const nextQuarterInfo = { quarter: nextQuarter, year: nextYear };
+  
+  // Kiểm tra nếu là ngày cuối quý thì không tạo quý hiện tại
+  const isLastDay = isLastDayOfQuarter(currentDate);
   
   console.log(`📅 Current Quarter: Q${currentQuarterInfo.quarter}/${currentQuarterInfo.year}`);
   console.log(`📅 Next Quarter: Q${nextQuarterInfo.quarter}/${nextQuarterInfo.year}`);
+  if (isLastDay) {
+    console.log(`⏭️ Last day of quarter detected - will skip current quarter creation`);
+  }
 
   const simulationResults = [];
   let totalCurrentNeedGenerate = 0;
@@ -367,10 +395,10 @@ async function simulateAutoGeneration(simulateDate = new Date()) {
 
   for (const room of activeRooms) {
     try {
-      const roomResult = await analyzeRoomQuarterStatus(room, currentQuarterInfo, nextQuarterInfo, scheduleService, simulateDate);
+      const roomResult = await analyzeRoomQuarterStatus(room, currentQuarterInfo, nextQuarterInfo, scheduleService, simulateDate, isLastDay);
       simulationResults.push(roomResult);
       
-      if (roomResult.currentQuarter.needGenerate) totalCurrentNeedGenerate++;
+      if (roomResult.currentQuarter.needGenerate && !isLastDay) totalCurrentNeedGenerate++;
       if (roomResult.nextQuarter.needGenerate) totalNextNeedGenerate++;
       
     } catch (error) {
@@ -387,7 +415,7 @@ async function simulateAutoGeneration(simulateDate = new Date()) {
   }
 
   // Determine overall actions needed
-  const actionPlan = determineActionPlan(totalCurrentNeedGenerate, totalNextNeedGenerate, activeRooms.length, currentQuarterInfo, nextQuarterInfo);
+  const actionPlan = determineActionPlan(totalCurrentNeedGenerate, totalNextNeedGenerate, activeRooms.length, currentQuarterInfo, nextQuarterInfo, isLastDay);
 
   return {
     simulationDate: simulateDate,
@@ -404,25 +432,13 @@ async function simulateAutoGeneration(simulateDate = new Date()) {
     roomsWithErrors: totalErrors,
     canGenerate: totalCurrentNeedGenerate > 0 || totalNextNeedGenerate > 0,
     details: simulationResults,
-    summary: generateSmartSummary(totalCurrentNeedGenerate, totalNextNeedGenerate, activeRooms.length, currentQuarterInfo, nextQuarterInfo)
+    summary: generateSmartSummary(totalCurrentNeedGenerate, totalNextNeedGenerate, activeRooms.length, currentQuarterInfo, nextQuarterInfo, isLastDay)
   };
 }
 
-// Helper: Get next quarter info
-function getNextQuarterInfo(currentQuarterInfo) {
-  let nextQuarter = currentQuarterInfo.quarter + 1;
-  let nextYear = currentQuarterInfo.year;
-  
-  if (nextQuarter > 4) {
-    nextQuarter = 1;
-    nextYear++;
-  }
-  
-  return { quarter: nextQuarter, year: nextYear };
-}
 
 // Helper: Analyze room quarter status with detailed analysis
-async function analyzeRoomQuarterStatus(room, currentQuarterInfo, nextQuarterInfo, scheduleService, simulateDate) {
+async function analyzeRoomQuarterStatus(room, currentQuarterInfo, nextQuarterInfo, scheduleService, simulateDate, isLastDay = false) {
   // Get detailed analysis for current quarter (from simulate date)
   const currentAnalysis = await scheduleService.getQuarterAnalysisForRoom(
     room._id, 
@@ -444,7 +460,8 @@ async function analyzeRoomQuarterStatus(room, currentQuarterInfo, nextQuarterInf
     roomName: room.name || `Phòng ${room._id}`,
     currentQuarter: {
       ...currentAnalysis,
-      needGenerate: !currentAnalysis.isComplete
+      needGenerate: !currentAnalysis.isComplete && !isLastDay, // Không tạo quý hiện tại nếu là ngày cuối quý
+      skipReason: isLastDay ? 'Last day of quarter - skipped current quarter' : null
     },
     nextQuarter: {
       ...nextAnalysis,
@@ -454,11 +471,13 @@ async function analyzeRoomQuarterStatus(room, currentQuarterInfo, nextQuarterInf
 }
 
 // Helper: Determine what actions to take with detailed reasoning
-function determineActionPlan(currentNeedCount, nextNeedCount, totalRooms, currentQ, nextQ) {
+function determineActionPlan(currentNeedCount, nextNeedCount, totalRooms, currentQ, nextQ, isLastDay = false) {
+  const quarterEndNote = isLastDay ? ' (Ngày cuối quý - bỏ qua tạo quý hiện tại)' : '';
+  
   if (currentNeedCount === 0 && nextNeedCount === 0) {
     return {
       action: 'no_action',
-      message: `✅ Tất cả ${totalRooms} phòng đã có đủ lịch cho Q${currentQ.quarter}/${currentQ.year} và Q${nextQ.quarter}/${nextQ.year}`,
+      message: `✅ Tất cả ${totalRooms} phòng đã có đủ lịch cho Q${currentQ.quarter}/${currentQ.year} và Q${nextQ.quarter}/${nextQ.year}${quarterEndNote}`,
       priority: 'none',
       details: 'Không cần tạo lịch mới'
     };
@@ -467,7 +486,7 @@ function determineActionPlan(currentNeedCount, nextNeedCount, totalRooms, curren
   if (currentNeedCount > 0 && nextNeedCount > 0) {
     return {
       action: 'generate_both',
-      message: `🔄 Cần tạo/bổ sung lịch cho ${currentNeedCount} phòng ở Q${currentQ.quarter}/${currentQ.year} và ${nextNeedCount} phòng ở Q${nextQ.quarter}/${nextQ.year}`,
+      message: `🔄 Cần tạo/bổ sung lịch cho ${currentNeedCount} phòng ở Q${currentQ.quarter}/${currentQ.year} và ${nextNeedCount} phòng ở Q${nextQ.quarter}/${nextQ.year}${quarterEndNote}`,
       priority: 'high',
       details: 'Sẽ tạo lịch cho cả hai quý'
     };
@@ -476,7 +495,7 @@ function determineActionPlan(currentNeedCount, nextNeedCount, totalRooms, curren
   if (currentNeedCount > 0) {
     return {
       action: 'generate_current_only',
-      message: `⚠️ Cần bổ sung lịch cho ${currentNeedCount} phòng ở Q${currentQ.quarter}/${currentQ.year} (quý hiện tại)`,
+      message: `⚠️ Cần bổ sung lịch cho ${currentNeedCount} phòng ở Q${currentQ.quarter}/${currentQ.year} (quý hiện tại)${quarterEndNote}`,
       priority: 'urgent',
       details: `Q${nextQ.quarter}/${nextQ.year} đã có đủ lịch`
     };
@@ -484,16 +503,18 @@ function determineActionPlan(currentNeedCount, nextNeedCount, totalRooms, curren
   
   return {
     action: 'generate_next_only',
-    message: `📅 Cần tạo lịch cho ${nextNeedCount} phòng ở Q${nextQ.quarter}/${nextQ.year} (quý tiếp theo)`,
+    message: `📅 Cần tạo lịch cho ${nextNeedCount} phòng ở Q${nextQ.quarter}/${nextQ.year} (quý tiếp theo)${quarterEndNote}`,
     priority: 'medium',
     details: `Q${currentQ.quarter}/${currentQ.year} đã có đủ lịch`
   };
 }
 
 // Helper: Generate smart summary
-function generateSmartSummary(currentNeed, nextNeed, totalRooms, currentQ, nextQ) {
+function generateSmartSummary(currentNeed, nextNeed, totalRooms, currentQ, nextQ, isLastDay = false) {
+  const quarterEndNote = isLastDay ? ' (Ngày cuối quý)' : '';
+  
   if (currentNeed === 0 && nextNeed === 0) {
-    return `✅ Tất cả ${totalRooms} phòng đã có đủ lịch cho Q${currentQ.quarter}/${currentQ.year} và Q${nextQ.quarter}/${nextQ.year}`;
+    return `✅ Tất cả ${totalRooms} phòng đã có đủ lịch cho Q${currentQ.quarter}/${currentQ.year} và Q${nextQ.quarter}/${nextQ.year}${quarterEndNote}`;
   }
   
   let parts = [];
@@ -504,7 +525,7 @@ function generateSmartSummary(currentNeed, nextNeed, totalRooms, currentQ, nextQ
     parts.push(`${nextNeed}/${totalRooms} phòng thiếu lịch Q${nextQ.quarter}/${nextQ.year}`);
   }
   
-  return `🔄 ${parts.join(', ')}`;
+  return `🔄 ${parts.join(', ')}${quarterEndNote}`;
 }
 
 module.exports = {
@@ -514,7 +535,6 @@ module.exports = {
   hasScheduleForMonth,
   isEndOfMonth,
   shouldRunAutoGeneration,
-  getQuarterInfo,
   getQuarterDateRange,
   getAutoScheduleConfig,
   updateAutoScheduleConfig,

@@ -3,11 +3,26 @@ const slotRepo = require('../repositories/slot.repository');
 const redisClient = require('../utils/redis.client');
 const cfgService = require('./scheduleConfig.service');
 const { publishToQueue } = require('../utils/rabbitClient');
+const Schedule = require('../models/schedule.model');
 
 // Helper: Get Vietnam timezone date
 function getVietnamDate() {
   const now = new Date();
   return new Date(now.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
+}
+
+// Helper: Check if current date is exactly the last day of month
+function isLastDayOfMonth(date = null) {
+  const checkDate = date || getVietnamDate();
+  const currentDay = checkDate.getDate();
+  
+  // Get last day of current month
+  const year = checkDate.getFullYear();
+  const month = checkDate.getMonth(); // 0-based
+  const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+  
+  // Check if current day is exactly the last day
+  return currentDay === lastDayOfMonth;
 }
 
 function toVNDateOnlyString(d) {
@@ -36,6 +51,43 @@ function getQuarterInfo(date = null) {
   const quarter = Math.ceil((vnDate.getMonth() + 1) / 3);
   const year = vnDate.getFullYear();
   return { quarter, year };
+}
+
+// Helper: Kiểm tra có phải ngày cuối quý không (31/3, 30/6, 30/9, 31/12)
+function isLastDayOfQuarter(date = null) {
+  const vnDate = date ? new Date(date.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"})) : getVietnamDate();
+  const day = vnDate.getDate();
+  const month = vnDate.getMonth() + 1; // JavaScript month is 0-based
+  
+  // Các ngày cuối quý
+  const quarterEndDays = [
+    { month: 3, day: 31 },  // Q1
+    { month: 6, day: 30 },  // Q2  
+    { month: 9, day: 30 },  // Q3
+    { month: 12, day: 31 }  // Q4
+  ];
+  
+  return quarterEndDays.some(end => end.month === month && end.day === day);
+}
+
+// Helper: Tính quý tiếp theo để tạo lịch khi là ngày cuối quý
+function getNextQuarterForScheduling(date = null) {
+  const vnDate = date ? new Date(date.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"})) : getVietnamDate();
+  
+  if (isLastDayOfQuarter(vnDate)) {
+    // Nếu là ngày cuối quý, return quý tiếp theo
+    const currentQuarter = getQuarterInfo(vnDate);
+    if (currentQuarter.quarter === 4) {
+      // Q4 -> Q1 năm sau
+      return { quarter: 1, year: currentQuarter.year + 1 };
+    } else {
+      // Q1,Q2,Q3 -> quý tiếp theo cùng năm
+      return { quarter: currentQuarter.quarter + 1, year: currentQuarter.year };
+    }
+  } else {
+    // Ngày bình thường, return quý hiện tại
+    return getQuarterInfo(vnDate);
+  }
 }
 
 // Helper: Get quarter date range (Vietnam timezone)
@@ -163,6 +215,12 @@ async function generateQuarterSchedule(quarter, year) {
     const nowVN = getVietnamDate();
     if (endDate < nowVN) {
       throw new Error(`Không thể tạo lịch cho quý ${quarter}/${year} vì đã kết thúc (theo giờ VN)`);
+    }
+
+    // 🆕 KIỂM TRA NGÀY CUỐI QUÝ: Không cho tạo lịch trong ngày cuối quý
+    if (isLastDayOfQuarter(nowVN)) {
+      const nextQuarter = getNextQuarterForScheduling(nowVN);
+      throw new Error(`Hôm nay là ngày cuối quý. Vui lòng tạo lịch cho quý ${nextQuarter.quarter}/${nextQuarter.year} thay thế.`);
     }
 
     // If current quarter, start from the NEXT day (VN), not from today or the 1st
@@ -337,6 +395,12 @@ async function generateQuarterScheduleForSingleRoom(roomId, quarter, year) {
       throw new Error(`Cannot create schedule for Q${quarter}/${year} as it has already ended (VN time)`);
     }
 
+    // 🆕 KIỂM TRA NGÀY CUỐI QUÝ cho single room
+    if (isLastDayOfQuarter(nowVN)) {
+      const nextQuarter = getNextQuarterForScheduling(nowVN);
+      throw new Error(`Today is the last day of quarter. Please create schedule for Q${nextQuarter.quarter}/${nextQuarter.year} instead.`);
+    }
+
     // If current quarter, start from the NEXT day (VN), not from today or the 1st
     const current = getQuarterInfo();
     if (year === current.year && quarter === current.quarter) {
@@ -355,11 +419,26 @@ async function generateQuarterScheduleForSingleRoom(roomId, quarter, year) {
       throw new Error('Không thể tạo lịch cho quý trong quá khứ');
     }
 
-    // Get room from cache
-    const rooms = await getAllRooms();
-    const room = rooms.find(r => r._id.toString() === roomId.toString());
+    // Get room from cache (fallback to fetch fresh if not found)
+    let rooms = await getAllRooms();
+    let room = rooms.find(r => r._id.toString() === roomId.toString());
+    
     if (!room) {
-      throw new Error(`Không tìm thấy phòng ${roomId}`);
+      // Room might be newly created and not in cache yet, try fresh fetch
+      console.log(`⚠️ Room ${roomId} không tìm thấy trong cache, thử fetch lại từ Redis...`);
+      try {
+        const cached = await redisClient.get('rooms_cache');
+        if (cached) {
+          const allRooms = JSON.parse(cached);
+          room = allRooms.find(r => r._id.toString() === roomId.toString());
+        }
+      } catch (error) {
+        console.error('Failed to re-fetch room from cache:', error);
+      }
+      
+      if (!room) {
+        throw new Error(`Không tìm thấy phòng ${roomId} trong hệ thống`);
+      }
     }
     
     if (!room.isActive) {
@@ -608,10 +687,31 @@ async function getAvailableQuarters() {
   const currentQuarter = getQuarterInfo();
   const availableQuarters = [];
 
-  // Build candidate quarters: from current quarter to Q4 of current year, then Q1-Q4 of next year
+  // 🆕 LOGIC NGÀY CUỐI QUÝ: Nếu là ngày cuối quý, bắt đầu từ quý tiếp theo
+  let startQuarter, startYear;
+  if (isLastDayOfQuarter()) {
+    const nextQuarter = getNextQuarterForScheduling();
+    startQuarter = nextQuarter.quarter;
+    startYear = nextQuarter.year;
+    console.log(`📅 Hôm nay là ngày cuối quý, bắt đầu từ Q${startQuarter}/${startYear}`);
+  } else {
+    startQuarter = currentQuarter.quarter;
+    startYear = currentQuarter.year;
+  }
+
+  // Build candidate quarters: từ quarter được tính toán đến hết năm, rồi sang năm sau
   const candidates = [];
-  for (let q = currentQuarter.quarter; q <= 4; q++) candidates.push({ quarter: q, year: currentQuarter.year });
-  for (let q = 1; q <= 4; q++) candidates.push({ quarter: q, year: currentQuarter.year + 1 });
+  
+  // Thêm các quý từ startQuarter đến cuối năm startYear
+  for (let q = startQuarter; q <= 4; q++) {
+    candidates.push({ quarter: q, year: startYear });
+  }
+  
+  // Thêm các quý của năm tiếp theo (nếu startYear khác currentYear + 1)
+  const nextYear = startYear === currentQuarter.year ? currentQuarter.year + 1 : startYear + 1;
+  for (let q = 1; q <= 4; q++) {
+    candidates.push({ quarter: q, year: nextYear });
+  }
 
   const config = await cfgService.getConfig();
   const lastGenerated = config?.lastQuarterGenerated;
@@ -752,6 +852,28 @@ async function getQuarterStatus(quarter, year) {
   return status;
 }
 
+// 🔍 Lấy danh sách các quý đã có lịch trong hệ thống (sử dụng API available quarters)
+async function getExistingScheduleQuarters() {
+  try {
+    // Sử dụng logic có sẵn từ getAvailableQuarters
+    const availableQuarters = await getAvailableQuarters();
+    
+    // Lọc chỉ những quý đã được tạo (isCreated: true)
+    const existingQuarters = availableQuarters
+      .filter(q => q.isCreated)
+      .map(q => ({
+        quarter: q.quarter,
+        year: q.year
+      }));
+
+    console.log(`🔍 Found ${existingQuarters.length} existing quarters:`, existingQuarters.map(q => `Q${q.quarter}/${q.year}`));
+    return existingQuarters;
+  } catch (error) {
+    console.error('Error getting existing schedule quarters:', error);
+    return [];
+  }
+}
+
 module.exports = {
   generateQuarterSchedule,
   generateQuarterScheduleForSingleRoom,
@@ -764,7 +886,11 @@ module.exports = {
   getVietnamDate,
   getQuarterDateRange,
   hasScheduleForPeriod,
-  getQuarterAnalysisForRoom
+  getQuarterAnalysisForRoom,
+  createSchedulesForNewRoom,
+  isLastDayOfQuarter,
+  getNextQuarterForScheduling,
+  isLastDayOfMonth
 };
 
 // 🔧 Check conflict chung
@@ -1125,6 +1251,157 @@ exports.toggleStatus = async (id) => {
 
 // Ensure the toggle function is available on module.exports (module.exports was assigned earlier)
 module.exports.toggleStatus = exports.toggleStatus;
+
+// 🆕 Tạo lịch cho room mới theo logic generateQuarterSchedule  
+async function createSchedulesForNewRoom(roomData) {
+  try {
+    console.log(`📅 Tạo lịch cho room mới: ${roomData.roomId}, hasSubRooms: ${roomData.hasSubRooms}`);
+    
+    // ✅ KIỂM TRA CẤU HÌNH HỆ THỐNG
+    const config = await cfgService.getConfig();
+    if (!config) {
+      console.warn(`⚠️ Chưa có cấu hình hệ thống. Bỏ qua tạo lịch cho room ${roomData.roomId}`);
+      return {
+        success: true,
+        roomId: roomData.roomId,
+        hasSubRooms: roomData.hasSubRooms,
+        totalSchedulesCreated: 0,
+        quartersProcessed: 0,
+        message: `Bỏ qua tạo lịch do chưa có cấu hình hệ thống`
+      };
+    }
+    console.log(`✅ Đã tìm thấy cấu hình hệ thống`);
+    
+    // 🆕 LOGIC NGÀY CUỐI QUÝ: Kiểm tra ngày hiện tại
+    const nowVN = getVietnamDate();
+    if (isLastDayOfQuarter(nowVN)) {
+      const nextQuarter = getNextQuarterForScheduling(nowVN);
+      console.log(`📅 Hôm nay là ngày cuối quý, sẽ tạo lịch cho Q${nextQuarter.quarter}/${nextQuarter.year}`);
+    }
+
+    // 🔍 Tìm các quý đã có lịch trong hệ thống (từ các room khác)
+    const existingQuarters = await getExistingScheduleQuarters();
+    console.log(`🔍 Existing quarters in system:`, existingQuarters.map(q => `Q${q.quarter}/${q.year}`));
+    
+    if (existingQuarters.length === 0) {
+      console.log(`⚠️ Chưa có lịch nào trong hệ thống. Bỏ qua tạo lịch cho room mới.`);
+      return {
+        success: true,
+        roomId: roomData.roomId,
+        hasSubRooms: roomData.hasSubRooms,
+        totalSchedulesCreated: 0,
+        quartersProcessed: 0,
+        message: `Bỏ qua tạo lịch do chưa có lịch nào trong hệ thống`
+      };
+    }
+    
+    // Chỉ tạo lịch cho các quý đã có trong hệ thống
+    const creatableQuarters = existingQuarters;
+    
+    let totalSchedulesCreated = 0;
+    
+    for (const { quarter, year } of creatableQuarters) {
+      try {
+        console.log(`🚀 Bắt đầu tạo lịch Q${quarter}/${year} cho room ${roomData.roomId}...`);
+        
+        // Tạo lịch trực tiếp cho room mới (không qua cache)
+        const result = await createScheduleForNewRoomDirect(roomData, quarter, year);
+        totalSchedulesCreated += result.scheduleCount || 0;
+        console.log(`✅ Đã tạo lịch Q${quarter}/${year} cho room ${roomData.roomId}: ${result.scheduleCount || 0} schedules`);
+        
+        // Debug: Kiểm tra schedules đã được lưu vào DB chưa
+        const { startDate, endDate } = getQuarterDateRange(quarter, year);
+        const savedSchedules = await scheduleRepo.findByRoomAndDateRange(roomData.roomId, startDate, endDate);
+        console.log(`🔍 Debug: Tìm thấy ${savedSchedules.length} schedules trong DB cho room ${roomData.roomId} Q${quarter}/${year}`);
+      } catch (error) {
+        console.error(`❌ Lỗi tạo lịch Q${quarter}/${year} cho room ${roomData.roomId}:`, error.message);
+        // Không throw error, tiếp tục với quý khác
+      }
+    }
+    
+    console.log(`📊 Tổng kết tạo lịch: ${totalSchedulesCreated} schedules từ ${creatableQuarters.length} quý`);
+
+    // Mark room as used
+    try {
+      await markMainRoomAsUsed(roomData.roomId);
+      if (roomData.hasSubRooms && roomData.subRoomIds) {
+        await markSubRoomsAsUsed(roomData.roomId, roomData.subRoomIds);
+      }
+    } catch (markError) {
+      console.warn('⚠️ Không thể mark room as used:', markError.message);
+    }
+
+    return {
+      success: true,
+      roomId: roomData.roomId,
+      hasSubRooms: roomData.hasSubRooms,
+      totalSchedulesCreated,
+      quartersProcessed: creatableQuarters.length,
+      message: `Đã tạo ${totalSchedulesCreated} schedules cho room mới`
+    };
+  } catch (error) {
+    console.error('❌ Lỗi tạo lịch cho room mới:', error);
+    throw error;
+  }
+}
+
+// 🆕 Tạo lịch trực tiếp cho room mới từ roomData (không qua cache)
+async function createScheduleForNewRoomDirect(roomData, quarter, year) {
+  try {
+    // Config đã được kiểm tra ở hàm cha, lấy lại để sử dụng
+    const config = await cfgService.getConfig();
+
+    // Get quarter date range
+    let { startDate, endDate } = getQuarterDateRange(quarter, year);
+    
+    // If current quarter, start from next day
+    const nowVN = getVietnamDate();
+    const current = getQuarterInfo();
+    if (year === current.year && quarter === current.quarter) {
+      const startNextDay = new Date(
+        nowVN.getFullYear(),
+        nowVN.getMonth(),
+        nowVN.getDate() + 1,
+        0, 0, 0, 0
+      );
+      if (startNextDay > startDate) startDate = startNextDay;
+    }
+
+    // Construct room object from roomData
+    const room = {
+      _id: roomData.roomId,
+      name: `Room ${roomData.roomId}`, // Placeholder name
+      isActive: true,
+      autoScheduleEnabled: true,
+      hasSubRooms: roomData.hasSubRooms,
+      subRooms: roomData.hasSubRooms ? (roomData.subRoomIds || []).map(id => ({
+        _id: id,
+        isActive: true,
+        name: `SubRoom ${id}`
+      })) : [],
+      maxDoctors: roomData.maxDoctors || 1,
+      maxNurses: roomData.maxNurses || 1
+    };
+
+    console.log(`📅 Tạo lịch trực tiếp cho room: ${room.name}, hasSubRooms: ${room.hasSubRooms}, subRooms: ${room.subRooms.length}`);
+
+    // Generate schedules using same logic as generateScheduleForRoom
+    const roomSchedules = await generateScheduleForRoom(room, startDate, endDate, config);
+    
+    return {
+      quarter,
+      year,
+      roomId: roomData.roomId,
+      scheduleCount: roomSchedules.length,
+      success: true,
+      message: `Tạo thành công ${roomSchedules.length} schedules cho Q${quarter}/${year}`
+    };
+    
+  } catch (error) {
+    console.error(`❌ Lỗi tạo lịch trực tiếp cho room ${roomData.roomId}:`, error);
+    throw error;
+  }
+}
 
 // 🆕 Tạo lịch thông minh cho subRooms mới - dùng API generateQuarterSchedule để đồng bộ
 exports.createSchedulesForNewSubRooms = async (roomId, subRoomIds) => {
@@ -2045,9 +2322,8 @@ async function getQuarterAnalysisForRoom(roomId, quarter, year, fromDate = new D
       if (month > currentMonth) return true; // Future months
       if (month < currentMonth) return false; // Past months
       
-      // Current month - skip if after day 28 (considered "too late")
-      const currentDay = currentDate.getDate();
-      return currentDay < 28; // Only check current month if before day 28
+      // Current month - skip if last day of month (considered "too late")
+      return !isLastDayOfMonth(currentDate);
     });
     
     console.log(`📅 Checking Q${quarter}/${year} from ${currentMonth}/${currentYear} - Relevant months:`, relevantMonths);
