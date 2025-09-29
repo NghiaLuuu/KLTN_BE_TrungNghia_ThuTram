@@ -173,34 +173,29 @@ exports.getDentistsForPatients = async (req, res) => {
   }
 };
 
-// 🔹 EXISTING METHODS - đảm bảo chúng tồn tại
-exports.getProfile = async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const user = await userService.getProfile(userId);
-    
-    res.status(200).json({
-      success: true,
-      user
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
+// 🔹 EXISTING METHODS
 
-exports.updateProfile = async (req, res) => {
+// 🆕 New updateUser method với role-based permissions
+exports.updateUser = async (req, res) => {
   try {
-    const userId = req.user._id;
-    const updateData = req.body;
+    const currentUser = req.user;
+    let targetUserId = req.params.id;
     
-    const updatedUser = await userService.updateUser(userId, updateData, userId);
+    // Nếu id = 'me' hoặc 'profile' thì update chính mình
+    if (targetUserId === 'me' || targetUserId === 'profile') {
+      targetUserId = req.user.userId; // ✅ Sử dụng userId từ JWT payload
+    }
+    // Nếu không có id thì cũng update chính mình (fallback)
+    if (!targetUserId) {
+      targetUserId = req.user.userId;
+    }
+    
+    const updateData = req.body;
+    const updatedUser = await userService.updateUserWithPermissions(currentUser, targetUserId, updateData);
     
     res.status(200).json({
       success: true,
-      message: 'Cập nhật profile thành công',
+      message: 'Cập nhật thông tin thành công',
       user: updatedUser
     });
   } catch (error) {
@@ -211,33 +206,31 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-exports.getUsersByRole = async (req, res) => {
-  try {
-    const { role } = req.query;
-    const { page = 1, limit = 10 } = req.query;
 
-    const result = await userService.getUsersByRole(role, page, limit);
-    
-    res.status(200).json({
-      success: true,
-      ...result
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
+// 🔄 Updated getAllStaff với role filter option và enhanced query params
 exports.getAllStaff = async (req, res) => {
   try {
-    const { page = 1, limit = 10 } = req.query;
+    const { 
+      page = 1, 
+      limit = 10, 
+      search = '', 
+      role,
+      sortBy = 'name', 
+      sortOrder = 'asc' 
+    } = req.query;
 
-    const result = await userService.getAllStaff(page, limit);
+    const result = await userService.getAllStaff({
+      page: parseInt(page),
+      limit: parseInt(limit),
+      search,
+      role,
+      sortBy,
+      sortOrder
+    });
     
     res.status(200).json({
       success: true,
+      message: 'Lấy danh sách nhân viên thành công',
       ...result
     });
   } catch (error) {
@@ -248,6 +241,39 @@ exports.getAllStaff = async (req, res) => {
   }
 };
 
+// 🆕 New getAllPatients method
+exports.getAllPatients = async (req, res) => {
+  try {
+    const { 
+      page = 1, 
+      limit = 10, 
+      search = '', 
+      sortBy = 'name', 
+      sortOrder = 'asc' 
+    } = req.query;
+
+    const result = await userService.getAllPatients({
+      page: parseInt(page),
+      limit: parseInt(limit),
+      search,
+      sortBy,
+      sortOrder
+    });
+    
+    res.status(200).json({
+      success: true,
+      message: 'Lấy danh sách bệnh nhân thành công',
+      ...result
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// 🔄 Keep searchStaff for backward compatibility (deprecated)
 exports.searchStaff = async (req, res) => {
   try {
     const { page = 1, limit = 10, ...criteria } = req.query;
@@ -266,11 +292,51 @@ exports.searchStaff = async (req, res) => {
   }
 };
 
+// 🆕 New searchPatients method
+exports.searchPatients = async (req, res) => {
+  try {
+    const { 
+      page = 1, 
+      limit = 10, 
+      search = '',
+      sortBy = 'name', 
+      sortOrder = 'asc',
+      ...criteria 
+    } = req.query;
+
+    // Use getAllPatients service with search criteria
+    const result = await userService.getAllPatients({
+      page: parseInt(page),
+      limit: parseInt(limit),
+      search,
+      sortBy,
+      sortOrder
+    });
+    
+    res.status(200).json({
+      success: true,
+      message: 'Tìm kiếm bệnh nhân thành công',
+      ...result
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// 🔄 Enhanced getUserById - handles both profile and user by ID
 exports.getUserById = async (req, res) => {
   try {
     const currentUser = req.user;
-    const userId = req.params.id;
-
+    let userId = req.params.id;
+    
+    // Nếu id = 'me' hoặc 'profile' thì lấy profile của mình
+    if (userId === 'me' || userId === 'profile') {
+      userId = currentUser.userId; // ✅ Sử dụng userId từ JWT payload
+    }
+    
     const user = await userService.getUserById(currentUser, userId);
     
     res.status(200).json({
@@ -285,44 +351,9 @@ exports.getUserById = async (req, res) => {
   }
 };
 
-exports.updateProfileByAdmin = async (req, res) => {
-  try {
-    const currentUser = req.user;
-    const userId = req.params.id;
-    const updateData = req.body;
 
-    const updatedUser = await userService.updateProfileByAdmin(currentUser, userId, updateData);
-    
-    res.status(200).json({
-      success: true,
-      message: 'Cập nhật thông tin nhân viên thành công',
-      user: updatedUser
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
 
-exports.getStaffByIds = async (req, res) => {
-  try {
-    const { ids } = req.body;
-    
-    const result = await userService.getStaffByIds(ids);
-    
-    res.status(200).json({
-      success: true,
-      ...result
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
+
 
 exports.uploadAvatar = async (req, res) => {
   try {

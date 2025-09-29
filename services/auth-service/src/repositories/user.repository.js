@@ -53,13 +53,7 @@ exports.listUsers = async () => {
   }).select('-password');
 };
 
-exports.getUsersByRole = async (role, skip = 0, limit = 10) => {
-  return await User.find({ role, deletedAt: null })
-    .select('-password')
-    .skip(skip)
-    .limit(limit)
-    .sort({ createdAt: -1 });
-};
+
 
 exports.countByRole = async (role) => {
   return await User.countDocuments({ role, deletedAt: null });
@@ -81,6 +75,62 @@ exports.countAllStaff = async () => {
     role: { $ne: 'patient' }, 
     deletedAt: null 
   });
+};
+
+// 🆕 Enhanced staff queries with criteria and sorting
+exports.getAllStaffWithCriteria = async (criteria = {}, skip = 0, limit = 10, sortBy = 'name', sortOrder = 'asc') => {
+  const query = { 
+    role: { $ne: 'patient' }, 
+    deletedAt: null,
+    ...criteria
+  };
+  
+  const sortOptions = {};
+  sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
+  
+  return await User.find(query)
+    .select('-password')
+    .skip(skip)
+    .limit(limit)
+    .sort(sortOptions);
+};
+
+exports.countStaffWithCriteria = async (criteria = {}) => {
+  const query = { 
+    role: { $ne: 'patient' }, 
+    deletedAt: null,
+    ...criteria
+  };
+  
+  return await User.countDocuments(query);
+};
+
+// 🆕 Patient-specific queries
+exports.getAllPatientsWithCriteria = async (criteria = {}, skip = 0, limit = 10, sortBy = 'name', sortOrder = 'asc') => {
+  const query = { 
+    role: 'patient', 
+    deletedAt: null,
+    ...criteria
+  };
+  
+  const sortOptions = {};
+  sortOptions[sortBy] = sortOrder === 'desc' ? -1 : 1;
+  
+  return await User.find(query)
+    .select('-password')
+    .skip(skip)
+    .limit(limit)
+    .sort(sortOptions);
+};
+
+exports.countPatientsWithCriteria = async (criteria = {}) => {
+  const query = { 
+    role: 'patient', 
+    deletedAt: null,
+    ...criteria
+  };
+  
+  return await User.countDocuments(query);
 };
 
 // 🔹 SEARCH OPERATIONS
@@ -120,13 +170,7 @@ exports.countStaff = async (criteria) => {
   return await User.countDocuments(query);
 };
 
-exports.findUsersByIds = async (ids) => {
-  if (!Array.isArray(ids) || ids.length === 0) return [];
-  return User.find({ 
-    _id: { $in: ids }, 
-    deletedAt: null 
-  }, '_id fullName role specializations description');
-};
+
 
 // 🔹 PROFILE OPERATIONS
 exports.updateAvatar = async (userId, avatarUrl) => {

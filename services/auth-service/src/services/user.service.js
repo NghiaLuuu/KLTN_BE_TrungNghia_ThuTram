@@ -67,13 +67,36 @@ exports.getProfile = async (userId) => {
 };
 
 // 🔹 LIST & SEARCH OPERATIONS
-exports.getUsersByRole = async (role, page = 1, limit = 10) => {
-  if (!role) throw new Error('Thiếu vai trò để lọc người dùng');
 
+// 🔄 Enhanced getAllStaff with search, role filter, and sorting
+exports.getAllStaff = async (options = {}) => {
+  const { 
+    page = 1, 
+    limit = 10, 
+    search = '', 
+    role, 
+    sortBy = 'name', 
+    sortOrder = 'asc' 
+  } = options;
+  
   const skip = (page - 1) * limit;
+  
+  // Build filter criteria
+  const criteria = {};
+  if (search) {
+    criteria.$or = [
+      { fullName: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+      { phone: { $regex: search, $options: 'i' } }
+    ];
+  }
+  if (role) {
+    criteria.role = role;
+  }
+  
   const [users, total] = await Promise.all([
-    userRepo.getUsersByRole(role, skip, limit),
-    userRepo.countByRole(role),
+    userRepo.getAllStaffWithCriteria(criteria, skip, limit, sortBy, sortOrder),
+    userRepo.countStaffWithCriteria(criteria),
   ]);
 
   return {
@@ -82,14 +105,36 @@ exports.getUsersByRole = async (role, page = 1, limit = 10) => {
     limit: Number(limit),
     totalPages: Math.ceil(total / limit),
     users,
+    hasNextPage: page < Math.ceil(total / limit),
+    hasPrevPage: page > 1
   };
 };
 
-exports.getAllStaff = async (page = 1, limit = 10) => {
+// 🆕 New getAllPatients method
+exports.getAllPatients = async (options = {}) => {
+  const { 
+    page = 1, 
+    limit = 10, 
+    search = '', 
+    sortBy = 'name', 
+    sortOrder = 'asc' 
+  } = options;
+  
   const skip = (page - 1) * limit;
+  
+  // Build filter criteria for patients only
+  const criteria = { role: 'patient' };
+  if (search) {
+    criteria.$or = [
+      { fullName: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+      { phone: { $regex: search, $options: 'i' } }
+    ];
+  }
+  
   const [users, total] = await Promise.all([
-    userRepo.getAllStaff(skip, limit),
-    userRepo.countAllStaff(),
+    userRepo.getAllPatientsWithCriteria(criteria, skip, limit, sortBy, sortOrder),
+    userRepo.countPatientsWithCriteria(criteria),
   ]);
 
   return {
@@ -98,7 +143,79 @@ exports.getAllStaff = async (page = 1, limit = 10) => {
     limit: Number(limit),
     totalPages: Math.ceil(total / limit),
     users,
+    hasNextPage: page < Math.ceil(total / limit),
+    hasPrevPage: page > 1
   };
+};
+
+// 🆕 New updateUserWithPermissions method với role-based permissions
+exports.updateUserWithPermissions = async (currentUser, targetUserId, updateData) => {
+  // Lấy thông tin target user
+  const targetUser = await userRepo.findById(targetUserId);
+  if (!targetUser) {
+    throw new Error('Không tìm thấy người dùng cần cập nhật');
+  }
+
+  // Apply role-based permissions
+  const { role: currentRole, userId: currentUserId } = currentUser; // ✅ Sử dụng userId thay vì _id
+  
+  // Validate current user data
+  if (!currentUserId || !currentRole) {
+    throw new Error('Thông tin user không hợp lệ từ token');
+  }
+  
+  const isUpdatingSelf = currentUserId.toString() === targetUserId.toString();
+  
+  // 🔒 ADMIN RULES
+  if (currentRole === 'admin') {
+    // Admin không thể cập nhật chính mình
+    if (isUpdatingSelf) {
+      throw new Error('Admin không thể tự cập nhật thông tin của mình');
+    }
+    // Admin có thể cập nhật tất cả role khác (không giới hạn field nào)
+    // Không có restriction nào khác
+  }
+  
+  // 🔒 MANAGER RULES  
+  else if (currentRole === 'manager') {
+    // Manager không thể cập nhật admin và manager khác
+    if (targetUser.role === 'admin' || (targetUser.role === 'manager' && !isUpdatingSelf)) {
+      throw new Error('Manager không thể cập nhật admin hoặc manager khác');
+    }
+    // Manager có thể cập nhật tất cả user còn lại (trừ email + số điện thoại)
+    if (updateData.email || updateData.phoneNumber) {
+      throw new Error('Manager không thể cập nhật email hoặc số điện thoại');
+    }
+  }
+  
+  // 🔒 PATIENT RULES
+  else if (currentRole === 'patient') {
+    // Patient chỉ có thể cập nhật chính mình
+    if (!isUpdatingSelf) {
+      throw new Error('Bạn chỉ có thể cập nhật thông tin của chính mình');
+    }
+    // Patient không được cập nhật email và số điện thoại
+    if (updateData.email || updateData.phoneNumber) {
+      throw new Error('Bạn không thể cập nhật email hoặc số điện thoại');
+    }
+    // Patient không thể thay đổi role
+    if (updateData.role) {
+      throw new Error('Bạn không thể thay đổi vai trò của mình');
+    }
+  }
+  
+  // 🔒 STAFF RULES (dentist, nurse, receptionist, etc.)
+  else {
+    // Các nhân viên khác không thể cập nhật chính mình hay bất kì ai
+    throw new Error(`Nhân viên với role '${currentRole}' không có quyền cập nhật thông tin người dùng`);
+  }
+  
+  // Execute update
+  const updated = await userRepo.updateById(targetUserId, updateData, currentUserId);
+  if (!updated) throw new Error('Không thể cập nhật thông tin người dùng');
+  
+  await refreshUserCache();
+  return updated;
 };
 
 exports.searchStaff = async (criteria = {}, page = 1, limit = 10) => {
@@ -118,29 +235,9 @@ exports.searchStaff = async (criteria = {}, page = 1, limit = 10) => {
 };
 
 // 🔹 ADMIN OPERATIONS
-exports.updateProfileByAdmin = async (currentUser, userId, data) => {
-  if (!['admin', 'manager'].includes(currentUser.role)) {
-    throw new Error('Bạn không có quyền thực hiện chức năng này');
-  }
-
-  const existingUser = await userRepo.findById(userId);
-  if (!existingUser) {
-    throw new Error('Không tìm thấy người dùng để cập nhật');
-  }
-
-  const updatedData = { ...existingUser.toObject(), ...data };
-  const updatedUser = await userRepo.updateById(userId, updatedData, currentUser._id);
-  
-  if (!updatedUser) {
-    throw new Error('Không thể cập nhật người dùng');
-  }
-
-  await refreshUserCache();
-  return updatedUser;
-};
 
 exports.getUserById = async (currentUser, userId) => {
-  if (!['admin', 'manager'].includes(currentUser.role) && currentUser._id.toString() !== userId) {
+  if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
     throw new Error('Bạn không có quyền truy cập thông tin người dùng này');
   }
 
@@ -232,7 +329,7 @@ exports.toggleUserStatus = async (currentUser, userId) => {
 
   if (user.isActive) {
     // Đang active -> chuyển thành inactive (deactivate)
-    updatedUser = await userRepo.softDeleteUser(userId, currentUser._id || 'Ngưng hoạt động bởi quản trị viên');
+    updatedUser = await userRepo.softDeleteUser(userId, currentUser.userId || 'Ngưng hoạt động bởi quản trị viên');
     actionType = 'deactivate';
     message = `Nhân viên ${user.fullName} đã được ngưng hoạt động`;
   } else {
@@ -278,18 +375,6 @@ async function checkUserUsageInSystem(userId) {
 }
 
 // 🔹 UTILITY OPERATIONS
-exports.getStaffByIds = async (ids) => {
-  const users = await userRepo.findUsersByIds(ids);
-  const staff = users.map(u => ({
-    _id: u._id,
-    name: u.fullName,
-    role: u.role,
-    specializations: u.specializations,
-    description: u.description
-  }));
-
-  return { staff };
-};
 
 exports.updateUserAvatar = async (userId, file) => {
   if (!file) throw new Error('Chưa có file upload');
@@ -310,8 +395,8 @@ exports.uploadCertificate = async (currentUser, userId, file, notes = null) => {
     throw new Error('Thông tin người dùng không hợp lệ hoặc token đã hết hạn');
   }
 
-  // Lấy ID từ các field có thể có trong JWT payload
-  const currentUserId = currentUser._id || currentUser.id || currentUser.userId;
+  // Lấy ID từ các field có thể có trong JWT payload  
+  const currentUserId = currentUser.userId || currentUser._id || currentUser.id;
   if (!currentUserId) {
     throw new Error('Token không chứa thông tin ID người dùng hợp lệ');
   }
@@ -382,7 +467,7 @@ exports.uploadMultipleCertificates = async (currentUser, userId, files, notes = 
     throw new Error('Thông tin người dùng không hợp lệ hoặc token đã hết hạn');
   }
 
-  const currentUserId = currentUser._id || currentUser.id || currentUser.userId;
+  const currentUserId = currentUser.userId || currentUser._id || currentUser.id;
   if (!currentUserId) {
     throw new Error('Token không chứa thông tin ID người dùng hợp lệ');
   }
@@ -467,7 +552,7 @@ exports.uploadMultipleCertificates = async (currentUser, userId, files, notes = 
 };
 
 exports.deleteCertificate = async (currentUser, userId, certificateId) => {
-  if (!['admin', 'manager'].includes(currentUser.role) && currentUser._id.toString() !== userId) {
+  if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
     throw new Error('Bạn không có quyền xóa chứng chỉ');
   }
 
@@ -486,7 +571,7 @@ exports.verifyCertificate = async (currentUser, userId, certificateId, isVerifie
     throw new Error('Chỉ admin/manager mới có quyền xác thực chứng chỉ');
   }
 
-  const updatedUser = await userRepo.verifyCertificate(userId, certificateId, isVerified, currentUser._id);
+  const updatedUser = await userRepo.verifyCertificate(userId, certificateId, isVerified, currentUser.userId);
   if (!updatedUser) {
     throw new Error('Không tìm thấy chứng chỉ để xác thực');
   }
@@ -496,7 +581,7 @@ exports.verifyCertificate = async (currentUser, userId, certificateId, isVerifie
 };
 
 exports.updateCertificateNotes = async (currentUser, userId, certificateId, notes) => {
-  if (!['admin', 'manager'].includes(currentUser.role) && currentUser._id.toString() !== userId) {
+  if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
     throw new Error('Bạn không có quyền cập nhật ghi chú chứng chỉ');
   }
 
