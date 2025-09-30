@@ -7,6 +7,10 @@ const authMiddleware = require('../middlewares/auth.middleware');
 // Request body example: { scheduleId, roomId, subRoomId?, shifts: ['Ca Sáng'], dentistIds: [], nurseIds: [] }
 router.post('/assign-staff', authMiddleware, slotController.assignStaffToSlots);
 
+// Reassign staff to already assigned slots by schedule (QUÝ) — only works on slots that already have staff
+// Request body example: { roomId, subRoomId?, quarter, year, shifts: ['Ca Sáng'], dentistIds: [], nurseIds: [] }
+router.post('/reassign-staff', authMiddleware, slotController.reassignStaffToSlots);
+
 // Update staff for single or multiple slots
 router.patch('/staff', authMiddleware, slotController.updateSlotStaff);
 

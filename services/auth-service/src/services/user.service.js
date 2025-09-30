@@ -19,7 +19,7 @@ async function initUserCache() {
 
 async function refreshUserCache() {
   try {
-    const users = await userRepo.listUsers();
+    const users = await userRepo.getAllStaffWithCriteria();
     await redis.set(USER_CACHE_KEY, JSON.stringify(users));
 
     // pick available repo method (compatibility)
@@ -551,9 +551,25 @@ exports.uploadMultipleCertificates = async (currentUser, userId, files, notes = 
   };
 };
 
+// 🚨 DEPRECATED: Sử dụng batchDeleteCertificates thay thế
 exports.deleteCertificate = async (currentUser, userId, certificateId) => {
   if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
     throw new Error('Bạn không có quyền xóa chứng chỉ');
+  }
+
+  // 🛡️ Validate user is dentist first
+  const user = await userRepo.findById(userId);
+  if (!user) {
+    throw new Error('Không tìm thấy người dùng');
+  }
+  if (user.role !== 'dentist') {
+    throw new Error('Chỉ có thể xóa chứng chỉ của nha sĩ');
+  }
+
+  // 🛡️ Verify certificate belongs to this dentist
+  const existingCert = user.certificates?.find(cert => cert.certificateId === certificateId);
+  if (!existingCert) {
+    throw new Error(`Chứng chỉ ${certificateId} không thuộc về nha sĩ ${user.fullName}`);
   }
 
   const updatedUser = await userRepo.deleteCertificate(userId, certificateId);
@@ -593,6 +609,274 @@ exports.updateCertificateNotes = async (currentUser, userId, certificateId, note
   await refreshUserCache();
   return updatedUser;
 };
+
+// 🔍 HELPER: Check duplicate image URLs across all dentists
+async function checkDuplicateImageUrls(imageFiles) {
+  if (!imageFiles || imageFiles.length === 0) return;
+
+  // Get all existing image URLs from all dentists
+  const allDentists = await userRepo.getDentistsWithCertificates();
+  const existingUrls = new Set();
+  
+  allDentists.forEach(dentist => {
+    dentist.certificates?.forEach(cert => {
+      if (cert.frontImage) existingUrls.add(cert.frontImage);
+      if (cert.backImage) existingUrls.add(cert.backImage);
+    });
+  });
+
+  // Generate URLs for new images to check for duplicates
+  for (const imageFile of imageFiles) {
+    if (!imageFile || !imageFile.buffer) continue;
+    
+    // Generate the same URL that would be created by uploadToS3
+    const { v4: uuidv4 } = require('uuid');
+    const key = `avatars/${uuidv4()}-${imageFile.originalname}`;
+    const potentialUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+    
+    // Check if this exact image content already exists (by comparing buffer hash)
+    const crypto = require('crypto');
+    const imageHash = crypto.createHash('md5').update(imageFile.buffer).digest('hex');
+    
+    // Check against existing certificates for same image content
+    for (const dentist of allDentists) {
+      for (const cert of dentist.certificates || []) {
+        // This is a simplified check - in production you might want to store image hashes
+        // For now, we'll check file name similarity as a basic duplicate detection
+        if (cert.frontImage?.includes(imageFile.originalname) || 
+            cert.backImage?.includes(imageFile.originalname)) {
+          throw new Error(`Ảnh chứng chỉ "${imageFile.originalname}" có thể đã tồn tại trong hệ thống. Vui lòng sử dụng ảnh khác.`);
+        }
+      }
+    }
+  }
+}
+
+// 🆕 BATCH-ONLY Certificate Management Methods
+
+// 🆕 BATCH Operations for Certificates
+
+exports.batchCreateCertificates = async (currentUser, userId, { names, frontImages, backImages, certificateNotes }) => {
+  // Permission check
+  if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
+    throw new Error('Bạn không có quyền tạo chứng chỉ cho user này');
+  }
+
+  const user = await userRepo.findById(userId);
+  if (!user) {
+    throw new Error('Không tìm thấy người dùng');
+  }
+
+  if (user.role !== 'dentist') {
+    throw new Error('Chỉ nha sĩ mới có thể có chứng chỉ');
+  }
+
+  // Validate names data
+  if (names.length !== frontImages.length) {
+    throw new Error('Số lượng tên chứng chỉ phải bằng số lượng ảnh mặt trước');
+  }
+
+  // Check for duplicate names in request
+  const requestNames = names.map(name => name?.toLowerCase().trim()).filter(Boolean);
+  if (new Set(requestNames).size !== requestNames.length) {
+    throw new Error('Không được trùng tên chứng chỉ trong cùng một request');
+  }
+
+  // Check for duplicate names with existing certificates
+  const existingCertNames = user.certificates?.map(cert => cert.name?.toLowerCase().trim()).filter(Boolean) || [];
+  for (const name of requestNames) {
+    if (existingCertNames.includes(name.toLowerCase().trim())) {
+      throw new Error(`Chứng chỉ "${name}" đã tồn tại`);
+    }
+  }
+
+  // 🆕 Kiểm tra trùng URL ảnh với tất cả dentist khác
+  await checkDuplicateImageUrls(frontImages.concat(backImages.filter(Boolean)));
+
+  // Upload images and create certificates
+  const { uploadToS3 } = require('./s3.service');
+  const { v4: uuidv4 } = require('uuid');
+  
+  const newCertificates = [];
+  
+  for (let i = 0; i < names.length; i++) {
+    const name = names[i];
+    const frontImage = frontImages[i];
+    const backImage = backImages[i] || null;
+    
+    const certificateId = `cert_${userId}_${Date.now()}_${uuidv4().slice(0, 8)}_${i}`;
+    
+    const frontImageUrl = await uploadToS3(frontImage.buffer, frontImage.originalname, frontImage.mimetype, 'avatars');
+    const backImageUrl = backImage ? await uploadToS3(backImage.buffer, backImage.originalname, backImage.mimetype, 'avatars') : null;
+    
+    newCertificates.push({
+      certificateId,
+      name: name.trim(),
+      frontImage: frontImageUrl,
+      backImage: backImageUrl,
+      isVerified: false,
+      verifiedBy: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+  }
+
+  const updatedUser = await userRepo.addMultipleCertificatesAndUpdateNotes(userId, newCertificates, certificateNotes);
+  if (!updatedUser) {
+    throw new Error('Không thể tạo chứng chỉ mới');
+  }
+
+  await refreshUserCache();
+  return updatedUser;
+};
+
+exports.batchUpdateCertificates = async (currentUser, userId, { certificateIds, names, frontImages, backImages, certificateNotes, isVerified }) => {
+  // Permission check
+  if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
+    throw new Error('Bạn không có quyền cập nhật chứng chỉ cho user này');
+  }
+
+  const user = await userRepo.findById(userId);
+  if (!user) {
+    throw new Error('Không tìm thấy người dùng');
+  }
+
+  // 🆕 Kiểm tra user phải là dentist
+  if (user.role !== 'dentist') {
+    throw new Error('Chỉ có thể cập nhật chứng chỉ của nha sĩ');
+  }
+
+  if (!certificateIds || certificateIds.length === 0) {
+    throw new Error('Phải có ít nhất 1 certificateId để cập nhật');
+  }
+
+  // 🛡️ Verify all certificates belong to this specific dentist
+  const existingCertIds = user.certificates?.map(cert => cert.certificateId) || [];
+  for (const certId of certificateIds) {
+    if (!existingCertIds.includes(certId)) {
+      throw new Error(`Chứng chỉ ${certId} không thuộc về nha sĩ ${user.fullName}`);
+    }
+  }
+
+  // 🆕 Kiểm tra trùng URL ảnh với tất cả dentist khác (chỉ khi có ảnh mới)
+  const newImages = [];
+  if (frontImages) newImages.push(...frontImages);
+  if (backImages) newImages.push(...backImages.filter(Boolean));
+  if (newImages.length > 0) {
+    await checkDuplicateImageUrls(newImages);
+  }
+
+  // Process each certificate update
+  for (let i = 0; i < certificateIds.length; i++) {
+    const certificateId = certificateIds[i];
+    const name = names?.[i];
+    const frontImage = frontImages?.[i];
+    const backImage = backImages?.[i];
+    
+    // Find existing certificate
+    const existingCert = user.certificates?.find(cert => cert.certificateId === certificateId);
+    if (!existingCert) {
+      throw new Error(`Không tìm thấy chứng chỉ ${certificateId} để cập nhật`);
+    }
+
+    // Kiểm tra trùng tên chứng chỉ (nếu cập nhật tên)
+    if (name !== undefined) {
+      const newCertName = name.trim().toLowerCase();
+      const otherCertNames = user.certificates
+        ?.filter(cert => cert.certificateId !== certificateId)
+        ?.map(cert => cert.name?.toLowerCase().trim())
+        ?.filter(Boolean) || [];
+      
+      if (otherCertNames.includes(newCertName)) {
+        throw new Error(`Chứng chỉ "${name}" đã tồn tại. Vui lòng chọn tên khác.`);
+      }
+    }
+
+    // Prepare certificate update object
+    const certificateUpdateData = {
+      updatedAt: new Date()
+    };
+
+    // Upload new images if provided
+    if (frontImage || backImage) {
+      const { uploadToS3 } = require('./s3.service');
+      
+      if (frontImage) {
+        certificateUpdateData.frontImage = await uploadToS3(frontImage.buffer, frontImage.originalname, frontImage.mimetype, 'avatars');
+      }
+      
+      if (backImage) {
+        certificateUpdateData.backImage = await uploadToS3(backImage.buffer, backImage.originalname, backImage.mimetype, 'avatars');
+      }
+    }
+
+    // Update certificate name if provided
+    if (name !== undefined) {
+      certificateUpdateData.name = name.trim();
+    }
+
+    // Only admin/manager can verify certificates
+    if (isVerified !== undefined && ['admin', 'manager'].includes(currentUser.role)) {
+      certificateUpdateData.isVerified = isVerified;
+      certificateUpdateData.verifiedBy = isVerified ? currentUser.userId : null;
+      certificateUpdateData.verifiedAt = isVerified ? new Date() : null;
+    }
+
+    await userRepo.updateCertificateAndNotes(userId, certificateId, certificateUpdateData, i === 0 ? certificateNotes : undefined);
+  }
+
+  // Return updated user
+  const updatedUser = await userRepo.findById(userId);
+  await refreshUserCache();
+  return updatedUser;
+};
+
+exports.batchDeleteCertificates = async (currentUser, userId, { certificateIds }) => {
+  // Permission check
+  if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
+    throw new Error('Bạn không có quyền xóa chứng chỉ cho user này');
+  }
+
+  const user = await userRepo.findById(userId);
+  if (!user) {
+    throw new Error('Không tìm thấy người dùng');
+  }
+
+  // 🆕 Kiểm tra user phải là dentist
+  if (user.role !== 'dentist') {
+    throw new Error('Chỉ có thể xóa chứng chỉ của nha sĩ');
+  }
+
+  if (!certificateIds || certificateIds.length === 0) {
+    throw new Error('Phải có ít nhất 1 certificateId để xóa');
+  }
+
+  // 🛡️ Verify all certificates exist and belong to this specific dentist
+  const existingCertIds = user.certificates?.map(cert => cert.certificateId) || [];
+  for (const certId of certificateIds) {
+    if (!existingCertIds.includes(certId)) {
+      throw new Error(`Không tìm thấy chứng chỉ ${certId} trong danh sách chứng chỉ của nha sĩ ${user.fullName}`);
+    }
+  }
+
+  // 🔍 Double-check: Verify certificate ownership before deletion
+  const certificatesToDelete = user.certificates?.filter(cert => certificateIds.includes(cert.certificateId)) || [];
+  if (certificatesToDelete.length !== certificateIds.length) {
+    throw new Error('Một số chứng chỉ không thuộc về nha sĩ này');
+  }
+
+  // Delete each certificate
+  for (const certificateId of certificateIds) {
+    await userRepo.deleteCertificate(userId, certificateId);
+  }
+
+  // Return updated user
+  const updatedUser = await userRepo.findById(userId);
+  await refreshUserCache();
+  return updatedUser;
+};
+
+// Note: deleteCertificate method already exists above, no need to recreate
 
 // 🆕 PUBLIC API: Get dentists with certificates for patient selection
 exports.getDentistsForPatients = async () => {

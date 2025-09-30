@@ -56,6 +56,58 @@ exports.assignStaffToSlots = async (req, res) => {
   }
 };
 
+// Reassign staff to slots that already have staff assigned
+exports.reassignStaffToSlots = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ 
+      success: false,
+      message: 'Chỉ quản lý hoặc admin mới được phép phân công lại nhân sự' 
+    });
+  }
+  
+  try {
+    const {
+      roomId,
+      subRoomId,
+      quarter,
+      year,
+      shifts,
+      dentistIds,
+      nurseIds
+    } = req.body;
+
+    // Enforce quarter-level assignment (phải phân công theo quý)
+    if (!quarter || !year) {
+      return res.status(400).json({ success: false, message: 'Yêu cầu phải gửi quarter và year để phân công lại theo quý' });
+    }
+
+    // Validate dentist and nurse IDs from Redis cache
+    const { validateStaffIds } = require('../services/slot.service');
+    await validateStaffIds(dentistIds || [], nurseIds || []);
+
+    const result = await slotService.reassignStaffToSlots({
+      roomId,
+      subRoomId,
+      quarter: parseInt(quarter, 10),
+      year: parseInt(year, 10),
+      shifts,
+      dentistIds,
+      nurseIds
+    });
+    
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+    
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Không thể phân công lại nhân sự' 
+    });
+  }
+};
+
 // Update staff for single or multiple slots
 exports.updateSlotStaff = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {

@@ -235,7 +235,7 @@ exports.addCertificateImage = async (userId, certificateData) => {
 exports.deleteCertificate = async (userId, certificateId) => {
   return await User.findOneAndUpdate(
     { _id: userId, role: 'dentist' },
-    { $pull: { certificates: { _id: certificateId } } },
+    { $pull: { certificates: { certificateId: certificateId } } },
     { new: true }
   ).select('-password');
 };
@@ -280,6 +280,69 @@ exports.updateCertificateNotes = async (userId, certificateId, notes) => {
     { new: true }
   ).select('-password');
 };
+
+// 🆕 Add certificate and update certificateNotes
+exports.addCertificateAndUpdateNotes = async (userId, certificateData, certificateNotes) => {
+  const updateFields = {
+    $push: { certificates: certificateData }
+  };
+  
+  if (certificateNotes !== undefined) {
+    updateFields.$set = { certificateNotes: certificateNotes };
+  }
+
+  return await User.findByIdAndUpdate(
+    userId,
+    updateFields,
+    { new: true }
+  ).select('-password');
+};
+
+// 🆕 Add multiple certificates and update certificateNotes
+exports.addMultipleCertificatesAndUpdateNotes = async (userId, certificatesArray, certificateNotes) => {
+  const updateFields = {
+    $push: { certificates: { $each: certificatesArray } }
+  };
+  
+  if (certificateNotes !== undefined) {
+    updateFields.$set = { certificateNotes: certificateNotes };
+  }
+
+  return await User.findByIdAndUpdate(
+    userId,
+    updateFields,
+    { new: true }
+  ).select('-password');
+};
+
+// 🆕 Update specific certificate by certificateId and certificateNotes
+exports.updateCertificateAndNotes = async (userId, certificateId, certificateUpdateData, certificateNotes) => {
+  const setFields = {};
+  
+  // Update certificate fields
+  Object.keys(certificateUpdateData).forEach(key => {
+    setFields[`certificates.$.${key}`] = certificateUpdateData[key];
+  });
+  
+  // Update certificateNotes if provided
+  if (certificateNotes !== undefined) {
+    setFields.certificateNotes = certificateNotes;
+  }
+
+  return await User.findOneAndUpdate(
+    { 
+      _id: userId,
+      'certificates.certificateId': certificateId
+    },
+    { 
+      $set: setFields
+    },
+    { new: true }
+  ).select('-password');
+};
+
+// Legacy method for backward compatibility
+exports.addCertificate = exports.addCertificateImage;
 
 // 🆕 GET DENTISTS WITH CERTIFICATES (for patient booking)
 exports.getDentistsWithCertificates = async () => {

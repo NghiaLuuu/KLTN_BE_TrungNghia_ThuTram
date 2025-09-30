@@ -39,7 +39,8 @@ exports.toggleUserStatus = async (req, res) => {
   }
 };
 
-// 🔹 CERTIFICATE METHODS
+// 🔹 DEPRECATED CERTIFICATE METHODS (replaced by manageCertificate)
+/*
 exports.uploadCertificate = async (req, res) => {
   try {
     const currentUser = req.user;
@@ -149,6 +150,145 @@ exports.updateCertificateNotes = async (req, res) => {
       message: 'Cập nhật ghi chú thành công',
       user: updatedUser
     });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+*/
+
+// 🆕 Unified certificate management API
+exports.manageCertificate = async (req, res) => {
+  try {
+    const currentUser = req.user;
+    const { id: userId } = req.params;
+    const { certificateId, name, certificateNotes, action = 'create', isVerified, certificates } = req.body;
+    
+    // Debug logging
+    console.log('🔍 Certificate Action Debug:', {
+      action,
+      body: req.body,
+      hasName: !!name,
+      hasCertificateId: !!certificateId,
+      filesArray: req.files || [],
+      filesCount: (req.files || []).length
+    });
+    
+    // Get uploaded files from array format (multer.any())
+    const frontImages = (req.files || []).filter(file => file.fieldname === 'frontImages');
+    const backImages = (req.files || []).filter(file => file.fieldname === 'backImages');
+
+    let result;
+    
+    switch (action) {
+      case 'batch-create':
+        // Create multiple certificates - Parse from key-value pairs
+        const certNames = [];
+        let i = 0;
+        while (req.body[`name${i}`] !== undefined) {
+          const certName = req.body[`name${i}`];
+          if (certName) certNames.push(certName);
+          i++;
+        }
+        
+        if (certNames.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'Phải có ít nhất 1 tên chứng chỉ (name0, name1, ...)'
+          });
+        }
+        
+        if (frontImages.length === 0 || frontImages.length !== certNames.length) {
+          return res.status(400).json({
+            success: false,
+            message: `Số lượng ảnh mặt trước (${frontImages.length}) phải bằng số lượng tên chứng chỉ (${certNames.length})`
+          });
+        }
+        
+        result = await userService.batchCreateCertificates(currentUser, userId, {
+          names: certNames,
+          frontImages,
+          backImages,
+          certificateNotes
+        });
+        break;
+        
+      case 'batch-update':
+        // Update multiple certificates - Parse from key-value pairs
+        const certIds = [];
+        const certNames_update = [];
+        let j = 0;
+        while (req.body[`certificateId${j}`] !== undefined) {
+          const certId = req.body[`certificateId${j}`];
+          const certName = req.body[`name${j}`]; // optional
+          
+          if (certId) {
+            certIds.push(certId);
+            certNames_update.push(certName || undefined);
+          }
+          j++;
+        }
+        
+        if (certIds.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'Phải có ít nhất 1 certificateId để cập nhật (certificateId0, certificateId1, ...)'
+          });
+        }
+        
+        result = await userService.batchUpdateCertificates(currentUser, userId, {
+          certificateIds: certIds,
+          names: certNames_update,
+          frontImages,
+          backImages,
+          certificateNotes,
+          isVerified
+        });
+        break;
+
+      case 'batch-delete':
+        // Delete multiple certificates - Parse from key-value pairs
+        const deleteIds = [];
+        let k = 0;
+        while (req.body[`certificateId${k}`] !== undefined) {
+          const certId = req.body[`certificateId${k}`];
+          if (certId) deleteIds.push(certId);
+          k++;
+        }
+        
+        if (deleteIds.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'Phải có ít nhất 1 certificateId để xóa (certificateId0, certificateId1, ...)'
+          });
+        }
+        
+        result = await userService.batchDeleteCertificates(currentUser, userId, {
+          certificateIds: deleteIds
+        });
+        break;
+        
+      default:
+        return res.status(400).json({
+          success: false,
+          message: 'action phải là batch-create, batch-update hoặc batch-delete'
+        });
+    }
+
+    const actionMessages = {
+      'batch-create': 'Tạo nhiều chứng chỉ thành công',
+      'batch-update': 'Cập nhật nhiều chứng chỉ thành công',
+      'batch-delete': 'Xóa nhiều chứng chỉ thành công'
+    };
+
+    res.status(200).json({
+      success: true,
+      message: actionMessages[action] || `${action} chứng chỉ thành công`,
+      data: result
+    });
+    
   } catch (error) {
     res.status(400).json({
       success: false,

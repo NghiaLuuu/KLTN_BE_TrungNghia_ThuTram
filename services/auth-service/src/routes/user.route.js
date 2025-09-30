@@ -10,11 +10,12 @@ const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    // Support both images (for avatars and certificates) and PDFs (for certificates)
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Only image files allowed'), false);
+      cb(new Error('Only image files (JPEG, PNG, WebP) and PDF files are allowed'), false);
     }
   }
 });
@@ -30,11 +31,27 @@ router.put('/:id', authMiddleware, canUpdateUser, userController.updateUser);
 
 // File uploads
 router.put('/avatar/:id', authMiddleware, upload.single('avatar'), userController.uploadAvatar);
-router.post('/:id/certificates', authMiddleware, upload.single('certificate'), userController.uploadCertificate);
-router.post('/:id/certificates/batch', authMiddleware, upload.array('certificates', 5), userController.uploadMultipleCertificates);
-router.delete('/:userId/certificates/:certificateId', authMiddleware, userController.deleteCertificate);
-router.patch('/:userId/certificates/:certificateId/verify', authMiddleware, userController.verifyCertificate);
-router.patch('/:userId/certificates/:certificateId/notes', authMiddleware, userController.updateCertificateNotes);
+
+// 🆕 Batch-Only Certificate Management API (PUT)
+// Batch Create: { name0, name1, ..., certificateNotes?, action: 'batch-create' } + frontImages + backImages (optional)
+// Batch Update: { certificateId0, certificateId1, ..., name0?, name1?, ..., certificateNotes?, action: 'batch-update' } + frontImages (optional) + backImages (optional)  
+// Batch Delete: { certificateId0, certificateId1, ..., action: 'batch-delete' }
+// Note: Certificate names must be unique per user
+// Custom multer for certificates with flexible field handling
+const certificateUpload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files (JPEG, PNG, WebP) are allowed'), false);
+    }
+  }
+});
+
+router.put('/:id/certificates', authMiddleware, certificateUpload.any(), userController.manageCertificate);
 
 // Public & User management
 router.get('/public/dentists', userController.getDentistsForPatients);
