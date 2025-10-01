@@ -20,4 +20,10 @@ router.get('/by-shift', slotController.getSlotsByShiftAndDate);
 // Get room schedule with appointment counts (daily/weekly/monthly view)
 router.get('/room/:roomId/calendar', slotController.getRoomCalendar);
 
+// Get available quarters and years for staff assignment
+router.get('/available-quarters', slotController.getAvailableQuartersYears);
+
+// Get available work shifts
+router.get('/available-shifts', slotController.getAvailableShifts);
+
 module.exports = router;

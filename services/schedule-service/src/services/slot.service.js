@@ -1,6 +1,7 @@
 const slotRepo = require('../repositories/slot.repository');
 const redisClient = require('../utils/redis.client');
 const { publishToQueue } = require('../utils/rabbitClient');
+const { getVietnamDate, toVietnamTime } = require('../utils/vietnamTime.util');
 
 // Helper: Check if user already marked as used in cache
 async function isUserAlreadyUsed(userId) {
@@ -16,10 +17,79 @@ async function isUserAlreadyUsed(userId) {
   }
 }
 
-// Helper: Get Vietnam timezone date
-function getVietnamDate() {
-  const now = new Date();
-  return new Date(now.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
+// Helper: Get current quarter and year information in Vietnam timezone
+function getCurrentQuarterInfo() {
+  const vnNow = getVietnamDate();
+  const quarter = Math.ceil((vnNow.getMonth() + 1) / 3);
+  const year = vnNow.getFullYear();
+  return { quarter, year, currentDate: vnNow };
+}
+
+// Helper: Validate quarter and year against current time
+function validateQuarterYear(quarter, year) {
+  const { quarter: currentQuarter, year: currentYear } = getCurrentQuarterInfo();
+  
+  // Check if quarter is in the past
+  if (year < currentYear || (year === currentYear && quarter < currentQuarter)) {
+    throw new Error(`Không thể cập nhật quý ${quarter}/${year} vì đã thuộc quá khứ. Quý hiện tại là ${currentQuarter}/${currentYear}`);
+  }
+  
+  return true;
+}
+
+// Helper: Get available quarters and years for staff assignment (chỉ những quý đã có lịch)
+async function getAvailableQuartersYears() {
+  try {
+    // Sử dụng logic từ schedule service để lấy danh sách quý
+    const scheduleService = require('./schedule.service');
+    const allQuarters = await scheduleService.getAvailableQuarters();
+    
+    // Lọc chỉ những quý đã có lịch (hasSchedules: true hoặc isCreated: true)
+    const quartersWithSchedules = allQuarters.filter(q => q.hasSchedules === true || q.isCreated === true);
+    
+    const { quarter: currentQuarter, year: currentYear } = getCurrentQuarterInfo();
+    
+    // Map sang format cần thiết cho slot assignment
+    const availableOptions = quartersWithSchedules.map(q => ({
+      quarter: q.quarter,
+      year: q.year,
+      label: (q.quarter === currentQuarter && q.year === currentYear) ? 
+        `Quý ${q.quarter}/${q.year} (Hiện tại)` : 
+        `Quý ${q.quarter}/${q.year}`,
+      isCurrent: q.quarter === currentQuarter && q.year === currentYear,
+      hasSchedules: q.hasSchedules,
+      isCreated: q.isCreated
+    }));
+    
+    return {
+      currentQuarter: { quarter: currentQuarter, year: currentYear, currentDate: getVietnamDate() },
+      availableOptions
+    };
+  } catch (error) {
+    throw new Error(`Không thể lấy danh sách quý có lịch: ${error.message}`);
+  }
+}
+
+// Helper: Get available work shifts from ScheduleConfig
+async function getAvailableShifts() {
+  try {
+    const { ScheduleConfig } = require('../models/scheduleConfig.model');
+    const config = await ScheduleConfig.getSingleton();
+    
+    if (!config) {
+      throw new Error('Cấu hình lịch làm việc chưa được khởi tạo');
+    }
+    
+    const shifts = config.getWorkShifts();
+    
+    return shifts.map(shift => ({
+      value: shift.name,
+      label: shift.name,
+      timeRange: `${shift.startTime} - ${shift.endTime}`
+    }));
+  } catch (error) {
+    throw new Error(`Không thể lấy danh sách ca làm việc: ${error.message}`);
+  }
 }
 
 // Helper: Get room information
@@ -176,6 +246,9 @@ async function assignStaffToSlots({
     if (shifts.length === 0) {
       throw new Error('Phải chọn ít nhất 1 ca làm việc');
     }
+
+    // Validate quarter/year is not in the past
+    validateQuarterYear(quarter, year);
     
     // Validate staff assignment based on room type
     await validateStaffAssignment(roomId, subRoomId, dentistIds, nurseIds);
@@ -186,16 +259,21 @@ async function assignStaffToSlots({
     const schedules = await require('../repositories/schedule.repository').findByRoomAndDateRange(roomId, startDate, endDate);
     const scheduleIds = schedules.map(s => s._id);
     if (!scheduleIds || scheduleIds.length === 0) {
-      throw new Error('Không tìm thấy schedule nào cho phòng trong quý được chỉ định');
+      throw new Error(`Không tìm thấy lịch làm việc nào cho phòng trong quý ${quarter}/${year}. Vui lòng tạo lịch làm việc trước khi phân công nhân sự.`);
     }
 
-    // Build query filter: all slots in those schedules that DON'T have staff assigned yet
+    // Get current time in Vietnam timezone for filtering future slots only
+    const vietnamNow = getVietnamDate();
+
+    // Build query filter: all slots in those schedules that DON'T have FULL staff assigned yet
+    // and are in the future (startTime > current Vietnam time)
     const queryFilter = { 
       roomId, 
       scheduleId: { $in: scheduleIds }, 
       isActive: true,
-      // ⭐ KEY: Only slots that have NO staff assigned (both dentist and nurse are null/undefined)
-      $and: [
+      startTime: { $gt: vietnamNow }, // Only future slots
+      // ⭐ KEY: Find slots that are missing dentist OR nurse (not fully staffed)
+      $or: [
         { $or: [{ dentist: { $exists: false } }, { dentist: null }] },
         { $or: [{ nurse: { $exists: false } }, { nurse: null }] }
       ]
@@ -206,52 +284,126 @@ async function assignStaffToSlots({
     const slots = await slotRepo.find(queryFilter);
     
     if (slots.length === 0) {
-      throw new Error('Không tìm thấy slot nào chưa được phân nhân sự trong phạm vi được chỉ định');
+      // Kiểm tra các nguyên nhân có thể xảy ra
+      const room = await getRoomInfo(roomId);
+      let foundSubRoom = null; // Khai báo biến để sử dụng trong error messages
+      
+      // 1. Kiểm tra logic subRoom
+      if (subRoomId) {
+        // User truyền subRoomId nhưng phòng không có subRoom
+        if (!room.subRooms || room.subRooms.length === 0) {
+          throw new Error(`Phòng "${room.name}" không có subroom nhưng bạn đã chỉ định subRoomId. Vui lòng bỏ subRoomId hoặc chọn phòng khác.`);
+        }
+        
+        // subRoomId không thuộc phòng này
+        foundSubRoom = room.subRooms.find(sr => sr._id && sr._id.toString() === subRoomId.toString());
+        if (!foundSubRoom) {
+          throw new Error(`SubRoom không thuộc về phòng "${room.name}". Vui lòng kiểm tra lại subRoomId.`);
+        }
+      } else {
+        // User không truyền subRoomId nhưng phòng có subRoom
+        if (room.subRooms && room.subRooms.length > 0) {
+          const activeSubRooms = room.subRooms.filter(sr => sr.isActive !== false);
+          throw new Error(`Phòng "${room.name}" có ${activeSubRooms.length} subroom. Vui lòng chỉ định subRoomId cụ thể: ${activeSubRooms.map(sr => `${sr._id} (${sr.name})`).join(', ')}`);
+        }
+      }
+      
+      // 2. Kiểm tra slot chưa có nhân sự  
+      const unassignedQuery = {
+        roomId,
+        scheduleId: { $in: scheduleIds },
+        isActive: true,
+        startTime: { $gt: vietnamNow },
+        $and: [
+          { $or: [{ dentist: { $exists: false } }, { dentist: null }] },
+          { $or: [{ nurse: { $exists: false } }, { nurse: null }] }
+        ]
+      };
+      if (shifts && shifts.length) unassignedQuery.shiftName = { $in: shifts };
+      if (subRoomId) unassignedQuery.subRoomId = subRoomId; else unassignedQuery.subRoomId = null;
+      
+      const unassignedSlots = await slotRepo.find(unassignedQuery);
+      
+      if (unassignedSlots.length === 0) {
+        const roomDisplay = subRoomId ? `${room.name} > ${foundSubRoom?.name || 'SubRoom'}` : room.name;
+        throw new Error(`Tất cả slot trong quý ${quarter}/${year} cho ${roomDisplay} đã được phân công nhân sự. Sử dụng API reassign-staff để thay đổi nhân sự.`);
+      } else {
+        const roomDisplay = subRoomId ? `${room.name} > ${foundSubRoom?.name || 'SubRoom'}` : room.name;
+        const shiftDisplay = shifts.length > 0 ? ` ca "${shifts.join(', ')}"` : '';
+        throw new Error(`Không tìm thấy slot phù hợp trong quý ${quarter}/${year} cho ${roomDisplay}${shiftDisplay}. Có ${unassignedSlots.length} slot chưa có nhân sự nhưng không match yêu cầu.`);
+      }
     }
     
     // Note: We allow updating slots even if some belong to an appointment, because this endpoint applies by quarter and shifts.
     // Atomicity across appointments is enforced in the single/group update API.
 
-    // Build update object
-    const updateData = {};
-    if (dentistIds.length > 0) updateData.dentist = dentistIds[0];
-    if (nurseIds.length > 0) updateData.nurse = nurseIds[0];
+    // Process each slot individually to only fill missing fields
+    let updatedSlotIds = [];
+    const dentistId = dentistIds.length > 0 ? dentistIds[0] : null;
+    const nurseId = nurseIds.length > 0 ? nurseIds[0] : null;
 
-    let updatedSlots = [];
-    if (Object.keys(updateData).length > 0) {
-      // Before applying updates, check for conflicts per slot: ensure dentist/nurse are not
-      // already assigned to other slots that overlap each target slot's time interval.
-      const targetSlotIds = new Set(slots.map(s => s._id.toString()));
+    if (dentistId || nurseId) {
+      // Check conflicts for dentist and nurse across the time range
       const minStart = new Date(Math.min(...slots.map(s => new Date(s.startTime).getTime())));
       const maxEnd = new Date(Math.max(...slots.map(s => new Date(s.endTime).getTime())));
 
       let existingByDentist = [];
       let existingByNurse = [];
-      if (dentistIds.length > 0 && dentistIds[0]) {
-        existingByDentist = await slotRepo.findByStaffId(dentistIds[0], minStart, maxEnd);
+      if (dentistId) {
+        existingByDentist = await slotRepo.findByStaffId(dentistId, minStart, maxEnd);
       }
-      if (nurseIds.length > 0 && nurseIds[0]) {
-        existingByNurse = await slotRepo.findByStaffId(nurseIds[0], minStart, maxEnd);
-      }
-
-      for (const s of slots) {
-        const sStart = new Date(s.startTime);
-        const sEnd = new Date(s.endTime);
-        if (existingByDentist.length) {
-          const conflict = existingByDentist.find(es => es._id.toString() !== s._id.toString() && new Date(es.startTime) < sEnd && new Date(es.endTime) > sStart);
-          if (conflict) throw new Error('Nha sỹ đã được phân công vào slot khác trong cùng khoảng thời gian');
-        }
-        if (existingByNurse.length) {
-          const conflict = existingByNurse.find(es => es._id.toString() !== s._id.toString() && new Date(es.startTime) < sEnd && new Date(es.endTime) > sStart);
-          if (conflict) throw new Error('Y tá đã được phân công vào slot khác trong cùng khoảng thời gian');
-        }
+      if (nurseId) {
+        existingByNurse = await slotRepo.findByStaffId(nurseId, minStart, maxEnd);
       }
 
-      await slotRepo.updateManySlots(queryFilter, updateData);
-      updatedSlots = await slotRepo.find(queryFilter);
+      // Process each slot individually to only fill missing fields
+      for (const slot of slots) {
+        const slotUpdateData = {};
+        
+        // Check if we should assign dentist (only if slot doesn't have dentist yet)
+        if (dentistId && (!slot.dentist || slot.dentist === null)) {
+          // Check for time conflicts
+          const sStart = new Date(slot.startTime);
+          const sEnd = new Date(slot.endTime);
+          const conflict = existingByDentist.find(es => 
+            es._id.toString() !== slot._id.toString() && 
+            new Date(es.startTime) < sEnd && 
+            new Date(es.endTime) > sStart
+          );
+          if (conflict) throw new Error(`Nha sỹ đã được phân công vào slot khác trong cùng khoảng thời gian (${new Date(slot.startTime).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })})`);
+          
+          slotUpdateData.dentist = dentistId;
+        }
+        
+        // Check if we should assign nurse (only if slot doesn't have nurse yet)
+        if (nurseId && (!slot.nurse || slot.nurse === null)) {
+          // Check for time conflicts
+          const sStart = new Date(slot.startTime);
+          const sEnd = new Date(slot.endTime);
+          const conflict = existingByNurse.find(es => 
+            es._id.toString() !== slot._id.toString() && 
+            new Date(es.startTime) < sEnd && 
+            new Date(es.endTime) > sStart
+          );
+          if (conflict) throw new Error(`Y tá đã được phân công vào slot khác trong cùng khoảng thời gian (${new Date(slot.startTime).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })})`);
+          
+          slotUpdateData.nurse = nurseId;
+        }
+        
+        // Update the slot if there's something to update
+        if (Object.keys(slotUpdateData).length > 0) {
+          await slotRepo.updateSlot(slot._id, slotUpdateData);
+          updatedSlotIds.push(slot._id);
+        }
+      }
+
+      // Reload updated slots for return data
+      updatedSlots = updatedSlotIds.length > 0 ? await slotRepo.find({ _id: { $in: updatedSlotIds } }) : [];
       
       // 🔄 Mark entities as used when successfully assigned
-      await markEntitiesAsUsed({ roomId, subRoomId, dentistIds, nurseIds });
+      if (updatedSlotIds.length > 0) {
+        await markEntitiesAsUsed({ roomId, subRoomId, dentistIds, nurseIds });
+      }
     }
     
     // Clear cache - best effort
@@ -260,9 +412,14 @@ async function assignStaffToSlots({
       await redisClient.del(`slots:room:${roomId}:${dayKey}`);
     } catch (e) { console.warn('Failed to clear slots cache', e); }
     
+    const totalSlotsFound = slots.length;
+    const slotsUpdated = updatedSlots.length;
+    
     return {
-      message: `Phân công nhân sự thành công cho ${updatedSlots.length} slot chưa được phân công trước đó`,
-      slotsUpdated: updatedSlots.length,
+      message: slotsUpdated > 0 
+        ? `Phân công nhân sự thành công cho ${slotsUpdated}/${totalSlotsFound} slot (chỉ gán vào các field còn thiếu)`
+        : `Tìm thấy ${totalSlotsFound} slot nhưng tất cả đã có đầy đủ nhân sự được yêu cầu`,
+      slotsUpdated,
       shifts,
       dentistAssigned: dentistIds[0] || null,
       nurseAssigned: nurseIds[0] || null
@@ -286,20 +443,43 @@ async function updateSlotStaff({ slotIds, dentistId, nurseId }) {
       throw new Error('Một số slot trong slotIds không tồn tại');
     }
 
-    // Ensure all slots are updatable (not booked) 
+    // Get current time in Vietnam timezone
+    const vietnamNow = getVietnamDate();
+
+    // Ensure all slots are updatable (not in the past) 
     for (const s of targetSlots) {
-      if (s.isBooked) {
-        throw new Error(`Slot ${s._id} đã được đặt, không thể cập nhật`);
+      // Check if slot is in the past (Vietnam timezone)
+      if (new Date(s.startTime) <= vietnamNow) {
+        throw new Error(`Slot ${s._id} đã qua thời điểm hiện tại (${new Date(s.startTime).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}), không thể cập nhật`);
       }
       
-      // ⭐ NEW: Only allow updating slots that already have staff assigned
+      // ⭐ Only allow updating slots that already have staff assigned
       if (!s.dentist && !s.nurse) {
         throw new Error(`Slot ${s._id} chưa được phân công nhân sự, không thể cập nhật. Vui lòng sử dụng API phân công thay thế.`);
       }
     }
 
-    // Validate staff assignment across first slot's room/subRoom (assume same room)
+    // Validate all slots belong to the same room/subroom
     const first = targetSlots[0];
+    const firstRoomId = first.roomId?.toString();
+    const firstSubRoomId = first.subRoomId?.toString() || null;
+    
+    for (const slot of targetSlots) {
+      const slotRoomId = slot.roomId?.toString();
+      const slotSubRoomId = slot.subRoomId?.toString() || null;
+      
+      if (slotRoomId !== firstRoomId) {
+        throw new Error(`Tất cả slot phải thuộc cùng một phòng. Slot ${slot._id} thuộc phòng khác.`);
+      }
+      
+      if (slotSubRoomId !== firstSubRoomId) {
+        const subRoomDisplay = firstSubRoomId ? `subroom ${firstSubRoomId}` : 'không có subroom';
+        const slotSubRoomDisplay = slotSubRoomId ? `subroom ${slotSubRoomId}` : 'không có subroom';
+        throw new Error(`Tất cả slot phải thuộc cùng subroom. Slot đầu tiên có ${subRoomDisplay}, nhưng slot ${slot._id} có ${slotSubRoomDisplay}.`);
+      }
+    }
+
+    // Validate staff assignment for the room/subroom
     const dentistIds = dentistId ? [dentistId] : [];
     const nurseIds = nurseId ? [nurseId] : [];
     await validateStaffAssignment(first.roomId, first.subRoomId, dentistIds, nurseIds);
@@ -833,6 +1013,9 @@ async function reassignStaffToSlots({
     if (shifts.length === 0) {
       throw new Error('Phải chọn ít nhất 1 ca làm việc');
     }
+
+    // Validate quarter/year is not in the past
+    validateQuarterYear(quarter, year);
     
     // Validate staff assignment based on room type
     await validateStaffAssignment(roomId, subRoomId, dentistIds, nurseIds);
@@ -843,14 +1026,19 @@ async function reassignStaffToSlots({
     const schedules = await require('../repositories/schedule.repository').findByRoomAndDateRange(roomId, startDate, endDate);
     const scheduleIds = schedules.map(s => s._id);
     if (!scheduleIds || scheduleIds.length === 0) {
-      throw new Error('Không tìm thấy schedule nào cho phòng trong quý được chỉ định');
+      throw new Error(`Không tìm thấy lịch làm việc nào cho phòng trong quý ${quarter}/${year}. Vui lòng tạo lịch làm việc trước khi phân công lại nhân sự.`);
     }
 
+    // Get current time in Vietnam timezone for filtering future slots only
+    const vietnamNow = getVietnamDate();
+
     // Build query filter: all slots in those schedules THAT ALREADY HAVE STAFF
+    // and are in the future (startTime > current Vietnam time)
     const queryFilter = { 
       roomId, 
       scheduleId: { $in: scheduleIds }, 
       isActive: true,
+      startTime: { $gt: vietnamNow }, // Only future slots
       // ⭐ KEY DIFFERENCE: Only slots that already have dentist OR nurse assigned
       $or: [
         { dentist: { $exists: true, $ne: null } },
@@ -863,7 +1051,54 @@ async function reassignStaffToSlots({
     const slots = await slotRepo.find(queryFilter);
     
     if (slots.length === 0) {
-      throw new Error('Không tìm thấy slot nào đã được phân nhân viên trong phạm vi được chỉ định');
+      // Kiểm tra các nguyên nhân có thể xảy ra
+      const room = await getRoomInfo(roomId);
+      let foundSubRoom = null; // Khai báo biến để sử dụng trong error messages
+      
+      // 1. Kiểm tra logic subRoom
+      if (subRoomId) {
+        // User truyền subRoomId nhưng phòng không có subRoom
+        if (!room.subRooms || room.subRooms.length === 0) {
+          throw new Error(`Phòng "${room.name}" không có subroom nhưng bạn đã chỉ định subRoomId. Vui lòng bỏ subRoomId hoặc chọn phòng khác.`);
+        }
+        
+        // subRoomId không thuộc phòng này
+        foundSubRoom = room.subRooms.find(sr => sr._id && sr._id.toString() === subRoomId.toString());
+        if (!foundSubRoom) {
+          throw new Error(`SubRoom không thuộc về phòng "${room.name}". Vui lòng kiểm tra lại subRoomId.`);
+        }
+      } else {
+        // User không truyền subRoomId nhưng phòng có subRoom
+        if (room.subRooms && room.subRooms.length > 0) {
+          const activeSubRooms = room.subRooms.filter(sr => sr.isActive !== false);
+          throw new Error(`Phòng "${room.name}" có ${activeSubRooms.length} subroom. Vui lòng chỉ định subRoomId cụ thể: ${activeSubRooms.map(sr => `${sr._id} (${sr.name})`).join(', ')}`);
+        }
+      }
+      
+      // 2. Kiểm tra slot đã có nhân sự
+      const assignedQuery = {
+        roomId,
+        scheduleId: { $in: scheduleIds },
+        isActive: true,
+        startTime: { $gt: vietnamNow },
+        $or: [
+          { dentist: { $exists: true, $ne: null } },
+          { nurse: { $exists: true, $ne: null } }
+        ]
+      };
+      if (shifts && shifts.length) assignedQuery.shiftName = { $in: shifts };
+      if (subRoomId) assignedQuery.subRoomId = subRoomId; else assignedQuery.subRoomId = null;
+      
+      const assignedSlots = await slotRepo.find(assignedQuery);
+      
+      if (assignedSlots.length === 0) {
+        const roomDisplay = subRoomId ? `${room.name} > ${foundSubRoom?.name || 'SubRoom'}` : room.name;
+        throw new Error(`Không có slot nào đã được phân công nhân sự trong quý ${quarter}/${year} cho ${roomDisplay}. Sử dụng API assign-staff để phân công mới.`);
+      } else {
+        const roomDisplay = subRoomId ? `${room.name} > ${foundSubRoom?.name || 'SubRoom'}` : room.name;
+        const shiftDisplay = shifts.length > 0 ? ` ca "${shifts.join(', ')}"` : '';
+        throw new Error(`Không tìm thấy slot phù hợp để phân công lại trong quý ${quarter}/${year} cho ${roomDisplay}${shiftDisplay}. Có ${assignedSlots.length} slot đã có nhân sự nhưng không match yêu cầu.`);
+      }
     }
     
     // Build update object
@@ -917,16 +1152,11 @@ async function reassignStaffToSlots({
     return {
       message: `Đã phân công lại thành công ${updatedSlots.length} slot`,
       updatedCount: updatedSlots.length,
-      slots: updatedSlots.map(s => ({
-        _id: s._id,
-        roomId: s.roomId,
-        subRoomId: s.subRoomId,
-        shiftName: s.shiftName,
-        startTime: s.startTime,
-        endTime: s.endTime,
-        dentist: s.dentist,
-        nurse: s.nurse
-      }))
+      quarter,
+      year,
+      shifts: shifts.join(', '),
+      dentistAssigned: dentistIds[0] || null,
+      nurseAssigned: nurseIds[0] || null
     };
     
   } catch (error) {
@@ -941,5 +1171,8 @@ module.exports = {
   getSlotsByShiftAndDate,
   getRoomCalendar,
   getVietnamDate,
-  validateStaffIds
+  validateStaffIds,
+  getAvailableQuartersYears,
+  getAvailableShifts,
+  getCurrentQuarterInfo
 };

@@ -250,9 +250,48 @@ exports.getRoomCalendar = async (req, res) => {
     });
   }
 };
+
+// Get available quarters and years for staff assignment
+exports.getAvailableQuartersYears = async (req, res) => {
+  try {
+    const result = await slotService.getAvailableQuartersYears();
+    
+    res.json({
+      success: true,
+      data: result
+    });
+    
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Không thể lấy danh sách quý/năm' 
+    });
+  }
+};
+
+// Get available work shifts
+exports.getAvailableShifts = async (req, res) => {
+  try {
+    const shifts = await slotService.getAvailableShifts();
+    
+    res.json({
+      success: true,
+      data: shifts
+    });
+    
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Không thể lấy danh sách ca làm việc' 
+    });
+  }
+};
 module.exports = {
   assignStaffToSlots: exports.assignStaffToSlots,
+  reassignStaffToSlots: exports.reassignStaffToSlots,
   updateSlotStaff: exports.updateSlotStaff,
   getSlotsByShiftAndDate: exports.getSlotsByShiftAndDate,
-  getRoomCalendar: exports.getRoomCalendar
+  getRoomCalendar: exports.getRoomCalendar,
+  getAvailableQuartersYears: exports.getAvailableQuartersYears,
+  getAvailableShifts: exports.getAvailableShifts
 };
