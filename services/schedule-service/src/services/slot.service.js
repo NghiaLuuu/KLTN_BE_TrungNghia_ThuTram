@@ -643,10 +643,19 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
     // Use current date if startDate not provided
     const baseDate = startDate ? new Date(startDate) : getVietnamDate();
     
-    // Calculate date ranges for pagination
+    // Calculate date ranges for pagination - support negative pages for historical data
     const periods = [];
     for (let i = 0; i < limit; i++) {
-      const periodIndex = (page - 1) * limit + i;
+      // For page 1: periodIndex = 0, 1, 2... (current and future)
+      // For page -1: periodIndex = -limit, -limit+1, ... -1 (past periods)
+      // For page 2: periodIndex = limit, limit+1, ... (further future)
+      let periodIndex;
+      if (page >= 1) {
+        periodIndex = (page - 1) * limit + i;
+      } else {
+        // Negative pages: page -1 means indices -limit to -1, page -2 means -2*limit to -limit-1
+        periodIndex = page * limit + i;
+      }
       let periodStart, periodEnd;
       
       switch (viewType) {
@@ -982,8 +991,8 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
         limit,
         viewType,
         currentDate,
-        hasNext: true, // Always true for calendar pagination
-        hasPrev: page > 1,
+        hasNext: true, // Always allow going to future
+        hasPrev: true, // Always allow going to past (support negative pages)
         totalPeriods: calendarPeriods.length
       },
       periods: calendarPeriods
@@ -991,6 +1000,260 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
     
   } catch (error) {
     throw new Error(`Lỗi lấy lịch phòng: ${error.message}`);
+  }
+}
+
+// Get dentist calendar with appointment counts (daily/weekly/monthly view) with historical support  
+async function getDentistCalendar({ dentistId, viewType, startDate = null, page = 1, limit = 10 }) {
+  try {
+    // Get schedule config for shift information
+    const { ScheduleConfig } = require('../models/scheduleConfig.model');
+    const scheduleConfig = await ScheduleConfig.getSingleton();
+    if (!scheduleConfig) {
+      throw new Error('Cấu hình lịch làm việc chưa được khởi tạo. Vui lòng liên hệ admin để thiết lập.');
+    }
+    
+    // Use current date if startDate not provided
+    const baseDate = startDate ? new Date(startDate) : getVietnamDate();
+    
+    // Calculate date ranges for pagination - support negative pages for historical data
+    const periods = [];
+    for (let i = 0; i < limit; i++) {
+      // For page 1: periodIndex = 0, 1, 2... (current and future)
+      // For page -1: periodIndex = -limit, -limit+1, ... -1 (past periods)  
+      // For page 2: periodIndex = limit, limit+1, ... (further future)
+      let periodIndex;
+      if (page >= 1) {
+        periodIndex = (page - 1) * limit + i;
+      } else {
+        // Negative pages: page -1 means indices -limit to -1, page -2 means -2*limit to -limit-1
+        periodIndex = page * limit + i;
+      }
+      
+      let periodStart, periodEnd;
+      
+      switch (viewType) {
+        case 'day':
+          // Each period is one day
+          periodStart = new Date(baseDate);
+          periodStart.setDate(baseDate.getDate() + periodIndex);
+          periodEnd = new Date(periodStart);
+          break;
+          
+        case 'week':
+          // Each period is one week (Monday to Sunday)
+          const weekStart = new Date(baseDate);
+          const dayOfWeek = weekStart.getDay();
+          const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+          weekStart.setDate(baseDate.getDate() + mondayOffset + (periodIndex * 7));
+          
+          periodStart = new Date(weekStart);
+          periodEnd = new Date(weekStart);
+          periodEnd.setDate(weekStart.getDate() + 6);
+          break;
+          
+        case 'month':
+          // Each period is one month
+          const targetYear = baseDate.getFullYear();
+          const targetMonth = baseDate.getMonth() + periodIndex;
+          
+          // Use local dates to avoid timezone issues
+          periodStart = new Date(targetYear, targetMonth, 1);
+          periodEnd = new Date(targetYear, targetMonth + 1, 0); // Last day of target month
+          
+          // Adjust for correct local date representation
+          periodStart.setHours(0, 0, 0, 0);
+          periodEnd.setHours(23, 59, 59, 999);
+          break;
+          
+        default:
+          throw new Error('viewType phải là: day, week hoặc month');
+      }
+      
+      periods.push({ start: periodStart, end: periodEnd });
+    }
+    
+    // Get overall date range for database query
+    const overallStart = periods[0].start;
+    const overallEnd = periods[periods.length - 1].end;
+
+    // Build UTC range for query
+    const startUTC = new Date(Date.UTC(
+      overallStart.getFullYear(),
+      overallStart.getMonth(),
+      overallStart.getDate(),
+      -7, 0, 0, 0
+    ));
+    const endUTC = new Date(Date.UTC(
+      overallEnd.getFullYear(),
+      overallEnd.getMonth(),
+      overallEnd.getDate(),
+      -7 + 24, 0, 0, 0
+    ));
+
+    // Query slots where this dentist is assigned
+    const queryFilter = {
+      dentist: dentistId,
+      startTime: { $gte: startUTC, $lt: endUTC },
+      isActive: true
+    };
+
+    const slots = await slotRepo.find(queryFilter);
+    
+    // Get user info from cache for dentist details
+    const usersCache = await redisClient.get('users_cache');
+    const users = usersCache ? JSON.parse(usersCache) : [];
+    const dentist = users.find(u => u._id === dentistId);
+    
+    // Get rooms cache for room/subroom names
+    const roomsCache = await redisClient.get('rooms_cache');
+    const rooms = roomsCache ? JSON.parse(roomsCache) : [];
+    
+    // Group slots by date and shift
+    const calendar = {};
+    const appointmentCounts = {}; // Track unique appointments
+    const roomStats = {}; // Track room frequency by date and shift
+    
+    for (const slot of slots) {
+      // Convert to Vietnam date
+      const slotDateVN = new Date(slot.startTime).toLocaleDateString('en-CA', {
+        timeZone: 'Asia/Ho_Chi_Minh'
+      });
+      
+      if (!calendar[slotDateVN]) {
+        calendar[slotDateVN] = {
+          date: slotDateVN,
+          shifts: {
+            'Ca Sáng': { slots: [], appointmentCount: 0, totalSlots: 0 },
+            'Ca Chiều': { slots: [], appointmentCount: 0, totalSlots: 0 },
+            'Ca Tối': { slots: [], appointmentCount: 0, totalSlots: 0 }
+          },
+          totalAppointments: 0,
+          totalSlots: 0
+        };
+        appointmentCounts[slotDateVN] = new Set();
+        roomStats[slotDateVN] = {
+          'Ca Sáng': { rooms: {} },
+          'Ca Chiều': { rooms: {} },
+          'Ca Tối': { rooms: {} }
+        };
+      }
+      
+      const shift = calendar[slotDateVN].shifts[slot.shiftName];
+      const shiftRoomStats = roomStats[slotDateVN][slot.shiftName];
+      
+      if (shift && shiftRoomStats) {
+        shift.totalSlots++;
+        calendar[slotDateVN].totalSlots++;
+        
+        // Count unique appointments
+        if (slot.appointmentId) {
+          appointmentCounts[slotDateVN].add(slot.appointmentId);
+          shift.appointmentCount++;
+        }
+        
+        // Track room frequency
+        const roomKey = slot.roomId + (slot.subRoomId ? `_${slot.subRoomId}` : '');
+        if (!shiftRoomStats.rooms[roomKey]) {
+          shiftRoomStats.rooms[roomKey] = 0;
+        }
+        shiftRoomStats.rooms[roomKey]++;
+        
+        // Get room/subroom info from cache
+        const room = rooms.find(r => r._id === slot.roomId);
+        let roomInfo = room ? { id: room._id, name: room.name } : { id: slot.roomId, name: 'Phòng không xác định' };
+        
+        if (slot.subRoomId && room && room.subRooms) {
+          const subRoom = room.subRooms.find(sr => sr._id === slot.subRoomId);
+          if (subRoom) {
+            roomInfo.subRoom = { id: subRoom._id, name: subRoom.name };
+          }
+        }
+        
+        // Get nurse info if available
+        let nurseInfo = null;
+        if (slot.nurse) {
+          const nurse = users.find(u => u._id === slot.nurse);
+          nurseInfo = nurse ? { id: nurse._id, name: nurse.name } : { id: slot.nurse, name: 'Y tá không xác định' };
+        }
+        
+        shift.slots.push({
+          id: slot._id,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          room: roomInfo,
+          nurse: nurseInfo,
+          appointmentId: slot.appointmentId || null,
+          patientCount: slot.appointmentId ? 1 : 0
+        });
+      }
+    }
+    
+    // Update total appointment counts
+    for (const date in appointmentCounts) {
+      calendar[date].totalAppointments = appointmentCounts[date].size;
+    }
+    
+    // Convert calendar object to array and sort by date
+    const calendarArray = Object.values(calendar);
+    calendarArray.sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    // Add room statistics for each date and shift
+    const calendarPeriods = calendarArray.map(day => {
+      const dayStats = roomStats[day.date];
+      
+      // Add most frequent room for each shift
+      for (const shiftName of ['Ca Sáng', 'Ca Chiều', 'Ca Tối']) {
+        const shiftStat = dayStats[shiftName];
+        let mostFrequentRoom = null;
+        
+        if (Object.keys(shiftStat.rooms).length > 0) {
+          const topRoomKey = Object.entries(shiftStat.rooms)
+            .reduce((a, b) => a[1] > b[1] ? a : b)[0];
+          
+          const [roomId, subRoomId] = topRoomKey.split('_');
+          const room = rooms.find(r => r._id === roomId);
+          
+          if (room) {
+            mostFrequentRoom = {
+              id: roomId,
+              name: room.name,
+              slotCount: shiftStat.rooms[topRoomKey]
+            };
+            
+            if (subRoomId && room.subRooms) {
+              const subRoom = room.subRooms.find(sr => sr._id === subRoomId);
+              if (subRoom) {
+                mostFrequentRoom.subRoom = {
+                  id: subRoom._id,
+                  name: subRoom.name
+                };
+              }
+            }
+          }
+        }
+        
+        day.shifts[shiftName].mostFrequentRoom = mostFrequentRoom;
+      }
+      
+      return day;
+    });
+    
+    return {
+      dentist: dentist ? { id: dentist._id, name: dentist.name } : { id: dentistId, name: 'Nha sỹ không xác định' },
+      viewType,
+      pagination: {
+        page,
+        limit,
+        hasNext: true, // Always allow going to future
+        hasPrev: true, // Always allow going to past for dentist calendar
+        totalPeriods: calendarPeriods.length
+      },
+      periods: calendarPeriods
+    };
+    
+  } catch (error) {
+    throw new Error(`Lỗi lấy lịch nha sỹ: ${error.message}`);
   }
 }
 
@@ -1164,12 +1427,268 @@ async function reassignStaffToSlots({
   }
 }
 
+// Get nurse calendar with appointment counts (daily/weekly/monthly view) with historical support  
+async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 1, limit = 10 }) {
+  try {
+    // Get schedule config for shift information
+    const { ScheduleConfig } = require('../models/scheduleConfig.model');
+    const scheduleConfig = await ScheduleConfig.getSingleton();
+    if (!scheduleConfig) {
+      throw new Error('Cấu hình lịch làm việc chưa được khởi tạo. Vui lòng liên hệ admin để thiết lập.');
+    }
+    
+    // Use current date if startDate not provided
+    const baseDate = startDate ? new Date(startDate) : getVietnamDate();
+    
+    // Calculate date ranges for pagination - support negative pages for historical data
+    const periods = [];
+    for (let i = 0; i < limit; i++) {
+      // For page 1: periodIndex = 0, 1, 2... (current and future)
+      // For page -1: periodIndex = -limit, -limit+1, ... -1 (past periods)  
+      // For page 2: periodIndex = limit, limit+1, ... (further future)
+      let periodIndex;
+      if (page >= 1) {
+        periodIndex = (page - 1) * limit + i;
+      } else {
+        // Negative pages: page -1 means indices -limit to -1, page -2 means -2*limit to -limit-1
+        periodIndex = page * limit + i;
+      }
+      
+      let periodStart, periodEnd;
+      
+      switch (viewType) {
+        case 'day':
+          // Each period is one day
+          periodStart = new Date(baseDate);
+          periodStart.setDate(baseDate.getDate() + periodIndex);
+          periodEnd = new Date(periodStart);
+          break;
+          
+        case 'week':
+          // Each period is one week (Monday to Sunday)
+          const weekStart = new Date(baseDate);
+          const dayOfWeek = weekStart.getDay();
+          const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+          weekStart.setDate(baseDate.getDate() + mondayOffset + (periodIndex * 7));
+          
+          periodStart = new Date(weekStart);
+          periodEnd = new Date(weekStart);
+          periodEnd.setDate(weekStart.getDate() + 6);
+          break;
+          
+        case 'month':
+          // Each period is one month
+          const targetYear = baseDate.getFullYear();
+          const targetMonth = baseDate.getMonth() + periodIndex;
+          
+          // Use local dates to avoid timezone issues
+          periodStart = new Date(targetYear, targetMonth, 1);
+          periodEnd = new Date(targetYear, targetMonth + 1, 0); // Last day of target month
+          
+          // Adjust for correct local date representation
+          periodStart.setHours(0, 0, 0, 0);
+          periodEnd.setHours(23, 59, 59, 999);
+          break;
+          
+        default:
+          throw new Error('viewType phải là: day, week hoặc month');
+      }
+      
+      periods.push({ start: periodStart, end: periodEnd });
+    }
+    
+    // Get overall date range for database query
+    const overallStart = periods[0].start;
+    const overallEnd = periods[periods.length - 1].end;
+
+    // Build UTC range for query
+    const startUTC = new Date(Date.UTC(
+      overallStart.getFullYear(),
+      overallStart.getMonth(),
+      overallStart.getDate(),
+      -7, 0, 0, 0
+    ));
+    const endUTC = new Date(Date.UTC(
+      overallEnd.getFullYear(),
+      overallEnd.getMonth(),
+      overallEnd.getDate(),
+      -7 + 24, 0, 0, 0
+    ));
+
+    // Query slots where this nurse is assigned
+    const queryFilter = {
+      nurse: nurseId,
+      startTime: { $gte: startUTC, $lt: endUTC },
+      isActive: true
+    };
+
+    const slots = await slotRepo.find(queryFilter);
+    
+    // Get user info from cache for nurse details
+    const usersCache = await redisClient.get('users_cache');
+    const users = usersCache ? JSON.parse(usersCache) : [];
+    const nurse = users.find(u => u._id === nurseId);
+    
+    // Get rooms cache for room/subroom names
+    const roomsCache = await redisClient.get('rooms_cache');
+    const rooms = roomsCache ? JSON.parse(roomsCache) : [];
+    
+    // Group slots by date and shift
+    const calendar = {};
+    const appointmentCounts = {}; // Track unique appointments
+    const roomStats = {}; // Track room frequency by date and shift
+    
+    for (const slot of slots) {
+      // Convert to Vietnam date
+      const slotDateVN = new Date(slot.startTime).toLocaleDateString('en-CA', {
+        timeZone: 'Asia/Ho_Chi_Minh'
+      });
+      
+      if (!calendar[slotDateVN]) {
+        calendar[slotDateVN] = {
+          date: slotDateVN,
+          shifts: {
+            'Ca Sáng': { slots: [], appointmentCount: 0, totalSlots: 0 },
+            'Ca Chiều': { slots: [], appointmentCount: 0, totalSlots: 0 },
+            'Ca Tối': { slots: [], appointmentCount: 0, totalSlots: 0 }
+          },
+          totalAppointments: 0,
+          totalSlots: 0
+        };
+        appointmentCounts[slotDateVN] = new Set();
+        roomStats[slotDateVN] = {
+          'Ca Sáng': { rooms: {} },
+          'Ca Chiều': { rooms: {} },
+          'Ca Tối': { rooms: {} }
+        };
+      }
+      
+      const shift = calendar[slotDateVN].shifts[slot.shiftName];
+      const shiftRoomStats = roomStats[slotDateVN][slot.shiftName];
+      
+      if (shift && shiftRoomStats) {
+        shift.totalSlots++;
+        calendar[slotDateVN].totalSlots++;
+        
+        // Count unique appointments
+        if (slot.appointmentId) {
+          appointmentCounts[slotDateVN].add(slot.appointmentId);
+          shift.appointmentCount++;
+        }
+        
+        // Track room frequency
+        const roomKey = slot.roomId + (slot.subRoomId ? `_${slot.subRoomId}` : '');
+        if (!shiftRoomStats.rooms[roomKey]) {
+          shiftRoomStats.rooms[roomKey] = 0;
+        }
+        shiftRoomStats.rooms[roomKey]++;
+        
+        // Get room/subroom info from cache
+        const room = rooms.find(r => r._id === slot.roomId);
+        let roomInfo = room ? { id: room._id, name: room.name } : { id: slot.roomId, name: 'Phòng không xác định' };
+        
+        if (slot.subRoomId && room && room.subRooms) {
+          const subRoom = room.subRooms.find(sr => sr._id === slot.subRoomId);
+          if (subRoom) {
+            roomInfo.subRoom = { id: subRoom._id, name: subRoom.name };
+          }
+        }
+        
+        // Get dentist info if available
+        let dentistInfo = null;
+        if (slot.dentist) {
+          const dentist = users.find(u => u._id === slot.dentist);
+          dentistInfo = dentist ? { id: dentist._id, name: dentist.name } : { id: slot.dentist, name: 'Nha sỹ không xác định' };
+        }
+        
+        shift.slots.push({
+          id: slot._id,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          room: roomInfo,
+          dentist: dentistInfo,
+          appointmentId: slot.appointmentId || null,
+          patientCount: slot.appointmentId ? 1 : 0
+        });
+      }
+    }
+    
+    // Update total appointment counts
+    for (const date in appointmentCounts) {
+      calendar[date].totalAppointments = appointmentCounts[date].size;
+    }
+    
+    // Convert calendar object to array and sort by date
+    const calendarArray = Object.values(calendar);
+    calendarArray.sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    // Add room statistics for each date and shift
+    const calendarPeriods = calendarArray.map(day => {
+      const dayStats = roomStats[day.date];
+      
+      // Add most frequent room for each shift
+      for (const shiftName of ['Ca Sáng', 'Ca Chiều', 'Ca Tối']) {
+        const shiftStat = dayStats[shiftName];
+        let mostFrequentRoom = null;
+        
+        if (Object.keys(shiftStat.rooms).length > 0) {
+          const topRoomKey = Object.entries(shiftStat.rooms)
+            .reduce((a, b) => a[1] > b[1] ? a : b)[0];
+          
+          const [roomId, subRoomId] = topRoomKey.split('_');
+          const room = rooms.find(r => r._id === roomId);
+          
+          if (room) {
+            mostFrequentRoom = {
+              id: roomId,
+              name: room.name,
+              slotCount: shiftStat.rooms[topRoomKey]
+            };
+            
+            if (subRoomId && room.subRooms) {
+              const subRoom = room.subRooms.find(sr => sr._id === subRoomId);
+              if (subRoom) {
+                mostFrequentRoom.subRoom = {
+                  id: subRoom._id,
+                  name: subRoom.name
+                };
+              }
+            }
+          }
+        }
+        
+        day.shifts[shiftName].mostFrequentRoom = mostFrequentRoom;
+      }
+      
+      return day;
+    });
+    
+    return {
+      nurse: nurse ? { id: nurse._id, name: nurse.name } : { id: nurseId, name: 'Y tá không xác định' },
+      viewType,
+      pagination: {
+        page,
+        limit,
+        hasNext: true, // Always allow going to future
+        hasPrev: true, // Always allow going to past for nurse calendar
+        totalPeriods: calendarPeriods.length
+      },
+      periods: calendarPeriods
+    };
+    
+  } catch (error) {
+    throw new Error(`Lỗi lấy lịch y tá: ${error.message}`);
+  }
+}
+
 module.exports = {
   assignStaffToSlots,
   reassignStaffToSlots,
   updateSlotStaff,
   getSlotsByShiftAndDate,
   getRoomCalendar,
+  getDentistCalendar,
+  getNurseCalendar,
   getVietnamDate,
   validateStaffIds,
   getAvailableQuartersYears,

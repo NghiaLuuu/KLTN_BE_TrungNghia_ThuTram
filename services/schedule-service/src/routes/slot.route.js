@@ -20,6 +20,12 @@ router.get('/by-shift', slotController.getSlotsByShiftAndDate);
 // Get room schedule with appointment counts (daily/weekly/monthly view)
 router.get('/room/:roomId/calendar', slotController.getRoomCalendar);
 
+// Get dentist schedule with appointment counts (daily/weekly/monthly view) with historical support
+router.get('/dentist/:dentistId/calendar', slotController.getDentistCalendar);
+
+// Get nurse schedule with appointment counts (daily/weekly/monthly view) with historical support
+router.get('/nurse/:nurseId/calendar', slotController.getNurseCalendar);
+
 // Get available quarters and years for staff assignment
 router.get('/available-quarters', slotController.getAvailableQuartersYears);
 

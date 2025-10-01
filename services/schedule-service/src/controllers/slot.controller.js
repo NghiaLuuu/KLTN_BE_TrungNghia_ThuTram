@@ -218,14 +218,14 @@ exports.getRoomCalendar = async (req, res) => {
       });
     }
 
-    // Validate pagination parameters
+    // Validate pagination parameters - allow negative pages for historical data
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
     
-    if (pageNum < 1 || limitNum < 1 || limitNum > 100) {
+    if (limitNum < 1 || limitNum > 100) {
       return res.status(400).json({
         success: false,
-        message: 'page phải >= 1 và limit phải từ 1-100'
+        message: 'limit phải từ 1-100'
       });
     }
     
@@ -247,6 +247,110 @@ exports.getRoomCalendar = async (req, res) => {
     res.status(500).json({ 
       success: false,
       message: error.message || 'Không thể lấy lịch phòng' 
+    });
+  }
+};
+
+// Get dentist calendar with appointment counts (daily/weekly/monthly view) with historical support
+exports.getDentistCalendar = async (req, res) => {
+  try {
+    const { dentistId } = req.params;
+    const { viewType, startDate, page = 1, limit = 10 } = req.query;
+    
+    if (!dentistId || !viewType) {
+      return res.status(400).json({
+        success: false,
+        message: 'dentistId và viewType (day|week|month) là bắt buộc'
+      });
+    }
+
+    if (!['day', 'week', 'month'].includes(viewType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'viewType phải là: day, week hoặc month'
+      });
+    }
+
+    // Validate pagination parameters - allow negative pages for historical data
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    
+    if (limitNum < 1 || limitNum > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'limit phải từ 1-100'
+      });
+    }
+    
+    const calendar = await slotService.getDentistCalendar({
+      dentistId,
+      viewType,
+      startDate,
+      page: pageNum,
+      limit: limitNum
+    });
+    
+    res.json({
+      success: true,
+      data: calendar
+    });
+    
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Không thể lấy lịch nha sỹ' 
+    });
+  }
+};
+
+// Get nurse calendar with appointment counts (daily/weekly/monthly view) with historical support
+exports.getNurseCalendar = async (req, res) => {
+  try {
+    const { nurseId } = req.params;
+    const { viewType, startDate, page = 1, limit = 10 } = req.query;
+    
+    if (!nurseId || !viewType) {
+      return res.status(400).json({
+        success: false,
+        message: 'nurseId và viewType (day|week|month) là bắt buộc'
+      });
+    }
+
+    if (!['day', 'week', 'month'].includes(viewType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'viewType phải là: day, week hoặc month'
+      });
+    }
+
+    // Validate pagination parameters - allow negative pages for historical data
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    
+    if (limitNum < 1 || limitNum > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'limit phải từ 1-100'
+      });
+    }
+    
+    const calendar = await slotService.getNurseCalendar({
+      nurseId,
+      viewType,
+      startDate,
+      page: pageNum,
+      limit: limitNum
+    });
+    
+    res.json({
+      success: true,
+      data: calendar
+    });
+    
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Không thể lấy lịch y tá' 
     });
   }
 };
@@ -292,6 +396,8 @@ module.exports = {
   updateSlotStaff: exports.updateSlotStaff,
   getSlotsByShiftAndDate: exports.getSlotsByShiftAndDate,
   getRoomCalendar: exports.getRoomCalendar,
+  getDentistCalendar: exports.getDentistCalendar,
+  getNurseCalendar: exports.getNurseCalendar,
   getAvailableQuartersYears: exports.getAvailableQuartersYears,
   getAvailableShifts: exports.getAvailableShifts
 };
