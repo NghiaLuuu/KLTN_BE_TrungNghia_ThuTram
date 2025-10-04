@@ -347,6 +347,22 @@ async function generateQuarterSchedule(quarter, year) {
     const { startDateUTC, endDateUTC } = getQuarterUTCDates(quarter, year);
     const { startDateVN, endDateVN } = getQuarterVNDateStrings(quarter, year);
 
+    // 🔹 NEW: Mark any holidays in this quarter as used
+    if (successCount > 0) {
+      try {
+        const overlappingHolidays = await cfgService.checkHolidaysUsedInDateRange(originalStartDate, originalEndDate);
+        for (const holiday of overlappingHolidays) {
+          await cfgService.markHolidayAsUsed(holiday._id);
+        }
+        if (overlappingHolidays.length > 0) {
+          console.log(`📅 Đã đánh dấu ${overlappingHolidays.length} holidays đã được sử dụng trong quý ${quarter}/${year}`);
+        }
+      } catch (error) {
+        console.error('⚠️ Error marking holidays as used:', error);
+        // Don't fail schedule creation if holiday marking fails
+      }
+    }
+
     return {
       quarter,
       year,
@@ -477,6 +493,20 @@ async function generateQuarterScheduleForSingleRoom(roomId, quarter, year) {
 
     const { startDateUTC, endDateUTC } = getQuarterUTCDates(quarter, year);
     const { startDateVN, endDateVN } = getQuarterVNDateStrings(quarter, year);
+
+    // 🔹 NEW: Mark any holidays in this quarter as used
+    try {
+      const overlappingHolidays = await cfgService.checkHolidaysUsedInDateRange(originalStartDate, originalEndDate);
+      for (const holiday of overlappingHolidays) {
+        await cfgService.markHolidayAsUsed(holiday._id);
+      }
+      if (overlappingHolidays.length > 0) {
+        console.log(`📅 Đã đánh dấu ${overlappingHolidays.length} holidays đã được sử dụng trong quý ${quarter}/${year} cho room ${roomId}`);
+      }
+    } catch (error) {
+      console.error('⚠️ Error marking holidays as used:', error);
+      // Don't fail schedule creation if holiday marking fails
+    }
 
     return {
       quarter,
@@ -982,6 +1012,13 @@ async function generateSlotsCore(scheduleId, subRoomId, selectedShifts, slotDura
   // Loop through each day in Vietnam timezone
   for (let d = new Date(vnStart); d <= vnEnd; d.setDate(d.getDate() + 1)) {
     const dayString = d.toISOString().split('T')[0]; // YYYY-MM-DD format
+    
+    // 🔹 Skip holidays - don't create slots for holidays
+    const isHolidayDay = await isHoliday(new Date(dayString + 'T00:00:00.000Z'));
+    if (isHolidayDay) {
+      console.log(`📅 Skipping holiday: ${dayString}`);
+      continue;
+    }
     
   for (const shift of selectedShifts) {
       const [startHour, startMinute] = shift.startTime.split(':').map(Number);

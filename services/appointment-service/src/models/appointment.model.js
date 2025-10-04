@@ -1,14 +1,7 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
-// Counter để quản lý sequence appointment
-const counterSchema = new Schema({
-  _id: { type: String, required: true },
-  seq: { type: Number, default: 0 }
-});
-const Counter = mongoose.model('Counter', counterSchema);
-
-// Sub-schemas
+// Patient Info Sub-schema
 const patientInfoSchema = new Schema({
   name: { 
     type: String, 
@@ -21,135 +14,142 @@ const patientInfoSchema = new Schema({
     required: true,
     match: /^[0-9]{10,11}$/
   },
-  birthYear: { 
-    type: Number, 
-    required: true,
-    min: 1900,
-    max: new Date().getFullYear()
-  },
-  gender: {
-    type: String,
-    enum: ['male', 'female', 'other'],
-    default: 'other'
-  },
   email: {
     type: String,
     trim: true,
     lowercase: true
   },
-  address: {
-    type: String,
-    trim: true,
-    maxlength: 200
-  },
-  emergencyContact: {
-    name: String,
-    phone: String,
-    relationship: String
+  birthYear: { 
+    type: Number, 
+    required: true,
+    min: 1900,
+    max: new Date().getFullYear()
   }
 }, { _id: false });
 
-const serviceInfoSchema = new Schema({
-  serviceId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    required: true 
-  },
-  serviceName: { 
-    type: String, 
-    required: true,
-    trim: true 
-  },
-  estimatedDuration: { 
-    type: Number, 
-    default: 60 // minutes
-  },
-  price: { 
-    type: Number, 
-    min: 0 
-  }
-}, { _id: false });
-
-const slotInfoSchema = new Schema({
-  slotId: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    required: true 
-  },
-  date: { 
-    type: Date, 
-    required: true 
-  },
-  startTime: { 
-    type: String, 
-    required: true,
-    match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/
-  },
-  endTime: { 
-    type: String, 
-    required: true,
-    match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/
-  },
-  roomId: mongoose.Schema.Types.ObjectId,
-  roomName: String
-}, { _id: false });
-
+// Main Appointment Schema (Simplified for Booking Flow)
 const appointmentSchema = new Schema({
+  // Appointment Code: AP000001-03102025 (số thứ tự trong ngày)
   appointmentCode: {
     type: String,
     unique: true,
     required: true
   },
   
-  // Patient information
+  // Patient Information
+  // patientId is required for online booking (patient has account)
+  // patientId is null for offline booking (walk-in patient without account)
   patientId: {
     type: mongoose.Schema.Types.ObjectId,
-    default: null // null for walk-in patients
+    default: null
   },
   patientInfo: {
     type: patientInfoSchema,
     required: true
   },
   
-  // Services information
-  services: [serviceInfoSchema],
-  
-  // Dentist assignment
-  assignedDentistId: {
+  // Service Information (ServiceAddOn - dịch vụ con)
+  serviceId: {
     type: mongoose.Schema.Types.ObjectId,
-    default: null
+    required: true
   },
-  assignedDentistName: {
+  serviceName: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  serviceType: {
+    type: String,
+    enum: ['exam', 'treatment'],
+    required: true
+  },
+  serviceAddOnId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
+  },
+  serviceAddOnName: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  serviceDuration: {
+    type: Number,
+    required: true,
+    min: 1 // minutes
+  },
+  servicePrice: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  
+  // Dentist Assignment
+  dentistId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
+  },
+  dentistName: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  
+  // Slot Information
+  slotIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
+  }],
+  appointmentDate: {
+    type: Date,
+    required: true
+  },
+  startTime: {
+    type: String, // "09:00"
+    required: true
+  },
+  endTime: {
+    type: String, // "09:45"
+    required: true
+  },
+  roomId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
+  },
+  roomName: {
     type: String,
     trim: true
   },
-  preferredDentistId: {
+  
+  // Payment & Invoice
+  paymentId: {
     type: mongoose.Schema.Types.ObjectId,
     default: null
   },
-  
-  // Time slots
-  slots: [slotInfoSchema],
-  
-  // Appointment details
-  type: { 
-    type: String, 
-    enum: ["exam", "treatment", "consultation", "followup"], 
-    required: true 
+  invoiceId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null
   },
-  priority: {
+  totalAmount: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  
+  // Status
+  status: {
     type: String,
-    enum: ['low', 'normal', 'high', 'urgent'],
-    default: 'normal'
-  },
-  status: { 
-    type: String, 
-    enum: ['pending', 'confirmed', 'checked-in', 'in-progress', 'completed', 'cancelled', 'no-show'], 
-    default: 'pending' 
+    enum: ['confirmed', 'checked-in', 'in-progress', 'completed', 'cancelled', 'no-show'],
+    default: 'confirmed'
   },
   
-  // Booking information
-  bookedBy: { 
-    type: mongoose.Schema.Types.ObjectId, 
-    required: true 
+  // Booking Information
+  bookedAt: {
+    type: Date,
+    default: Date.now
+  },
+  bookedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
   },
   bookedByRole: {
     type: String,
@@ -158,178 +158,159 @@ const appointmentSchema = new Schema({
   },
   bookingChannel: {
     type: String,
-    enum: ['online', 'phone', 'walk-in', 'system'],
+    enum: ['online', 'offline'],
     default: 'online'
   },
   
-  // Notes and special requirements
+  // Notes
   notes: {
     type: String,
-    maxlength: 500,
-    trim: true
-  },
-  specialRequirements: {
-    type: String,
-    maxlength: 300,
-    trim: true
+    trim: true,
+    maxlength: 500
   },
   reasonForVisit: {
     type: String,
-    maxlength: 200,
-    trim: true
+    trim: true,
+    maxlength: 300
   },
   
-  // Pricing
-  totalEstimatedCost: {
-    type: Number,
-    min: 0,
-    default: 0
+  // Check-in Information
+  checkedInAt: {
+    type: Date
   },
-  deposit: {
-    amount: {
-      type: Number,
-      min: 0,
-      default: 0
-    },
-    status: {
-      type: String,
-      enum: ['none', 'pending', 'paid', 'refunded'],
-      default: 'none'
-    },
-    paidAt: Date,
-    refundedAt: Date
+  checkedInBy: {
+    type: mongoose.Schema.Types.ObjectId
   },
   
-  // Reminders and notifications
-  reminderSent: {
-    type: Boolean,
-    default: false
+  // Completion Information
+  completedAt: {
+    type: Date
   },
-  reminderSentAt: Date,
+  completedBy: {
+    type: mongoose.Schema.Types.ObjectId
+  },
+  actualDuration: {
+    type: Number // minutes
+  },
   
-  // Cancellation information
-  cancelledAt: Date,
-  cancelledBy: mongoose.Schema.Types.ObjectId,
+  // Cancellation Information
+  cancelledAt: {
+    type: Date
+  },
+  cancelledBy: {
+    type: mongoose.Schema.Types.ObjectId
+  },
   cancellationReason: {
     type: String,
-    maxlength: 200,
-    trim: true
-  },
-  
-  // Check-in information
-  checkedInAt: Date,
-  checkedInBy: mongoose.Schema.Types.ObjectId,
-  
-  // Completion information
-  completedAt: Date,
-  actualDuration: Number, // in minutes
-  
-  // Follow-up
-  followUpRequired: {
-    type: Boolean,
-    default: false
-  },
-  followUpDate: Date,
-  followUpNotes: String
-}, { 
+    trim: true,
+    maxlength: 300
+  }
+}, {
   timestamps: true,
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
 });
 
-// Indexes for better performance
-appointmentSchema.index({ appointmentCode: 1 });
-appointmentSchema.index({ patientId: 1 });
-appointmentSchema.index({ assignedDentistId: 1 });
-appointmentSchema.index({ status: 1 });
-appointmentSchema.index({ 'slots.date': 1 });
-appointmentSchema.index({ createdAt: -1 });
-appointmentSchema.index({ 'patientInfo.phone': 1 });
+// Indexes for performance (appointmentCode unique index is auto-created by unique: true)
+appointmentSchema.index({ patientId: 1, appointmentDate: -1 });
+appointmentSchema.index({ dentistId: 1, appointmentDate: 1 });
+appointmentSchema.index({ status: 1, appointmentDate: 1 });
+appointmentSchema.index({ paymentId: 1 });
+appointmentSchema.index({ appointmentDate: 1 });
 
-// Virtual fields
+// Virtual: Check if appointment is today
 appointmentSchema.virtual('isToday').get(function() {
-  if (!this.slots || this.slots.length === 0) return false;
   const today = new Date();
-  const appointmentDate = new Date(this.slots[0].date);
+  const appointmentDate = new Date(this.appointmentDate);
   return today.toDateString() === appointmentDate.toDateString();
 });
 
+// Virtual: Check if appointment is upcoming
 appointmentSchema.virtual('isUpcoming').get(function() {
-  if (!this.slots || this.slots.length === 0) return false;
   const now = new Date();
-  const appointmentDate = new Date(this.slots[0].date);
-  return appointmentDate > now;
+  const appointmentDate = new Date(this.appointmentDate);
+  return appointmentDate > now && this.status === 'confirmed';
 });
 
-appointmentSchema.virtual('isPast').get(function() {
-  if (!this.slots || this.slots.length === 0) return false;
-  const now = new Date();
-  const appointmentDate = new Date(this.slots[0].date);
-  return appointmentDate < now;
-});
+// Static: Generate appointment code (AP000001-03102025)
+appointmentSchema.statics.generateAppointmentCode = async function(date) {
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  const dateStr = `${day}${month}${year}`; // ddmmyyyy
+  
+  // Count appointments on that day
+  const startOfDay = new Date(date);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(date);
+  endOfDay.setHours(23, 59, 59, 999);
+  
+  const count = await this.countDocuments({
+    appointmentDate: { $gte: startOfDay, $lte: endOfDay }
+  });
+  
+  const sequence = String(count + 1).padStart(6, '0'); // 000001, 000002, ...
+  
+  return `AP${sequence}-${dateStr}`;
+};
 
-// Pre-save middleware to generate appointment code
-appointmentSchema.pre('save', async function(next) {
-  if (this.isNew && !this.appointmentCode) {
-    try {
-      const counter = await Counter.findByIdAndUpdate(
-        { _id: 'appointment' },
-        { $inc: { seq: 1 } },
-        { new: true, upsert: true }
-      );
-      
-      const now = new Date();
-      const year = now.getFullYear().toString().slice(-2);
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const sequence = String(counter.seq).padStart(4, '0');
-      
-      this.appointmentCode = `AP${year}${month}${sequence}`;
-    } catch (error) {
-      return next(error);
-    }
-  }
-  next();
-});
-
-// Static methods
+// Static: Find by appointment code
 appointmentSchema.statics.findByCode = function(code) {
   return this.findOne({ appointmentCode: code });
 };
 
-appointmentSchema.statics.findByPatient = function(patientId, options = {}) {
+// Static: Find by patient
+appointmentSchema.statics.findByPatient = function(patientId, filters = {}) {
   const query = { patientId };
-  if (options.status) query.status = options.status;
-  if (options.fromDate) query['slots.date'] = { $gte: options.fromDate };
-  if (options.toDate) query['slots.date'] = { ...query['slots.date'], $lte: options.toDate };
   
-  return this.find(query).sort({ 'slots.date': -1 });
-};
-
-appointmentSchema.statics.findByDentist = function(dentistId, options = {}) {
-  const query = { assignedDentistId: dentistId };
-  if (options.status) query.status = options.status;
-  if (options.date) {
-    const startOfDay = new Date(options.date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(options.date);
-    endOfDay.setHours(23, 59, 59, 999);
-    query['slots.date'] = { $gte: startOfDay, $lte: endOfDay };
+  if (filters.status) {
+    query.status = filters.status;
+  }
+  if (filters.dateFrom) {
+    query.appointmentDate = { $gte: new Date(filters.dateFrom) };
+  }
+  if (filters.dateTo) {
+    query.appointmentDate = { 
+      ...query.appointmentDate, 
+      $lte: new Date(filters.dateTo) 
+    };
   }
   
-  return this.find(query).sort({ 'slots.date': 1 });
+  return this.find(query).sort({ appointmentDate: -1 });
 };
 
-// Instance methods
-appointmentSchema.methods.canBeModified = function() {
-  return ['pending', 'confirmed'].includes(this.status) && this.isUpcoming;
+// Static: Find by dentist
+appointmentSchema.statics.findByDentist = function(dentistId, filters = {}) {
+  const query = { dentistId };
+  
+  if (filters.status) {
+    query.status = filters.status;
+  }
+  if (filters.date) {
+    const date = new Date(filters.date);
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+    query.appointmentDate = { $gte: startOfDay, $lte: endOfDay };
+  }
+  
+  return this.find(query).sort({ appointmentDate: 1, startTime: 1 });
 };
 
+// Instance: Check if can be cancelled
 appointmentSchema.methods.canBeCancelled = function() {
-  return ['pending', 'confirmed', 'checked-in'].includes(this.status);
+  return this.status === 'confirmed' && this.isUpcoming;
 };
 
-appointmentSchema.methods.calculateTotalCost = function() {
-  return this.services.reduce((total, service) => total + (service.price || 0), 0);
+// Instance: Check if can check-in
+appointmentSchema.methods.canCheckIn = function() {
+  return this.status === 'confirmed' && this.isToday;
+};
+
+// Instance: Check if can complete
+appointmentSchema.methods.canComplete = function() {
+  return ['checked-in', 'in-progress'].includes(this.status);
 };
 
 module.exports = mongoose.model('Appointment', appointmentSchema);

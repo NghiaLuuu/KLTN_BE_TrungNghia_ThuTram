@@ -80,14 +80,14 @@ const createPaymentValidation = [
     .trim()
     .withMessage('Tên chủ thẻ là bắt buộc'),
 
-  // Digital wallet validations
+  // Digital wallet validations (VNPay only)
   body('digitalWalletInfo.walletType')
-    .if(body('method').isIn(['momo', 'zalopay', 'vnpay', 'shopeepay']))
-    .isIn(['momo', 'zalopay', 'vnpay', 'shopeepay'])
-    .withMessage('Loại ví điện tử không hợp lệ'),
+    .if(body('method').equals('vnpay'))
+    .equals('vnpay')
+    .withMessage('Loại ví điện tử phải là VNPay'),
 
   body('digitalWalletInfo.phoneNumber')
-    .if(body('method').isIn(['momo', 'zalopay', 'vnpay', 'shopeepay']))
+    .if(body('method').equals('vnpay'))
     .matches(/^(\+84|84|0)(3[2-9]|5[6-9]|7[0|6-9]|8[1-9]|9[0-9])[0-9]{7}$/)
     .withMessage('Số điện thoại ví không hợp lệ'),
 
@@ -392,26 +392,6 @@ const getStatisticsValidation = [
     .withMessage('Loại nhóm không hợp lệ')
 ];
 
-// ============ WEBHOOK VALIDATIONS ============
-const momoWebhookValidation = [
-  body('orderId')
-    .notEmpty()
-    .withMessage('Order ID là bắt buộc'),
-
-  body('amount')
-    .isFloat({ min: 0 })
-    .withMessage('Số tiền không hợp lệ'),
-
-  body('resultCode')
-    .isInt()
-    .withMessage('Result code không hợp lệ'),
-
-  body('extraData')
-    .optional()
-    .isString()
-    .withMessage('Extra data phải là chuỗi')
-];
-
 module.exports = {
   createPaymentValidation,
   createCashPaymentValidation,
@@ -423,6 +403,5 @@ module.exports = {
   getPatientPaymentsValidation,
   listPaymentsValidation,
   searchPaymentsValidation,
-  getStatisticsValidation,
-  momoWebhookValidation
+  getStatisticsValidation
 };

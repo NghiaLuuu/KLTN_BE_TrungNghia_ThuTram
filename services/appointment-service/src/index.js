@@ -1,47 +1,49 @@
-﻿// Load environment variables first
 const dotenv = require('dotenv');
 dotenv.config();
+
 const express = require('express');
+const cors = require('cors');
 const connectDB = require('./config/db');
+const { connectRabbitMQ } = require('./utils/rabbitmq.client');
+const { setupEventListeners } = require('./utils/eventListeners');
+const appointmentRoutes = require('./routes/appointment.route');
 
 connectDB();
-const appointmentRoutes = require('./routes/appointment.route');
-const { connectRabbitMQ } = require('./utils/rabbitmq.client');
-const setupAppointmentRPC = require('./utils/appointment.rpc');
-const cors = require('cors');
-// 🔹 load .env
 
-
-// 🔹 connect MongoDB
 const app = express();
+
 app.use(express.json());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN,
+  origin: process.env.CORS_ORIGIN || '*',
   credentials: true
 }));
 app.use(express.urlencoded({ extended: true }));
 
-// 🔹 routes
 app.use('/api/appointment', appointmentRoutes);
 
-// 🔹 server start
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'appointment-service' });
+});
+
 const PORT = process.env.PORT || 3006;
 
 async function startServer() {
   try {
     await connectRabbitMQ(process.env.RABBITMQ_URL || 'amqp://localhost');
-
-    // Bật RPC consumer
-    await setupAppointmentRPC();
-
+    console.log('✅ RabbitMQ connected');
+    
+    await setupEventListeners();
+    console.log('✅ Event listeners ready');
+    
     app.listen(PORT, () => {
-      console.log(`✅ Appointment service running on port ${PORT}`);
+      console.log(`✅ Appointment Service running on port ${PORT}`);
+      console.log(`📍 Health: http://localhost:${PORT}/health`);
     });
+    
   } catch (err) {
-    console.error('❌ Failed to start Appointment service:', err);
+    console.error('❌ Failed to start:', err);
     process.exit(1);
   }
 }
 
 startServer();
-

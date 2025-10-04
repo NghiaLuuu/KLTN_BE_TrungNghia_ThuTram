@@ -1,536 +1,546 @@
-const appointmentRepository = require('../repositories/appointment.repository');
-const redis = require('../utils/redis.client');
+const Appointment = require('../models/appointment.model');
+const redisClient = require('../utils/redis.client');
+const { publishToQueue } = require('../utils/rabbitmq.client');
 const rpcClient = require('../utils/rpcClient');
 
 class AppointmentService {
-  constructor() {
-    this.cacheExpiry = 300; // 5 minutes
-  }
-
-  // Cache keys
-  getCacheKey(type, id) {
-    return `appointment:${type}:${id}`;
-  }
-
-  async invalidateCache(appointmentId) {
-    const keys = [
-      this.getCacheKey('id', appointmentId),
-      'appointment:pending',
-      'appointment:today',
-      'appointment:upcoming'
-    ];
-    await Promise.all(keys.map(key => redis.del(key)));
-  }
-
-  // Create new appointment
-  async create(appointmentData, user) {
+  
+  async getAvailableSlotGroups(dentistId, date, serviceDuration) {
     try {
-      // Validate user permissions
-      if (!user || !user.userId) {
-        throw new Error('Thông tin người dùng không hợp lệ');
-      }
-
-      // Validate required fields
-      if (!appointmentData.services || appointmentData.services.length === 0) {
-        throw new Error('Cần chọn ít nhất một dịch vụ');
-      }
-
-      if (!appointmentData.slots || appointmentData.slots.length === 0) {
-        throw new Error('Cần chọn ít nhất một khung thời gian');
-      }
-
-      // Check slot conflicts via RPC
-      const slotIds = appointmentData.slots.map(slot => slot.slotId);
-      const slotValidation = await this.validateSlots(slotIds);
-      if (!slotValidation.valid) {
-        throw new Error(`Xung đột lịch hẹn: ${slotValidation.reason}`);
-      }
-
-      // Prepare appointment data
-      const newAppointment = {
-        ...appointmentData,
-        bookedBy: user.userId,
-        bookedByRole: user.role,
-        totalEstimatedCost: this.calculateTotalCost(appointmentData.services)
-      };
-
-      // Create appointment
-      const appointment = await appointmentRepository.create(newAppointment);
-
-      // Send notification via RPC (optional)
-      try {
-        await this.sendAppointmentNotification(appointment, 'created');
-      } catch (notificationError) {
-        console.error('Notification failed:', notificationError.message);
-      }
-
-      await this.invalidateCache(appointment._id);
-      return appointment;
-    } catch (error) {
-      throw new Error(`Không thể tạo lịch hẹn: ${error.message}`);
-    }
-  }
-
-  // Get appointment by ID
-  async getById(id) {
-    try {
-      const cacheKey = this.getCacheKey('id', id);
-      let appointment = await redis.get(cacheKey);
-
-      if (!appointment) {
-        appointment = await appointmentRepository.findById(id);
-        if (!appointment) {
-          throw new Error('Không tìm thấy lịch hẹn');
-        }
-        await redis.setex(cacheKey, this.cacheExpiry, JSON.stringify(appointment));
-      } else {
-        appointment = JSON.parse(appointment);
-      }
-
-      return appointment;
-    } catch (error) {
-      throw new Error(`Lỗi khi lấy thông tin lịch hẹn: ${error.message}`);
-    }
-  }
-
-  // Get appointment by code
-  async getByCode(code) {
-    try {
-      const appointment = await appointmentRepository.findByCode(code);
-      if (!appointment) {
-        throw new Error('Không tìm thấy lịch hẹn với mã này');
-      }
-      return appointment;
-    } catch (error) {
-      throw new Error(`Lỗi khi lấy thông tin lịch hẹn: ${error.message}`);
-    }
-  }
-
-  // List appointments with filters
-  async getAll(filter = {}, options = {}) {
-    try {
-      return await appointmentRepository.findAll(filter, options);
-    } catch (error) {
-      throw new Error(`Lỗi khi lấy danh sách lịch hẹn: ${error.message}`);
-    }
-  }
-
-  // Get appointments by patient
-  async getByPatient(patientId, options = {}) {
-    try {
-      return await appointmentRepository.findByPatient(patientId, options);
-    } catch (error) {
-      throw new Error(`Lỗi khi lấy lịch hẹn của bệnh nhân: ${error.message}`);
-    }
-  }
-
-  // Get appointments by dentist
-  async getByDentist(dentistId, options = {}) {
-    try {
-      return await appointmentRepository.findByDentist(dentistId, options);
-    } catch (error) {
-      throw new Error(`Lỗi khi lấy lịch hẹn của nha sĩ: ${error.message}`);
-    }
-  }
-
-  // Get appointments by phone
-  async getByPhone(phone, options = {}) {
-    try {
-      return await appointmentRepository.findByPhone(phone, options);
-    } catch (error) {
-      throw new Error(`Lỗi khi tìm lịch hẹn theo số điện thoại: ${error.message}`);
-    }
-  }
-
-  // Get today's appointments
-  async getTodayAppointments(dentistId = null) {
-    try {
-      const cacheKey = `appointment:today:${dentistId || 'all'}`;
-      let appointments = await redis.get(cacheKey);
-
-      if (!appointments) {
-        appointments = await appointmentRepository.findTodayAppointments(dentistId);
-        await redis.setex(cacheKey, 300, JSON.stringify(appointments)); // 5 min cache
-      } else {
-        appointments = JSON.parse(appointments);
-      }
-
-      return appointments;
-    } catch (error) {
-      throw new Error(`Lỗi khi lấy lịch hẹn hôm nay: ${error.message}`);
-    }
-  }
-
-  // Get upcoming appointments
-  async getUpcoming(days = 7, dentistId = null) {
-    try {
-      return await appointmentRepository.findUpcoming(days, dentistId);
-    } catch (error) {
-      throw new Error(`Lỗi khi lấy lịch hẹn sắp tới: ${error.message}`);
-    }
-  }
-
-  // Get pending appointments
-  async getPending(limit = 50) {
-    try {
-      const cacheKey = 'appointment:pending';
-      let appointments = await redis.get(cacheKey);
-
-      if (!appointments) {
-        appointments = await appointmentRepository.findPending(limit);
-        await redis.setex(cacheKey, 180, JSON.stringify(appointments)); // 3 min cache
-      } else {
-        appointments = JSON.parse(appointments);
-      }
-
-      return appointments;
-    } catch (error) {
-      throw new Error(`Lỗi khi lấy lịch hẹn chờ xử lý: ${error.message}`);
-    }
-  }
-
-  // Get overdue appointments
-  async getOverdue() {
-    try {
-      return await appointmentRepository.findOverdue();
-    } catch (error) {
-      throw new Error(`Lỗi khi lấy lịch hẹn quá hạn: ${error.message}`);
-    }
-  }
-
-  // Update appointment
-  async update(id, updateData, user) {
-    try {
-      const appointment = await appointmentRepository.findById(id);
-      if (!appointment) {
-        throw new Error('Không tìm thấy lịch hẹn');
-      }
-
-      // Check permissions
-      if (!appointment.canBeModified()) {
-        throw new Error('Lịch hẹn không thể chỉnh sửa ở trạng thái hiện tại');
-      }
-
-      // Validate slot conflicts if slots are being updated
-      if (updateData.slots) {
-        const slotIds = updateData.slots.map(slot => slot.slotId);
-        const slotValidation = await this.validateSlots(slotIds, id);
-        if (!slotValidation.valid) {
-          throw new Error(`Xung đột lịch hẹn: ${slotValidation.reason}`);
-        }
-      }
-
-      // Update total cost if services changed
-      if (updateData.services) {
-        updateData.totalEstimatedCost = this.calculateTotalCost(updateData.services);
-      }
-
-      const updatedAppointment = await appointmentRepository.update(id, updateData);
-      await this.invalidateCache(id);
-
-      return updatedAppointment;
-    } catch (error) {
-      throw new Error(`Lỗi khi cập nhật lịch hẹn: ${error.message}`);
-    }
-  }
-
-  // Update appointment status
-  async updateStatus(id, status, additionalData = {}, user) {
-    try {
-      const appointment = await appointmentRepository.findById(id);
-      if (!appointment) {
-        throw new Error('Không tìm thấy lịch hẹn');
-      }
-
-      // Add user info to additional data
-      if (user) {
-        switch (status) {
-          case 'checked-in':
-            additionalData.checkedInBy = user.userId;
-            break;
-          case 'cancelled':
-            additionalData.cancelledBy = user.userId;
-            break;
-        }
-      }
-
-      const updatedAppointment = await appointmentRepository.updateStatus(id, status, additionalData);
-      await this.invalidateCache(id);
-
-      // Send status change notification
-      try {
-        await this.sendAppointmentNotification(updatedAppointment, 'status_changed');
-      } catch (notificationError) {
-        console.error('Notification failed:', notificationError.message);
-      }
-
-      return updatedAppointment;
-    } catch (error) {
-      throw new Error(`Lỗi khi cập nhật trạng thái lịch hẹn: ${error.message}`);
-    }
-  }
-
-  // Assign dentist to appointment
-  async assignDentist(id, dentistId, dentistName, user) {
-    try {
-      const appointment = await appointmentRepository.findById(id);
-      if (!appointment) {
-        throw new Error('Không tìm thấy lịch hẹn');
-      }
-
-      // Validate dentist availability via RPC
-      const availability = await this.checkDentistAvailability(dentistId, appointment.slots);
-      if (!availability.available) {
-        throw new Error(`Nha sĩ không có sẵn: ${availability.reason}`);
-      }
-
-      const updatedAppointment = await appointmentRepository.assignDentist(id, dentistId, dentistName);
-      await this.invalidateCache(id);
-
-      return updatedAppointment;
-    } catch (error) {
-      throw new Error(`Lỗi khi phân công nha sĩ: ${error.message}`);
-    }
-  }
-
-  // Cancel appointment
-  async cancel(id, reason, user) {
-    try {
-      const appointment = await appointmentRepository.findById(id);
-      if (!appointment) {
-        throw new Error('Không tìm thấy lịch hẹn');
-      }
-
-      if (!appointment.canBeCancelled()) {
-        throw new Error('Lịch hẹn không thể hủy ở trạng thái hiện tại');
-      }
-
-      const cancelData = {
-        cancellationReason: reason,
-        cancelledBy: user.userId
-      };
-
-      const updatedAppointment = await appointmentRepository.updateStatus(id, 'cancelled', cancelData);
-      await this.invalidateCache(id);
-
-      // Release slots via RPC
-      try {
-        const slotIds = appointment.slots.map(slot => slot.slotId);
-        await this.releaseSlots(slotIds);
-      } catch (slotError) {
-        console.error('Failed to release slots:', slotError.message);
-      }
-
-      return updatedAppointment;
-    } catch (error) {
-      throw new Error(`Lỗi khi hủy lịch hẹn: ${error.message}`);
-    }
-  }
-
-  // Check-in appointment
-  async checkIn(id, user) {
-    try {
-      return await this.updateStatus(id, 'checked-in', {}, user);
-    } catch (error) {
-      throw new Error(`Lỗi khi check-in: ${error.message}`);
-    }
-  }
-
-  // Complete appointment
-  async complete(id, completionData, user) {
-    try {
-      const appointment = await appointmentRepository.findById(id);
-      if (!appointment) {
-        throw new Error('Không tìm thấy lịch hẹn');
-      }
-
-      const data = {
-        ...completionData,
-        actualDuration: completionData.actualDuration || null
-      };
-
-      const updatedAppointment = await appointmentRepository.updateStatus(id, 'completed', data);
-      await this.invalidateCache(id);
-
-      return updatedAppointment;
-    } catch (error) {
-      throw new Error(`Lỗi khi hoàn thành lịch hẹn: ${error.message}`);
-    }
-  }
-
-  // Search appointments
-  async search(searchTerm, options = {}) {
-    try {
-      return await appointmentRepository.search(searchTerm, options);
-    } catch (error) {
-      throw new Error(`Lỗi khi tìm kiếm lịch hẹn: ${error.message}`);
-    }
-  }
-
-  // Get appointment statistics
-  async getStatistics(startDate, endDate, dentistId = null) {
-    try {
-      return await appointmentRepository.getStatistics(startDate, endDate, dentistId);
-    } catch (error) {
-      throw new Error(`Lỗi khi lấy thống kê: ${error.message}`);
-    }
-  }
-
-  // Get daily schedule
-  async getDailySchedule(date, dentistId = null) {
-    try {
-      return await appointmentRepository.getDailySchedule(date, dentistId);
-    } catch (error) {
-      throw new Error(`Lỗi khi lấy lịch trình hàng ngày: ${error.message}`);
-    }
-  }
-
-  // Delete appointment (admin only)
-  async delete(id, user) {
-    try {
-      const appointment = await appointmentRepository.findById(id);
-      if (!appointment) {
-        throw new Error('Không tìm thấy lịch hẹn');
-      }
-
-      await appointmentRepository.delete(id);
-      await this.invalidateCache(id);
-
-      // Release slots if not already released
-      if (!['cancelled', 'completed'].includes(appointment.status)) {
-        try {
-          const slotIds = appointment.slots.map(slot => slot.slotId);
-          await this.releaseSlots(slotIds);
-        } catch (slotError) {
-          console.error('Failed to release slots:', slotError.message);
-        }
-      }
-
-      return { success: true, message: 'Đã xóa lịch hẹn thành công' };
-    } catch (error) {
-      throw new Error(`Lỗi khi xóa lịch hẹn: ${error.message}`);
-    }
-  }
-
-  // Helper methods
-
-  // Validate slots via RPC
-  async validateSlots(slotIds, excludeAppointmentId = null) {
-    try {
-      // Check for conflicts in current appointments
-      const conflicts = await appointmentRepository.checkSlotConflicts(slotIds, excludeAppointmentId);
-      if (conflicts.length > 0) {
-        return {
-          valid: false,
-          reason: 'Khung thời gian đã được đặt bởi lịch hẹn khác'
-        };
-      }
-
-      // Validate with schedule service via RPC
-      const scheduleValidation = await rpcClient.request('schedule_queue', {
-        action: 'validateSlots',
-        payload: { slotIds }
+      const slots = await rpcClient.call('schedule-service', 'getSlotsByDentistAndDate', {
+        dentistId,
+        date
       });
-
-      return scheduleValidation;
-    } catch (error) {
+      
+      if (!slots || slots.length === 0) {
+        return { date, dentistId, slotGroups: [] };
+      }
+      
+      const availableSlots = [];
+      for (const slot of slots) {
+        if (!slot.isBooked && slot.isActive) {
+          const isLocked = await this.isSlotLocked(slot._id.toString());
+          if (!isLocked) {
+            availableSlots.push(slot);
+          }
+        }
+      }
+      
+      const slotGroups = this.groupConsecutiveSlots(availableSlots, serviceDuration);
+      const dentistInfo = await this.getDentistInfo(dentistId);
+      
       return {
-        valid: false,
-        reason: `Lỗi kiểm tra khung thời gian: ${error.message}`
+        date,
+        dentistId,
+        dentistName: dentistInfo?.name || 'Unknown',
+        serviceDuration,
+        slotGroups
       };
+      
+    } catch (error) {
+      console.error('Error getting available slot groups:', error);
+      throw new Error('Cannot get slot groups: ' + error.message);
     }
   }
-
-  // Check dentist availability via RPC
-  async checkDentistAvailability(dentistId, slots) {
+  
+  groupConsecutiveSlots(slots, serviceDuration) {
+    slots.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+    
+    const slotDuration = 15;
+    const slotsNeeded = Math.ceil(serviceDuration / slotDuration);
+    const groups = [];
+    
+    for (let i = 0; i <= slots.length - slotsNeeded; i++) {
+      const group = [];
+      let isConsecutive = true;
+      
+      for (let j = 0; j < slotsNeeded; j++) {
+        const currentSlot = slots[i + j];
+        group.push(currentSlot);
+        
+        if (j > 0) {
+          const prevSlot = slots[i + j - 1];
+          const prevEnd = new Date(prevSlot.endTime);
+          const currentStart = new Date(currentSlot.startTime);
+          const timeDiff = (currentStart - prevEnd) / 60000;
+          
+          if (timeDiff !== 0) {
+            isConsecutive = false;
+            break;
+          }
+        }
+      }
+      
+      if (isConsecutive) {
+        const firstSlot = group[0];
+        const lastSlot = group[group.length - 1];
+        
+        groups.push({
+          groupId: this.formatTime(firstSlot.startTime) + '-' + this.formatTime(lastSlot.endTime),
+          startTime: this.formatTime(firstSlot.startTime),
+          endTime: this.formatTime(lastSlot.endTime),
+          duration: serviceDuration,
+          roomId: firstSlot.roomId,
+          subRoomId: firstSlot.subRoomId,
+          slots: group.map(s => ({
+            _id: s._id,
+            startTime: this.formatTime(s.startTime),
+            endTime: this.formatTime(s.endTime)
+          }))
+        });
+      }
+    }
+    
+    return groups;
+  }
+  
+  formatTime(dateTime) {
+    const date = new Date(dateTime);
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return hours + ':' + minutes;
+  }
+  
+  async isSlotLocked(slotId) {
     try {
-      const result = await rpcClient.request('schedule_queue', {
-        action: 'checkDentistAvailability',
-        payload: { dentistId, slots }
+      const lock = await redisClient.get('temp_slot_lock:' + slotId);
+      return lock !== null;
+    } catch (error) {
+      console.warn('Redis check failed:', error);
+      return false;
+    }
+  }
+  
+  async reserveAppointment(reservationData, currentUser) {
+    try {
+      const {
+        patientId, patientInfo, serviceId, serviceAddOnId,
+        dentistId, slotIds, date, notes
+      } = reservationData;
+      
+      await this.validateSlotsAvailable(slotIds);
+      const serviceInfo = await this.getServiceInfo(serviceId, serviceAddOnId);
+      const dentistInfo = await this.getDentistInfo(dentistId);
+      const firstSlot = await this.getSlotInfo(slotIds[0]);
+      
+      const reservationId = 'RSV' + Date.now();
+      
+      const slots = await Promise.all(slotIds.map(id => this.getSlotInfo(id)));
+      slots.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+      const startTime = this.formatTime(slots[0].startTime);
+      const endTime = this.formatTime(slots[slots.length - 1].endTime);
+      
+      const reservation = {
+        reservationId, patientId, patientInfo,
+        serviceId, serviceName: serviceInfo.serviceName,
+        serviceType: serviceInfo.serviceType,
+        serviceAddOnId, serviceAddOnName: serviceInfo.serviceAddOnName,
+        serviceDuration: serviceInfo.serviceDuration,
+        servicePrice: serviceInfo.servicePrice,
+        dentistId, dentistName: dentistInfo.name,
+        slotIds, appointmentDate: date, startTime, endTime,
+        roomId: firstSlot.roomId, roomName: firstSlot.roomName || '',
+        notes: notes || '',
+        bookedBy: currentUser._id, bookedByRole: currentUser.role,
+        bookingChannel: currentUser.role === 'patient' ? 'online' : 'offline',
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000)
+      };
+      
+      const ttl = 15 * 60;
+      await redisClient.setex(
+        'temp_reservation:' + reservationId,
+        ttl,
+        JSON.stringify(reservation)
+      );
+      
+      for (const slotId of slotIds) {
+        await redisClient.setex(
+          'temp_slot_lock:' + slotId,
+          ttl,
+          JSON.stringify({ reservationId, lockedAt: new Date() })
+        );
+      }
+      
+      const paymentResult = await rpcClient.call('payment-service', 'createTempPayment', {
+        reservationId,
+        amount: serviceInfo.servicePrice,
+        patientInfo: {
+          name: patientInfo.name,
+          phone: patientInfo.phone,
+          email: patientInfo.email
+        },
+        description: 'Payment for appointment - ' + serviceInfo.serviceAddOnName
       });
-
+      
+      return {
+        reservationId,
+        paymentUrl: paymentResult.paymentUrl,
+        amount: serviceInfo.servicePrice,
+        expiresAt: reservation.expiresAt
+      };
+      
+    } catch (error) {
+      console.error('Error reserving appointment:', error);
+      throw new Error('Cannot reserve appointment: ' + error.message);
+    }
+  }
+  
+  async validateSlotsAvailable(slotIds) {
+    for (const slotId of slotIds) {
+      const isLocked = await this.isSlotLocked(slotId);
+      if (isLocked) {
+        throw new Error('Slot ' + slotId + ' is currently locked');
+      }
+      
+      const slot = await this.getSlotInfo(slotId);
+      if (slot.isBooked) {
+        throw new Error('Slot ' + slotId + ' is already booked');
+      }
+    }
+  }
+  
+  async getServiceInfo(serviceId, serviceAddOnId) {
+    try {
+      const cached = await redisClient.get('services_cache');
+      if (cached) {
+        const services = JSON.parse(cached);
+        const service = services.find(s => s._id.toString() === serviceId.toString());
+        if (service) {
+          const addOn = service.serviceAddOns.find(a => a._id.toString() === serviceAddOnId.toString());
+          if (addOn) {
+            return {
+              serviceName: service.name,
+              serviceType: service.type,
+              serviceDuration: service.durationMinutes,
+              serviceAddOnName: addOn.name,
+              servicePrice: addOn.price
+            };
+          }
+        }
+      }
+      
+      const result = await rpcClient.call('service-service', 'getServiceAddOn', {
+        serviceId, serviceAddOnId
+      });
       return result;
     } catch (error) {
-      return {
-        available: false,
-        reason: `Lỗi kiểm tra lịch trình nha sĩ: ${error.message}`
-      };
+      throw new Error('Cannot get service info: ' + error.message);
     }
   }
-
-  // Release slots via RPC
-  async releaseSlots(slotIds) {
+  
+  async getDentistInfo(dentistId) {
     try {
-      await rpcClient.request('schedule_queue', {
-        action: 'releaseSlots',
-        payload: { slotIds }
-      });
+      const cached = await redisClient.get('users_cache');
+      if (!cached) throw new Error('users_cache not found');
+      
+      const users = JSON.parse(cached);
+      const dentist = users.find(u => u._id.toString() === dentistId.toString());
+      
+      if (!dentist) throw new Error('Dentist not found');
+      return dentist;
     } catch (error) {
-      console.error('Failed to release slots via RPC:', error.message);
+      throw new Error('Cannot get dentist info: ' + error.message);
+    }
+  }
+  
+  async getSlotInfo(slotId) {
+    try {
+      const slot = await rpcClient.call('schedule-service', 'getSlot', { slotId });
+      return slot;
+    } catch (error) {
+      throw new Error('Cannot get slot info: ' + error.message);
+    }
+  }
+  
+  async createAppointmentFromPayment(paymentSuccessData) {
+    try {
+      const { reservationId, paymentId } = paymentSuccessData;
+      
+      const reservationStr = await redisClient.get('temp_reservation:' + reservationId);
+      if (!reservationStr) {
+        throw new Error('Reservation not found or expired');
+      }
+      
+      const reservation = JSON.parse(reservationStr);
+      const appointmentDate = new Date(reservation.appointmentDate);
+      const appointmentCode = await Appointment.generateAppointmentCode(appointmentDate);
+      
+      const appointment = new Appointment({
+        appointmentCode,
+        patientId: reservation.patientId,
+        patientInfo: reservation.patientInfo,
+        serviceId: reservation.serviceId,
+        serviceName: reservation.serviceName,
+        serviceType: reservation.serviceType,
+        serviceAddOnId: reservation.serviceAddOnId,
+        serviceAddOnName: reservation.serviceAddOnName,
+        serviceDuration: reservation.serviceDuration,
+        servicePrice: reservation.servicePrice,
+        dentistId: reservation.dentistId,
+        dentistName: reservation.dentistName,
+        slotIds: reservation.slotIds,
+        appointmentDate,
+        startTime: reservation.startTime,
+        endTime: reservation.endTime,
+        roomId: reservation.roomId,
+        roomName: reservation.roomName,
+        paymentId,
+        totalAmount: reservation.servicePrice,
+        status: 'confirmed',
+        bookedAt: new Date(),
+        bookedBy: reservation.bookedBy,
+        bookedByRole: reservation.bookedByRole,
+        bookingChannel: reservation.bookingChannel,
+        notes: reservation.notes
+      });
+      
+      await appointment.save();
+      
+      await rpcClient.call('schedule-service', 'updateSlotsBooked', {
+        slotIds: reservation.slotIds,
+        appointmentId: appointment._id,
+        isBooked: true
+      });
+      
+      await rpcClient.call('service-service', 'markServiceAddOnAsUsed', {
+        serviceId: reservation.serviceId,
+        serviceAddOnId: reservation.serviceAddOnId
+      });
+      
+      await redisClient.del('temp_reservation:' + reservationId);
+      for (const slotId of reservation.slotIds) {
+        await redisClient.del('temp_slot_lock:' + slotId);
+      }
+      
+      await publishToQueue('invoice_queue', {
+        event: 'appointment_created',
+        data: {
+          appointmentId: appointment._id,
+          appointmentCode: appointment.appointmentCode,
+          patientId: appointment.patientId,
+          patientInfo: appointment.patientInfo,
+          serviceId: appointment.serviceId,
+          serviceName: appointment.serviceName,
+          serviceAddOnId: appointment.serviceAddOnId,
+          serviceAddOnName: appointment.serviceAddOnName,
+          servicePrice: appointment.servicePrice,
+          dentistId: appointment.dentistId,
+          dentistName: appointment.dentistName,
+          appointmentDate: appointment.appointmentDate,
+          startTime: appointment.startTime,
+          endTime: appointment.endTime,
+          paymentId,
+          totalAmount: appointment.totalAmount
+        }
+      });
+      
+      console.log('Appointment created: ' + appointmentCode);
+      return appointment;
+      
+    } catch (error) {
+      console.error('Error creating appointment from payment:', error);
       throw error;
     }
   }
-
-  // Calculate total cost
-  calculateTotalCost(services) {
-    return services.reduce((total, service) => total + (service.price || 0), 0);
+  
+  // cancelReservation() removed - reservations auto-expire after 15 minutes (Redis TTL)
+  // If patient doesn't pay, Redis will auto-delete temp_reservation and temp_slot_lock keys
+  
+  async getByCode(appointmentCode) {
+    const appointment = await Appointment.findByCode(appointmentCode);
+    if (!appointment) throw new Error('Appointment not found');
+    return appointment;
   }
-
-  // Send notifications via RPC
-  async sendAppointmentNotification(appointment, type) {
+  
+  async getByPatient(patientId, filters = {}) {
+    return await Appointment.findByPatient(patientId, filters);
+  }
+  
+  async getByDentist(dentistId, filters = {}) {
+    return await Appointment.findByDentist(dentistId, filters);
+  }
+  
+  async checkIn(appointmentId, userId) {
+    const appointment = await Appointment.findById(appointmentId);
+    if (!appointment) throw new Error('Appointment not found');
+    
+    if (!appointment.canCheckIn()) {
+      throw new Error('Cannot check-in this appointment');
+    }
+    
+    appointment.status = 'checked-in';
+    appointment.checkedInAt = new Date();
+    appointment.checkedInBy = userId;
+    await appointment.save();
+    
+    return appointment;
+  }
+  
+  async complete(appointmentId, userId, completionData) {
+    const appointment = await Appointment.findById(appointmentId);
+    if (!appointment) throw new Error('Appointment not found');
+    
+    if (!appointment.canComplete()) {
+      throw new Error('Cannot complete this appointment');
+    }
+    
+    appointment.status = 'completed';
+    appointment.completedAt = new Date();
+    appointment.completedBy = userId;
+    appointment.actualDuration = completionData.actualDuration || appointment.serviceDuration;
+    
+    if (completionData.notes) {
+      appointment.notes = appointment.notes 
+        ? appointment.notes + '\n---\n' + completionData.notes
+        : completionData.notes;
+    }
+    
+    await appointment.save();
+    return appointment;
+  }
+  
+  async cancel(appointmentId, userId, reason) {
+    const appointment = await Appointment.findById(appointmentId);
+    if (!appointment) throw new Error('Appointment not found');
+    
+    if (!appointment.canBeCancelled()) {
+      throw new Error('Cannot cancel this appointment');
+    }
+    
+    appointment.status = 'cancelled';
+    appointment.cancelledAt = new Date();
+    appointment.cancelledBy = userId;
+    appointment.cancellationReason = reason;
+    await appointment.save();
+    
+    await rpcClient.call('schedule-service', 'updateSlotsBooked', {
+      slotIds: appointment.slotIds,
+      appointmentId: null,
+      isBooked: false
+    });
+    
+    await publishToQueue('appointment_queue', {
+      event: 'appointment_cancelled',
+      data: {
+        appointmentId: appointment._id,
+        appointmentCode: appointment.appointmentCode,
+        slotIds: appointment.slotIds,
+        reason
+      }
+    });
+    
+    return appointment;
+  }
+  
+  // Create appointment directly (for staff/admin - offline booking)
+  async createAppointmentDirectly(appointmentData, currentUser) {
     try {
-      await rpcClient.request('notification_queue', {
-        action: 'sendAppointmentNotification',
-        payload: { appointment, type }
+      // Validate required fields
+      if (!appointmentData.patientInfo || !appointmentData.patientInfo.name || !appointmentData.patientInfo.phone) {
+        throw new Error('Patient info (name, phone) is required');
+      }
+      
+      const {
+        patientId, patientInfo, serviceId, serviceAddOnId,
+        dentistId, slotIds, date, notes, paymentMethod
+      } = appointmentData;
+      
+      // Validate slots available
+      await this.validateSlotsAvailable(slotIds);
+      
+      // Get service info
+      const serviceInfo = await this.getServiceInfo(serviceId, serviceAddOnId);
+      
+      // Get dentist info
+      const dentistInfo = await this.getDentistInfo(dentistId);
+      
+      // Get slot info
+      const slots = await Promise.all(slotIds.map(id => this.getSlotInfo(id)));
+      slots.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+      const firstSlot = slots[0];
+      const startTime = this.formatTime(slots[0].startTime);
+      const endTime = this.formatTime(slots[slots.length - 1].endTime);
+      
+      // Generate appointment code
+      const appointmentDate = new Date(date);
+      const appointmentCode = await Appointment.generateAppointmentCode(appointmentDate);
+      
+      // Create appointment directly (no payment required for offline booking)
+      const appointment = new Appointment({
+        appointmentCode,
+        patientId: patientId || null, // null for walk-in patients
+        patientInfo,
+        serviceId,
+        serviceName: serviceInfo.serviceName,
+        serviceType: serviceInfo.serviceType,
+        serviceAddOnId,
+        serviceAddOnName: serviceInfo.serviceAddOnName,
+        serviceDuration: serviceInfo.serviceDuration,
+        servicePrice: serviceInfo.servicePrice,
+        dentistId,
+        dentistName: dentistInfo.name,
+        slotIds,
+        appointmentDate,
+        startTime,
+        endTime,
+        roomId: firstSlot.roomId,
+        roomName: firstSlot.roomName || '',
+        paymentId: null, // Will be created later if needed
+        totalAmount: serviceInfo.servicePrice,
+        status: 'confirmed',
+        bookedAt: new Date(),
+        bookedBy: currentUser._id,
+        bookedByRole: currentUser.role,
+        bookingChannel: 'offline',
+        notes: notes || ''
       });
+      
+      await appointment.save();
+      
+      // Update slots as booked
+      await rpcClient.call('schedule-service', 'updateSlotsBooked', {
+        slotIds,
+        appointmentId: appointment._id,
+        isBooked: true
+      });
+      
+      // Mark service as used
+      await rpcClient.call('service-service', 'markServiceAddOnAsUsed', {
+        serviceId,
+        serviceAddOnId
+      });
+      
+      // Publish event to create invoice
+      await publishToQueue('invoice_queue', {
+        event: 'appointment_created',
+        data: {
+          appointmentId: appointment._id,
+          appointmentCode: appointment.appointmentCode,
+          patientId: appointment.patientId,
+          patientInfo: appointment.patientInfo,
+          serviceId: appointment.serviceId,
+          serviceName: appointment.serviceName,
+          serviceAddOnId: appointment.serviceAddOnId,
+          serviceAddOnName: appointment.serviceAddOnName,
+          servicePrice: appointment.servicePrice,
+          dentistId: appointment.dentistId,
+          dentistName: appointment.dentistName,
+          appointmentDate: appointment.appointmentDate,
+          startTime: appointment.startTime,
+          endTime: appointment.endTime,
+          paymentId: null,
+          totalAmount: appointment.totalAmount,
+          paymentMethod: paymentMethod || 'cash'
+        }
+      });
+      
+      console.log('Offline appointment created: ' + appointmentCode);
+      return appointment;
+      
     } catch (error) {
-      console.error('Failed to send notification:', error.message);
-      // Don't throw error for notifications
-    }
-  }
-
-  // Update deposit
-  async updateDeposit(id, depositData, user) {
-    try {
-      const appointment = await appointmentRepository.findById(id);
-      if (!appointment) {
-        throw new Error('Không tìm thấy lịch hẹn');
-      }
-
-      const updatedAppointment = await appointmentRepository.updateDeposit(id, depositData);
-      await this.invalidateCache(id);
-
-      return updatedAppointment;
-    } catch (error) {
-      throw new Error(`Lỗi khi cập nhật đặt cọc: ${error.message}`);
-    }
-  }
-
-  // Add notes to appointment
-  async addNotes(id, notes, user) {
-    try {
-      const appointment = await appointmentRepository.findById(id);
-      if (!appointment) {
-        throw new Error('Không tìm thấy lịch hẹn');
-      }
-
-      const updatedAppointment = await appointmentRepository.addNotes(id, notes);
-      await this.invalidateCache(id);
-
-      return updatedAppointment;
-    } catch (error) {
-      throw new Error(`Lỗi khi thêm ghi chú: ${error.message}`);
-    }
-  }
-
-  // Mark reminder as sent
-  async markReminderSent(id) {
-    try {
-      const updatedAppointment = await appointmentRepository.markReminderSent(id);
-      await this.invalidateCache(id);
-      return updatedAppointment;
-    } catch (error) {
-      throw new Error(`Lỗi khi đánh dấu đã gửi nhắc nhở: ${error.message}`);
+      console.error('Error creating offline appointment:', error);
+      throw new Error('Cannot create offline appointment: ' + error.message);
     }
   }
 }

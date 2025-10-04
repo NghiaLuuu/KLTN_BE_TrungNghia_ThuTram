@@ -1,63 +1,62 @@
-// momo.service.js
-const axios = require('axios');
-const { generateMoMoSignature } = require('./momo.utils');
+// payment.gateway.js - VNPay Integration Only
+const querystring = require('qs');
+const { sortObject, createVNPaySecureHash, formatVNPayDate } = require('./vnpay.utils');
 
 /**
- * Tạo MoMo payment URL / QR code
- * @param {string} orderId
- * @param {number} amount
- * @param {string} extraData
- * @param {string} paymentMethod - 'redirect' | 'qr'
- * @returns {object} { payUrl, qrCodeUrl, requestId, orderId }
+ * Tạo VNPay payment URL (sandbox)
+ * @param {string} orderId - Mã đơn hàng
+ * @param {number} amount - Số tiền (VND)
+ * @param {string} orderInfo - Thông tin đơn hàng
+ * @param {string} ipAddr - IP address của khách hàng
+ * @param {string} bankCode - Mã ngân hàng (optional)
+ * @param {string} locale - Ngôn ngữ: 'vn' hoặc 'en' (default: 'vn')
+ * @returns {string} VNPay payment URL
  */
-async function createMoMoPayment(orderId, amount, extraData = '', paymentMethod = 'redirect') {
-  const partnerCode = process.env.MOMO_PARTNER_CODE;
-  const accessKey = process.env.MOMO_ACCESS_KEY;
-  const secretKey = process.env.MOMO_SECRET_KEY;
-  const returnUrl = process.env.MOMO_RETURN_URL;
-  const notifyUrl = process.env.MOMO_NOTIFY_URL;
+function createVNPayPayment(orderId, amount, orderInfo, ipAddr, bankCode = '', locale = 'vn') {
+  // VNPay sandbox credentials
+  const tmnCode = process.env.VNPAY_TMN_CODE || 'KZ1MPDRW';
+  const secretKey = process.env.VNPAY_HASH_SECRET || 'LGJNHZSLMX362UGJOKERT14VR4MF3JBD';
+  const vnpUrl = process.env.VNPAY_URL || 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
+  const returnUrl = process.env.VNPAY_RETURN_URL || 'http://localhost:3007/api/payments/return/vnpay';
 
-  const requestId = `req_${Date.now()}`;
-  const orderInfo = `AppointmentPayment${orderId}`;
-  const requestType = 'payWithMethod';
+  const createDate = formatVNPayDate(new Date());
+  const currCode = 'VND';
 
-  // 1️⃣ Chuẩn bị params theo MoMo API
-  const params = {
-    accessKey,
-    amount,
-    extraData,
-    ipnUrl: notifyUrl,
-    orderId,
-    orderInfo,
-    partnerCode,
-    redirectUrl: returnUrl,
-    requestId,
-    requestType
+  // Build VNPay params
+  let vnp_Params = {
+    vnp_Version: '2.1.0',
+    vnp_Command: 'pay',
+    vnp_TmnCode: tmnCode,
+    vnp_Locale: locale,
+    vnp_CurrCode: currCode,
+    vnp_TxnRef: orderId,
+    vnp_OrderInfo: orderInfo,
+    vnp_OrderType: 'other',
+    vnp_Amount: amount * 100, // VNPay yêu cầu amount * 100
+    vnp_ReturnUrl: returnUrl,
+    vnp_IpAddr: ipAddr,
+    vnp_CreateDate: createDate
   };
 
-  // 2️⃣ Tạo signature HMAC SHA256
-  const signature = generateMoMoSignature(params, secretKey);
-
-  // 3️⃣ Request body
-  const requestBody = {
-    ...params,
-    signature,
-    amount: amount.toString() // MoMo yêu cầu amount là string
-  };
-
-  try {
-    const response = await axios.post('https://test-payment.momo.vn/v2/gateway/api/create', requestBody);
-
-    return {
-      payUrl: paymentMethod === 'redirect' ? response.data.payUrl : undefined,
-      qrCodeUrl: paymentMethod === 'qr' ? response.data.qrCodeUrl : undefined,
-      requestId,
-      orderId
-    };
-  } catch (err) {
-    console.error('❌ MoMo create payment error:', err.response?.data || err.message);
-    throw new Error('Failed to create MoMo payment');
+  // Add bank code if provided
+  if (bankCode && bankCode !== '') {
+    vnp_Params.vnp_BankCode = bankCode;
   }
+
+  // Sort params
+  vnp_Params = sortObject(vnp_Params);
+
+  // Create secure hash
+  const secureHash = createVNPaySecureHash(vnp_Params, secretKey);
+  vnp_Params['vnp_SecureHash'] = secureHash;
+
+  // Build final URL
+  const paymentUrl = vnpUrl + '?' + querystring.stringify(vnp_Params, { encode: false });
+
+  return paymentUrl;
 }
 
-module.exports = { createMoMoPayment };
+module.exports = {
+  createVNPayPayment
+};
+

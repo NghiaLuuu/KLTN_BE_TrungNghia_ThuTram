@@ -220,9 +220,12 @@ exports.getRoomCalendar = async (req, res) => {
 
     // Validate pagination parameters - allow negative pages for historical data
     const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
+    let limitNum = parseInt(limit, 10);
     
-    if (limitNum < 1 || limitNum > 100) {
+    // ⭐ Enforce limit=1 for week and month views
+    if (viewType === 'week' || viewType === 'month') {
+      limitNum = 1;
+    } else if (limitNum < 1 || limitNum > 100) {
       return res.status(400).json({
         success: false,
         message: 'limit phải từ 1-100'
@@ -273,9 +276,12 @@ exports.getDentistCalendar = async (req, res) => {
 
     // Validate pagination parameters - allow negative pages for historical data
     const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
+    let limitNum = parseInt(limit, 10);
     
-    if (limitNum < 1 || limitNum > 100) {
+    // ⭐ Enforce limit=1 for week and month views
+    if (viewType === 'week' || viewType === 'month') {
+      limitNum = 1;
+    } else if (limitNum < 1 || limitNum > 100) {
       return res.status(400).json({
         success: false,
         message: 'limit phải từ 1-100'
@@ -325,9 +331,12 @@ exports.getNurseCalendar = async (req, res) => {
 
     // Validate pagination parameters - allow negative pages for historical data
     const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
+    let limitNum = parseInt(limit, 10);
     
-    if (limitNum < 1 || limitNum > 100) {
+    // ⭐ Enforce limit=1 for week and month views
+    if (viewType === 'week' || viewType === 'month') {
+      limitNum = 1;
+    } else if (limitNum < 1 || limitNum > 100) {
       return res.status(400).json({
         success: false,
         message: 'limit phải từ 1-100'
@@ -390,6 +399,104 @@ exports.getAvailableShifts = async (req, res) => {
     });
   }
 };
+
+// ⭐ NEW: Get slot details for a specific room/day/shift
+exports.getRoomSlotDetails = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { subRoomId, date, shiftName } = req.query;
+    
+    if (!roomId || !date || !shiftName) {
+      return res.status(400).json({
+        success: false,
+        message: 'roomId, date và shiftName là bắt buộc'
+      });
+    }
+
+    const slots = await slotService.getRoomSlotDetails({
+      roomId,
+      subRoomId,
+      date,
+      shiftName
+    });
+    
+    res.json({
+      success: true,
+      data: slots
+    });
+    
+  } catch (error) {
+    res.status(400).json({ 
+      success: false,
+      message: error.message || 'Không thể lấy chi tiết slot phòng' 
+    });
+  }
+};
+
+// ⭐ NEW: Get slot details for a specific dentist/day/shift
+exports.getDentistSlotDetails = async (req, res) => {
+  try {
+    const { dentistId } = req.params;
+    const { date, shiftName } = req.query;
+    
+    if (!dentistId || !date || !shiftName) {
+      return res.status(400).json({
+        success: false,
+        message: 'dentistId, date và shiftName là bắt buộc'
+      });
+    }
+
+    const slots = await slotService.getDentistSlotDetails({
+      dentistId,
+      date,
+      shiftName
+    });
+    
+    res.json({
+      success: true,
+      data: slots
+    });
+    
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Không thể lấy chi tiết slot nha sỹ' 
+    });
+  }
+};
+
+// ⭐ NEW: Get slot details for a specific nurse/day/shift
+exports.getNurseSlotDetails = async (req, res) => {
+  try {
+    const { nurseId } = req.params;
+    const { date, shiftName } = req.query;
+    
+    if (!nurseId || !date || !shiftName) {
+      return res.status(400).json({
+        success: false,
+        message: 'nurseId, date và shiftName là bắt buộc'
+      });
+    }
+
+    const slots = await slotService.getNurseSlotDetails({
+      nurseId,
+      date,
+      shiftName
+    });
+    
+    res.json({
+      success: true,
+      data: slots
+    });
+    
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Không thể lấy chi tiết slot y tá' 
+    });
+  }
+};
+
 module.exports = {
   assignStaffToSlots: exports.assignStaffToSlots,
   reassignStaffToSlots: exports.reassignStaffToSlots,
@@ -399,5 +506,8 @@ module.exports = {
   getDentistCalendar: exports.getDentistCalendar,
   getNurseCalendar: exports.getNurseCalendar,
   getAvailableQuartersYears: exports.getAvailableQuartersYears,
-  getAvailableShifts: exports.getAvailableShifts
+  getAvailableShifts: exports.getAvailableShifts,
+  getRoomSlotDetails: exports.getRoomSlotDetails,
+  getDentistSlotDetails: exports.getDentistSlotDetails,
+  getNurseSlotDetails: exports.getNurseSlotDetails
 };

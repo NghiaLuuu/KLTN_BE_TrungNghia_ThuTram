@@ -4,15 +4,7 @@ const Schema = mongoose.Schema;
 // Constants
 const PaymentMethod = {
   CASH: 'cash',
-  CREDIT_CARD: 'credit_card',
-  DEBIT_CARD: 'debit_card',
-  BANK_TRANSFER: 'bank_transfer',
-  MOMO: 'momo',
-  ZALOPAY: 'zalopay',
-  VNPAY: 'vnpay',
-  SHOPEEPAY: 'shopeepay',
-  INSURANCE: 'insurance',
-  INSTALLMENT: 'installment'
+  VNPAY: 'vnpay'
 };
 
 const PaymentStatus = {
@@ -40,30 +32,11 @@ const counterSchema = new Schema({
 });
 const Counter = mongoose.model('Counter', counterSchema);
 
-// Sub-schemas
-const cardInfoSchema = new Schema({
-  cardNumber: {
-    type: String,
-    trim: true
-  },
-  cardHolderName: {
-    type: String,
-    trim: true
-  },
-  bankName: {
-    type: String,
-    trim: true
-  },
-  authCode: {
-    type: String,
-    trim: true
-  }
-}, { _id: false });
-
+// Digital Wallet Info Schema (VNPay only)
 const digitalWalletInfoSchema = new Schema({
   walletType: {
     type: String,
-    enum: ['momo', 'zalopay', 'vnpay', 'shopeepay']
+    enum: ['vnpay']
   },
   walletAccountId: {
     type: String,
@@ -72,60 +45,6 @@ const digitalWalletInfoSchema = new Schema({
   transactionId: {
     type: String,
     trim: true
-  }
-}, { _id: false });
-
-const insuranceInfoSchema = new Schema({
-  insuranceProvider: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  policyNumber: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  claimNumber: {
-    type: String,
-    trim: true
-  },
-  coveragePercentage: {
-    type: Number,
-    min: 0,
-    max: 100,
-    default: 0
-  },
-  preAuthCode: {
-    type: String,
-    trim: true
-  }
-}, { _id: false });
-
-const installmentInfoSchema = new Schema({
-  totalInstallments: {
-    type: Number,
-    required: true,
-    min: 2
-  },
-  currentInstallment: {
-    type: Number,
-    required: true,
-    min: 1
-  },
-  monthlyAmount: {
-    type: Number,
-    required: true,
-    min: 0
-  },
-  interestRate: {
-    type: Number,
-    min: 0,
-    default: 0
-  },
-  nextDueDate: {
-    type: Date,
-    required: true
   }
 }, { _id: false });
 
@@ -230,11 +149,8 @@ const paymentSchema = new Schema({
     default: 0
   },
   
-  // Payment method specific information
-  cardInfo: cardInfoSchema,
+  // Payment method specific information (VNPay only)
   digitalWalletInfo: digitalWalletInfoSchema,
-  insuranceInfo: insuranceInfoSchema,
-  installmentInfo: installmentInfoSchema,
   
   // Transaction details
   externalTransactionId: {

@@ -1,7 +1,7 @@
 const paymentService = require('../services/payment.service');
 const redis = require('../utils/redis.client');
 const crypto = require('crypto');
-const { generateMoMoSignature } = require('../utils/momo.utils');
+const { verifyVNPayCallback } = require('../utils/vnpay.utils');
 
 class PaymentController {
   // ============ CREATE PAYMENT METHODS ============
@@ -552,77 +552,46 @@ class PaymentController {
   }
 
   // ============ GATEWAY WEBHOOK METHODS ============
-  async momoWebhook(req, res) {
+  async vnpayReturn(req, res) {
     try {
-      const data = req.body;
-      console.log('💬 MoMo webhook payload:', data);
+      const vnpParams = req.query;
+      console.log('💬 VNPay return params:', vnpParams);
 
-      const { orderId, amount, extraData, resultCode } = data;
-      if (!extraData) return res.status(400).send('Missing extraData');
+      // Verify signature
+      const secretKey = process.env.VNPAY_HASH_SECRET || 'LGJNHZSLMX362UGJOKERT14VR4MF3JBD';
+      const isValid = verifyVNPayCallback(vnpParams, secretKey);
 
-      // 1️⃣ Lấy temp payment từ Redis
-      const tempPaymentId = extraData;
-      const tempDataRaw = await redis.get(tempPaymentId);
-      if (!tempDataRaw) {
-        console.warn(`❌ Temp payment not found for key ${tempPaymentId}`);
-        return res.status(404).send('Temp payment not found');
+      if (!isValid) {
+        console.error('❌ Invalid VNPay signature');
+        return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=error&message=Invalid signature`);
       }
 
-      // 2️⃣ Xử lý payment
-      if (resultCode === 0) {
-        const savedPayment = await paymentService.confirmPaymentRPC({ id: tempPaymentId });
-        await redis.del(tempPaymentId);
-        return res.json({ 
-          success: true,
-          message: 'Payment success', 
-          orderId, 
-          paymentId: savedPayment._id 
-        });
+      const { vnp_TxnRef, vnp_ResponseCode, vnp_TransactionNo, vnp_Amount } = vnpParams;
+      
+      // Process payment callback
+      if (vnp_ResponseCode === '00') {
+        // Success
+        const callbackData = {
+          orderId: vnp_TxnRef,
+          status: 'success',
+          transactionId: vnp_TransactionNo,
+          amount: parseInt(vnp_Amount) / 100
+        };
+
+        try {
+          const payment = await paymentService.processGatewayCallback(callbackData);
+          return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=success&orderId=${vnp_TxnRef}`);
+        } catch (error) {
+          console.error('Error processing payment callback:', error);
+          return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=error&orderId=${vnp_TxnRef}`);
+        }
       } else {
-        await redis.del(tempPaymentId);
-        return res.json({ 
-          success: false,
-          message: 'Payment failed', 
-          orderId 
-        });
+        // Failed
+        return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=failed&orderId=${vnp_TxnRef}&code=${vnp_ResponseCode}`);
       }
     } catch (error) {
-      console.error('MoMo webhook error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Internal server error'
-      });
-    }
-  }
-
-  async momoReturn(req, res) {
-    res.send('Thank you! Payment process finished. Please check your order status.');
-  }
-
-  async zalopayWebhook(req, res) {
-    try {
-      const data = req.body;
-      console.log('💬 ZaloPay webhook payload:', data);
-      
-      // Process ZaloPay webhook
-      const callbackData = {
-        orderId: data.app_trans_id,
-        status: data.return_code === 1 ? 'success' : 'failed',
-        transactionId: data.zp_trans_id
-      };
-
-      const payment = await paymentService.processGatewayCallback(callbackData);
-      
-      res.json({
-        return_code: 1,
-        return_message: 'success'
-      });
-    } catch (error) {
-      console.error('ZaloPay webhook error:', error);
-      res.json({
-        return_code: -1,
-        return_message: 'error'
-      });
+      console.error('VNPay return error:', error);
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=error`);
     }
   }
 

@@ -373,6 +373,11 @@ exports.updateHolidayById = async (holidayId, updates) => {
 
   const current = holidayConfig.holidays[idx];
 
+  // 🔹 Kiểm tra holiday đã được sử dụng chưa
+  if (current.hasBeenUsed) {
+    throw new Error(`Không thể cập nhật ngày nghỉ "${current.name}" vì đã được sử dụng trong hệ thống`);
+  }
+
   // Build proposed holiday
   const prop = {
     name: updates.name ?? current.name,

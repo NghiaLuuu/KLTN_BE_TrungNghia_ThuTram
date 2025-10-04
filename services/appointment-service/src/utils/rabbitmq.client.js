@@ -14,4 +14,57 @@ function getChannel() {
   return channel;
 }
 
-module.exports = { connectRabbitMQ, getChannel };
+/**
+ * Publish message to queue
+ */
+async function publishToQueue(queueName, message) {
+  try {
+    const ch = getChannel();
+    await ch.assertQueue(queueName, { durable: true });
+    ch.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
+      persistent: true
+    });
+    console.log(`📤 Published to ${queueName}:`, message.event || message.action);
+  } catch (error) {
+    console.error(`❌ Failed to publish to ${queueName}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Consume messages from queue
+ */
+async function consumeQueue(queueName, handler) {
+  try {
+    const ch = getChannel();
+    await ch.assertQueue(queueName, { durable: true });
+    
+    console.log(`👂 Listening to ${queueName}...`);
+    
+    ch.consume(queueName, async (msg) => {
+      if (msg) {
+        try {
+          const content = JSON.parse(msg.content.toString());
+          console.log(`📥 Received from ${queueName}:`, content.event || content.action);
+          
+          await handler(content);
+          
+          ch.ack(msg);
+        } catch (error) {
+          console.error(`❌ Error processing message from ${queueName}:`, error);
+          ch.nack(msg, false, false); // Don't requeue
+        }
+      }
+    });
+  } catch (error) {
+    console.error(`❌ Failed to consume from ${queueName}:`, error);
+    throw error;
+  }
+}
+
+module.exports = { 
+  connectRabbitMQ, 
+  getChannel,
+  publishToQueue,
+  consumeQueue
+};

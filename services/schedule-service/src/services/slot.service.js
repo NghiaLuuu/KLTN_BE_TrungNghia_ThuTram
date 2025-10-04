@@ -754,9 +754,9 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
         calendar[slotDateVN] = {
           date: slotDateVN,
           shifts: {
-            'Ca Sáng': { slots: [], appointmentCount: 0, totalSlots: 0 },
-            'Ca Chiều': { slots: [], appointmentCount: 0, totalSlots: 0 },
-            'Ca Tối': { slots: [], appointmentCount: 0, totalSlots: 0 }
+            'Ca Sáng': { appointmentCount: 0, totalSlots: 0 },
+            'Ca Chiều': { appointmentCount: 0, totalSlots: 0 },
+            'Ca Tối': { appointmentCount: 0, totalSlots: 0 }
           },
           totalAppointments: 0,
           totalSlots: 0
@@ -795,29 +795,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
           shiftStats.nurses[nurseId] = (shiftStats.nurses[nurseId] || 0) + 1;
         }
         
-        // Add slot info with staff details
-        shift.slots.push({
-          slotId: slot._id,
-          startTimeVN: new Date(slot.startTime).toLocaleTimeString('en-GB', { 
-            timeZone: 'Asia/Ho_Chi_Minh', 
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit'
-          }),
-          endTimeVN: new Date(slot.endTime).toLocaleTimeString('en-GB', { 
-            timeZone: 'Asia/Ho_Chi_Minh', 
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit'
-          }),
-          dentistId: slot.dentist || null,
-          dentistName: dentist ? dentist.name : null,
-          nurseId: slot.nurse || null,
-          nurseName: nurse ? nurse.name : null,
-          hasStaff: !!(slot.dentist && slot.nurse),
-          isBooked: slot.isBooked || false,
-          appointmentId: slot.appointmentId || null
-        });
+        // ⭐ NO LONGER adding individual slot details - only counting
       }
     }
     
@@ -836,11 +814,16 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
           
           if (shift && shiftStat) {
             // Count appointments for this shift
-            const shiftAppointments = shift.slots.filter(s => s.isBooked && s.appointmentId);
-            const uniqueShiftAppointments = new Set(
-              shiftAppointments.map(s => s.appointmentId.toString())
-            );
-            shift.appointmentCount = uniqueShiftAppointments.size;
+            const shiftAppointmentIds = new Set();
+            for (const slot of slots) {
+              const slotDateVN = new Date(slot.startTime).toLocaleDateString('en-CA', {
+                timeZone: 'Asia/Ho_Chi_Minh'
+              });
+              if (slotDateVN === dateStr && slot.shiftName === shiftName && slot.isBooked && slot.appointmentId) {
+                shiftAppointmentIds.add(slot.appointmentId.toString());
+              }
+            }
+            shift.appointmentCount = shiftAppointmentIds.size;
             
             // Find most frequent dentist and nurse
             let mostFrequentDentist = null;
@@ -1124,9 +1107,9 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
         calendar[slotDateVN] = {
           date: slotDateVN,
           shifts: {
-            'Ca Sáng': { slots: [], appointmentCount: 0, totalSlots: 0 },
-            'Ca Chiều': { slots: [], appointmentCount: 0, totalSlots: 0 },
-            'Ca Tối': { slots: [], appointmentCount: 0, totalSlots: 0 }
+            'Ca Sáng': { appointmentCount: 0, totalSlots: 0 },
+            'Ca Chiều': { appointmentCount: 0, totalSlots: 0 },
+            'Ca Tối': { appointmentCount: 0, totalSlots: 0 }
           },
           totalAppointments: 0,
           totalSlots: 0
@@ -1159,33 +1142,7 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
         }
         shiftRoomStats.rooms[roomKey]++;
         
-        // Get room/subroom info from cache
-        const room = rooms.find(r => r._id === slot.roomId);
-        let roomInfo = room ? { id: room._id, name: room.name } : { id: slot.roomId, name: 'Phòng không xác định' };
-        
-        if (slot.subRoomId && room && room.subRooms) {
-          const subRoom = room.subRooms.find(sr => sr._id === slot.subRoomId);
-          if (subRoom) {
-            roomInfo.subRoom = { id: subRoom._id, name: subRoom.name };
-          }
-        }
-        
-        // Get nurse info if available
-        let nurseInfo = null;
-        if (slot.nurse) {
-          const nurse = users.find(u => u._id === slot.nurse);
-          nurseInfo = nurse ? { id: nurse._id, name: nurse.name } : { id: slot.nurse, name: 'Y tá không xác định' };
-        }
-        
-        shift.slots.push({
-          id: slot._id,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          room: roomInfo,
-          nurse: nurseInfo,
-          appointmentId: slot.appointmentId || null,
-          patientCount: slot.appointmentId ? 1 : 0
-        });
+        // ⭐ NO LONGER adding individual slot details - only counting
       }
     }
     
@@ -1198,45 +1155,74 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
     const calendarArray = Object.values(calendar);
     calendarArray.sort((a, b) => new Date(a.date) - new Date(b.date));
     
-    // Add room statistics for each date and shift
-    const calendarPeriods = calendarArray.map(day => {
-      const dayStats = roomStats[day.date];
+    // Group calendar data by periods (similar to room calendar)
+    const calendarPeriods = periods.map((period, index) => {
+      const periodCalendar = {};
       
-      // Add most frequent room for each shift
-      for (const shiftName of ['Ca Sáng', 'Ca Chiều', 'Ca Tối']) {
-        const shiftStat = dayStats[shiftName];
-        let mostFrequentRoom = null;
+      // Format dates properly for local timezone
+      const periodStartStr = period.start.getFullYear() + '-' + 
+        String(period.start.getMonth() + 1).padStart(2, '0') + '-' + 
+        String(period.start.getDate()).padStart(2, '0');
+      const periodEndStr = period.end.getFullYear() + '-' + 
+        String(period.end.getMonth() + 1).padStart(2, '0') + '-' + 
+        String(period.end.getDate()).padStart(2, '0');
+      
+      // Filter days within this period
+      calendarArray.forEach(day => {
+        if (day.date >= periodStartStr && day.date <= periodEndStr) {
+          periodCalendar[day.date] = day;
+        }
+      });
+      
+      // Add room statistics for each day in this period
+      const daysInPeriod = Object.values(periodCalendar).map(day => {
+        const dayStats = roomStats[day.date];
         
-        if (Object.keys(shiftStat.rooms).length > 0) {
-          const topRoomKey = Object.entries(shiftStat.rooms)
-            .reduce((a, b) => a[1] > b[1] ? a : b)[0];
+        // Add most frequent room for each shift
+        for (const shiftName of ['Ca Sáng', 'Ca Chiều', 'Ca Tối']) {
+          const shiftStat = dayStats[shiftName];
+          let mostFrequentRoom = null;
           
-          const [roomId, subRoomId] = topRoomKey.split('_');
-          const room = rooms.find(r => r._id === roomId);
-          
-          if (room) {
-            mostFrequentRoom = {
-              id: roomId,
-              name: room.name,
-              slotCount: shiftStat.rooms[topRoomKey]
-            };
+          if (Object.keys(shiftStat.rooms).length > 0) {
+            const topRoomKey = Object.entries(shiftStat.rooms)
+              .reduce((a, b) => a[1] > b[1] ? a : b)[0];
             
-            if (subRoomId && room.subRooms) {
-              const subRoom = room.subRooms.find(sr => sr._id === subRoomId);
-              if (subRoom) {
-                mostFrequentRoom.subRoom = {
-                  id: subRoom._id,
-                  name: subRoom.name
-                };
+            const [roomId, subRoomId] = topRoomKey.split('_');
+            const room = rooms.find(r => r._id === roomId);
+            
+            if (room) {
+              mostFrequentRoom = {
+                id: roomId,
+                name: room.name,
+                slotCount: shiftStat.rooms[topRoomKey]
+              };
+              
+              if (subRoomId && room.subRooms) {
+                const subRoom = room.subRooms.find(sr => sr._id === subRoomId);
+                if (subRoom) {
+                  mostFrequentRoom.subRoom = {
+                    id: subRoom._id,
+                    name: subRoom.name
+                  };
+                }
               }
             }
           }
+          
+          day.shifts[shiftName].mostFrequentRoom = mostFrequentRoom;
         }
         
-        day.shifts[shiftName].mostFrequentRoom = mostFrequentRoom;
-      }
+        return day;
+      }).sort((a, b) => a.date.localeCompare(b.date));
       
-      return day;
+      return {
+        periodIndex: (page - 1) * limit + index + 1,
+        startDate: periodStartStr,
+        endDate: periodEndStr,
+        viewType,
+        totalDays: daysInPeriod.length,
+        days: daysInPeriod
+      };
     });
     
     return {
@@ -1548,9 +1534,9 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 1,
         calendar[slotDateVN] = {
           date: slotDateVN,
           shifts: {
-            'Ca Sáng': { slots: [], appointmentCount: 0, totalSlots: 0 },
-            'Ca Chiều': { slots: [], appointmentCount: 0, totalSlots: 0 },
-            'Ca Tối': { slots: [], appointmentCount: 0, totalSlots: 0 }
+            'Ca Sáng': { appointmentCount: 0, totalSlots: 0 },
+            'Ca Chiều': { appointmentCount: 0, totalSlots: 0 },
+            'Ca Tối': { appointmentCount: 0, totalSlots: 0 }
           },
           totalAppointments: 0,
           totalSlots: 0
@@ -1583,33 +1569,7 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 1,
         }
         shiftRoomStats.rooms[roomKey]++;
         
-        // Get room/subroom info from cache
-        const room = rooms.find(r => r._id === slot.roomId);
-        let roomInfo = room ? { id: room._id, name: room.name } : { id: slot.roomId, name: 'Phòng không xác định' };
-        
-        if (slot.subRoomId && room && room.subRooms) {
-          const subRoom = room.subRooms.find(sr => sr._id === slot.subRoomId);
-          if (subRoom) {
-            roomInfo.subRoom = { id: subRoom._id, name: subRoom.name };
-          }
-        }
-        
-        // Get dentist info if available
-        let dentistInfo = null;
-        if (slot.dentist) {
-          const dentist = users.find(u => u._id === slot.dentist);
-          dentistInfo = dentist ? { id: dentist._id, name: dentist.name } : { id: slot.dentist, name: 'Nha sỹ không xác định' };
-        }
-        
-        shift.slots.push({
-          id: slot._id,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          room: roomInfo,
-          dentist: dentistInfo,
-          appointmentId: slot.appointmentId || null,
-          patientCount: slot.appointmentId ? 1 : 0
-        });
+        // ⭐ NO LONGER adding individual slot details - only counting
       }
     }
     
@@ -1622,45 +1582,74 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 1,
     const calendarArray = Object.values(calendar);
     calendarArray.sort((a, b) => new Date(a.date) - new Date(b.date));
     
-    // Add room statistics for each date and shift
-    const calendarPeriods = calendarArray.map(day => {
-      const dayStats = roomStats[day.date];
+    // Group calendar data by periods (similar to room calendar)
+    const calendarPeriods = periods.map((period, index) => {
+      const periodCalendar = {};
       
-      // Add most frequent room for each shift
-      for (const shiftName of ['Ca Sáng', 'Ca Chiều', 'Ca Tối']) {
-        const shiftStat = dayStats[shiftName];
-        let mostFrequentRoom = null;
+      // Format dates properly for local timezone
+      const periodStartStr = period.start.getFullYear() + '-' + 
+        String(period.start.getMonth() + 1).padStart(2, '0') + '-' + 
+        String(period.start.getDate()).padStart(2, '0');
+      const periodEndStr = period.end.getFullYear() + '-' + 
+        String(period.end.getMonth() + 1).padStart(2, '0') + '-' + 
+        String(period.end.getDate()).padStart(2, '0');
+      
+      // Filter days within this period
+      calendarArray.forEach(day => {
+        if (day.date >= periodStartStr && day.date <= periodEndStr) {
+          periodCalendar[day.date] = day;
+        }
+      });
+      
+      // Add room statistics for each day in this period
+      const daysInPeriod = Object.values(periodCalendar).map(day => {
+        const dayStats = roomStats[day.date];
         
-        if (Object.keys(shiftStat.rooms).length > 0) {
-          const topRoomKey = Object.entries(shiftStat.rooms)
-            .reduce((a, b) => a[1] > b[1] ? a : b)[0];
+        // Add most frequent room for each shift
+        for (const shiftName of ['Ca Sáng', 'Ca Chiều', 'Ca Tối']) {
+          const shiftStat = dayStats[shiftName];
+          let mostFrequentRoom = null;
           
-          const [roomId, subRoomId] = topRoomKey.split('_');
-          const room = rooms.find(r => r._id === roomId);
-          
-          if (room) {
-            mostFrequentRoom = {
-              id: roomId,
-              name: room.name,
-              slotCount: shiftStat.rooms[topRoomKey]
-            };
+          if (Object.keys(shiftStat.rooms).length > 0) {
+            const topRoomKey = Object.entries(shiftStat.rooms)
+              .reduce((a, b) => a[1] > b[1] ? a : b)[0];
             
-            if (subRoomId && room.subRooms) {
-              const subRoom = room.subRooms.find(sr => sr._id === subRoomId);
-              if (subRoom) {
-                mostFrequentRoom.subRoom = {
-                  id: subRoom._id,
-                  name: subRoom.name
-                };
+            const [roomId, subRoomId] = topRoomKey.split('_');
+            const room = rooms.find(r => r._id === roomId);
+            
+            if (room) {
+              mostFrequentRoom = {
+                id: roomId,
+                name: room.name,
+                slotCount: shiftStat.rooms[topRoomKey]
+              };
+              
+              if (subRoomId && room.subRooms) {
+                const subRoom = room.subRooms.find(sr => sr._id === subRoomId);
+                if (subRoom) {
+                  mostFrequentRoom.subRoom = {
+                    id: subRoom._id,
+                    name: subRoom.name
+                  };
+                }
               }
             }
           }
+          
+          day.shifts[shiftName].mostFrequentRoom = mostFrequentRoom;
         }
         
-        day.shifts[shiftName].mostFrequentRoom = mostFrequentRoom;
-      }
+        return day;
+      }).sort((a, b) => a.date.localeCompare(b.date));
       
-      return day;
+      return {
+        periodIndex: (page - 1) * limit + index + 1,
+        startDate: periodStartStr,
+        endDate: periodEndStr,
+        viewType,
+        totalDays: daysInPeriod.length,
+        days: daysInPeriod
+      };
     });
     
     return {
@@ -1681,6 +1670,323 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 1,
   }
 }
 
+// ⭐ NEW: Get slot details for a specific room/day/shift
+async function getRoomSlotDetails({ roomId, subRoomId = null, date, shiftName }) {
+  try {
+    // Validate shift name
+    const validShifts = ['Ca Sáng', 'Ca Chiều', 'Ca Tối'];
+    if (!validShifts.includes(shiftName)) {
+      throw new Error('shiftName phải là: Ca Sáng, Ca Chiều hoặc Ca Tối');
+    }
+
+    // ⭐ Get rooms cache to check if room has subrooms
+    const roomsCache = await redisClient.get('rooms_cache');
+    const rooms = roomsCache ? JSON.parse(roomsCache) : [];
+    const room = rooms.find(r => r._id === roomId);
+    
+    if (!room) {
+      throw new Error('Không tìm thấy phòng');
+    }
+
+    // ⭐ Validate subRoomId based on hasSubRooms
+    if (room.hasSubRooms) {
+      // Phòng có subrooms: bắt buộc phải có subRoomId
+      if (!subRoomId) {
+        throw new Error('Phòng có buồng con phải cung cấp subRoomId');
+      }
+      // Kiểm tra subRoomId có tồn tại không
+      const subRoom = room.subRooms?.find(sr => sr._id === subRoomId);
+      if (!subRoom) {
+        throw new Error('Không tìm thấy buồng con trong phòng này');
+      }
+    } else {
+      // Phòng không có subrooms: không được có subRoomId
+      if (subRoomId) {
+        throw new Error('Phòng không có buồng con không được cung cấp subRoomId');
+      }
+    }
+
+    // Parse date and create UTC range for the full day
+    const targetDate = new Date(date);
+    const startUTC = new Date(Date.UTC(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate(),
+      -7, 0, 0, 0
+    ));
+    const endUTC = new Date(Date.UTC(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate(),
+      -7 + 24, 0, 0, 0
+    ));
+
+    const queryFilter = {
+      roomId,
+      shiftName,
+      startTime: { $gte: startUTC, $lt: endUTC },
+      isActive: true
+    };
+    
+    if (room.hasSubRooms) {
+      queryFilter.subRoomId = subRoomId;
+    } else {
+      queryFilter.subRoomId = null;
+    }
+
+    const slots = await slotRepo.find(queryFilter);
+    
+    // Get user info from cache for staff details
+    const usersCache = await redisClient.get('users_cache');
+    const users = usersCache ? JSON.parse(usersCache) : [];
+    
+    // Build room info
+    let roomInfo = {
+      id: room._id,
+      name: room.name,
+      hasSubRooms: room.hasSubRooms
+    };
+    
+    if (room.hasSubRooms && subRoomId) {
+      const subRoom = room.subRooms.find(sr => sr._id === subRoomId);
+      if (subRoom) {
+        roomInfo.subRoom = {
+          id: subRoom._id,
+          name: subRoom.name
+        };
+      }
+    }
+
+    // Format slot details
+    const slotDetails = slots.map(slot => {
+      const dentist = slot.dentist ? users.find(u => u._id === slot.dentist) : null;
+      const nurse = slot.nurse ? users.find(u => u._id === slot.nurse) : null;
+      
+      return {
+        slotId: slot._id,
+        startTime: slot.startTime,
+        startTimeVN: new Date(slot.startTime).toLocaleTimeString('en-GB', { 
+          timeZone: 'Asia/Ho_Chi_Minh', 
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        endTime: slot.endTime,
+        endTimeVN: new Date(slot.endTime).toLocaleTimeString('en-GB', { 
+          timeZone: 'Asia/Ho_Chi_Minh', 
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        dentist: dentist ? { id: dentist._id, name: dentist.name } : null,
+        nurse: nurse ? { id: nurse._id, name: nurse.name } : null,
+        hasStaff: !!(slot.dentist && slot.nurse),
+        isBooked: slot.isBooked || false,
+        appointmentId: slot.appointmentId || null
+      };
+    });
+
+    return {
+      roomInfo,
+      date,
+      shiftName,
+      totalSlots: slotDetails.length,
+      bookedSlots: slotDetails.filter(s => s.isBooked).length,
+      availableSlots: slotDetails.filter(s => !s.isBooked && s.hasStaff).length,
+      slots: slotDetails
+    };
+    
+  } catch (error) {
+    throw new Error(`Lỗi lấy chi tiết slot phòng: ${error.message}`);
+  }
+}
+
+// ⭐ NEW: Get slot details for a specific dentist/day/shift
+async function getDentistSlotDetails({ dentistId, date, shiftName }) {
+  try {
+    // Validate shift name
+    const validShifts = ['Ca Sáng', 'Ca Chiều', 'Ca Tối'];
+    if (!validShifts.includes(shiftName)) {
+      throw new Error('shiftName phải là: Ca Sáng, Ca Chiều hoặc Ca Tối');
+    }
+
+    // Parse date and create UTC range for the full day
+    const targetDate = new Date(date);
+    const startUTC = new Date(Date.UTC(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate(),
+      -7, 0, 0, 0
+    ));
+    const endUTC = new Date(Date.UTC(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate(),
+      -7 + 24, 0, 0, 0
+    ));
+
+    const queryFilter = {
+      dentist: dentistId,
+      shiftName,
+      startTime: { $gte: startUTC, $lt: endUTC },
+      isActive: true
+    };
+
+    const slots = await slotRepo.find(queryFilter);
+    
+    // Get user info from cache
+    const usersCache = await redisClient.get('users_cache');
+    const users = usersCache ? JSON.parse(usersCache) : [];
+    const dentist = users.find(u => u._id === dentistId);
+    
+    // Get rooms cache for room/subroom names
+    const roomsCache = await redisClient.get('rooms_cache');
+    const rooms = roomsCache ? JSON.parse(roomsCache) : [];
+
+    // Format slot details
+    const slotDetails = slots.map(slot => {
+      const nurse = slot.nurse ? users.find(u => u._id === slot.nurse) : null;
+      const room = rooms.find(r => r._id === slot.roomId);
+      let roomInfo = room ? { id: room._id, name: room.name } : { id: slot.roomId, name: 'Phòng không xác định' };
+      
+      if (slot.subRoomId && room && room.subRooms) {
+        const subRoom = room.subRooms.find(sr => sr._id === slot.subRoomId);
+        if (subRoom) {
+          roomInfo.subRoom = { id: subRoom._id, name: subRoom.name };
+        }
+      }
+      
+      return {
+        slotId: slot._id,
+        startTime: slot.startTime,
+        startTimeVN: new Date(slot.startTime).toLocaleTimeString('en-GB', { 
+          timeZone: 'Asia/Ho_Chi_Minh', 
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        endTime: slot.endTime,
+        endTimeVN: new Date(slot.endTime).toLocaleTimeString('en-GB', { 
+          timeZone: 'Asia/Ho_Chi_Minh', 
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        room: roomInfo,
+        nurse: nurse ? { id: nurse._id, name: nurse.name } : null,
+        isBooked: slot.isBooked || false,
+        appointmentId: slot.appointmentId || null
+      };
+    });
+
+    return {
+      dentist: dentist ? { id: dentist._id, name: dentist.name } : { id: dentistId, name: 'Nha sỹ không xác định' },
+      date,
+      shiftName,
+      totalSlots: slotDetails.length,
+      bookedSlots: slotDetails.filter(s => s.isBooked).length,
+      availableSlots: slotDetails.filter(s => !s.isBooked).length,
+      slots: slotDetails
+    };
+    
+  } catch (error) {
+    throw new Error(`Lỗi lấy chi tiết slot nha sỹ: ${error.message}`);
+  }
+}
+
+// ⭐ NEW: Get slot details for a specific nurse/day/shift
+async function getNurseSlotDetails({ nurseId, date, shiftName }) {
+  try {
+    // Validate shift name
+    const validShifts = ['Ca Sáng', 'Ca Chiều', 'Ca Tối'];
+    if (!validShifts.includes(shiftName)) {
+      throw new Error('shiftName phải là: Ca Sáng, Ca Chiều hoặc Ca Tối');
+    }
+
+    // Parse date and create UTC range for the full day
+    const targetDate = new Date(date);
+    const startUTC = new Date(Date.UTC(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate(),
+      -7, 0, 0, 0
+    ));
+    const endUTC = new Date(Date.UTC(
+      targetDate.getFullYear(),
+      targetDate.getMonth(),
+      targetDate.getDate(),
+      -7 + 24, 0, 0, 0
+    ));
+
+    const queryFilter = {
+      nurse: nurseId,
+      shiftName,
+      startTime: { $gte: startUTC, $lt: endUTC },
+      isActive: true
+    };
+
+    const slots = await slotRepo.find(queryFilter);
+    
+    // Get user info from cache
+    const usersCache = await redisClient.get('users_cache');
+    const users = usersCache ? JSON.parse(usersCache) : [];
+    const nurse = users.find(u => u._id === nurseId);
+    
+    // Get rooms cache for room/subroom names
+    const roomsCache = await redisClient.get('rooms_cache');
+    const rooms = roomsCache ? JSON.parse(roomsCache) : [];
+
+    // Format slot details
+    const slotDetails = slots.map(slot => {
+      const dentist = slot.dentist ? users.find(u => u._id === slot.dentist) : null;
+      const room = rooms.find(r => r._id === slot.roomId);
+      let roomInfo = room ? { id: room._id, name: room.name } : { id: slot.roomId, name: 'Phòng không xác định' };
+      
+      if (slot.subRoomId && room && room.subRooms) {
+        const subRoom = room.subRooms.find(sr => sr._id === slot.subRoomId);
+        if (subRoom) {
+          roomInfo.subRoom = { id: subRoom._id, name: subRoom.name };
+        }
+      }
+      
+      return {
+        slotId: slot._id,
+        startTime: slot.startTime,
+        startTimeVN: new Date(slot.startTime).toLocaleTimeString('en-GB', { 
+          timeZone: 'Asia/Ho_Chi_Minh', 
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        endTime: slot.endTime,
+        endTimeVN: new Date(slot.endTime).toLocaleTimeString('en-GB', { 
+          timeZone: 'Asia/Ho_Chi_Minh', 
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        room: roomInfo,
+        dentist: dentist ? { id: dentist._id, name: dentist.name } : null,
+        isBooked: slot.isBooked || false,
+        appointmentId: slot.appointmentId || null
+      };
+    });
+
+    return {
+      nurse: nurse ? { id: nurse._id, name: nurse.name } : { id: nurseId, name: 'Y tá không xác định' },
+      date,
+      shiftName,
+      totalSlots: slotDetails.length,
+      bookedSlots: slotDetails.filter(s => s.isBooked).length,
+      availableSlots: slotDetails.filter(s => !s.isBooked).length,
+      slots: slotDetails
+    };
+    
+  } catch (error) {
+    throw new Error(`Lỗi lấy chi tiết slot y tá: ${error.message}`);
+  }
+}
+
 module.exports = {
   assignStaffToSlots,
   reassignStaffToSlots,
@@ -1689,6 +1995,9 @@ module.exports = {
   getRoomCalendar,
   getDentistCalendar,
   getNurseCalendar,
+  getRoomSlotDetails,
+  getDentistSlotDetails,
+  getNurseSlotDetails,
   getVietnamDate,
   validateStaffIds,
   getAvailableQuartersYears,

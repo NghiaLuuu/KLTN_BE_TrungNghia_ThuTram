@@ -32,4 +32,13 @@ router.get('/available-quarters', slotController.getAvailableQuartersYears);
 // Get available work shifts
 router.get('/available-shifts', slotController.getAvailableShifts);
 
+// ⭐ NEW: Get slot details for specific room/day/shift
+router.get('/room/:roomId/details', slotController.getRoomSlotDetails);
+
+// ⭐ NEW: Get slot details for specific dentist/day/shift
+router.get('/dentist/:dentistId/details', slotController.getDentistSlotDetails);
+
+// ⭐ NEW: Get slot details for specific nurse/day/shift
+router.get('/nurse/:nurseId/details', slotController.getNurseSlotDetails);
+
 module.exports = router;

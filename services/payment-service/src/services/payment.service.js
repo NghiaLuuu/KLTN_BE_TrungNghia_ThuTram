@@ -1,9 +1,12 @@
 const crypto = require('crypto');
 const paymentRepository = require('../repositories/payment.repository');
-const { PaymentStatus, PaymentMethod, PaymentType } = require('../models/payment.model');
-const redis = require('../utils/redis.client');
+const Payment = require('../models/payment.model');
+const { PaymentMethod, PaymentStatus, PaymentType } = require('../models/payment.model');
+const config = require('../config');
+const { BadRequestError, NotFoundError, ForbiddenError } = require('../utils/errors');
+const redisClient = require('../utils/redis.client');
+const { createVNPayPayment } = require('../utils/payment.gateway');
 const rpcClient = require('../utils/rpcClient');
-const { createMoMoPayment, createZaloPayment, createVNPayment } = require('../utils/payment.gateway');
 
 class PaymentService {
   constructor() {
@@ -300,38 +303,25 @@ class PaymentService {
     try {
       let gatewayResponse;
       
-      switch (payment.method) {
-        case PaymentMethod.MOMO:
-          gatewayResponse = await createMoMoPayment({
-            orderId: payment.paymentCode,
-            amount: payment.finalAmount,
-            orderInfo: payment.description || `Thanh toán ${payment.paymentCode}`,
-            extraData: JSON.stringify({
-              paymentId: payment._id,
-              patientId: payment.patientId
-            })
-          });
-          break;
-          
-        case PaymentMethod.ZALOPAY:
-          gatewayResponse = await createZaloPayment({
-            orderId: payment.paymentCode,
-            amount: payment.finalAmount,
-            description: payment.description || `Thanh toán ${payment.paymentCode}`
-          });
-          break;
-          
-        case PaymentMethod.VNPAY:
-          gatewayResponse = await createVNPayment({
-            orderId: payment.paymentCode,
-            amount: payment.finalAmount,
-            orderInfo: payment.description || `Thanh toán ${payment.paymentCode}`
-          });
-          break;
-          
-        default:
-          throw new Error(`Phương thức thanh toán ${payment.method} không được hỗ trợ`);
+      // Only VNPay is supported
+      if (payment.method !== PaymentMethod.VNPAY) {
+        throw new Error(`Phương thức thanh toán ${payment.method} không được hỗ trợ. Chỉ hỗ trợ VNPay.`);
       }
+
+      // Get IP address from payment data or use default
+      const ipAddr = payment.ipAddress || '127.0.0.1';
+      const paymentUrl = createVNPayPayment(
+        payment.paymentCode,
+        payment.finalAmount,
+        payment.description || `Thanh toán ${payment.paymentCode}`,
+        ipAddr,
+        payment.bankCode || '',
+        'vn'
+      );
+      gatewayResponse = {
+        paymentUrl,
+        transactionId: payment.paymentCode
+      };
 
       // Update payment with gateway info
       await this.updatePayment(payment._id, {
@@ -464,21 +454,27 @@ class PaymentService {
     // Lưu tạm vào Redis với TTL 10 phút
     await redis.setex(tempPaymentId, 600, JSON.stringify(data));
 
-    // Luôn tạo MoMo payment URL nếu method = 'momo'
-    if (paymentMethod === 'momo') {
-      const extraData = tempPaymentId; // dùng mapping trong webhook
+    // Tạo VNPay payment URL nếu method = 'vnpay'
+    if (paymentMethod === 'vnpay') {
       try {
-        const paymentResponse = await createMoMoPayment(orderId, data.amount, extraData);
-        data.paymentUrl = paymentResponse.payUrl || paymentResponse.qrCodeUrl;
-        data.requestId = paymentResponse.requestId; // optional, lưu để đối chiếu
+        const ipAddr = '127.0.0.1'; // Hoặc lấy từ request
+        const paymentUrl = createVNPayPayment(
+          orderId,
+          data.amount,
+          `Thanh toán appointment`,
+          ipAddr,
+          '', // bankCode
+          'vn'
+        );
+        data.paymentUrl = paymentUrl;
+        data.orderId = orderId;
       } catch (err) {
-        console.error('❌ Failed to create MoMo payment URL:');
-        console.error(err.response?.data || err);
-        throw new Error('Cannot create MoMo payment link');
+        console.error('❌ Failed to create VNPay payment URL:', err);
+        throw new Error('Cannot create VNPay payment link');
       }
     }
 
-    console.log('Temporary payment created (MoMo):', data);
+    console.log('Temporary payment created (VNPay):', data);
     return data;
   }
 

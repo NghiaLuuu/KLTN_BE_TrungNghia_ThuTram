@@ -288,7 +288,7 @@ class PaymentRepository {
           digitalPayments: {
             $sum: { 
               $cond: [
-                { $in: ['$method', ['momo', 'zalopay', 'vnpay', 'shopeepay']] }, 
+                { $eq: ['$method', 'vnpay'] }, 
                 '$finalAmount', 
                 0
               ] 

@@ -15,26 +15,11 @@ const {
   getPatientPaymentsValidation,
   listPaymentsValidation,
   searchPaymentsValidation,
-  getStatisticsValidation,
-  momoWebhookValidation
+  getStatisticsValidation
 } = require('../validations/payment.validation');
 
 // ============ PUBLIC ROUTES (No Auth Required) ============
-// Payment Gateway Webhooks
-router.post('/webhook/momo', 
-  momoWebhookValidation,
-  validationMiddleware.validate,
-  paymentController.momoWebhook
-);
-
-router.post('/webhook/zalopay', 
-  paymentController.zalopayWebhook
-);
-
-router.get('/return/momo', 
-  paymentController.momoReturn
-);
-
+// VNPay Payment Gateway Return URL
 router.get('/return/vnpay', 
   paymentController.vnpayReturn
 );
