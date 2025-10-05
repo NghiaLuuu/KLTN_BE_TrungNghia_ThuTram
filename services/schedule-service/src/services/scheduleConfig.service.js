@@ -5,109 +5,6 @@ const redis = require('../utils/redis.client');
 const CACHE_KEY = 'schedule_config_cache';
 const HOLIDAY_CACHE_KEY = 'holiday_config_cache';
 
-// Helper function: Check if slots are used in date range
-const checkSlotsUsageInDateRange = async (startDate, endDate) => {
-  try {
-    // Convert to Vietnam timezone dates for accurate comparison
-    const startVN = new Date(startDate.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
-    const endVN = new Date(endDate.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
-    
-    // Set time to cover full days
-    startVN.setHours(0, 0, 0, 0);
-    endVN.setHours(23, 59, 59, 999);
-    
-    // Find slots in date range that have appointments
-    const usedSlots = await Slot.find({
-      startTime: {
-        $gte: startVN,
-        $lte: endVN
-      },
-      appointmentId: { $ne: null }
-    }).select('startTime endTime appointmentId roomId subRoomId');
-    
-    if (usedSlots.length > 0) {
-      const slotDetails = usedSlots.map(slot => ({
-        date: slot.dateVN,
-        startTime: slot.startTimeVN,
-        endTime: slot.endTimeVN,
-        appointmentId: slot.appointmentId
-      }));
-      
-      return {
-        hasUsedSlots: true,
-        usedSlots: slotDetails,
-        count: usedSlots.length
-      };
-    }
-    
-    return { hasUsedSlots: false, usedSlots: [], count: 0 };
-  } catch (error) {
-    console.error('Error checking slots usage:', error);
-    throw error;
-  }
-};
-
-// Helper function: Hide slots in date range
-const hideSlotsInDateRange = async (startDate, endDate) => {
-  try {
-    const startVN = new Date(startDate.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
-    const endVN = new Date(endDate.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
-    
-    startVN.setHours(0, 0, 0, 0);
-    endVN.setHours(23, 59, 59, 999);
-    
-    // Hide all slots in date range that are not used
-    const result = await Slot.updateMany(
-      {
-        startTime: {
-          $gte: startVN,
-          $lte: endVN
-        },
-        appointmentId: null // Only hide unused slots
-      },
-      {
-        $set: { isActive: false }
-      }
-    );
-    
-    console.log(`🔒 Đã ẩn ${result.modifiedCount} slots trong khoảng thời gian nghỉ`);
-    return result.modifiedCount;
-  } catch (error) {
-    console.error('Error hiding slots:', error);
-    throw error;
-  }
-};
-
-// Helper function: Show slots in date range (when removing holiday)
-const showSlotsInDateRange = async (startDate, endDate) => {
-  try {
-    const startVN = new Date(startDate.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
-    const endVN = new Date(endDate.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
-    
-    startVN.setHours(0, 0, 0, 0);
-    endVN.setHours(23, 59, 59, 999);
-    
-    // Show all slots in date range
-    const result = await Slot.updateMany(
-      {
-        startTime: {
-          $gte: startVN,
-          $lte: endVN
-        }
-      },
-      {
-        $set: { isActive: true }
-      }
-    );
-    
-    console.log(`🔓 Đã hiện ${result.modifiedCount} slots sau khi xóa ngày nghỉ`);
-    return result.modifiedCount;
-  } catch (error) {
-    console.error('Error showing slots:', error);
-    throw error;
-  }
-};
-
 // Mark holiday as used when schedule is created
 const markHolidayAsUsed = async (holidayId) => {
   try {
@@ -295,27 +192,50 @@ exports.addHoliday = async (holiday) => {
     }
   }
 
-  // 🔹 NEW: Check if slots in this date range are already used
-  console.log(`🔍 Kiểm tra slots đã được sử dụng trong khoảng ${h.startDate.toISOString().split('T')[0]} - ${h.endDate.toISOString().split('T')[0]}`);
+  // 🔹 NEW: Check if any slots exist in this date range (prevent retroactive holiday creation)
+  console.log(`🔍 Kiểm tra slots trong khoảng ${h.startDate.toISOString().split('T')[0]} - ${h.endDate.toISOString().split('T')[0]}`);
   
-  const slotUsage = await checkSlotsUsageInDateRange(h.startDate, h.endDate);
+  const Slot = require('../models/slot.model');
   
-  if (slotUsage.hasUsedSlots) {
-    // Found used slots - cannot create holiday
-    const usedDates = [...new Set(slotUsage.usedSlots.map(slot => slot.date))];
+  // Set time to cover full day range (00:00:00 to 23:59:59)
+  const startOfDay = new Date(h.startDate);
+  startOfDay.setHours(0, 0, 0, 0);
+  
+  const endOfDay = new Date(h.endDate);
+  endOfDay.setHours(23, 59, 59, 999);
+  
+  // Check both 'date' field and 'startTime' field to be thorough
+  const existingSlots = await Slot.countDocuments({
+    $or: [
+      {
+        date: {
+          $gte: startOfDay,
+          $lte: endOfDay
+        }
+      },
+      {
+        startTime: {
+          $gte: startOfDay,
+          $lte: endOfDay
+        }
+      }
+    ]
+  });
+  
+  console.log(`📊 Tìm thấy ${existingSlots} slots trong khoảng thời gian này`);
+  
+  if (existingSlots > 0) {
     throw new Error(
-      `Không thể tạo ngày nghỉ vì có ${slotUsage.count} lịch đã được sử dụng trong các ngày: ${usedDates.join(', ')}. ` +
-      `Vui lòng hủy các cuộc hẹn trước khi tạo ngày nghỉ.`
+      `Không thể tạo ngày nghỉ vì đã có ${existingSlots} slots được tạo trong khoảng thời gian này. ` +
+      `Vui lòng tạo ngày nghỉ TRƯỚC KHI tạo lịch cho khoảng thời gian đó.`
     );
   }
 
-  // No used slots - safe to create holiday and hide slots
+  // No slots exist - safe to create holiday
   holidayConfig.holidays.push(h);
   await holidayConfig.save();
 
-  // Hide slots in the holiday date range
-  const hiddenCount = await hideSlotsInDateRange(h.startDate, h.endDate);
-  console.log(`✅ Đã tạo ngày nghỉ "${h.name}" và ẩn ${hiddenCount} slots`);
+  console.log(`✅ Đã tạo ngày nghỉ "${h.name}"`);
 
   try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig)); } catch (e) {}
   return holidayConfig;
@@ -339,15 +259,11 @@ exports.removeHoliday = async (holidayId) => {
     throw new Error(`Không thể xóa ngày nghỉ "${holidayToRemove.name}" vì đã được sử dụng trong hệ thống`);
   }
 
-  const { startDate, endDate, name } = holidayToRemove;
-  
   // Remove the holiday
   holidayConfig.holidays.pull(holidayId);
   await holidayConfig.save();
 
-  // Show slots again in the date range
-  const shownCount = await showSlotsInDateRange(startDate, endDate);
-  console.log(`✅ Đã xóa ngày nghỉ "${name}" và hiện lại ${shownCount} slots`);
+  console.log(`✅ Đã xóa ngày nghỉ "${holidayToRemove.name}"`);
 
   try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig)); } catch (e) {}
   return holidayConfig;
@@ -412,31 +328,52 @@ exports.updateHolidayById = async (holidayId, updates) => {
   const datesChanged = oldStartDate.getTime() !== prop.startDate.getTime() || 
                       oldEndDate.getTime() !== prop.endDate.getTime();
 
-  if (datesChanged) {
-    console.log(`📅 Ngày nghỉ "${current.name}" thay đổi từ ${oldStartDate.toISOString().split('T')[0]}-${oldEndDate.toISOString().split('T')[0]} ` +
-                `sang ${prop.startDate.toISOString().split('T')[0]}-${prop.endDate.toISOString().split('T')[0]}`);
+  console.log(`📝 Update Info: datesChanged=${datesChanged}, hasBeenUsed=${current.hasBeenUsed}`);
 
-    // Show slots in old date range
-    const oldShownCount = await showSlotsInDateRange(oldStartDate, oldEndDate);
-    console.log(`🔓 Đã hiện lại ${oldShownCount} slots từ khoảng thời gian cũ`);
-
-    // Check if new date range has used slots
-    const slotUsage = await checkSlotsUsageInDateRange(prop.startDate, prop.endDate);
+  // 🔹 NEW: If dates changed OR holiday never been used, check if date range has existing slots
+  // This ensures we can't update to a date range with existing slots
+  if (datesChanged || !current.hasBeenUsed) {
+    console.log(`🔍 Kiểm tra slots trong khoảng ${prop.startDate.toISOString().split('T')[0]} - ${prop.endDate.toISOString().split('T')[0]}`);
     
-    if (slotUsage.hasUsedSlots) {
-      // Rollback: hide slots in old range again
-      await hideSlotsInDateRange(oldStartDate, oldEndDate);
-      
-      const usedDates = [...new Set(slotUsage.usedSlots.map(slot => slot.date))];
+    // Set time to cover full day range
+    const startOfDay = new Date(prop.startDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(prop.endDate);
+    endOfDay.setHours(23, 59, 59, 999);
+    
+    console.log(`🕐 Time range: ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
+    
+    // Check both 'date' field and 'startTime' field
+    const query = {
+      $or: [
+        {
+          date: {
+            $gte: startOfDay,
+            $lte: endOfDay
+          }
+        },
+        {
+          startTime: {
+            $gte: startOfDay,
+            $lte: endOfDay
+          }
+        }
+      ]
+    };
+    
+    console.log(`🔎 Query:`, JSON.stringify(query, null, 2));
+    
+    const existingSlots = await Slot.countDocuments(query);
+    
+    console.log(`📊 Tìm thấy ${existingSlots} slots trong khoảng thời gian`);
+    
+    if (existingSlots > 0) {
       throw new Error(
-        `Không thể cập nhật ngày nghỉ vì có ${slotUsage.count} lịch đã được sử dụng trong các ngày mới: ${usedDates.join(', ')}. ` +
-        `Vui lòng hủy các cuộc hẹn trước khi thay đổi ngày nghỉ.`
+        `Không thể cập nhật ngày nghỉ vì đã có ${existingSlots} slots được tạo trong khoảng thời gian (${prop.startDate.toISOString().split('T')[0]} - ${prop.endDate.toISOString().split('T')[0]}). ` +
+        `Vui lòng chọn khoảng thời gian chưa có lịch hoặc xóa lịch cũ trước.`
       );
     }
-
-    // Hide slots in new date range
-    const newHiddenCount = await hideSlotsInDateRange(prop.startDate, prop.endDate);
-    console.log(`🔒 Đã ẩn ${newHiddenCount} slots trong khoảng thời gian mới`);
   }
 
   // Apply updates
