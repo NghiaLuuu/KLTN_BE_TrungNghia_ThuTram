@@ -1,0 +1,142 @@
+{
+  "info": {
+    "name": "Schedule APIs - With Room Names",
+    "description": "APIs to get schedules with room names included",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get Schedules by Room",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3005/api/schedules/room/:roomId?startDate=2026-01-01&endDate=2026-03-31",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3005",
+          "path": ["api", "schedules", "room", ":roomId"],
+          "query": [
+            {
+              "key": "startDate",
+              "value": "2026-01-01",
+              "description": "Start date (YYYY-MM-DD)"
+            },
+            {
+              "key": "endDate",
+              "value": "2026-03-31",
+              "description": "End date (YYYY-MM-DD)"
+            }
+          ],
+          "variable": [
+            {
+              "key": "roomId",
+              "value": "68dd2e1d3df7b61e7b509e41",
+              "description": "Room ID"
+            }
+          ]
+        },
+        "description": "Get all schedules for a specific room within a date range. Response now includes `roomName` field."
+      },
+      "response": [
+        {
+          "name": "Success Response",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3005/api/schedules/room/68dd2e1d3df7b61e7b509e41?startDate=2026-01-01&endDate=2026-03-31",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3005",
+              "path": ["api", "schedules", "room", "68dd2e1d3df7b61e7b509e41"],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2026-01-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2026-03-31"
+                }
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"_id\": \"68dd2e1d3df7b61e7b509e50\",\n      \"roomId\": \"68dd2e1d3df7b61e7b509e41\",\n      \"roomName\": \"Phòng Khám 1\",\n      \"dateVNStr\": \"2026-01-15\",\n      \"workShifts\": [\n        {\n          \"name\": \"Ca Sáng\",\n          \"startTime\": \"08:00\",\n          \"endTime\": \"12:00\",\n          \"isActive\": true\n        },\n        {\n          \"name\": \"Ca Chiều\",\n          \"startTime\": \"13:00\",\n          \"endTime\": \"17:00\",\n          \"isActive\": true\n        }\n      ],\n      \"isActive\": true,\n      \"generationType\": \"quarterly\",\n      \"createdAt\": \"2025-10-01T00:00:00.000Z\",\n      \"updatedAt\": \"2025-10-01T00:00:00.000Z\"\n    }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Get Schedules by Date Range (All Rooms)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3005/api/schedules?startDate=2026-01-01&endDate=2026-03-31",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3005",
+          "path": ["api", "schedules"],
+          "query": [
+            {
+              "key": "startDate",
+              "value": "2026-01-01",
+              "description": "Start date (YYYY-MM-DD)"
+            },
+            {
+              "key": "endDate",
+              "value": "2026-03-31",
+              "description": "End date (YYYY-MM-DD)"
+            }
+          ]
+        },
+        "description": "Get all schedules for all rooms within a date range. Response now includes `roomName` field for each schedule."
+      },
+      "response": [
+        {
+          "name": "Success Response",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3005/api/schedules?startDate=2026-01-01&endDate=2026-03-31",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3005",
+              "path": ["api", "schedules"],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2026-01-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2026-03-31"
+                }
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"success\": true,\n  \"data\": [\n    {\n      \"_id\": \"68dd2e1d3df7b61e7b509e50\",\n      \"roomId\": \"68dd2e1d3df7b61e7b509e41\",\n      \"roomName\": \"Phòng Khám 1\",\n      \"dateVNStr\": \"2026-01-15\",\n      \"workShifts\": [\n        {\n          \"name\": \"Ca Sáng\",\n          \"startTime\": \"08:00\",\n          \"endTime\": \"12:00\",\n          \"isActive\": true\n        }\n      ],\n      \"isActive\": true,\n      \"generationType\": \"quarterly\",\n      \"createdAt\": \"2025-10-01T00:00:00.000Z\",\n      \"updatedAt\": \"2025-10-01T00:00:00.000Z\"\n    },\n    {\n      \"_id\": \"68dd2e1d3df7b61e7b509e51\",\n      \"roomId\": \"68dd2e1d3df7b61e7b509e42\",\n      \"roomName\": \"Phòng Khám 2\",\n      \"dateVNStr\": \"2026-01-15\",\n      \"workShifts\": [\n        {\n          \"name\": \"Ca Chiều\",\n          \"startTime\": \"13:00\",\n          \"endTime\": \"17:00\",\n          \"isActive\": true\n        }\n      ],\n      \"isActive\": true,\n      \"generationType\": \"quarterly\",\n      \"createdAt\": \"2025-10-01T00:00:00.000Z\",\n      \"updatedAt\": \"2025-10-01T00:00:00.000Z\"\n    }\n  ]\n}"
+        }
+      ]
+    }
+  ]
+}

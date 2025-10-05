@@ -831,12 +831,57 @@ async function countSlotsForQuarter(subRoomIds, quarter, year) {
 // Get schedules by room and date range
 async function getSchedulesByRoom(roomId, startDate, endDate) {
   const schedules = await scheduleRepo.findByRoomAndDateRange(roomId, startDate, endDate);
+  
+  // Lấy tên room từ cache
+  try {
+    const roomCache = await redisClient.get('rooms_cache');
+    if (roomCache) {
+      const rooms = JSON.parse(roomCache);
+      const room = rooms.find(r => r._id === roomId);
+      
+      // Thêm roomName vào mỗi schedule
+      const schedulesWithRoomName = schedules.map(schedule => ({
+        ...schedule,
+        roomName: room ? room.name : null
+      }));
+      
+      return schedulesWithRoomName;
+    }
+  } catch (error) {
+    console.error('Lỗi khi lấy room name từ cache:', error);
+  }
+  
   return schedules;
 }
 
 // Get schedules by date range (all rooms)
 async function getSchedulesByDateRange(startDate, endDate) {
   const schedules = await scheduleRepo.findByDateRange(startDate, endDate);
+  
+  // Lấy danh sách rooms từ cache
+  try {
+    const roomCache = await redisClient.get('rooms_cache');
+    if (roomCache) {
+      const rooms = JSON.parse(roomCache);
+      
+      // Tạo map roomId -> roomName để lookup nhanh
+      const roomMap = {};
+      rooms.forEach(room => {
+        roomMap[room._id] = room.name;
+      });
+      
+      // Thêm roomName vào mỗi schedule
+      const schedulesWithRoomName = schedules.map(schedule => ({
+        ...schedule,
+        roomName: roomMap[schedule.roomId] || null
+      }));
+      
+      return schedulesWithRoomName;
+    }
+  } catch (error) {
+    console.error('Lỗi khi lấy room names từ cache:', error);
+  }
+  
   return schedules;
 }
 
