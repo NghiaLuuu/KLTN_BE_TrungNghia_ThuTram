@@ -19,7 +19,7 @@ async function initUserCache() {
 
 async function refreshUserCache() {
   try {
-    const users = await userRepo.getAllStaffWithCriteria();
+    const users = await userRepo.listUsers();
     await redis.set(USER_CACHE_KEY, JSON.stringify(users));
 
     // pick available repo method (compatibility)
