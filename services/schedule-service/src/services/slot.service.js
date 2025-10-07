@@ -553,18 +553,29 @@ async function updateSlotStaff({ slotIds, dentistId, nurseId }) {
 // Get slots by shift and date for easy slot selection
 async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftName }) {
   try {
-    // Build date range for the day in Vietnam timezone
-    const inputDate = new Date(date);
-    const startOfDayVN = new Date(inputDate.getFullYear(), inputDate.getMonth(), inputDate.getDate(), 0, 0, 0, 0);
-    const endOfDayVN = new Date(inputDate.getFullYear(), inputDate.getMonth(), inputDate.getDate(), 23, 59, 59, 999);
+    // Parse date string properly for VN timezone
+    // Input: "2025-10-07" should mean 07/10/2025 in Vietnam timezone
+    const [year, month, day] = date.split('-').map(Number);
     
-    // Convert VN timezone to UTC (VN is UTC+7)
-    const startUTC = new Date(startOfDayVN.getTime() - 7 * 60 * 60 * 1000);
-    const endUTC = new Date(endOfDayVN.getTime() - 7 * 60 * 60 * 1000);
+    // Create date range for the day in Vietnam timezone
+    // Start: 00:00:00 VN = subtract 7 hours to get UTC
+    // End: 23:59:59 VN = subtract 7 hours to get UTC
+    const startOfDayVN = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - 7 * 60 * 60 * 1000);
+    const endOfDayVN = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999) - 7 * 60 * 60 * 1000);
+
+    // Get current time in Vietnam timezone + 5 minutes buffer
+    const vietnamNow = getVietnamDate();
+    const minStartTime = new Date(vietnamNow.getTime() + 5 * 60 * 1000); // Add 5 minutes
+
+    // Use the later of: start of day or current time + 5 minutes
+    const effectiveStartTime = minStartTime > startOfDayVN ? minStartTime : startOfDayVN;
 
     const queryFilter = {
       roomId,
-      startTime: { $gte: startUTC, $lte: endUTC },
+      startTime: { 
+        $gte: effectiveStartTime,  // >= max(start of day, now + 5 minutes)
+        $lte: endOfDayVN           // <= end of day
+      },
       shiftName,
       isActive: true
     };
@@ -575,7 +586,22 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
       queryFilter.subRoomId = null;
     }
 
+    console.log('🔍 getSlotsByShiftAndDate query filter:', JSON.stringify(queryFilter, null, 2));
+    console.log('🔍 Input date:', date);
+    console.log('🔍 effectiveStartTime (VN):', new Date(effectiveStartTime).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }));
+    console.log('🔍 endOfDayVN (VN):', new Date(endOfDayVN).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }));
+
     const slots = await slotRepo.find(queryFilter);
+    
+    console.log('🔍 Found slots count:', slots.length);
+    if (slots.length > 0) {
+      console.log('🔍 First slot sample:', {
+        startTime: slots[0].startTime,
+        startTimeVN: new Date(slots[0].startTime).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
+        subRoomId: slots[0].subRoomId,
+        shiftName: slots[0].shiftName
+      });
+    }
     
     // Get user info from cache for staff details
     const usersCache = await redisClient.get('users_cache');
@@ -584,6 +610,9 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
     const slotsWithStaffInfo = slots.map(slot => {
       const dentist = slot.dentist ? users.find(u => u._id === slot.dentist) : null;
       const nurse = slot.nurse ? users.find(u => u._id === slot.nurse) : null;
+      
+      // Slot có thể cập nhật nếu đã có ít nhất 1 nhân sự (dentist hoặc nurse)
+      const hasStaff = !!(slot.dentist || slot.nurse);
       
       return {
         slotId: slot._id,
@@ -601,6 +630,26 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
           hour: '2-digit',
           minute: '2-digit'
         }),
+        dateVN: new Date(slot.startTime).toLocaleDateString('vi-VN', {
+          timeZone: 'Asia/Ho_Chi_Minh',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }),
+        fullTimeRangeVN: `${new Date(slot.startTime).toLocaleString('vi-VN', { 
+          timeZone: 'Asia/Ho_Chi_Minh', 
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit',
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric'
+        })} - ${new Date(slot.endTime).toLocaleTimeString('vi-VN', { 
+          timeZone: 'Asia/Ho_Chi_Minh', 
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit'
+        })}`,
         dentist: dentist ? {
           id: dentist._id,
           name: dentist.name,
@@ -613,7 +662,9 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
         } : null,
         isBooked: slot.isBooked || false,
         appointmentId: slot.appointmentId || null,
-        status: slot.isBooked ? 'booked' : (slot.dentist && slot.nurse ? 'available' : 'no_staff')
+        hasStaff: hasStaff,
+        canUpdate: hasStaff, // Chỉ slot đã có nhân sự mới có thể cập nhật
+        status: hasStaff ? 'assigned' : 'not_assigned'
       };
     });
     
