@@ -308,13 +308,14 @@ async function assignStaffToSlots({
         }
       }
       
-      // 2. Kiểm tra slot chưa có nhân sự  
+      // 2. Kiểm tra slot chưa có nhân sự (dùng logic giống query đầu tiên)
       const unassignedQuery = {
         roomId,
         scheduleId: { $in: scheduleIds },
         isActive: true,
         startTime: { $gt: vietnamNow },
-        $and: [
+        // ⭐ FIX: Phải dùng $or để tìm slot thiếu dentist HOẶC nurse (giống query đầu)
+        $or: [
           { $or: [{ dentist: { $exists: false } }, { dentist: null }] },
           { $or: [{ nurse: { $exists: false } }, { nurse: null }] }
         ]
@@ -836,6 +837,8 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
               if (topDentist) {
                 mostFrequentDentist = {
                   id: topDentistId,
+                  employeeCode: topDentist.employeeCode || null,
+                  fullName: topDentist.fullName || topDentist.name || null,
                   name: topDentist.name,
                   slotCount: shiftStat.dentists[topDentistId]
                 };
@@ -849,6 +852,8 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
               if (topNurse) {
                 mostFrequentNurse = {
                   id: topNurseId,
+                  employeeCode: topNurse.employeeCode || null,
+                  fullName: topNurse.fullName || topNurse.name || null,
                   name: topNurse.name,
                   slotCount: shiftStat.nurses[topNurseId]
                 };
