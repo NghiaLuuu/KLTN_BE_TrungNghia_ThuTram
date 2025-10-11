@@ -158,3 +158,93 @@ exports.deleteSubRoom = async (req, res) => {
     res.status(400).json({ message: err.message });
   }
 };
+
+// 🆕 Lấy danh sách rooms với thông tin schedule (cho trang tạo lịch)
+exports.getRoomsForSchedule = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, isActive } = req.query;
+    
+    // Filter theo trạng thái active nếu có
+    const filter = {};
+    if (isActive !== undefined && isActive !== 'undefined') {
+      filter.isActive = isActive === 'true';
+    }
+    
+    const data = await roomService.getRoomsWithScheduleInfo(filter, page, limit);
+    
+    res.json({
+      success: true,
+      data: data
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false,
+      message: `Lỗi khi lấy danh sách phòng: ${err.message}` 
+    });
+  }
+};
+
+// 🆕 Update room schedule info (called by schedule service)
+exports.updateRoomScheduleInfo = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { hasSchedule, scheduleStartDate, scheduleEndDate, lastScheduleGenerated } = req.body;
+    
+    const room = await roomService.updateRoomScheduleInfo(roomId, {
+      hasSchedule,
+      scheduleStartDate,
+      scheduleEndDate,
+      lastScheduleGenerated
+    });
+    
+    res.json({ success: true, room });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+};
+
+// 🆕 Sync all rooms' schedule info from schedule service
+exports.syncAllRoomsScheduleInfo = async (req, res) => {
+  try {
+    const rooms = await roomService.getAllRooms({});
+    const { sendRpcRequest } = require('../utils/rabbitClient');
+    
+    let syncCount = 0;
+    const results = [];
+    
+    for (const room of rooms) {
+      try {
+        // Request schedule info from schedule-service via RPC
+        const scheduleInfo = await sendRpcRequest('schedule.get_room_info', {
+          roomId: room._id.toString()
+        }, 10000);
+        
+        if (scheduleInfo && scheduleInfo.hasSchedule) {
+          await roomService.updateRoomScheduleInfo(room._id, {
+            hasSchedule: scheduleInfo.hasSchedule,
+            scheduleStartDate: scheduleInfo.scheduleStartDate,
+            scheduleEndDate: scheduleInfo.scheduleEndDate,
+            lastScheduleGenerated: scheduleInfo.lastScheduleGenerated
+          });
+          syncCount++;
+          results.push({ roomId: room._id, name: room.name, synced: true });
+        } else {
+          results.push({ roomId: room._id, name: room.name, synced: false, reason: 'No schedule' });
+        }
+      } catch (error) {
+        results.push({ roomId: room._id, name: room.name, synced: false, error: error.message });
+      }
+    }
+    
+    res.json({ 
+      success: true, 
+      message: `Synced ${syncCount}/${rooms.length} rooms`,
+      results 
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false,
+      message: `Lỗi khi sync: ${err.message}` 
+    });
+  }
+};

@@ -73,6 +73,19 @@ exports.find = async (query) => {
   return await Slot.find(query);
 };
 
+exports.findWithPopulate = (query, populateOptions = []) => {
+  let q = Slot.find(query);
+
+  const optionsArray = Array.isArray(populateOptions) ? populateOptions : [populateOptions];
+  optionsArray
+    .filter(Boolean)
+    .forEach((opt) => {
+      q = q.populate(opt);
+    });
+
+  return q;
+};
+
 // Find slots by room and date range (inclusive)
 exports.findByRoomAndDateRange = async (roomId, startDate, endDate) => {
   return await Slot.find({

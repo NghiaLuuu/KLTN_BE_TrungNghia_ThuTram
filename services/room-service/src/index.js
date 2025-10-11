@@ -6,11 +6,15 @@ const connectDB = require('./config/db');
 const roomRoutes = require('./routes/room.route');
 const cors = require('cors');
 const startRpcServer = require('./utils/room.rpc');
+const { startScheduleConsumer } = require('./utils/scheduleConsumer');
 
 connectDB();
 
 // Start RabbitMQ RPC server
 startRpcServer().catch(console.error);
+
+// Start RabbitMQ consumer for schedule updates
+startScheduleConsumer().catch(console.error);
 
 const app = express();
 app.use(express.json());

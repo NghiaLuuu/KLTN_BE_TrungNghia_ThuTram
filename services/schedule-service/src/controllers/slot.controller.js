@@ -9,7 +9,7 @@ exports.assignStaffToSlots = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({ 
       success: false,
-      message: 'Chỉ quản lý hoặc admin mới được phép phân công nhân sự' 
+      message: 'Chỉ quản lý hoặc admin mới được phép phân công nhân sú' 
     });
   }
   
@@ -20,33 +20,65 @@ exports.assignStaffToSlots = async (req, res) => {
       quarter,
       year,
       shifts,
+      slotIds, // 🆕 Array of specific slot IDs to assign
       dentistIds,
       nurseIds
     } = req.body;
 
-    // Enforce quarter-level assignment (phải phân công theo quý)
-    if (!quarter || !year) {
-      return res.status(400).json({ success: false, message: 'Yêu cầu phải gửi quarter và year để phân công theo quý' });
-    }
-
-    // Validate dentist and nurse IDs from Redis cache
-    const { validateStaffIds } = require('../services/slot.service');
-    await validateStaffIds(dentistIds || [], nurseIds || []);
-
-    const result = await slotService.assignStaffToSlots({
-      roomId,
-      subRoomId,
-      quarter: parseInt(quarter, 10),
-      year: parseInt(year, 10),
-      shifts,
-      dentistIds,
-      nurseIds
-    });
+    // 🆕 Support two modes:
+    // Mode 1: Assign by selected slot IDs (new logic)
+    // Mode 2: Assign by quarter/year + shifts (legacy logic)
     
-    res.status(200).json({
-      success: true,
-      data: result
-    });
+    if (slotIds && Array.isArray(slotIds) && slotIds.length > 0) {
+      // 🆕 NEW MODE: Assign to specific slots
+      console.log('📋 Assign mode: Specific slots', { slotIds, dentistIds, nurseIds });
+      
+      // Validate dentist and nurse IDs from Redis cache
+      const { validateStaffIds } = require('../services/slot.service');
+      await validateStaffIds(dentistIds || [], nurseIds || []);
+
+      const result = await slotService.assignStaffToSpecificSlots({
+        slotIds,
+        dentistIds,
+        nurseIds,
+        roomId, // Optional: for validation
+        subRoomId // Optional: for validation
+      });
+      
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+    } else {
+      // 🔄 LEGACY MODE: Assign by quarter/year
+      if (!quarter || !year) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Yêu cầu phải gửi slotIds (chọn slot cụ thể) hoặc quarter + year (phân công theo quý)' 
+        });
+      }
+
+      console.log('📅 Assign mode: Quarter-based', { quarter, year, shifts });
+
+      // Validate dentist and nurse IDs from Redis cache
+      const { validateStaffIds } = require('../services/slot.service');
+      await validateStaffIds(dentistIds || [], nurseIds || []);
+
+      const result = await slotService.assignStaffToSlots({
+        roomId,
+        subRoomId,
+        quarter: parseInt(quarter, 10),
+        year: parseInt(year, 10),
+        shifts,
+        dentistIds,
+        nurseIds
+      });
+      
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+    }
     
   } catch (error) {
     res.status(500).json({ 
@@ -72,33 +104,86 @@ exports.reassignStaffToSlots = async (req, res) => {
       quarter,
       year,
       shifts,
+      slotIds, // 🆕 Array of specific slot IDs to reassign
+      oldStaffId, // 🆕 Old staff to replace
+      newStaffId, // 🆕 New staff to assign
+      role, // 🆕 'dentist' or 'nurse'
       dentistIds,
       nurseIds
     } = req.body;
 
-    // Enforce quarter-level assignment (phải phân công theo quý)
-    if (!quarter || !year) {
-      return res.status(400).json({ success: false, message: 'Yêu cầu phải gửi quarter và year để phân công lại theo quý' });
-    }
-
-    // Validate dentist and nurse IDs from Redis cache
-    const { validateStaffIds } = require('../services/slot.service');
-    await validateStaffIds(dentistIds || [], nurseIds || []);
-
-    const result = await slotService.reassignStaffToSlots({
-      roomId,
-      subRoomId,
-      quarter: parseInt(quarter, 10),
-      year: parseInt(year, 10),
-      shifts,
-      dentistIds,
-      nurseIds
-    });
+    // 🆕 Support two modes:
+    // Mode 1: Reassign by selected slot IDs (new logic for replacement)
+    // Mode 2: Reassign by quarter/year + shifts (legacy logic)
     
-    res.status(200).json({
-      success: true,
-      data: result
-    });
+    if (slotIds && Array.isArray(slotIds) && slotIds.length > 0) {
+      // 🆕 NEW MODE: Reassign specific slots
+      console.log('📋 Reassign mode: Specific slots', { slotIds, oldStaffId, newStaffId, role });
+      
+      if (!oldStaffId || !newStaffId || !role) {
+        return res.status(400).json({
+          success: false,
+          message: 'Yêu cầu phải gửi oldStaffId, newStaffId và role (dentist/nurse) khi thay thế theo slot'
+        });
+      }
+
+      if (!['dentist', 'nurse', 'doctor'].includes(role)) {
+        return res.status(400).json({
+          success: false,
+          message: 'role phải là "dentist" hoặc "nurse"'
+        });
+      }
+
+      // Validate staff IDs from Redis cache
+      const { validateStaffIds } = require('../services/slot.service');
+      const staffRole = role === 'doctor' ? 'dentist' : role;
+      if (staffRole === 'dentist') {
+        await validateStaffIds([oldStaffId, newStaffId], []);
+      } else {
+        await validateStaffIds([], [oldStaffId, newStaffId]);
+      }
+
+      const result = await slotService.reassignStaffToSpecificSlots({
+        slotIds,
+        oldStaffId,
+        newStaffId,
+        role: staffRole
+      });
+      
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+    } else {
+      // 🔄 LEGACY MODE: Reassign by quarter/year
+      if (!quarter || !year) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Yêu cầu phải gửi slotIds (thay thế slot cụ thể) hoặc quarter + year (phân công lại theo quý)' 
+        });
+      }
+
+      console.log('📅 Reassign mode: Quarter-based', { quarter, year, shifts });
+
+      // Validate dentist and nurse IDs from Redis cache
+      const { validateStaffIds } = require('../services/slot.service');
+      await validateStaffIds(dentistIds || [], nurseIds || []);
+
+      const result = await slotService.reassignStaffToSlots({
+        roomId,
+        subRoomId,
+        quarter: parseInt(quarter, 10),
+        year: parseInt(year, 10),
+        shifts,
+        dentistIds,
+        nurseIds
+      });
+      
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+    }
     
   } catch (error) {
     res.status(500).json({ 
@@ -202,7 +287,7 @@ exports.getSlotsByShiftAndDate = async (req, res) => {
 exports.getRoomCalendar = async (req, res) => {
   try {
     const { roomId } = req.params;
-    const { subRoomId, viewType, startDate, page = 1, limit = 10 } = req.query;
+    const { subRoomId, viewType, startDate, page = 0, limit = 10 } = req.query;
     
     if (!roomId || !viewType) {
       return res.status(400).json({
@@ -258,7 +343,7 @@ exports.getRoomCalendar = async (req, res) => {
 exports.getDentistCalendar = async (req, res) => {
   try {
     const { dentistId } = req.params;
-    const { viewType, startDate, page = 1, limit = 10 } = req.query;
+    const { viewType, startDate, page = 0, limit = 10 } = req.query;
     
     if (!dentistId || !viewType) {
       return res.status(400).json({
@@ -304,7 +389,7 @@ exports.getDentistCalendar = async (req, res) => {
   } catch (error) {
     res.status(500).json({ 
       success: false,
-      message: error.message || 'Không thể lấy lịch nha sỹ' 
+      message: error.message || 'Không thể lấy lịch nha sĩ' 
     });
   }
 };
@@ -313,7 +398,7 @@ exports.getDentistCalendar = async (req, res) => {
 exports.getNurseCalendar = async (req, res) => {
   try {
     const { nurseId } = req.params;
-    const { viewType, startDate, page = 1, limit = 10 } = req.query;
+    const { viewType, startDate, page = 0, limit = 10 } = req.query;
     
     if (!nurseId || !viewType) {
       return res.status(400).json({
@@ -402,17 +487,23 @@ exports.getAvailableShifts = async (req, res) => {
 
 // ⭐ NEW: Get slot details for a specific room/day/shift
 exports.getRoomSlotDetails = async (req, res) => {
+  console.log('🎯🎯🎯 CONTROLLER CALLED - getRoomSlotDetails');
+  
   try {
     const { roomId } = req.params;
     const { subRoomId, date, shiftName } = req.query;
     
+    console.log('📥 Request params:', { roomId, subRoomId, date, shiftName });
+    
     if (!roomId || !date || !shiftName) {
+      console.log('❌ Missing required params');
       return res.status(400).json({
         success: false,
         message: 'roomId, date và shiftName là bắt buộc'
       });
     }
 
+    console.log('✅ Calling slotService.getRoomSlotDetails...');
     const slots = await slotService.getRoomSlotDetails({
       roomId,
       subRoomId,
@@ -420,12 +511,17 @@ exports.getRoomSlotDetails = async (req, res) => {
       shiftName
     });
     
+    console.log('✅ Service returned, slots:', slots?.totalSlots);
+    console.log('📊 First slot:', JSON.stringify(slots?.slots?.[0], null, 2));
+    
     res.json({
       success: true,
+      _codeVersion: 'v2.0-ARRAY',
       data: slots
     });
     
   } catch (error) {
+    console.error('❌ Controller error:', error.message);
     res.status(400).json({ 
       success: false,
       message: error.message || 'Không thể lấy chi tiết slot phòng' 
@@ -460,7 +556,7 @@ exports.getDentistSlotDetails = async (req, res) => {
   } catch (error) {
     res.status(500).json({ 
       success: false,
-      message: error.message || 'Không thể lấy chi tiết slot nha sỹ' 
+      message: error.message || 'Không thể lấy chi tiết slot nha sĩ' 
     });
   }
 };
@@ -497,6 +593,40 @@ exports.getNurseSlotDetails = async (req, res) => {
   }
 };
 
+// 🆕 Check if staff members have future schedules
+exports.checkStaffHasSchedule = async (req, res) => {
+  try {
+    const { staffIds, role } = req.body; // staffIds: array of user IDs, role: 'dentist' or 'nurse'
+    
+    if (!staffIds || !Array.isArray(staffIds) || staffIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'staffIds array is required'
+      });
+    }
+
+    if (!role || !['dentist', 'nurse'].includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'role must be "dentist" or "nurse"'
+      });
+    }
+
+    const result = await slotService.checkStaffHasSchedule(staffIds, role);
+    
+    return res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    console.error('Error checking staff schedules:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   assignStaffToSlots: exports.assignStaffToSlots,
   reassignStaffToSlots: exports.reassignStaffToSlots,
@@ -509,5 +639,6 @@ module.exports = {
   getAvailableShifts: exports.getAvailableShifts,
   getRoomSlotDetails: exports.getRoomSlotDetails,
   getDentistSlotDetails: exports.getDentistSlotDetails,
-  getNurseSlotDetails: exports.getNurseSlotDetails
+  getNurseSlotDetails: exports.getNurseSlotDetails,
+  checkStaffHasSchedule: exports.checkStaffHasSchedule
 };

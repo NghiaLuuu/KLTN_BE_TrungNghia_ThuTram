@@ -17,6 +17,7 @@ router.patch('/', authMiddleware, cfgController.updateConfig);
 
 // 🔹 Holiday Management
 router.get('/holidays', cfgController.getHolidays);
+router.get('/holidays/blocked-ranges', cfgController.getBlockedDateRanges); // 🆕 Get blocked date ranges
 router.patch('/holidays/:holidayId', authMiddleware, updateHolidayValidation, validationErrorHandler, cfgController.updateHoliday);
 router.post('/holidays', authMiddleware, createHolidayValidation, validationErrorHandler, cfgController.addHoliday);
 router.delete('/holidays/:holidayId', authMiddleware, holidayIdValidation, validationErrorHandler, cfgController.removeHoliday);

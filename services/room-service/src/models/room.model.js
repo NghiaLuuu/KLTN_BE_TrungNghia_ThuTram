@@ -113,6 +113,24 @@ const roomSchema = new mongoose.Schema({
     default: false,
     index: true
   },
+  // 🆕 Tracking lịch làm việc
+  hasSchedule: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  scheduleStartDate: {
+    type: Date,
+    default: null
+  },
+  scheduleEndDate: {
+    type: Date,
+    default: null
+  },
+  lastScheduleGenerated: {
+    type: Date,
+    default: null
+  }
 }, {
   timestamps: true,
 });

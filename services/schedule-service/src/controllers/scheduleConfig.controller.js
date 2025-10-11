@@ -168,11 +168,29 @@ exports.addHoliday = async (req, res) => {
       data: holiday
     });
   } catch (error) {
-    console.error('Error adding holiday:', error);
-    res.status(400).json({
-      success: false,
+    console.error('Error updating holiday:', error);
+    res.status(400).json({ 
+      success: false, 
       message: error.message,
       type: error.message.includes('lịch đã được sử dụng') ? 'SLOTS_IN_USE' : 'VALIDATION_ERROR'
+    });
+  }
+};
+
+// 🆕 Get blocked date ranges for holiday DatePicker
+exports.getBlockedDateRanges = async (req, res) => {
+  try {
+    const blockedData = await cfgService.getBlockedDateRanges();
+    
+    res.json({
+      success: true,
+      data: blockedData
+    });
+  } catch (error) {
+    console.error('Error getting blocked date ranges:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };

@@ -22,7 +22,7 @@ class ChatService {
         doctorId: recordData.doctorId,
         patientId: recordData.patientId,
         doctorInfo: {
-          name: recordData.doctorInfo?.name || 'Bác sĩ',
+          name: recordData.doctorInfo?.name || 'nha sĩ',
           avatar: recordData.doctorInfo?.avatar,
           specialization: recordData.doctorInfo?.specialization
         },

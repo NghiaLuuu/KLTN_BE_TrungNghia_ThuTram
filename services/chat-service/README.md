@@ -1,10 +1,10 @@
 # Chat Service - Real-time Messaging
 
 ## Overview
-Service chat realtime giữa nha sỹ và bệnh nhân sử dụng Socket.IO. Tự động tạo cuộc hội thoại khi record hoàn thành.
+Service chat realtime giữa nha sĩ và bệnh nhân sử dụng Socket.IO. Tự động tạo cuộc hội thoại khi record hoàn thành.
 
 ## Features
-- ✅ Chat 1-1 giữa nha sỹ và bệnh nhân
+- ✅ Chat 1-1 giữa nha sĩ và bệnh nhân
 - ✅ Real-time messaging với Socket.IO
 - ✅ Tự động tạo conversation từ record hoàn thành
 - ✅ Đánh dấu tin nhắn đã đọc

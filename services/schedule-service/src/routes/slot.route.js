@@ -41,4 +41,7 @@ router.get('/dentist/:dentistId/details', slotController.getDentistSlotDetails);
 // ⭐ NEW: Get slot details for specific nurse/day/shift
 router.get('/nurse/:nurseId/details', slotController.getNurseSlotDetails);
 
+// 🆕 Check if staff members have future schedules
+router.post('/check-has-schedule', slotController.checkStaffHasSchedule);
+
 module.exports = router;

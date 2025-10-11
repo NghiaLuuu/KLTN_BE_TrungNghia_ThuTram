@@ -16,8 +16,15 @@ router.patch('/:roomId/subrooms/:subRoomId/toggle', authMiddleware, roomControll
 // Room routes (đặt sau subroom routes để tránh conflict)
 router.patch('/:id/toggle', authMiddleware, roomController.toggleStatus);
 
+// 🆕 Get rooms with schedule info (for schedule management page)
+router.get('/schedule-info', roomController.getRoomsForSchedule);
+
+// 🆕 Update room schedule info (internal - called by schedule service)
+router.patch('/:roomId/schedule-info', roomController.updateRoomScheduleInfo);
+
 router.get('/', roomController.listRooms);
 router.get('/search', roomController.searchRoom);
 router.get('/subroom/:subRoomId', roomController.getSubRoomById);
 router.get('/:roomId', roomController.getRoomById);
 module.exports = router;
+

@@ -107,3 +107,17 @@ exports.markSubRoomAsUsed = async (roomId, subRoomId) => {
     { new: true }
   );
 };
+
+// 🆕 Find rooms with schedule info
+exports.findRoomsWithScheduleInfo = async (filter, skip, limit) => {
+  return await Room.find(filter)
+    .sort({ hasSchedule: -1, scheduleEndDate: -1, createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
+};
+
+// 🆕 Count rooms with filter
+exports.countRooms = async (filter = {}) => {
+  return await Room.countDocuments(filter);
+};

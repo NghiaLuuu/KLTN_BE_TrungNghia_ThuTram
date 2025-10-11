@@ -35,14 +35,21 @@ const slotSchema = new mongoose.Schema({
     type: Date,
     required: true
   },
-  // Staff assignment - single dentist and nurse
+  // 🔄 Staff assignment - Arrays to support multiple dentists/nurses for rooms without subrooms
+  // For rooms WITH subrooms: assign 1 dentist + 1 nurse (length = 1)
+  // For rooms WITHOUT subrooms: can assign multiple (up to maxDoctor/maxNurse)
   dentist: {
-    type: mongoose.Schema.Types.ObjectId,
-    default: null
+    type: [mongoose.Schema.Types.ObjectId],
+    default: []
   },
   nurse: {
-    type: mongoose.Schema.Types.ObjectId,
-    default: null
+    type: [mongoose.Schema.Types.ObjectId],
+    default: []
+  },
+  // Availability status
+  isAvailable: {
+    type: Boolean,
+    default: true
   },
   // Booking status
   isBooked: {
@@ -56,6 +63,11 @@ const slotSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  // 🆕 Duration in minutes
+  duration: {
+    type: Number,
+    default: 30
   }
 }, {
   timestamps: true

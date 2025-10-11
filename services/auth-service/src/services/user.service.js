@@ -166,7 +166,30 @@ exports.updateUserWithPermissions = async (currentUser, targetUserId, updateData
   
   const isUpdatingSelf = currentUserId.toString() === targetUserId.toString();
   
-  // 🔒 ADMIN RULES
+  // � CERTIFICATE VALIDATION: Chỉ admin/manager mới được cập nhật certificates
+  // Và tất cả certificates phải có isVerified = true khi admin/manager thêm
+  if (updateData.certificates) {
+    // Chỉ admin/manager mới được thêm/sửa certificates
+    if (!['admin', 'manager'].includes(currentRole)) {
+      throw new Error('Chỉ admin và manager mới có quyền quản lý chứng chỉ');
+    }
+    
+    // Đảm bảo target user là dentist
+    if (targetUser.role !== 'dentist') {
+      throw new Error('Chỉ có thể quản lý chứng chỉ cho nha sĩ');
+    }
+    
+    // ⭐ QUAN TRỌNG: Tự động set isVerified = true cho tất cả certificates
+    // khi admin/manager thêm/cập nhật
+    updateData.certificates = updateData.certificates.map(cert => ({
+      ...cert,
+      isVerified: true,
+      verifiedBy: cert.isVerified === false ? null : (cert.verifiedBy || currentUserId),
+      verifiedAt: cert.isVerified === false ? null : (cert.verifiedAt || new Date())
+    }));
+  }
+  
+  // �🔒 ADMIN RULES
   if (currentRole === 'admin') {
     // Admin không thể cập nhật chính mình
     if (isUpdatingSelf) {
@@ -657,9 +680,9 @@ async function checkDuplicateImageUrls(imageFiles) {
 // 🆕 BATCH Operations for Certificates
 
 exports.batchCreateCertificates = async (currentUser, userId, { names, frontImages, backImages, certificateNotes }) => {
-  // Permission check
-  if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
-    throw new Error('Bạn không có quyền tạo chứng chỉ cho user này');
+  // Permission check - CHỈ admin/manager mới được tạo
+  if (!['admin', 'manager'].includes(currentUser.role)) {
+    throw new Error('Chỉ admin và manager mới có quyền tạo chứng chỉ');
   }
 
   const user = await userRepo.findById(userId);
@@ -697,6 +720,9 @@ exports.batchCreateCertificates = async (currentUser, userId, { names, frontImag
   const { uploadToS3 } = require('./s3.service');
   const { v4: uuidv4 } = require('uuid');
   
+  // ⭐ Get currentUserId for verifiedBy field
+  const currentUserId = currentUser.userId || currentUser._id || currentUser.id;
+  
   const newCertificates = [];
   
   for (let i = 0; i < names.length; i++) {
@@ -709,13 +735,15 @@ exports.batchCreateCertificates = async (currentUser, userId, { names, frontImag
     const frontImageUrl = await uploadToS3(frontImage.buffer, frontImage.originalname, frontImage.mimetype, 'avatars');
     const backImageUrl = backImage ? await uploadToS3(backImage.buffer, backImage.originalname, backImage.mimetype, 'avatars') : null;
     
+    // ⭐ QUAN TRỌNG: Admin/Manager tạo chứng chỉ → tự động verified
     newCertificates.push({
       certificateId,
       name: name.trim(),
       frontImage: frontImageUrl,
       backImage: backImageUrl,
-      isVerified: false,
-      verifiedBy: null,
+      isVerified: true, // ✅ Auto-verify khi admin/manager tạo
+      verifiedBy: currentUserId,
+      verifiedAt: new Date(),
       createdAt: new Date(),
       updatedAt: new Date()
     });
@@ -731,9 +759,9 @@ exports.batchCreateCertificates = async (currentUser, userId, { names, frontImag
 };
 
 exports.batchUpdateCertificates = async (currentUser, userId, { certificateIds, names, frontImages, backImages, certificateNotes, isVerified }) => {
-  // Permission check
-  if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
-    throw new Error('Bạn không có quyền cập nhật chứng chỉ cho user này');
+  // Permission check - CHỈ admin/manager mới được update
+  if (!['admin', 'manager'].includes(currentUser.role)) {
+    throw new Error('Chỉ admin và manager mới có quyền cập nhật chứng chỉ');
   }
 
   const user = await userRepo.findById(userId);
@@ -815,11 +843,12 @@ exports.batchUpdateCertificates = async (currentUser, userId, { certificateIds, 
       certificateUpdateData.name = name.trim();
     }
 
-    // Only admin/manager can verify certificates
-    if (isVerified !== undefined && ['admin', 'manager'].includes(currentUser.role)) {
-      certificateUpdateData.isVerified = isVerified;
-      certificateUpdateData.verifiedBy = isVerified ? currentUser.userId : null;
-      certificateUpdateData.verifiedAt = isVerified ? new Date() : null;
+    // ⭐ QUAN TRỌNG: Admin/Manager update certificates → tự động verified
+    // Không cho phép set isVerified = false từ request
+    if (['admin', 'manager'].includes(currentUser.role)) {
+      certificateUpdateData.isVerified = true; // ✅ Luôn luôn true khi admin/manager update
+      certificateUpdateData.verifiedBy = currentUser.userId;
+      certificateUpdateData.verifiedAt = new Date();
     }
 
     await userRepo.updateCertificateAndNotes(userId, certificateId, certificateUpdateData, i === 0 ? certificateNotes : undefined);
@@ -832,9 +861,9 @@ exports.batchUpdateCertificates = async (currentUser, userId, { certificateIds, 
 };
 
 exports.batchDeleteCertificates = async (currentUser, userId, { certificateIds }) => {
-  // Permission check
-  if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
-    throw new Error('Bạn không có quyền xóa chứng chỉ cho user này');
+  // Permission check - CHỈ admin/manager mới được xóa
+  if (!['admin', 'manager'].includes(currentUser.role)) {
+    throw new Error('Chỉ admin và manager mới có quyền xóa chứng chỉ');
   }
 
   const user = await userRepo.findById(userId);

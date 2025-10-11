@@ -12,6 +12,12 @@ const serviceAddOnSchema = new mongoose.Schema({
     required: true,
     min: 0,
   },
+  currency: {
+    type: String,
+    enum: ['VNĐ', 'USD', 'EUR'],
+    default: 'VNĐ',
+    trim: true
+  },
   description: {
     type: String,
     trim: true,

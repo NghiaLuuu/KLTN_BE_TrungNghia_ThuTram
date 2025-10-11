@@ -8,7 +8,7 @@ const conversationSchema = new mongoose.Schema({
     unique: true // Đảm bảo mỗi record chỉ có 1 conversation
   },
   
-  // ID của bác sĩ
+  // ID của nha sĩ
   doctorId: {
     type: mongoose.Schema.Types.ObjectId,
     required: true
@@ -20,7 +20,7 @@ const conversationSchema = new mongoose.Schema({
     required: true
   },
   
-  // Thông tin bác sĩ (cache để hiển thị nhanh)
+  // Thông tin nha sĩ (cache để hiển thị nhanh)
   doctorInfo: {
     name: String,
     avatar: String,

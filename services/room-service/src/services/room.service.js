@@ -30,20 +30,8 @@ exports.createRoom = async (data) => {
 
     const room = await roomRepo.createRoom(roomData);
 
-    // Gửi event cho schedule service để tạo lịch cho room có subRooms (không bắt buộc)
-    try {
-      await publishToQueue('schedule_queue', {
-        action: 'roomCreated',
-        payload: {
-          roomId: room._id.toString(),
-          hasSubRooms: true,
-          subRoomIds: room.subRooms.map(sr => sr._id.toString())
-        }
-      });
-      console.log(`📤 Đã gửi sự kiện tạo lịch cho room có ${subRoomCount} buồng con`);
-    } catch (err) {
-      console.warn('⚠️ Không thể gửi sự kiện tạo lịch (room vẫn được tạo thành công):', err.message);
-    }
+    // ❌ KHÔNG gửi event tạo lịch tự động nữa
+    // Lịch sẽ được tạo thủ công từ giao diện Schedule Management
 
     await refreshRoomCache();
     return room;
@@ -60,21 +48,8 @@ exports.createRoom = async (data) => {
 
   const room = await roomRepo.createRoom(roomData);
   
-  // Gửi event cho schedule service để tạo lịch cho room không có subRooms (không bắt buộc)
-  try {
-    await publishToQueue('schedule_queue', {
-      action: 'roomCreated',
-      payload: {
-        roomId: room._id.toString(),
-        hasSubRooms: false,
-        maxDoctors: room.maxDoctors,
-        maxNurses: room.maxNurses
-      }
-    });
-    console.log(`📤 Đã gửi sự kiện tạo lịch cho room không có buồng con`);
-  } catch (err) {
-    console.warn('⚠️ Không thể gửi sự kiện tạo lịch (room vẫn được tạo thành công):', err.message);
-  }
+  // ❌ KHÔNG gửi event tạo lịch tự động nữa
+  // Lịch sẽ được tạo thủ công từ giao diện Schedule Management
 
   await refreshRoomCache();
   return room;
@@ -340,5 +315,48 @@ async function refreshRoomCache() {
   await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms));
   console.log(`♻ Đã làm mới bộ nhớ đệm phòng: ${rooms.length} phòng`);
 }
+
+// 🆕 Lấy rooms với thông tin schedule (cho trang tạo lịch)
+exports.getRoomsWithScheduleInfo = async (filter = {}, page = 1, limit = 20) => {
+  const skip = (page - 1) * limit;
+  const rooms = await roomRepo.findRoomsWithScheduleInfo(filter, skip, limit);
+  const total = await roomRepo.countRooms(filter);
+  
+  return {
+    rooms,
+    total,
+    page: parseInt(page),
+    limit: parseInt(limit),
+    totalPages: Math.ceil(total / limit)
+  };
+};
+
+// 🆕 Update room schedule info (được gọi bởi schedule service)
+exports.updateRoomScheduleInfo = async (roomId, scheduleInfo) => {
+  const room = await roomRepo.findById(roomId);
+  if (!room) {
+    throw new Error('Không tìm thấy phòng');
+  }
+  
+  if (scheduleInfo.hasSchedule !== undefined) {
+    room.hasSchedule = scheduleInfo.hasSchedule;
+  }
+  if (scheduleInfo.hasBeenUsed !== undefined) {
+    room.hasBeenUsed = scheduleInfo.hasBeenUsed; // Update hasBeenUsed
+  }
+  if (scheduleInfo.scheduleStartDate !== undefined) {
+    room.scheduleStartDate = scheduleInfo.scheduleStartDate;
+  }
+  if (scheduleInfo.scheduleEndDate !== undefined) {
+    room.scheduleEndDate = scheduleInfo.scheduleEndDate;
+  }
+  if (scheduleInfo.lastScheduleGenerated !== undefined) {
+    room.lastScheduleGenerated = scheduleInfo.lastScheduleGenerated;
+  }
+  
+  await room.save();
+  await refreshRoomCache();
+  return room;
+};
 
 initRoomCache().catch(err => console.error('❌ Không thể tải bộ nhớ đệm phòng:', err));
