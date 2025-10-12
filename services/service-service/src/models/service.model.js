@@ -12,11 +12,21 @@ const serviceAddOnSchema = new mongoose.Schema({
     required: true,
     min: 0,
   },
-  currency: {
+  durationMinutes: {
+    type: Number,
+    required: true,
+    min: 1,
+  },
+  unit: {
     type: String,
-    enum: ['VNĐ', 'USD', 'EUR'],
-    default: 'VNĐ',
+    enum: ['Răng', 'Hàm', 'Trụ', 'Cái', 'Lần'],
+    required: true,
     trim: true
+  },
+  imageUrl: {
+    type: String,
+    trim: true,
+    default: null
   },
   description: {
     type: String,
@@ -39,11 +49,6 @@ const serviceSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true
-  },
-  durationMinutes: {
-    type: Number,
-    required: true,
-    min: 1,
   },
   type: {
     type: String,

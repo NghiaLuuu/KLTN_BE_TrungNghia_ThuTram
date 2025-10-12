@@ -11,7 +11,22 @@ exports.createService = async (req, res) => {
   }
 
   try {
-    const newService = await serviceService.createService(req.body);
+    // Parse body data (if multipart/form-data, need to parse JSON fields)
+    let serviceData = { ...req.body };
+    
+    // Parse serviceAddOns if it's a string (from form-data)
+    if (typeof serviceData.serviceAddOns === 'string') {
+      try {
+        serviceData.serviceAddOns = JSON.parse(serviceData.serviceAddOns);
+      } catch (e) {
+        return res.status(400).json({ message: 'serviceAddOns phải là JSON hợp lệ' });
+      }
+    }
+    
+    // Extract image files (req.files is array from multer)
+    const imageFiles = req.files || [];
+    
+    const newService = await serviceService.createService(serviceData, imageFiles);
     res.status(201).json(newService);
   } catch (err) {
     // Handle duplicate name error
@@ -118,7 +133,18 @@ exports.addServiceAddOn = async (req, res) => {
   }
 
   try {
-    const service = await serviceService.addServiceAddOn(req.params.serviceId, req.body);
+    // Extract image file from multer (if provided)
+    const imageFile = req.file || null;
+    
+    // Parse body data (if multipart/form-data, body fields are strings)
+    const addOnData = { ...req.body };
+    if (addOnData.price) addOnData.price = Number(addOnData.price);
+    
+    const service = await serviceService.addServiceAddOn(
+      req.params.serviceId, 
+      addOnData, 
+      imageFile
+    );
     res.status(201).json(service);
   } catch (err) {
     res.status(400).json({ message: err.message || 'Không thể thêm dịch vụ bổ sung' });
@@ -131,10 +157,18 @@ exports.updateServiceAddOn = async (req, res) => {
   }
 
   try {
+    // Extract image file from multer (if provided)
+    const imageFile = req.file || null;
+    
+    // Parse body data (if multipart/form-data, body fields are strings)
+    const updateData = { ...req.body };
+    if (updateData.price) updateData.price = Number(updateData.price);
+    
     const service = await serviceService.updateServiceAddOn(
       req.params.serviceId, 
       req.params.addOnId, 
-      req.body
+      updateData,
+      imageFile
     );
     res.json(service);
   } catch (err) {
