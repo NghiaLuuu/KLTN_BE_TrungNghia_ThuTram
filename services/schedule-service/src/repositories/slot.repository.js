@@ -69,8 +69,41 @@ exports.updateMany = async (filter, updateData) => {
   return await Slot.updateMany(filter, updateData);
 };
 
-exports.find = async (query) => {
-  return await Slot.find(query);
+// ⚡ OPTIMIZED: Add .lean() and .select() for faster queries
+exports.find = async (query, options = {}) => {
+  const { lean = false, select = null, sort = { startTime: 1 } } = options;
+  
+  let queryBuilder = Slot.find(query);
+  
+  if (select) {
+    queryBuilder = queryBuilder.select(select);
+  }
+  
+  if (sort) {
+    queryBuilder = queryBuilder.sort(sort);
+  }
+  
+  if (lean) {
+    queryBuilder = queryBuilder.lean();
+  }
+  
+  return await queryBuilder;
+};
+
+// ⚡ NEW: Optimized version for calendar queries
+exports.findForCalendar = async (query) => {
+  return await Slot.find(query)
+    .select('_id scheduleId roomId subRoomId shiftName startTime endTime dentist nurse isBooked appointmentId duration')
+    .sort({ startTime: 1 })
+    .lean(); // Return plain JS objects (much faster)
+};
+
+// ⚡ NEW: Optimized version for details queries  
+exports.findForDetails = async (query) => {
+  return await Slot.find(query)
+    .select('_id scheduleId roomId subRoomId shiftName startTime endTime dentist nurse isBooked appointmentId duration isAvailable')
+    .sort({ startTime: 1 })
+    .lean();
 };
 
 exports.findWithPopulate = (query, populateOptions = []) => {

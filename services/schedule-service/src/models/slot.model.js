@@ -73,12 +73,24 @@ const slotSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Compound indexes for performance
-slotSchema.index({ roomId: 1, startTime: 1, shiftName: 1 });
-slotSchema.index({ subRoomId: 1, startTime: 1 }); 
-slotSchema.index({ dentist: 1, startTime: 1 });
-slotSchema.index({ nurse: 1, startTime: 1 });
+// Compound indexes for performance - ⚡ OPTIMIZED for calendar & details queries
+// Room calendar query: roomId + isActive + startTime
+slotSchema.index({ roomId: 1, isActive: 1, startTime: 1 });
+slotSchema.index({ roomId: 1, subRoomId: 1, isActive: 1, startTime: 1 }); // With subRoom
+slotSchema.index({ roomId: 1, shiftName: 1, isActive: 1, startTime: 1 }); // Room details
+
+// Staff calendar queries: dentist/nurse + isActive + startTime
+slotSchema.index({ dentist: 1, isActive: 1, startTime: 1 });
+slotSchema.index({ nurse: 1, isActive: 1, startTime: 1 });
+
+// Staff details queries: dentist/nurse + shiftName + isActive + startTime
+slotSchema.index({ dentist: 1, shiftName: 1, isActive: 1, startTime: 1 });
+slotSchema.index({ nurse: 1, shiftName: 1, isActive: 1, startTime: 1 });
+
+// Appointment lookup
 slotSchema.index({ appointmentId: 1 });
+
+// General queries
 slotSchema.index({ startTime: 1, isBooked: 1, isActive: 1 });
 
 // Virtual to get Vietnam timezone date

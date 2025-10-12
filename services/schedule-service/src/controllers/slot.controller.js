@@ -287,7 +287,7 @@ exports.getSlotsByShiftAndDate = async (req, res) => {
 exports.getRoomCalendar = async (req, res) => {
   try {
     const { roomId } = req.params;
-    const { subRoomId, viewType, startDate, page = 0, limit = 10 } = req.query;
+    const { subRoomId, viewType, startDate, page = 0, limit = 10, futureOnly } = req.query;
     
     if (!roomId || !viewType) {
       return res.status(400).json({
@@ -317,13 +317,17 @@ exports.getRoomCalendar = async (req, res) => {
       });
     }
     
+    // Parse futureOnly as boolean (default to false for backward compatibility)
+    const futureOnlyBool = futureOnly === 'true' || futureOnly === '1';
+    
     const calendar = await slotService.getRoomCalendar({
       roomId,
       subRoomId,
       viewType,
       startDate,
       page: pageNum,
-      limit: limitNum
+      limit: limitNum,
+      futureOnly: futureOnlyBool
     });
     
     res.json({
@@ -343,7 +347,7 @@ exports.getRoomCalendar = async (req, res) => {
 exports.getDentistCalendar = async (req, res) => {
   try {
     const { dentistId } = req.params;
-    const { viewType, startDate, page = 0, limit = 10 } = req.query;
+    const { viewType, startDate, page = 0, limit = 10, futureOnly } = req.query;
     
     if (!dentistId || !viewType) {
       return res.status(400).json({
@@ -373,12 +377,16 @@ exports.getDentistCalendar = async (req, res) => {
       });
     }
     
+    // Parse futureOnly as boolean
+    const futureOnlyBool = futureOnly === 'true' || futureOnly === '1';
+    
     const calendar = await slotService.getDentistCalendar({
       dentistId,
       viewType,
       startDate,
       page: pageNum,
-      limit: limitNum
+      limit: limitNum,
+      futureOnly: futureOnlyBool
     });
     
     res.json({
@@ -398,7 +406,7 @@ exports.getDentistCalendar = async (req, res) => {
 exports.getNurseCalendar = async (req, res) => {
   try {
     const { nurseId } = req.params;
-    const { viewType, startDate, page = 0, limit = 10 } = req.query;
+    const { viewType, startDate, page = 0, limit = 10, futureOnly } = req.query;
     
     if (!nurseId || !viewType) {
       return res.status(400).json({
@@ -428,12 +436,16 @@ exports.getNurseCalendar = async (req, res) => {
       });
     }
     
+    // Parse futureOnly as boolean
+    const futureOnlyBool = futureOnly === 'true' || futureOnly === '1';
+    
     const calendar = await slotService.getNurseCalendar({
       nurseId,
       viewType,
       startDate,
       page: pageNum,
-      limit: limitNum
+      limit: limitNum,
+      futureOnly: futureOnlyBool
     });
     
     res.json({
@@ -445,24 +457,6 @@ exports.getNurseCalendar = async (req, res) => {
     res.status(500).json({ 
       success: false,
       message: error.message || 'Không thể lấy lịch y tá' 
-    });
-  }
-};
-
-// Get available quarters and years for staff assignment
-exports.getAvailableQuartersYears = async (req, res) => {
-  try {
-    const result = await slotService.getAvailableQuartersYears();
-    
-    res.json({
-      success: true,
-      data: result
-    });
-    
-  } catch (error) {
-    res.status(500).json({ 
-      success: false,
-      message: error.message || 'Không thể lấy danh sách quý/năm' 
     });
   }
 };
@@ -481,114 +475,6 @@ exports.getAvailableShifts = async (req, res) => {
     res.status(500).json({ 
       success: false,
       message: error.message || 'Không thể lấy danh sách ca làm việc' 
-    });
-  }
-};
-
-// ⭐ NEW: Get slot details for a specific room/day/shift
-exports.getRoomSlotDetails = async (req, res) => {
-  console.log('🎯🎯🎯 CONTROLLER CALLED - getRoomSlotDetails');
-  
-  try {
-    const { roomId } = req.params;
-    const { subRoomId, date, shiftName } = req.query;
-    
-    console.log('📥 Request params:', { roomId, subRoomId, date, shiftName });
-    
-    if (!roomId || !date || !shiftName) {
-      console.log('❌ Missing required params');
-      return res.status(400).json({
-        success: false,
-        message: 'roomId, date và shiftName là bắt buộc'
-      });
-    }
-
-    console.log('✅ Calling slotService.getRoomSlotDetails...');
-    const slots = await slotService.getRoomSlotDetails({
-      roomId,
-      subRoomId,
-      date,
-      shiftName
-    });
-    
-    console.log('✅ Service returned, slots:', slots?.totalSlots);
-    console.log('📊 First slot:', JSON.stringify(slots?.slots?.[0], null, 2));
-    
-    res.json({
-      success: true,
-      _codeVersion: 'v2.0-ARRAY',
-      data: slots
-    });
-    
-  } catch (error) {
-    console.error('❌ Controller error:', error.message);
-    res.status(400).json({ 
-      success: false,
-      message: error.message || 'Không thể lấy chi tiết slot phòng' 
-    });
-  }
-};
-
-// ⭐ NEW: Get slot details for a specific dentist/day/shift
-exports.getDentistSlotDetails = async (req, res) => {
-  try {
-    const { dentistId } = req.params;
-    const { date, shiftName } = req.query;
-    
-    if (!dentistId || !date || !shiftName) {
-      return res.status(400).json({
-        success: false,
-        message: 'dentistId, date và shiftName là bắt buộc'
-      });
-    }
-
-    const slots = await slotService.getDentistSlotDetails({
-      dentistId,
-      date,
-      shiftName
-    });
-    
-    res.json({
-      success: true,
-      data: slots
-    });
-    
-  } catch (error) {
-    res.status(500).json({ 
-      success: false,
-      message: error.message || 'Không thể lấy chi tiết slot nha sĩ' 
-    });
-  }
-};
-
-// ⭐ NEW: Get slot details for a specific nurse/day/shift
-exports.getNurseSlotDetails = async (req, res) => {
-  try {
-    const { nurseId } = req.params;
-    const { date, shiftName } = req.query;
-    
-    if (!nurseId || !date || !shiftName) {
-      return res.status(400).json({
-        success: false,
-        message: 'nurseId, date và shiftName là bắt buộc'
-      });
-    }
-
-    const slots = await slotService.getNurseSlotDetails({
-      nurseId,
-      date,
-      shiftName
-    });
-    
-    res.json({
-      success: true,
-      data: slots
-    });
-    
-  } catch (error) {
-    res.status(500).json({ 
-      success: false,
-      message: error.message || 'Không thể lấy chi tiết slot y tá' 
     });
   }
 };
@@ -627,6 +513,109 @@ exports.checkStaffHasSchedule = async (req, res) => {
   }
 };
 
+// ⭐ NEW: Get FUTURE room slot details (for staff assignment)
+exports.getRoomSlotDetailsFuture = async (req, res) => {
+  console.log('🎯 CONTROLLER CALLED - getRoomSlotDetailsFuture (FUTURE ONLY)');
+  
+  try {
+    const { roomId } = req.params;
+    const { subRoomId, date, shiftName } = req.query;
+    
+    console.log('📥 Request params:', { roomId, subRoomId, date, shiftName });
+    
+    if (!roomId || !date || !shiftName) {
+      return res.status(400).json({
+        success: false,
+        message: 'roomId, date và shiftName là bắt buộc'
+      });
+    }
+
+    const result = await slotService.getRoomSlotDetailsFuture({
+      roomId,
+      subRoomId,
+      date,
+      shiftName
+    });
+    
+    console.log('✅ Found', result.data.totalSlots, 'future slots');
+    
+    res.json(result);
+    
+  } catch (error) {
+    console.error('❌ Controller error:', error.message);
+    res.status(400).json({ 
+      success: false,
+      message: error.message || 'Không thể lấy slot tương lai của phòng' 
+    });
+  }
+};
+
+// ⭐ NEW: Get FUTURE dentist slot details (for staff replacement)
+exports.getDentistSlotDetailsFuture = async (req, res) => {
+  console.log('🎯 CONTROLLER CALLED - getDentistSlotDetailsFuture (FUTURE ONLY)');
+  
+  try {
+    const { dentistId } = req.params;
+    const { date, shiftName } = req.query;
+    
+    if (!dentistId || !date || !shiftName) {
+      return res.status(400).json({
+        success: false,
+        message: 'dentistId, date và shiftName là bắt buộc'
+      });
+    }
+
+    const result = await slotService.getDentistSlotDetailsFuture({
+      dentistId,
+      date,
+      shiftName
+    });
+    
+    console.log('✅ Found', result.data.totalSlots, 'future slots for dentist');
+    
+    res.json(result);
+    
+  } catch (error) {
+    res.status(400).json({ 
+      success: false,
+      message: error.message || 'Không thể lấy slot tương lai của nha sĩ' 
+    });
+  }
+};
+
+// ⭐ NEW: Get FUTURE nurse slot details (for staff replacement)
+exports.getNurseSlotDetailsFuture = async (req, res) => {
+  console.log('🎯 CONTROLLER CALLED - getNurseSlotDetailsFuture (FUTURE ONLY)');
+  
+  try {
+    const { nurseId } = req.params;
+    const { date, shiftName } = req.query;
+    
+    if (!nurseId || !date || !shiftName) {
+      return res.status(400).json({
+        success: false,
+        message: 'nurseId, date và shiftName là bắt buộc'
+      });
+    }
+
+    const result = await slotService.getNurseSlotDetailsFuture({
+      nurseId,
+      date,
+      shiftName
+    });
+    
+    console.log('✅ Found', result.data.totalSlots, 'future slots for nurse');
+    
+    res.json(result);
+    
+  } catch (error) {
+    res.status(400).json({ 
+      success: false,
+      message: error.message || 'Không thể lấy slot tương lai của y tá' 
+    });
+  }
+};
+
 module.exports = {
   assignStaffToSlots: exports.assignStaffToSlots,
   reassignStaffToSlots: exports.reassignStaffToSlots,
@@ -640,5 +629,8 @@ module.exports = {
   getRoomSlotDetails: exports.getRoomSlotDetails,
   getDentistSlotDetails: exports.getDentistSlotDetails,
   getNurseSlotDetails: exports.getNurseSlotDetails,
+  getRoomSlotDetailsFuture: exports.getRoomSlotDetailsFuture,      // ⭐ NEW
+  getDentistSlotDetailsFuture: exports.getDentistSlotDetailsFuture,  // ⭐ NEW
+  getNurseSlotDetailsFuture: exports.getNurseSlotDetailsFuture,    // ⭐ NEW
   checkStaffHasSchedule: exports.checkStaffHasSchedule
 };

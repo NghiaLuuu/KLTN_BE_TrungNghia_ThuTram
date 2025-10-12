@@ -3,12 +3,12 @@ const router = express.Router();
 const slotController = require('../controllers/slot.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
 
-// Assign staff to slots by schedule (QUÝ) — request MUST include scheduleId
-// Request body example: { scheduleId, roomId, subRoomId?, shifts: ['Ca Sáng'], dentistIds: [], nurseIds: [] }
+// ⭐ Assign staff to specific slots
+// Request body example: { slotIds: ['slot1', 'slot2'], roomId, subRoomId?, dentistIds: [], nurseIds: [] }
 router.post('/assign-staff', authMiddleware, slotController.assignStaffToSlots);
 
-// Reassign staff to already assigned slots by schedule (QUÝ) — only works on slots that already have staff
-// Request body example: { roomId, subRoomId?, quarter, year, shifts: ['Ca Sáng'], dentistIds: [], nurseIds: [] }
+// ⭐ Reassign staff (replace old staff with new staff in specific slots)
+// Request body example: { slotIds: ['slot1', 'slot2'], oldStaffId, newStaffId, role: 'dentist' | 'nurse' }
 router.post('/reassign-staff', authMiddleware, slotController.reassignStaffToSlots);
 
 // Update staff for single or multiple slots
@@ -26,20 +26,17 @@ router.get('/dentist/:dentistId/calendar', slotController.getDentistCalendar);
 // Get nurse schedule with appointment counts (daily/weekly/monthly view) with historical support
 router.get('/nurse/:nurseId/calendar', slotController.getNurseCalendar);
 
-// Get available quarters and years for staff assignment
-router.get('/available-quarters', slotController.getAvailableQuartersYears);
-
 // Get available work shifts
 router.get('/available-shifts', slotController.getAvailableShifts);
 
-// ⭐ NEW: Get slot details for specific room/day/shift
-router.get('/room/:roomId/details', slotController.getRoomSlotDetails);
+// 🆕 Get FUTURE slot details for specific room/day/shift (for staff assignment)
+router.get('/room/:roomId/details/future', slotController.getRoomSlotDetailsFuture);
 
-// ⭐ NEW: Get slot details for specific dentist/day/shift
-router.get('/dentist/:dentistId/details', slotController.getDentistSlotDetails);
+// 🆕 Get FUTURE slot details for specific dentist/day/shift (for staff replacement)
+router.get('/dentist/:dentistId/details/future', slotController.getDentistSlotDetailsFuture);
 
-// ⭐ NEW: Get slot details for specific nurse/day/shift
-router.get('/nurse/:nurseId/details', slotController.getNurseSlotDetails);
+// 🆕 Get FUTURE slot details for specific nurse/day/shift (for staff replacement)
+router.get('/nurse/:nurseId/details/future', slotController.getNurseSlotDetailsFuture);
 
 // 🆕 Check if staff members have future schedules
 router.post('/check-has-schedule', slotController.checkStaffHasSchedule);
