@@ -596,3 +596,104 @@ exports.getBlockedDateRanges = async () => {
 // Export helper functions for use in schedule service
 exports.markHolidayAsUsed = markHolidayAsUsed;
 exports.checkHolidaysUsedInDateRange = checkHolidaysUsedInDateRange;
+
+/**
+ * 🆕 Auto-initialize schedule config and holidays on service startup
+ * Called when service starts to ensure default config exists
+ */
+exports.autoInitializeDefaults = async () => {
+  try {
+    console.log('🔍 Checking for existing schedule config...');
+    
+    // Check if schedule config exists
+    const existingConfig = await ScheduleConfig.findOne({ singletonKey: 'SCHEDULE_CONFIG_SINGLETON' });
+    
+    if (!existingConfig) {
+      console.log('⚙️  No schedule config found. Creating default config...');
+      
+      // Create default config
+      const defaultConfig = {
+        morningShift: {
+          name: 'Ca Sáng',
+          startTime: '08:00',
+          endTime: '12:00',
+          isActive: true
+        },
+        afternoonShift: {
+          name: 'Ca Chiều', 
+          startTime: '13:00',
+          endTime: '17:00',
+          isActive: true
+        },
+        eveningShift: {
+          name: 'Ca Tối',
+          startTime: '18:00', 
+          endTime: '21:00',
+          isActive: true
+        },
+        unitDuration: 15,
+        maxBookingDays: 30
+      };
+
+      const config = new ScheduleConfig(defaultConfig);
+      await config.save();
+      
+      try { 
+        await redis.set(CACHE_KEY, JSON.stringify(config)); 
+      } catch (e) {
+        console.warn('⚠️  Cache set failed:', e.message);
+      }
+      
+      console.log('✅ Default schedule config created successfully');
+    } else {
+      console.log('✅ Schedule config already exists');
+    }
+    
+    // Check if holiday config exists
+    let holidayConfig = await HolidayConfig.findOne();
+    
+    if (!holidayConfig) {
+      console.log('🗓️  No holiday config found. Creating default recurring holidays...');
+      
+      const dayNames = {
+        1: 'Chủ nhật',
+        2: 'Thứ Hai',
+        3: 'Thứ Ba',
+        4: 'Thứ Tư',
+        5: 'Thứ Năm',
+        6: 'Thứ Sáu',
+        7: 'Thứ Bảy'
+      };
+      
+      // Create 7 recurring holidays (Sunday to Saturday)
+      const defaultRecurringHolidays = [1, 2, 3, 4, 5, 6, 7].map(dayOfWeek => ({
+        name: `Nghỉ ${dayNames[dayOfWeek]}`,
+        isRecurring: true,
+        dayOfWeek: dayOfWeek,
+        isActive: false, // Default to inactive, admin can enable if needed
+        note: 'Ngày nghỉ cố định trong tuần (mặc định tắt)'
+      }));
+      
+      holidayConfig = new HolidayConfig({
+        holidays: defaultRecurringHolidays
+      });
+      
+      await holidayConfig.save();
+      console.log(`✅ Created ${defaultRecurringHolidays.length} default recurring holidays (all inactive)`);
+      
+      try {
+        await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig));
+      } catch (e) {
+        console.warn('⚠️  Holiday cache set failed:', e.message);
+      }
+    } else {
+      console.log('✅ Holiday config already exists');
+    }
+    
+    console.log('🎉 Schedule service defaults initialization complete!');
+    
+  } catch (error) {
+    console.error('❌ Error auto-initializing defaults:', error);
+    // Don't throw - service should still start even if initialization fails
+  }
+};

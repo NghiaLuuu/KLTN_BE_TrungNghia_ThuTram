@@ -12,6 +12,13 @@ const scheduleSchema = new mongoose.Schema({
     index: true
   },
   
+  // ⚠️ Trạng thái subroom tại thời điểm tạo lịch
+  // Lưu để biết subroom có active không khi lịch được tạo
+  isActiveSubRoom: {
+    type: Boolean,
+    default: true
+  },
+  
   // 🆕 Thông tin THÁNG (thay vì quý)
   month: {
     type: Number,

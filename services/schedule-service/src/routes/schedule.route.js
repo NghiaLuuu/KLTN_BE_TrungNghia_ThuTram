@@ -18,6 +18,12 @@ router.get('/holiday-preview', scheduleController.getHolidayPreview);
 // 🆕 Get room schedules with shift info (for create schedule UI) - MUST BE BEFORE /room/:roomId
 router.get('/room/:roomId/shifts', scheduleController.getRoomSchedulesWithShifts);
 
+// 🆕 Update schedule (reactive scheduling - admin only)
+router.put('/:scheduleId', authMiddleware, scheduleController.updateSchedule);
+
+// 🆕 Add missing shifts to existing schedule (admin only)
+router.post('/add-missing-shifts', authMiddleware, scheduleController.addMissingShifts);
+
 // 🆕 Get schedule summary by room (for staff assignment) - MUST BE BEFORE /room/:roomId
 router.get('/room/:roomId/summary', scheduleController.getScheduleSummaryByRoom);
 

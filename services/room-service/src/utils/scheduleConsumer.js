@@ -29,13 +29,10 @@ async function startScheduleConsumer() {
           const data = JSON.parse(msg.content.toString());
           console.log('📥 Received schedule update:', data);
           
-          const { roomId, hasSchedule, scheduleStartDate, scheduleEndDate, lastScheduleGenerated, hasBeenUsed } = data;
+          const { roomId, lastScheduleGenerated, hasBeenUsed } = data;
           
           // Update room schedule info
           await roomService.updateRoomScheduleInfo(roomId, {
-            hasSchedule,
-            scheduleStartDate,
-            scheduleEndDate,
             lastScheduleGenerated,
             hasBeenUsed
           });

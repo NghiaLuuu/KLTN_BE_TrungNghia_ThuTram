@@ -8,6 +8,7 @@ const slotRoutes = require('./routes/slot.route');
 const scheduleConfigRoutes = require('./routes/scheduleConfig.route');
 const autoScheduleRoutes = require('./routes/autoSchedule.route');
 const startRpcServer = require('./utils/rpcServer');
+const scheduleConfigService = require('./services/scheduleConfig.service');
 
 connectDB();
 const CronJobManager = require('./utils/cronJobs');
@@ -31,6 +32,11 @@ startRpcServer();
 
 // Initialize cron jobs for auto-schedule
 CronJobManager.init();
+
+// 🆕 Auto-initialize default config and holidays on startup
+setTimeout(async () => {
+  await scheduleConfigService.autoInitializeDefaults();
+}, 2000); // Wait 2s for DB connection to be ready
 
 // Server
 

@@ -42,16 +42,14 @@ const roomSchema = new mongoose.Schema({
   maxDoctors: {
     type: Number,
     min: 0,
-    required: function() {
-      return !this.hasSubRooms;
-    },
+    // 🔧 FIX: Bỏ required vì 0 là giá trị hợp lệ, dùng custom validator thay thế
     validate: {
       validator: function(v) {
         // Nếu hasSubRooms = true thì không được có maxDoctors
         if (this.hasSubRooms && v !== undefined) {
           return false;
         }
-        // Nếu hasSubRooms = false thì phải có maxDoctors
+        // Nếu hasSubRooms = false thì phải có maxDoctors (kể cả 0)
         if (!this.hasSubRooms && (v === undefined || v === null)) {
           return false;
         }
@@ -63,16 +61,14 @@ const roomSchema = new mongoose.Schema({
   maxNurses: {
     type: Number,
     min: 0,
-    required: function() {
-      return !this.hasSubRooms;
-    },
+    // 🔧 FIX: Bỏ required vì 0 là giá trị hợp lệ, dùng custom validator thay thế
     validate: {
       validator: function(v) {
         // Nếu hasSubRooms = true thì không được có maxNurses
         if (this.hasSubRooms && v !== undefined) {
           return false;
         }
-        // Nếu hasSubRooms = false thì phải có maxNurses
+        // Nếu hasSubRooms = false thì phải có maxNurses (kể cả 0)
         if (!this.hasSubRooms && (v === undefined || v === null)) {
           return false;
         }
@@ -113,20 +109,6 @@ const roomSchema = new mongoose.Schema({
     default: false,
     index: true
   },
-  // 🆕 Tracking lịch làm việc
-  hasSchedule: {
-    type: Boolean,
-    default: false,
-    index: true
-  },
-  scheduleStartDate: {
-    type: Date,
-    default: null
-  },
-  scheduleEndDate: {
-    type: Date,
-    default: null
-  },
   lastScheduleGenerated: {
     type: Date,
     default: null
@@ -160,10 +142,17 @@ roomSchema.pre('save', async function(next) {
       return next(new Error('Phòng có buồng con không được có maxDoctors hoặc maxNurses'));
     }
   } else {
-    // Phòng không có subrooms: phải có maxDoctors/maxNurses, không được có subrooms
-    if (!room.maxDoctors || !room.maxNurses) {
+    // Phòng không có subrooms: phải có maxDoctors/maxNurses (có thể = 0), không được có subrooms
+    if (room.maxDoctors === undefined || room.maxDoctors === null || 
+        room.maxNurses === undefined || room.maxNurses === null) {
       return next(new Error('Phòng không có buồng con phải có maxDoctors và maxNurses'));
     }
+    
+    // 🔧 FIX: Validate ít nhất 1 người (nha sĩ hoặc y tá)
+    if (room.maxDoctors + room.maxNurses < 1) {
+      return next(new Error('Phòng phải có ít nhất 1 nha sĩ hoặc 1 y tá'));
+    }
+    
     if (room.subRooms && room.subRooms.length > 0) {
       return next(new Error('Phòng không có buồng con không được có subRooms'));
     }
@@ -208,10 +197,17 @@ roomSchema.pre('findOneAndUpdate', async function(next) {
       return next(new Error('Phòng có buồng con không được có maxDoctors hoặc maxNurses'));
     }
   } else {
-    // Phòng không có subrooms: phải có maxDoctors/maxNurses, không được có subrooms
-    if (!merged.maxDoctors || !merged.maxNurses) {
+    // Phòng không có subrooms: phải có maxDoctors/maxNurses (có thể = 0), không được có subrooms
+    if (merged.maxDoctors === undefined || merged.maxDoctors === null || 
+        merged.maxNurses === undefined || merged.maxNurses === null) {
       return next(new Error('Phòng không có buồng con phải có maxDoctors và maxNurses'));
     }
+    
+    // 🔧 FIX: Validate ít nhất 1 người (nha sĩ hoặc y tá)
+    if (merged.maxDoctors + merged.maxNurses < 1) {
+      return next(new Error('Phòng phải có ít nhất 1 nha sĩ hoặc 1 y tá'));
+    }
+    
     if (merged.subRooms && merged.subRooms.length > 0) {
       return next(new Error('Phòng không có buồng con không được có subRooms'));
     }

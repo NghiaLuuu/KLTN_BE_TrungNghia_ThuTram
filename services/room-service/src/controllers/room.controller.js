@@ -188,13 +188,11 @@ exports.getRoomsForSchedule = async (req, res) => {
 exports.updateRoomScheduleInfo = async (req, res) => {
   try {
     const { roomId } = req.params;
-    const { hasSchedule, scheduleStartDate, scheduleEndDate, lastScheduleGenerated } = req.body;
+    const { lastScheduleGenerated, hasBeenUsed } = req.body;
     
     const room = await roomService.updateRoomScheduleInfo(roomId, {
-      hasSchedule,
-      scheduleStartDate,
-      scheduleEndDate,
-      lastScheduleGenerated
+      lastScheduleGenerated,
+      hasBeenUsed
     });
     
     res.json({ success: true, room });
@@ -219,12 +217,10 @@ exports.syncAllRoomsScheduleInfo = async (req, res) => {
           roomId: room._id.toString()
         }, 10000);
         
-        if (scheduleInfo && scheduleInfo.hasSchedule) {
+        if (scheduleInfo && scheduleInfo.hasBeenUsed) {
           await roomService.updateRoomScheduleInfo(room._id, {
-            hasSchedule: scheduleInfo.hasSchedule,
-            scheduleStartDate: scheduleInfo.scheduleStartDate,
-            scheduleEndDate: scheduleInfo.scheduleEndDate,
-            lastScheduleGenerated: scheduleInfo.lastScheduleGenerated
+            lastScheduleGenerated: scheduleInfo.lastScheduleGenerated,
+            hasBeenUsed: scheduleInfo.hasBeenUsed
           });
           syncCount++;
           results.push({ roomId: room._id, name: room.name, synced: true });

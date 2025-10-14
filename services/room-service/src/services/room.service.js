@@ -9,6 +9,34 @@ async function initRoomCache() {
   console.log(`✅ Đã tải bộ nhớ đệm phòng: ${rooms.length} phòng`);
 }
 
+// 🆕 Helper: Tự động cập nhật isActive của room dựa trên trạng thái subrooms
+async function updateRoomActiveStatusBasedOnSubRooms(room) {
+  // Chỉ áp dụng cho room có subrooms
+  if (!room.hasSubRooms || !room.subRooms || room.subRooms.length === 0) {
+    return;
+  }
+
+  // Kiểm tra có ít nhất 1 subroom active không
+  const hasActiveSubRoom = room.subRooms.some(subRoom => subRoom.isActive === true);
+
+  // Cập nhật isActive của room
+  const oldStatus = room.isActive;
+  room.isActive = hasActiveSubRoom;
+
+  // Chỉ save nếu có thay đổi
+  if (oldStatus !== room.isActive) {
+    await room.save();
+    console.log(`🔄 Room ${room.name} (${room._id}): isActive changed from ${oldStatus} to ${room.isActive}`);
+    console.log(`   Reason: ${hasActiveSubRoom ? 'Có ít nhất 1 subroom active' : 'Tất cả subrooms đều inactive'}`);
+  }
+}
+
+async function refreshRoomCache() {
+  const rooms = await roomRepo.getAllRooms();
+  await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms));
+  console.log(`♻ Đã làm mới bộ nhớ đệm phòng: ${rooms.length} phòng`);
+}
+
 exports.createRoom = async (data) => {
   const { subRoomCount, ...roomData } = data;
 
@@ -40,7 +68,9 @@ exports.createRoom = async (data) => {
   // Nếu không có subRooms
   roomData.hasSubRooms = false;
 
-  if (!roomData.maxDoctors || !roomData.maxNurses) {
+  // Kiểm tra maxDoctors và maxNurses phải được cung cấp (cho phép giá trị 0)
+  if (roomData.maxDoctors === undefined || roomData.maxDoctors === null || 
+      roomData.maxNurses === undefined || roomData.maxNurses === null) {
     throw new Error('Phòng không có buồng con phải có maxDoctors và maxNurses');
   }
 
@@ -87,8 +117,9 @@ exports.updateRoom = async (roomId, updateData) => {
       room.hasSubRooms = false;
       room.subRooms = [];
       
-      // Phải có maxDoctors và maxNurses
-      if (!updateData.maxDoctors || !updateData.maxNurses) {
+      // Phải có maxDoctors và maxNurses (cho phép giá trị 0)
+      if (updateData.maxDoctors === undefined || updateData.maxDoctors === null ||
+          updateData.maxNurses === undefined || updateData.maxNurses === null) {
         throw new Error('Phòng không có buồng con phải có maxDoctors và maxNurses');
       }
       room.maxDoctors = updateData.maxDoctors;
@@ -142,6 +173,18 @@ exports.updateRoom = async (roomId, updateData) => {
 };
 
 exports.toggleStatus = async (roomId) => {
+  const room = await roomRepo.findById(roomId);
+  if (!room) throw new Error("Không tìm thấy phòng");
+  
+  // 🆕 Validation: Nếu room có subrooms và đang tắt, muốn bật lại phải có ít nhất 1 subroom active
+  if (!room.isActive && room.hasSubRooms && room.subRooms && room.subRooms.length > 0) {
+    const hasActiveSubRoom = room.subRooms.some(subRoom => subRoom.isActive === true);
+    
+    if (!hasActiveSubRoom) {
+      throw new Error("Không thể bật hoạt động phòng vì tất cả buồng đều đang tắt. Vui lòng bật ít nhất 1 buồng trước.");
+    }
+  }
+  
   const toggled = await roomRepo.toggleStatus(roomId);
   await refreshRoomCache();
   return toggled;
@@ -224,6 +267,10 @@ exports.getSubRoomById = async (subRoomId) => {
 
 exports.toggleSubRoomStatus = async (roomId, subRoomId) => {
   const toggledRoom = await roomRepo.toggleSubRoomStatus(roomId, subRoomId);
+  
+  // 🆕 Tự động cập nhật isActive của room dựa trên subrooms
+  await updateRoomActiveStatusBasedOnSubRooms(toggledRoom);
+  
   await refreshRoomCache();
   return toggledRoom;
 };
@@ -258,6 +305,12 @@ exports.addSubRoom = async (roomId, count = 1) => {
     };
     room.subRooms.push(newSubRoom);
     newSubRooms.push(newSubRoom);
+  }
+
+  // 🆕 Tự động bật lại room nếu đang tắt (vì vừa thêm subroom mới có isActive=true)
+  if (!room.isActive) {
+    room.isActive = true;
+    console.log(`🔄 Room ${room.name} (${room._id}): isActive changed to true (thêm subroom mới)`);
   }
 
   await room.save();
@@ -302,19 +355,15 @@ exports.deleteSubRoom = async (roomId, subRoomId) => {
     room.hasSubRooms = false;
     room.maxDoctors = 1; // default value
     room.maxNurses = 1;  // default value
+  } else {
+    // 🆕 Nếu còn subrooms, cập nhật isActive của room dựa trên subrooms còn lại
+    await updateRoomActiveStatusBasedOnSubRooms(room);
   }
 
   await room.save();
   await refreshRoomCache();
   return room;
 };
-
-
-async function refreshRoomCache() {
-  const rooms = await roomRepo.getAllRooms();
-  await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms));
-  console.log(`♻ Đã làm mới bộ nhớ đệm phòng: ${rooms.length} phòng`);
-}
 
 // 🆕 Lấy rooms với thông tin schedule (cho trang tạo lịch)
 exports.getRoomsWithScheduleInfo = async (filter = {}, page = 1, limit = 20) => {
@@ -338,17 +387,8 @@ exports.updateRoomScheduleInfo = async (roomId, scheduleInfo) => {
     throw new Error('Không tìm thấy phòng');
   }
   
-  if (scheduleInfo.hasSchedule !== undefined) {
-    room.hasSchedule = scheduleInfo.hasSchedule;
-  }
   if (scheduleInfo.hasBeenUsed !== undefined) {
-    room.hasBeenUsed = scheduleInfo.hasBeenUsed; // Update hasBeenUsed
-  }
-  if (scheduleInfo.scheduleStartDate !== undefined) {
-    room.scheduleStartDate = scheduleInfo.scheduleStartDate;
-  }
-  if (scheduleInfo.scheduleEndDate !== undefined) {
-    room.scheduleEndDate = scheduleInfo.scheduleEndDate;
+    room.hasBeenUsed = scheduleInfo.hasBeenUsed;
   }
   if (scheduleInfo.lastScheduleGenerated !== undefined) {
     room.lastScheduleGenerated = scheduleInfo.lastScheduleGenerated;

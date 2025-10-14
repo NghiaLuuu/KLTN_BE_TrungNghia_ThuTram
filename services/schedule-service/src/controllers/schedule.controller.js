@@ -220,18 +220,26 @@ exports.generateRoomSchedule = async (req, res) => {
     const { 
       roomId, 
       subRoomId,
+      selectedSubRoomIds, // 🆕 Array subRoomIds được chọn để tạo lịch (nếu null = all active)
       fromMonth, // 1-12 (tháng bắt đầu)
       toMonth,   // 1-12 (tháng kết thúc)
-      year, 
+      fromYear,  // Năm bắt đầu (mới)
+      toYear,    // Năm kết thúc (mới)
+      year,      // Deprecated - giữ để backward compatible
       startDate,
+      partialStartDate, // 🆕 Ngày bắt đầu tạo lịch (cho tạo thiếu ca/subroom)
       shifts // Array: ['morning', 'afternoon', 'evening'] - ca nào được chọn để tạo
     } = req.body;
     
+    // 🆕 Backward compatibility: Nếu không có fromYear/toYear, dùng year
+    const effectiveFromYear = fromYear || year;
+    const effectiveToYear = toYear || year;
+    
     // Validation
-    if (!roomId || !fromMonth || !toMonth || !year || !startDate || !shifts || !Array.isArray(shifts)) {
+    if (!roomId || !fromMonth || !toMonth || !effectiveFromYear || !effectiveToYear || !startDate || !shifts || !Array.isArray(shifts)) {
       return res.status(400).json({
         success: false,
-        message: 'Thiếu thông tin: roomId, fromMonth, toMonth, year, startDate, và shifts là bắt buộc'
+        message: 'Thiếu thông tin: roomId, fromMonth, toMonth, fromYear/toYear (hoặc year), startDate, và shifts là bắt buộc'
       });
     }
     
@@ -242,10 +250,18 @@ exports.generateRoomSchedule = async (req, res) => {
       });
     }
     
-    if (toMonth < fromMonth) {
+    // 🆕 Validation cho nhiều năm
+    if (effectiveToYear < effectiveFromYear) {
       return res.status(400).json({
         success: false,
-        message: 'Tháng kết thúc phải >= Tháng bắt đầu'
+        message: 'Năm kết thúc phải >= Năm bắt đầu'
+      });
+    }
+    
+    if (effectiveToYear === effectiveFromYear && toMonth < fromMonth) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nếu cùng năm, tháng kết thúc phải >= Tháng bắt đầu'
       });
     }
     
@@ -265,13 +281,51 @@ exports.generateRoomSchedule = async (req, res) => {
       });
     }
     
+    // 🆕 Validation cho selectedSubRoomIds
+    if (selectedSubRoomIds && !Array.isArray(selectedSubRoomIds)) {
+      return res.status(400).json({
+        success: false,
+        message: 'selectedSubRoomIds phải là mảng'
+      });
+    }
+    
+    if (selectedSubRoomIds && selectedSubRoomIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phải chọn ít nhất 1 buồng để tạo lịch'
+      });
+    }
+    
+    // 🆕 Validation cho partialStartDate
+    if (partialStartDate) {
+      const partialDate = new Date(partialStartDate);
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      if (partialDate < tomorrow) {
+        return res.status(400).json({
+          success: false,
+          message: 'Ngày bắt đầu tạo lịch phải sau ngày hiện tại ít nhất 1 ngày'
+        });
+      }
+      
+      // Validation: partialStartDate phải <= endDate của schedule
+      // (sẽ được check thêm trong service)
+    }
+    
     const result = await scheduleService.generateRoomSchedule({
       roomId,
       subRoomId,
+      selectedSubRoomIds, // 🆕
       fromMonth,
       toMonth,
-      year,
+      fromYear: effectiveFromYear,
+      toYear: effectiveToYear,
+      year, // Giữ để backward compatible
       startDate,
+      partialStartDate, // 🆕
       shifts,
       createdBy: req.user?._id || req.user?.id
     });
@@ -342,6 +396,120 @@ exports.getRoomSchedulesWithShifts = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || 'Không thể lấy thông tin lịch'
+    });
+  }
+};
+
+// 🆕 Update schedule (reactive scheduling - toggle isActive, reactivate shifts/subrooms)
+exports.updateSchedule = async (req, res) => {
+  // Chỉ admin mới được phép edit schedule
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      message: 'Chỉ admin mới được phép chỉnh sửa lịch'
+    });
+  }
+
+  try {
+    const { scheduleId } = req.params;
+    const { isActive, reactivateShifts, reactivateSubRooms } = req.body;
+
+    if (!scheduleId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Schedule ID là bắt buộc'
+      });
+    }
+
+    // Validate reactivateShifts (nếu có)
+    if (reactivateShifts && !Array.isArray(reactivateShifts)) {
+      return res.status(400).json({
+        success: false,
+        message: 'reactivateShifts phải là mảng'
+      });
+    }
+
+    // Validate reactivateSubRooms (nếu có)
+    if (reactivateSubRooms && !Array.isArray(reactivateSubRooms)) {
+      return res.status(400).json({
+        success: false,
+        message: 'reactivateSubRooms phải là mảng'
+      });
+    }
+
+    // Call service to update schedule
+    const result = await scheduleService.updateSchedule({
+      scheduleId,
+      isActive,
+      reactivateShifts,
+      reactivateSubRooms,
+      updatedBy: req.user._id
+    });
+
+    res.json({
+      success: true,
+      message: 'Cập nhật lịch thành công',
+      data: result
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating schedule:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Không thể cập nhật lịch'
+    });
+  }
+};
+
+// 🆕 Add missing shifts to existing schedule
+exports.addMissingShifts = async (req, res) => {
+  // Chỉ admin mới được phép thêm ca thiếu
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      message: 'Chỉ admin mới được phép thêm ca thiếu vào lịch'
+    });
+  }
+
+  try {
+    const { roomId, month, year, subRoomIds, selectedShifts, partialStartDate } = req.body;
+
+    if (!roomId || !month || !year) {
+      return res.status(400).json({
+        success: false,
+        message: 'roomId, month, year là bắt buộc'
+      });
+    }
+
+    if (!selectedShifts || !Array.isArray(selectedShifts) || selectedShifts.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phải chọn ít nhất 1 ca để thêm'
+      });
+    }
+
+    // Call service to add missing shifts
+    const result = await scheduleService.addMissingShifts({
+      roomId,
+      month,
+      year,
+      subRoomIds: subRoomIds || [],
+      selectedShifts,
+      partialStartDate,
+      updatedBy: req.user._id
+    });
+
+    res.json({
+      success: true,
+      message: result.message,
+      data: result
+    });
+
+  } catch (error) {
+    console.error('❌ Error adding missing shifts:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Không thể thêm ca thiếu'
     });
   }
 };
@@ -804,6 +972,8 @@ module.exports = {
   generateRoomSchedule: exports.generateRoomSchedule,
   getHolidayPreview: exports.getHolidayPreview, // 🆕 
   getRoomSchedulesWithShifts: exports.getRoomSchedulesWithShifts,
+  updateSchedule: exports.updateSchedule, // 🆕 Reactive scheduling
+  addMissingShifts: exports.addMissingShifts, // 🆕 Add missing shifts
   getScheduleSummaryByRoom: exports.getScheduleSummaryByRoom,
   getRoomsWithScheduleSummary: exports.getRoomsWithScheduleSummary,
   getSlotsByShiftCalendar: exports.getSlotsByShiftCalendar,

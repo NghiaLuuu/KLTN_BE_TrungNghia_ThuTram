@@ -111,7 +111,7 @@ exports.markSubRoomAsUsed = async (roomId, subRoomId) => {
 // 🆕 Find rooms with schedule info
 exports.findRoomsWithScheduleInfo = async (filter, skip, limit) => {
   return await Room.find(filter)
-    .sort({ hasSchedule: -1, scheduleEndDate: -1, createdAt: -1 })
+    .sort({ hasBeenUsed: -1, lastScheduleGenerated: -1, createdAt: -1 })
     .skip(skip)
     .limit(limit)
     .lean();
