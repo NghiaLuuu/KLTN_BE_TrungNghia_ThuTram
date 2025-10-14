@@ -399,4 +399,29 @@ exports.updateRoomScheduleInfo = async (roomId, scheduleInfo) => {
   return room;
 };
 
+// 🆕 Mark subroom as used (được gọi khi tạo schedule cho subroom)
+exports.markSubRoomAsUsed = async (roomId, subRoomId) => {
+  const room = await roomRepo.findById(roomId);
+  if (!room) {
+    throw new Error('Không tìm thấy phòng');
+  }
+  
+  const subRoom = room.subRooms.id(subRoomId);
+  if (!subRoom) {
+    throw new Error('Không tìm thấy buồng');
+  }
+  
+  // Update hasBeenUsed for subroom
+  subRoom.hasBeenUsed = true;
+  
+  // Also mark parent room as used
+  room.hasBeenUsed = true;
+  
+  await room.save();
+  await refreshRoomCache();
+  
+  console.log(`✅ Marked subRoom ${subRoom.name} (${subRoomId}) as used`);
+  return room;
+};
+
 initRoomCache().catch(err => console.error('❌ Không thể tải bộ nhớ đệm phòng:', err));

@@ -874,6 +874,36 @@ exports.getStaffSchedule = async (req, res) => {
   }
 };
 
+// 🆕 CONTROLLER 3.5: Check Conflicts for Selected Slots (Optimized)
+exports.checkConflictsForSlots = async (req, res) => {
+  try {
+    const { slots } = req.body;
+    
+    if (!slots || !Array.isArray(slots) || slots.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'slots array is required'
+      });
+    }
+    
+    console.log(`🔍 Checking conflicts for ${slots.length} slots`);
+    
+    const result = await scheduleService.checkConflictsForSlots({ slots });
+    
+    res.json({
+      success: true,
+      data: result
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in checkConflictsForSlots controller:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Không thể kiểm tra xung đột'
+    });
+  }
+};
+
 // 🆕 CONTROLLER 4: Get Available Replacement Staff
 exports.getAvailableReplacementStaff = async (req, res) => {
   try {
@@ -986,6 +1016,7 @@ module.exports = {
   getRoomScheduleShifts: exports.getRoomScheduleShifts,
   getStaffAvailabilityForShift: exports.getStaffAvailabilityForShift,
   getStaffSchedule: exports.getStaffSchedule,
+  checkConflictsForSlots: exports.checkConflictsForSlots, // ⚡ Optimized conflict check
   getAvailableReplacementStaff: exports.getAvailableReplacementStaff,
   replaceStaff: exports.replaceStaff
 };

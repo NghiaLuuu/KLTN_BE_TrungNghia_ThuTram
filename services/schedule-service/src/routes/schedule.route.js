@@ -68,6 +68,9 @@ router.get('/staff-availability', scheduleController.getStaffAvailabilityForShif
 // Get staff schedule (lịch làm việc của nhân sự)
 router.get('/staff-schedule', scheduleController.getStaffSchedule);
 
+// ⚡ OPTIMIZED: Check conflicts for selected slots (new approach)
+router.post('/check-conflicts', scheduleController.checkConflictsForSlots);
+
 // Get available replacement staff (with conflict checking)
 router.post('/replacement-staff', scheduleController.getAvailableReplacementStaff);
 

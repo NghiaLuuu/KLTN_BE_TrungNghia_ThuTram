@@ -109,6 +109,136 @@ async function getStaffSchedule({ staffId, fromDate, toDate }) {
 
 exports.getStaffSchedule = getStaffSchedule;
 
+// 🆕 SERVICE: Check conflicts for selected slots (Optimized approach)
+async function checkConflictsForSlots({ slots }) {
+  try {
+    const slotRepo = require('../repositories/slot.repository');
+    
+    if (!slots || !Array.isArray(slots) || slots.length === 0) {
+      throw new Error('slots array is required');
+    }
+    
+    console.log(`⚡ Checking conflicts for ${slots.length} selected slots`);
+    
+    // Build OR queries for overlapping slots
+    const conflictQueries = slots.map(slot => {
+      const slotDate = new Date(slot.date);
+      const slotStart = new Date(slot.startTime);
+      const slotEnd = new Date(slot.endTime);
+      
+      return {
+        startTime: { 
+          $gte: new Date(slotDate.setHours(0, 0, 0, 0)),
+          $lt: new Date(slotDate.setHours(23, 59, 59, 999))
+        },
+        // Time overlap: existing.start < new.end AND new.start < existing.end
+        $and: [
+          { startTime: { $lt: slotEnd } },
+          { endTime: { $gt: slotStart } }
+        ]
+      };
+    });
+    
+    // Query: Find all slots that overlap with selected slots
+    const Slot = require('../models/slot.model');
+    const conflictingSlots = await Slot.find({
+      $or: conflictQueries
+    })
+    .select('_id dentist nurse startTime endTime date shiftName roomId subRoomId')
+    .lean();
+    
+    console.log(`📊 Found ${conflictingSlots.length} potentially conflicting slots`);
+    
+    // Extract conflicting staff IDs and build conflict details
+    const conflictingDentists = new Set();
+    const conflictingNurses = new Set();
+    const conflictDetails = {}; // { staffId: [conflicts] }
+    const staffStats = {}; // { staffId: { total, asDentist, asNurse } }
+    
+    conflictingSlots.forEach(slot => {
+      // Process dentists
+      const dentists = Array.isArray(slot.dentist) 
+        ? slot.dentist.map(d => d?.toString()).filter(Boolean)
+        : (slot.dentist ? [slot.dentist.toString()] : []);
+      
+      dentists.forEach(dentistId => {
+        conflictingDentists.add(dentistId);
+        
+        // Add conflict detail
+        if (!conflictDetails[dentistId]) conflictDetails[dentistId] = [];
+        conflictDetails[dentistId].push({
+          slotId: slot._id,
+          date: slot.startTime,
+          dateStr: toVNDateOnlyString(slot.startTime),
+          shiftName: slot.shiftName,
+          startTime: toVNTimeString(slot.startTime),
+          endTime: toVNTimeString(slot.endTime),
+          startDateTime: toVNDateTimeString(slot.startTime),
+          endDateTime: toVNDateTimeString(slot.endTime),
+          roomId: slot.roomId,
+          subRoomId: slot.subRoomId,
+          assignedAs: 'dentist'
+        });
+        
+        // Update stats
+        if (!staffStats[dentistId]) {
+          staffStats[dentistId] = { total: 0, asDentist: 0, asNurse: 0 };
+        }
+        staffStats[dentistId].total++;
+        staffStats[dentistId].asDentist++;
+      });
+      
+      // Process nurses
+      const nurses = Array.isArray(slot.nurse)
+        ? slot.nurse.map(n => n?.toString()).filter(Boolean)
+        : (slot.nurse ? [slot.nurse.toString()] : []);
+      
+      nurses.forEach(nurseId => {
+        conflictingNurses.add(nurseId);
+        
+        // Add conflict detail
+        if (!conflictDetails[nurseId]) conflictDetails[nurseId] = [];
+        conflictDetails[nurseId].push({
+          slotId: slot._id,
+          date: slot.startTime,
+          dateStr: toVNDateOnlyString(slot.startTime),
+          shiftName: slot.shiftName,
+          startTime: toVNTimeString(slot.startTime),
+          endTime: toVNTimeString(slot.endTime),
+          startDateTime: toVNDateTimeString(slot.startTime),
+          endDateTime: toVNDateTimeString(slot.endTime),
+          roomId: slot.roomId,
+          subRoomId: slot.subRoomId,
+          assignedAs: 'nurse'
+        });
+        
+        // Update stats
+        if (!staffStats[nurseId]) {
+          staffStats[nurseId] = { total: 0, asDentist: 0, asNurse: 0 };
+        }
+        staffStats[nurseId].total++;
+        staffStats[nurseId].asNurse++;
+      });
+    });
+    
+    console.log(`✅ Conflicts detected: ${conflictingDentists.size} dentists, ${conflictingNurses.size} nurses`);
+    
+    return {
+      conflictingDentists: Array.from(conflictingDentists),
+      conflictingNurses: Array.from(conflictingNurses),
+      conflictDetails,
+      staffStats,
+      totalConflictingSlots: conflictingSlots.length
+    };
+    
+  } catch (error) {
+    console.error('❌ Error checking conflicts for slots:', error);
+    throw error;
+  }
+}
+
+exports.checkConflictsForSlots = checkConflictsForSlots;
+
 // Helper: Get Vietnam timezone date
 function getVietnamDate() {
   const now = new Date();
@@ -1343,7 +1473,8 @@ module.exports = {
   createSchedulesForNewRoom,
   isLastDayOfQuarter,
   getNextQuarterForScheduling,
-  isLastDayOfMonth
+  isLastDayOfMonth,
+  checkConflictsForSlots
 };
 
 // 🔧 Check conflict chung
@@ -3296,6 +3427,23 @@ exports.generateRoomSchedule = async ({
         await schedule.save();
         totalSlots += monthSlots;
         
+        // 🆕 Emit RabbitMQ event to update hasBeenUsed for subrooms
+        if (currentSubRoomId && isSubRoomSelected) {
+          try {
+            await publishToQueue('subroom.schedule.created', {
+              type: 'SUBROOM_USED',
+              roomId: roomId.toString(),
+              subRoomIds: [currentSubRoomId.toString()],
+              hasBeenUsed: true,
+              timestamp: new Date()
+            });
+            console.log(`📤 Emitted subroom.schedule.created event for subRoom ${currentSubRoomId}`);
+          } catch (eventError) {
+            console.error(`❌ Failed to emit subroom event:`, eventError.message);
+            // Don't fail schedule creation if event emission fails
+          }
+        }
+        
         // 🆕 Mark non-recurring holidays as used
         if (holidaySnapshot.nonRecurringHolidayIds && holidaySnapshot.nonRecurringHolidayIds.length > 0) {
           console.log(`📝 Marking ${holidaySnapshot.nonRecurringHolidayIds.length} non-recurring holidays as used`);
@@ -3958,17 +4106,37 @@ exports.addMissingShifts = async ({
           } else {
             console.log(`      ✅ Will generate ${shiftsToGenerate.length} shifts: ${shiftsToGenerate.map(s => s.key).join(', ')}`);
 
-            // Generate slots (use roomId as subRoomId for rooms without subrooms)
-            const slotIds = await generateSlotsAndSave(
-              schedule._id,
-              roomId, // Use roomId as subRoomId
-              shiftsToGenerate,
-              slotDuration,
-              effectiveStartDate.format('YYYY-MM-DD'),
-              scheduleEndDate.format('YYYY-MM-DD')
-            );
+            // 🔧 Generate slots - Dùng generateSlotsForShift giống như generateRoomSchedule
+            let totalSlotsForRoom = 0;
+            
+            for (const shift of shiftsToGenerate) {
+              const shiftKey = shift.key;
+              const shiftInfo = shift;
+              
+              // 🆕 Lấy slotDuration từ shiftConfig của schedule (không phải từ config chung)
+              const shiftSlotDuration = shiftInfo.slotDuration || slotDuration;
+              
+              console.log(`      🔧 Generating slots for ${shiftKey}: ${shiftInfo.name}, slotDuration: ${shiftSlotDuration}min`);
+              
+              // Generate slots with holiday snapshot (same as generateRoomSchedule)
+              const generatedSlots = await generateSlotsForShift({
+                scheduleId: schedule._id,
+                roomId: roomId,
+                subRoomId: roomId, // Use roomId as subRoomId for rooms without subrooms
+                shiftName: shiftInfo.name,
+                shiftStart: shiftInfo.startTime,
+                shiftEnd: shiftInfo.endTime,
+                slotDuration: shiftSlotDuration, // 🆕 Dùng slotDuration riêng cho shift
+                scheduleStartDate: effectiveStartDate.toDate(),
+                scheduleEndDate: scheduleEndDate.toDate(),
+                holidaySnapshot: schedule.holidaySnapshot // 🆕 Truyền holiday snapshot từ schedule
+              });
+              
+              console.log(`      ✅ Generated ${generatedSlots.length} slots for ${shiftKey}`);
+              totalSlotsForRoom += generatedSlots.length;
+            }
 
-            console.log(`      ✅ Generated ${slotIds.length} slots`);
+            console.log(`      ✅ Total generated: ${totalSlotsForRoom} slots`);
 
             // Update shiftConfig
             for (const shift of shiftsToGenerate) {
@@ -3979,12 +4147,24 @@ exports.addMissingShifts = async ({
 
             // Clear cache
             await redisClient.del(`schedule:${schedule._id}`);
+            
+            // 🆕 Emit event to update room hasBeenUsed (for rooms without subrooms)
+            try {
+              await publishToQueue('room.schedule.updated', {
+                roomId: roomId.toString(),
+                hasBeenUsed: true,
+                lastScheduleGenerated: new Date()
+              });
+              console.log(`📤 Emitted room.schedule.updated event for room ${roomId}`);
+            } catch (eventError) {
+              console.error(`❌ Failed to emit room event:`, eventError.message);
+            }
 
-            totalAddedSlots += slotIds.length;
+            totalAddedSlots += totalSlotsForRoom;
             results.push({
               roomId,
               status: 'success',
-              addedSlots: slotIds.length,
+              addedSlots: totalSlotsForRoom,
               shifts: shiftsToGenerate.map(s => s.key)
             });
           }
@@ -4092,17 +4272,37 @@ exports.addMissingShifts = async ({
 
       console.log(`      ✅ Will generate ${shiftsToGenerate.length} shifts: ${shiftsToGenerate.map(s => s.key).join(', ')}`);
 
-      // Generate slots
-      const slotIds = await generateSlotsAndSave(
-        schedule._id,
-        subRoomId,
-        shiftsToGenerate,
-        slotDuration,
-        effectiveStartDate.format('YYYY-MM-DD'),
-        scheduleEndDate.format('YYYY-MM-DD')
-      );
+      // 🔧 Generate slots - Dùng generateSlotsForShift giống như generateRoomSchedule
+      let totalSlotsForSubRoom = 0;
+      
+      for (const shift of shiftsToGenerate) {
+        const shiftKey = shift.key;
+        const shiftInfo = shift;
+        
+        // 🆕 Lấy slotDuration từ shiftConfig của schedule (không phải từ config chung)
+        const shiftSlotDuration = shiftInfo.slotDuration || slotDuration;
+        
+        console.log(`      🔧 Generating slots for ${shiftKey}: ${shiftInfo.name}, slotDuration: ${shiftSlotDuration}min`);
+        
+        // Generate slots with holiday snapshot (same as generateRoomSchedule)
+        const generatedSlots = await generateSlotsForShift({
+          scheduleId: schedule._id,
+          roomId: roomId,
+          subRoomId: subRoomId,
+          shiftName: shiftInfo.name,
+          shiftStart: shiftInfo.startTime,
+          shiftEnd: shiftInfo.endTime,
+          slotDuration: shiftSlotDuration, // 🆕 Dùng slotDuration riêng cho shift
+          scheduleStartDate: effectiveStartDate.toDate(),
+          scheduleEndDate: scheduleEndDate.toDate(),
+          holidaySnapshot: schedule.holidaySnapshot // 🆕 Truyền holiday snapshot từ schedule
+        });
+        
+        console.log(`      ✅ Generated ${generatedSlots.length} slots for ${shiftKey}`);
+        totalSlotsForSubRoom += generatedSlots.length;
+      }
 
-      console.log(`      ✅ Generated ${slotIds.length} slots`);
+      console.log(`      ✅ Total generated: ${totalSlotsForSubRoom} slots`);
 
       // Update shiftConfig
       for (const shift of shiftsToGenerate) {
@@ -4113,12 +4313,26 @@ exports.addMissingShifts = async ({
 
       // Clear cache
       await redisClient.del(`schedule:${schedule._id}`);
+      
+      // 🆕 Emit event to update subroom hasBeenUsed
+      try {
+        await publishToQueue('subroom.schedule.created', {
+          type: 'SUBROOM_USED',
+          roomId: roomId.toString(),
+          subRoomIds: [subRoomId.toString()],
+          hasBeenUsed: true,
+          timestamp: new Date()
+        });
+        console.log(`📤 Emitted subroom.schedule.created event for subRoom ${subRoomId}`);
+      } catch (eventError) {
+        console.error(`❌ Failed to emit subroom event:`, eventError.message);
+      }
 
-      totalAddedSlots += slotIds.length;
+      totalAddedSlots += totalSlotsForSubRoom;
       results.push({
         subRoomId,
         status: 'success',
-        addedSlots: slotIds.length,
+        addedSlots: totalSlotsForSubRoom,
         shifts: shiftsToGenerate.map(s => s.key)
       });
       } // End of for loop

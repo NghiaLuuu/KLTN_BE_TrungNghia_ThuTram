@@ -17,13 +17,15 @@ async function connectRabbit() {
 async function startScheduleConsumer() {
   try {
     const ch = await connectRabbit();
-    const queue = 'room.schedule.updated';
+    const roomScheduleQueue = 'room.schedule.updated';
+    const subroomScheduleQueue = 'subroom.schedule.created';
     
-    await ch.assertQueue(queue, { durable: true });
+    // Consumer 1: Room schedule updates
+    await ch.assertQueue(roomScheduleQueue, { durable: true });
     
-    console.log(`📡 Listening for messages on queue: ${queue}`);
+    console.log(`📡 Listening for messages on queue: ${roomScheduleQueue}`);
     
-    ch.consume(queue, async (msg) => {
+    ch.consume(roomScheduleQueue, async (msg) => {
       if (msg) {
         try {
           const data = JSON.parse(msg.content.toString());
@@ -43,6 +45,39 @@ async function startScheduleConsumer() {
         } catch (error) {
           console.error('❌ Error processing schedule update message:', error);
           ch.nack(msg, false, false); // Don't requeue failed messages
+        }
+      }
+    }, { noAck: false });
+    
+    // Consumer 2: Subroom schedule creation (update hasBeenUsed)
+    await ch.assertQueue(subroomScheduleQueue, { durable: true });
+    
+    console.log(`📡 Listening for messages on queue: ${subroomScheduleQueue}`);
+    
+    ch.consume(subroomScheduleQueue, async (msg) => {
+      if (msg) {
+        try {
+          const data = JSON.parse(msg.content.toString());
+          console.log('📥 Received subroom schedule created event:', data);
+          
+          const { roomId, subRoomIds } = data;
+          
+          if (!roomId || !subRoomIds || !Array.isArray(subRoomIds)) {
+            console.error('❌ Invalid subroom event data:', data);
+            ch.nack(msg, false, false);
+            return;
+          }
+          
+          // Update hasBeenUsed for all subrooms
+          for (const subRoomId of subRoomIds) {
+            await roomService.markSubRoomAsUsed(roomId, subRoomId);
+            console.log(`✅ Marked subRoom ${subRoomId} as used`);
+          }
+          
+          ch.ack(msg);
+        } catch (error) {
+          console.error('❌ Error processing subroom schedule created message:', error);
+          ch.nack(msg, false, false);
         }
       }
     }, { noAck: false });

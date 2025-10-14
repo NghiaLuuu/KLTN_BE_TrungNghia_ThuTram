@@ -77,6 +77,12 @@ const slotSchema = new mongoose.Schema({
 // Room calendar query: roomId + isActive + startTime
 slotSchema.index({ roomId: 1, isActive: 1, startTime: 1 });
 slotSchema.index({ roomId: 1, subRoomId: 1, isActive: 1, startTime: 1 }); // With subRoom
+
+// ⚡ NEW: Optimized for calendar with futureOnly filter
+slotSchema.index({ roomId: 1, subRoomId: 1, isActive: 1, startTime: 1 }, { 
+  name: 'room_calendar_future' 
+});
+
 slotSchema.index({ roomId: 1, shiftName: 1, isActive: 1, startTime: 1 }); // Room details
 
 // Staff calendar queries: dentist/nurse + isActive + startTime
