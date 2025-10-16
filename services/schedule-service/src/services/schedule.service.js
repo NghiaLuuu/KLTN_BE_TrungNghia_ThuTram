@@ -1160,8 +1160,6 @@ async function generateSlotsForShiftAllDays({
         endTime: new Date(slotEndTime),
         date: new Date(Date.UTC(year, month - 1, day, -7, 0, 0, 0)), // Midnight VN time
   duration: effectiveDuration,
-        isAvailable: true,
-        isBooked: false,
         status: 'available'
       });
       
@@ -1213,7 +1211,7 @@ function createSlotData(schedule, room, subRoom, shift, startTime, endTime) {
   // Note: VN-local display fields removed; caller will apply +7 when formatting on read
     dentist: null, // Will be assigned later
     nurse: null,   // Will be assigned later
-    isBooked: false,
+    status: 'available',
     isActive: true,
     createdAt: getVietnamDate()
   };
@@ -4517,8 +4515,7 @@ async function generateSlotsForShift({
         endTime: new Date(slotEndTime),
         date: new Date(Date.UTC(year, month - 1, day, -7, 0, 0, 0)), // Midnight VN time
         duration: slotDuration,
-        isAvailable: true,
-        isBooked: false
+        status: 'available'
       });
       
       slotCount++;
@@ -4730,13 +4727,12 @@ exports.getSlotsByShiftCalendar = async ({ roomId, subRoomId, shiftName, month, 
         startTime: slot.startTime,
         endTime: slot.endTime,
         duration: slot.duration,
-        isAvailable: slot.isAvailable,
-        isBooked: slot.isBooked,
+        status: slot.status,
         assignedTo: slot.assignedTo || null
       });
       
       dayMap[dateKey].totalSlots++;
-      if (slot.isBooked) dayMap[dateKey].bookedSlots++;
+      if (slot.status === 'booked') dayMap[dateKey].bookedSlots++;
       if (slot.assignedTo) dayMap[dateKey].assignedSlots++;
     });
     
@@ -4909,8 +4905,7 @@ exports.getShiftCalendarForAssignment = async ({ roomId, subRoomId, shiftName, m
         startTime: slot.startTime,
         endTime: slot.endTime,
         duration: slot.duration,
-        isAvailable: slot.isAvailable,
-        isBooked: slot.isBooked,
+        status: slot.status,
         dentist: slot.dentist ? {
           _id: slot.dentist._id,
           name: `${slot.dentist.firstName} ${slot.dentist.lastName}`,
@@ -4993,8 +4988,7 @@ exports.getSlotsByDayAndShift = async ({ roomId, subRoomId, shiftName, date }) =
       startTime: slot.startTime,
       endTime: slot.endTime,
       duration: slot.duration,
-      isAvailable: slot.isAvailable,
-      isBooked: slot.isBooked,
+      status: slot.status,
       dentist: slot.dentist ? {
         _id: slot.dentist._id,
         name: `${slot.dentist.firstName} ${slot.dentist.lastName}`,
@@ -5029,7 +5023,7 @@ exports.assignStaffToSlot = async ({ slotId, dentistId, nurseId, updatedBy }) =>
     }
     
     // Check if slot is already booked
-    if (slot.isBooked) {
+    if (slot.status === 'booked') {
       throw new Error('Slot đã được đặt, không thể thay đổi phân công');
     }
     

@@ -24,6 +24,21 @@ router.get('/return/vnpay',
   paymentController.vnpayReturn
 );
 
+// Visa Payment Processing (Patient only - optional auth)
+router.post('/visa/process',
+  paymentController.processVisaPayment
+);
+
+// Create temporary payment for reservation (Internal service-to-service call)
+router.post('/temporary', 
+  paymentController.createTemporaryPayment
+);
+
+// Create VNPay payment URL (Called from frontend payment selection page)
+router.post('/vnpay/create-url',
+  paymentController.createVNPayUrl
+);
+
 // ============ AUTHENTICATED ROUTES ============
 router.use(authMiddleware);
 

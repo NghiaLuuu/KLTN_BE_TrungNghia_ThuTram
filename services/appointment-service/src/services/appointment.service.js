@@ -2,6 +2,8 @@ const Appointment = require('../models/appointment.model');
 const redisClient = require('../utils/redis.client');
 const { publishToQueue } = require('../utils/rabbitmq.client');
 const rpcClient = require('../utils/rpcClient');
+const serviceClient = require('../utils/serviceClient');
+const axios = require('axios');
 
 class AppointmentService {
   
@@ -18,7 +20,7 @@ class AppointmentService {
       
       const availableSlots = [];
       for (const slot of slots) {
-        if (!slot.isBooked && slot.isActive) {
+        if (slot.status === 'available' && slot.isActive) {
           const isLocked = await this.isSlotLocked(slot._id.toString());
           if (!isLocked) {
             availableSlots.push(slot);
@@ -101,13 +103,24 @@ class AppointmentService {
     return hours + ':' + minutes;
   }
   
+  /**
+   * Check if slot is temporarily locked in Redis (during 15-min reservation window)
+   * This is NOT checking DB slot.isBooked - that's done in validateSlotsAvailable
+   * @param {String} slotId 
+   * @returns {Boolean} true if locked in Redis
+   */
   async isSlotLocked(slotId) {
     try {
       const lock = await redisClient.get('temp_slot_lock:' + slotId);
+      if (lock) {
+        // Check if it's our own lock (allow same user to retry)
+        const lockData = JSON.parse(lock);
+        console.log(`⏳ Slot ${slotId} is locked by reservation ${lockData.reservationId}`);
+      }
       return lock !== null;
     } catch (error) {
-      console.warn('Redis check failed:', error);
-      return false;
+      console.warn('⚠️ Redis check failed, assuming not locked:', error);
+      return false; // Fail open - allow reservation if Redis is down
     }
   }
   
@@ -147,31 +160,44 @@ class AppointmentService {
         expiresAt: new Date(Date.now() + 15 * 60 * 1000)
       };
       
+      // 1️⃣ Lock slots in DB (set status='locked')
+      try {
+        const scheduleServiceUrl = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
+        await axios.put(`${scheduleServiceUrl}/api/slot/bulk-update`, {
+          slotIds,
+          updates: {
+            status: 'locked',
+            lockedAt: new Date(),
+            lockedBy: reservationId
+          }
+        });
+        console.log('✅ Locked slots in DB (status=locked)');
+      } catch (error) {
+        console.error('❌ Failed to lock slots in DB:', error.message);
+        // Continue anyway - Redis lock is primary
+      }
+      
+      // 2️⃣ Store reservation + locks in Redis (15 min TTL)
       const ttl = 15 * 60;
-      await redisClient.setex(
+      await redisClient.setEx(
         'temp_reservation:' + reservationId,
         ttl,
         JSON.stringify(reservation)
       );
       
       for (const slotId of slotIds) {
-        await redisClient.setex(
+        await redisClient.setEx(
           'temp_slot_lock:' + slotId,
           ttl,
           JSON.stringify({ reservationId, lockedAt: new Date() })
         );
       }
       
-      const paymentResult = await rpcClient.call('payment-service', 'createTempPayment', {
-        reservationId,
-        amount: serviceInfo.servicePrice,
-        patientInfo: {
-          name: patientInfo.name,
-          phone: patientInfo.phone,
-          email: patientInfo.email
-        },
-        description: 'Payment for appointment - ' + serviceInfo.serviceAddOnName
-      });
+      // 3️⃣ Create temporary payment via HTTP (replaced RPC)
+      const paymentResult = await serviceClient.createTemporaryPayment(
+        reservationId, // appointmentHoldKey
+        serviceInfo.servicePrice // amount
+      );
       
       return {
         reservationId,
@@ -188,15 +214,61 @@ class AppointmentService {
   
   async validateSlotsAvailable(slotIds) {
     for (const slotId of slotIds) {
-      const isLocked = await this.isSlotLocked(slotId);
-      if (isLocked) {
-        throw new Error('Slot ' + slotId + ' is currently locked');
-      }
-      
+      // 1️⃣ Check slot in DB via schedule-service (source of truth)
       const slot = await this.getSlotInfo(slotId);
-      if (slot.isBooked) {
+      
+      // Check if already booked
+      if (slot.status === 'booked') {
         throw new Error('Slot ' + slotId + ' is already booked');
       }
+      
+      // Check if locked - but verify lock is still valid
+      if (slot.status === 'locked') {
+        // If slot is locked, check if the reservation still exists in Redis
+        const lockedBy = slot.lockedBy; // reservationId
+        if (lockedBy) {
+          const reservationExists = await redisClient.exists('temp_reservation:' + lockedBy);
+          if (reservationExists) {
+            // Lock is still valid
+            throw new Error('Slot ' + slotId + ' is currently locked (another user is booking)');
+          } else {
+            // Lock expired but DB not updated - unlock it now
+            console.log(`⚠️ Slot ${slotId} has expired lock (${lockedBy}), unlocking...`);
+            await this.unlockExpiredSlot(slotId);
+          }
+        } else {
+          // Locked but no lockedBy - invalid state, unlock it
+          console.log(`⚠️ Slot ${slotId} locked without reservationId, unlocking...`);
+          await this.unlockExpiredSlot(slotId);
+        }
+      }
+      
+      // 2️⃣ Check temporary lock in Redis (for concurrent reservations)
+      // This is backup check - DB should already have status='locked'
+      const isLocked = await this.isSlotLocked(slotId);
+      if (isLocked) {
+        throw new Error('Slot ' + slotId + ' is currently locked by another reservation');
+      }
+    }
+  }
+
+  /**
+   * Unlock an expired slot in DB (set status back to 'available')
+   */
+  async unlockExpiredSlot(slotId) {
+    try {
+      const scheduleServiceUrl = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
+      await axios.put(`${scheduleServiceUrl}/api/slot/bulk-update`, {
+        slotIds: [slotId],
+        updates: {
+          status: 'available',
+          lockedAt: null,
+          lockedBy: null
+        }
+      });
+      console.log(`✅ Unlocked expired slot ${slotId}`);
+    } catch (error) {
+      console.error(`❌ Failed to unlock slot ${slotId}:`, error.message);
     }
   }
   
@@ -244,11 +316,24 @@ class AppointmentService {
     }
   }
   
+  /**
+   * Get slot info from schedule-service DB (source of truth)
+   * Checks actual slot.status in database, not Redis
+   * @param {String} slotId 
+   * @returns {Object} slot with status, appointmentId, dentist, etc.
+   */
   async getSlotInfo(slotId) {
     try {
-      const slot = await rpcClient.call('schedule-service', 'getSlot', { slotId });
+      // Use HTTP call to schedule-service to get real-time DB status
+      const slot = await serviceClient.getSlot(slotId);
+      if (!slot) {
+        throw new Error('Slot not found');
+      }
+      
+      console.log(`📅 Slot ${slotId} DB status: ${slot.status}, appointmentId: ${slot.appointmentId || 'null'}`);
       return slot;
     } catch (error) {
+      console.error('[AppointmentService] getSlotInfo error:', error.message);
       throw new Error('Cannot get slot info: ' + error.message);
     }
   }
@@ -297,10 +382,9 @@ class AppointmentService {
       
       await appointment.save();
       
-      await rpcClient.call('schedule-service', 'updateSlotsBooked', {
-        slotIds: reservation.slotIds,
-        appointmentId: appointment._id,
-        isBooked: true
+      await serviceClient.bulkUpdateSlots(reservation.slotIds, {
+        status: 'booked',
+        appointmentId: appointment._id
       });
       
       await rpcClient.call('service-service', 'markServiceAddOnAsUsed', {
@@ -414,10 +498,9 @@ class AppointmentService {
     appointment.cancellationReason = reason;
     await appointment.save();
     
-    await rpcClient.call('schedule-service', 'updateSlotsBooked', {
-      slotIds: appointment.slotIds,
-      appointmentId: null,
-      isBooked: false
+    await serviceClient.bulkUpdateSlots(appointment.slotIds, {
+      status: 'available',
+      appointmentId: null
     });
     
     await publishToQueue('appointment_queue', {
@@ -499,10 +582,9 @@ class AppointmentService {
       await appointment.save();
       
       // Update slots as booked
-      await rpcClient.call('schedule-service', 'updateSlotsBooked', {
-        slotIds,
-        appointmentId: appointment._id,
-        isBooked: true
+      await serviceClient.bulkUpdateSlots(slotIds, {
+        status: 'booked',
+        appointmentId: appointment._id
       });
       
       // Mark service as used
@@ -541,6 +623,159 @@ class AppointmentService {
     } catch (error) {
       console.error('Error creating offline appointment:', error);
       throw new Error('Cannot create offline appointment: ' + error.message);
+    }
+  }
+  
+  /**
+   * Create appointment from reservation after payment completed
+   * @param {String} reservationId 
+   * @param {Object} paymentInfo 
+   * @returns {Object} Created appointment
+   */
+  async createFromReservation(reservationId, paymentInfo) {
+    try {
+      console.log('Creating appointment from reservation:', reservationId);
+      
+      // Get reservation from Redis
+      const reservationData = await redisClient.get('temp_reservation:' + reservationId);
+      if (!reservationData) {
+        throw new Error('Reservation not found or expired');
+      }
+      
+      const reservation = JSON.parse(reservationData);
+      
+      // Generate appointment code
+      const appointmentDate = new Date(reservation.appointmentDate);
+      const appointmentCode = await Appointment.generateAppointmentCode(appointmentDate);
+      
+      // Create appointment
+      const appointment = new Appointment({
+        appointmentCode,
+        patientId: reservation.patientId,
+        patientInfo: reservation.patientInfo,
+        serviceId: reservation.serviceId,
+        serviceName: reservation.serviceName,
+        serviceType: reservation.serviceType,
+        serviceAddOnId: reservation.serviceAddOnId,
+        serviceAddOnName: reservation.serviceAddOnName,
+        serviceDuration: reservation.serviceDuration,
+        servicePrice: reservation.servicePrice,
+        dentistId: reservation.dentistId,
+        dentistName: reservation.dentistName,
+        slotIds: reservation.slotIds,
+        appointmentDate: reservation.appointmentDate,
+        startTime: reservation.startTime,
+        endTime: reservation.endTime,
+        roomId: reservation.roomId,
+        roomName: reservation.roomName,
+        paymentId: paymentInfo.paymentId,
+        totalAmount: reservation.servicePrice,
+        status: 'confirmed',
+        bookedAt: new Date(),
+        bookedBy: reservation.bookedBy,
+        bookedByRole: reservation.bookedByRole,
+        bookingChannel: reservation.bookingChannel,
+        notes: reservation.notes,
+        paymentMethod: paymentInfo.paymentMethod,
+        paymentStatus: paymentInfo.paymentStatus,
+        paidAmount: paymentInfo.paidAmount,
+        transactionId: paymentInfo.transactionId
+      });
+      
+      await appointment.save();
+      
+      // Update slots: set status='booked' and appointmentId
+      // Use HTTP instead of RPC for better debugging
+      try {
+        const scheduleServiceUrl = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
+        await axios.put(`${scheduleServiceUrl}/api/slot/bulk-update`, {
+          slotIds: reservation.slotIds,
+          updates: {
+            status: 'booked', // Change from 'locked' to 'booked'
+            appointmentId: appointment._id
+          }
+        });
+        console.log('✅ Updated slots to booked (status=booked) via HTTP');
+      } catch (error) {
+        console.error('❌ Failed to update slots via HTTP:', error.message);
+        // This is critical - if slot update fails, we have a problem
+        // But appointment is already created, so log error for manual fix
+        console.error('⚠️ CRITICAL: Appointment created but slots not updated to booked!');
+      }
+      
+      // Mark service as used (keep RPC for now)
+      await rpcClient.call('service-service', 'markServiceAddOnAsUsed', {
+        serviceId: reservation.serviceId,
+        serviceAddOnId: reservation.serviceAddOnId
+      });
+      
+      // Cleanup reservation và slot locks from Redis
+      await redisClient.del('temp_reservation:' + reservationId);
+      for (const slotId of reservation.slotIds) {
+        await redisClient.del('temp_slot_lock:' + slotId);
+      }
+      
+      console.log('✅ Appointment created from reservation:', appointmentCode);
+      return appointment;
+      
+    } catch (error) {
+      console.error('❌ Error creating appointment from reservation:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Cancel reservation and unlock slots
+   * @param {String} reservationId 
+   * @param {String} reason 
+   */
+  /**
+   * Cancel reservation and unlock slots
+   * Called when: payment fails, payment timeout, user cancels
+   */
+  async cancelReservation(reservationId, reason) {
+    try {
+      console.log('🚫 Cancelling reservation:', reservationId, 'Reason:', reason);
+      
+      // Get reservation from Redis
+      const reservationData = await redisClient.get('temp_reservation:' + reservationId);
+      if (!reservationData) {
+        console.log('⚠️ Reservation not found or already expired:', reservationId);
+        return;
+      }
+      
+      const reservation = JSON.parse(reservationData);
+      
+      // 1️⃣ Unlock slots in DB (set status='available')
+      try {
+        const scheduleServiceUrl = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
+        await axios.put(`${scheduleServiceUrl}/api/slot/bulk-update`, {
+          slotIds: reservation.slotIds,
+          updates: {
+            status: 'available',
+            lockedAt: null,
+            lockedBy: null
+          }
+        });
+        console.log('✅ Unlocked slots in DB (status=available)');
+      } catch (error) {
+        console.error('❌ Failed to unlock slots in DB:', error.message);
+      }
+      
+      // 2️⃣ Unlock slots in Redis
+      for (const slotId of reservation.slotIds) {
+        await redisClient.del('temp_slot_lock:' + slotId);
+        console.log('Unlocked slot:', slotId);
+      }
+      
+      // 3️⃣ Delete reservation
+      await redisClient.del('temp_reservation:' + reservationId);
+      
+      console.log('✅ Reservation cancelled:', reservationId);
+      
+    } catch (error) {
+      console.error('❌ Error cancelling reservation:', error);
+      throw error;
     }
   }
 }

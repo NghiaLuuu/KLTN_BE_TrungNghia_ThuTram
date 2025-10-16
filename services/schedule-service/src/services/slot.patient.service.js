@@ -120,14 +120,13 @@ async function getDentistsWithNearestSlot() {
         // 1. Slot has this dentist assigned (dentist is array)
         // 2. Slot start time > threshold
         // 3. Slot start time <= maxDate
-        // 4. Slot is not booked and is available
+        // 4. Slot status is available
         // 5. Slot is active
         
         const query = {
           dentist: dentist._id, // MongoDB will match if _id is in the dentist array
           startTime: { $gte: threshold, $lte: maxDate },
-          isBooked: false,
-          isAvailable: true,
+          status: 'available',
           isActive: true
         };
         
@@ -147,8 +146,7 @@ async function getDentistsWithNearestSlot() {
             slotId: nearestSlot._id,
             startTime: nearestSlot.startTime,
             endTime: nearestSlot.endTime,
-            isBooked: nearestSlot.isBooked,
-            isAvailable: nearestSlot.isAvailable,
+            status: nearestSlot.status,
             isActive: nearestSlot.isActive,
             dentists: nearestSlot.dentist
           });
@@ -227,11 +225,10 @@ async function getDentistWorkingDates(dentistId) {
     const slots = await Slot.find({
       dentist: dentistId, // MongoDB will match if dentistId is in the dentist array
       startTime: { $gte: threshold, $lte: maxDate },
-      isBooked: false,
-      isAvailable: true,
+      status: 'available',
       isActive: true
     })
-    .select('startTime endTime shiftName isBooked isAvailable')
+    .select('startTime endTime shiftName status')
     .sort({ startTime: 1 })
     .lean();
     

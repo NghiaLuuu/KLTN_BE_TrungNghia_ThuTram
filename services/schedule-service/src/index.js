@@ -9,6 +9,7 @@ const slotRoutes = require('./routes/slot.route');
 const scheduleConfigRoutes = require('./routes/scheduleConfig.route');
 const startRpcServer = require('./utils/rpcServer');
 const scheduleConfigService = require('./services/scheduleConfig.service');
+const { setupEventListeners } = require('./utils/eventListeners');
 
 connectDB();
 
@@ -34,6 +35,11 @@ startRpcServer();
 setTimeout(async () => {
   await scheduleConfigService.autoInitializeDefaults();
 }, 2000); // Wait 2s for DB connection to be ready
+
+// 🆕 Setup RabbitMQ event listeners
+setTimeout(async () => {
+  await setupEventListeners();
+}, 3000); // Wait 3s after DB is ready
 
 // Server
 

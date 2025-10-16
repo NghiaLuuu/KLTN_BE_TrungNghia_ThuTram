@@ -1,12 +1,30 @@
 const { consumeQueue } = require('./rabbitmq.client');
 const appointmentService = require('../services/appointment.service');
+const { 
+  handlePaymentCompleted, 
+  handlePaymentFailed, 
+  handlePaymentTimeout 
+} = require('./paymentEventHandlers');
 
 /**
  * Setup event listeners for Appointment Service
  */
 async function setupEventListeners() {
   try {
-    // Listen to payment_success events
+    // Listen to payment events
+    await consumeQueue('payment.completed', async (message) => {
+      await handlePaymentCompleted(message.data);
+    });
+    
+    await consumeQueue('payment.failed', async (message) => {
+      await handlePaymentFailed(message.data);
+    });
+    
+    await consumeQueue('payment.timeout', async (message) => {
+      await handlePaymentTimeout(message.data);
+    });
+    
+    // Legacy: Listen to payment_success events for backward compatibility
     await consumeQueue('appointment_payment_queue', async (message) => {
       const { event, data } = message;
       

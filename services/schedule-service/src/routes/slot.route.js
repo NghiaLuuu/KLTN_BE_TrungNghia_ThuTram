@@ -48,4 +48,12 @@ router.get('/dentists-with-nearest-slot', slotController.getDentistsWithNearestS
 // Get dentist working dates within maxBookingDays from today
 router.get('/dentist/:dentistId/working-dates', slotController.getDentistWorkingDates);
 
+// 🆕 Bulk update slots (for appointment service to update booked status)
+router.put('/bulk-update', slotController.bulkUpdateSlots);
+
+// 🆕 Get slot by ID (for inter-service communication)
+// ⚠️ IMPORTANT: This route MUST be last because it's a catch-all pattern
+// Place all specific routes ABOVE this line
+router.get('/:slotId', slotController.getSlotById);
+
 module.exports = router;

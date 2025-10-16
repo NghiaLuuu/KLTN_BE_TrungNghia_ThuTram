@@ -22,6 +22,18 @@ function createVNPayPayment(orderId, amount, orderInfo, ipAddr, bankCode = '', l
   const createDate = formatVNPayDate(new Date());
   const currCode = 'VND';
 
+  // NO SPACES - VNPay may have issues with spaces even with encode:false
+  const sanitizedOrderInfo = `ThanhToanGD:${orderId}`;
+
+  console.log('🔵 [VNPay Gateway] Creating payment with:', {
+    tmnCode,
+    orderId,
+    amount,
+    originalOrderInfo: orderInfo,
+    sanitizedOrderInfo,
+    ipAddr
+  });
+
   // Build VNPay params
   let vnp_Params = {
     vnp_Version: '2.1.0',
@@ -30,7 +42,7 @@ function createVNPayPayment(orderId, amount, orderInfo, ipAddr, bankCode = '', l
     vnp_Locale: locale,
     vnp_CurrCode: currCode,
     vnp_TxnRef: orderId,
-    vnp_OrderInfo: orderInfo,
+    vnp_OrderInfo: sanitizedOrderInfo, // Use sanitized version
     vnp_OrderType: 'other',
     vnp_Amount: amount * 100, // VNPay yêu cầu amount * 100
     vnp_ReturnUrl: returnUrl,
@@ -46,12 +58,20 @@ function createVNPayPayment(orderId, amount, orderInfo, ipAddr, bankCode = '', l
   // Sort params
   vnp_Params = sortObject(vnp_Params);
 
+  console.log('🔵 [VNPay Gateway] Params before hash:', vnp_Params);
+
   // Create secure hash
   const secureHash = createVNPaySecureHash(vnp_Params, secretKey);
   vnp_Params['vnp_SecureHash'] = secureHash;
 
-  // Build final URL
+  console.log('🔵 [VNPay Gateway] Secure hash:', secureHash.substring(0, 20) + '...');
+
+  // Build final URL - use encode: false as per VNPay docs
   const paymentUrl = vnpUrl + '?' + querystring.stringify(vnp_Params, { encode: false });
+
+  console.log('✅ [VNPay Gateway] Payment URL created (full):');
+  console.log(paymentUrl);
+  console.log('\n📋 [VNPay Gateway] Copy URL above to test manually\n');
 
   return paymentUrl;
 }

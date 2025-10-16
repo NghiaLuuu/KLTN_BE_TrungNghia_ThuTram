@@ -17,6 +17,7 @@ const invoiceDetailRoutes = require('./routes/invoiceDetail.routes');
 
 // ============ SERVICES & UTILS ============
 const startRpcServer = require('./utils/rpcServer');
+const { setupEventListeners } = require('./utils/eventListeners');
 
 connectDB();
 const invoiceService = require('./services/invoice.service');
@@ -233,6 +234,11 @@ async function startServer() {
     
     // Start RPC Server for inter-service communication
     await startRpcServer();
+    
+    // Setup RabbitMQ event listeners
+    setTimeout(async () => {
+      await setupEventListeners();
+    }, 3000); // Wait 3s after connections are ready
     
     const PORT = process.env.PORT || 3008;
     

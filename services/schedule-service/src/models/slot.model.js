@@ -46,18 +46,29 @@ const slotSchema = new mongoose.Schema({
     type: [mongoose.Schema.Types.ObjectId],
     default: []
   },
-  // Availability status
-  isAvailable: {
-    type: Boolean,
-    default: true
-  },
-  // Booking status
-  isBooked: {
-    type: Boolean,
-    default: false
+  // 🔄 Booking status - Single source of truth
+  // 'available': Slot sẵn sàng, chưa ai đặt
+  // 'locked': Đang giữ chỗ tạm (reserve nhưng chưa thanh toán, có 15 phút)
+  // 'booked': Đã thanh toán xong, appointment đã được tạo
+  status: {
+    type: String,
+    enum: ['available', 'locked', 'booked'],
+    default: 'available',
+    required: true,
+    index: true
   },
   appointmentId: {
     type: mongoose.Schema.Types.ObjectId,
+    default: null,
+    index: true
+  },
+  // Locked timestamp - for debugging locked slots
+  lockedAt: {
+    type: Date,
+    default: null
+  },
+  lockedBy: {
+    type: String, // reservationId
     default: null
   },
   isActive: {
@@ -96,8 +107,10 @@ slotSchema.index({ nurse: 1, shiftName: 1, isActive: 1, startTime: 1 });
 // Appointment lookup
 slotSchema.index({ appointmentId: 1 });
 
-// General queries
-slotSchema.index({ startTime: 1, isBooked: 1, isActive: 1 });
+// General queries - Updated for status field
+slotSchema.index({ status: 1, startTime: 1, isActive: 1 });
+slotSchema.index({ roomId: 1, status: 1, startTime: 1 });
+slotSchema.index({ dentist: 1, status: 1, startTime: 1 });
 
 // Virtual to get Vietnam timezone date
 slotSchema.virtual('dateVN').get(function() {

@@ -14,9 +14,9 @@ const reserveAppointmentValidation = [
     .isMongoId()
     .withMessage('Service ID không hợp lệ'),
   
+  // serviceAddOnId is OPTIONAL - some services don't have addons
   body('serviceAddOnId')
-    .notEmpty()
-    .withMessage('Service Add-On ID là bắt buộc')
+    .optional({ nullable: true, checkFalsy: true })
     .isMongoId()
     .withMessage('Service Add-On ID không hợp lệ'),
   
@@ -52,29 +52,26 @@ const reserveAppointmentValidation = [
       return true;
     }),
   
-  // Patient info (always required)
+  // Patient info - OPTIONAL for logged-in users (will auto-fill from auth)
+  // REQUIRED for guest users
   body('patientInfo')
-    .notEmpty()
-    .withMessage('Thông tin bệnh nhân là bắt buộc')
+    .optional({ nullable: true })
     .isObject()
     .withMessage('Thông tin bệnh nhân phải là object'),
   
   body('patientInfo.name')
-    .notEmpty()
-    .withMessage('Tên bệnh nhân là bắt buộc')
+    .optional({ nullable: true })
     .isLength({ min: 2, max: 100 })
     .withMessage('Tên bệnh nhân phải từ 2 đến 100 ký tự')
     .trim(),
   
   body('patientInfo.phone')
-    .notEmpty()
-    .withMessage('Số điện thoại là bắt buộc')
+    .optional({ nullable: true })
     .matches(/^[0-9]{10,11}$/)
     .withMessage('Số điện thoại không hợp lệ (10-11 số)'),
   
   body('patientInfo.birthYear')
-    .notEmpty()
-    .withMessage('Năm sinh là bắt buộc')
+    .optional({ nullable: true })
     .isInt({ min: 1900, max: new Date().getFullYear() })
     .withMessage('Năm sinh không hợp lệ'),
   

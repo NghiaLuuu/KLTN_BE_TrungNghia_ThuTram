@@ -7,6 +7,8 @@ const { BadRequestError, NotFoundError, ForbiddenError } = require('../utils/err
 const redisClient = require('../utils/redis.client');
 const { createVNPayPayment } = require('../utils/payment.gateway');
 const rpcClient = require('../utils/rpcClient');
+const visaGateway = require('../utils/visa.gateway');
+const rabbitmqClient = require('../utils/rabbitmq.client');
 
 class PaymentService {
   constructor() {
@@ -340,23 +342,67 @@ class PaymentService {
 
   async processGatewayCallback(callbackData) {
     try {
-      const { orderId, status, transactionId } = callbackData;
+      const { orderId, status, transactionId, amount } = callbackData;
+      console.log('🔵 [Process Callback] Starting with:', callbackData);
       
-      // Find payment by code
-      const payment = await paymentRepository.findByCode(orderId);
-      if (!payment) {
-        throw new Error('Không tìm thấy thanh toán');
+      // orderId here is actually reservationId (vnp_TxnRef)
+      const reservationId = orderId;
+      const tempPaymentKey = `payment:temp:${reservationId}`;
+      
+      console.log('🔵 [Process Callback] Looking for temp payment:', tempPaymentKey);
+      
+      // Get temporary payment from Redis
+      const tempPaymentData = await redis.get(tempPaymentKey);
+      if (!tempPaymentData) {
+        console.error('❌ [Process Callback] Temporary payment not found or expired:', tempPaymentKey);
+        throw new Error('Temporary payment not found or expired');
       }
+      
+      const tempPayment = JSON.parse(tempPaymentData);
+      console.log('✅ [Process Callback] Found temp payment:', tempPayment);
 
-      // Update payment status based on gateway response
+      // Create permanent payment record in DB
       if (status === 'success') {
-        await this.confirmPayment(payment._id, callbackData);
+        console.log('✅ [Process Callback] Payment success, creating permanent record');
+        
+        const paymentData = {
+          code: tempPayment.orderId, // ORD...
+          appointmentId: null, // Will be set when appointment is confirmed
+          patientId: tempPayment.patientId || null,
+          amount: amount || tempPayment.amount,
+          method: 'vnpay',
+          status: 'COMPLETED',
+          transactionId: transactionId,
+          metadata: {
+            reservationId,
+            vnp_TxnRef: reservationId,
+            gateway: 'vnpay',
+            processedAt: new Date()
+          }
+        };
+        
+        console.log('🔵 [Process Callback] Creating payment record:', paymentData);
+        const payment = await paymentRepository.create(paymentData);
+        console.log('✅ [Process Callback] Payment created:', payment._id);
+        
+        // Delete temp payment from Redis
+        await redis.del(tempPaymentKey);
+        console.log('✅ [Process Callback] Deleted temp payment from Redis');
+        
+        // TODO: Notify appointment-service to confirm appointment
+        // This should be done via HTTP or event
+        
+        return payment;
       } else {
-        await this.failPayment(payment._id, 'Thanh toán thất bại từ cổng thanh toán');
+        console.log('❌ [Process Callback] Payment failed');
+        
+        // Delete temp payment from Redis
+        await redis.del(tempPaymentKey);
+        
+        throw new Error('Payment failed from gateway');
       }
-
-      return payment;
     } catch (error) {
+      console.error('❌ [Process Callback] Error:', error);
       throw new Error(`Lỗi xử lý callback: ${error.message}`);
     }
   }
@@ -425,7 +471,6 @@ class PaymentService {
     if (!appointmentHoldKey) throw new Error('appointmentHoldKey is required');
 
     const tempPaymentId = `payment:temp:${appointmentHoldKey}`;
-    const paymentMethod = 'momo'; // mặc định 'momo'
 
     // Tạo orderId duy nhất
     const shortHash = crypto.createHash('sha256')
@@ -437,45 +482,51 @@ class PaymentService {
 
     // Thời gian hiện tại
     const now = new Date();
-    // Thời gian hết hạn 10 phút
-    const expireAt = new Date(now.getTime() + 10 * 60 * 1000);
+    // Thời gian hết hạn 15 phút (match với reservation TTL)
+    const expireAt = new Date(now.getTime() + 15 * 60 * 1000);
 
     const data = {
       tempPaymentId,
       appointmentHoldKey,
       amount: Math.round(Number(amount) || 0),
-      method: paymentMethod,
       status: 'PENDING',
       createdAt: now,
-      expireAt,      // thời gian hết hạn
+      expireAt,
       orderId
     };
 
-    // Lưu tạm vào Redis với TTL 10 phút
-    await redis.setex(tempPaymentId, 600, JSON.stringify(data));
+    // Lưu tạm vào Redis với TTL 15 phút
+    await redisClient.setEx(tempPaymentId, 900, JSON.stringify(data));
 
-    // Tạo VNPay payment URL nếu method = 'vnpay'
-    if (paymentMethod === 'vnpay') {
-      try {
-        const ipAddr = '127.0.0.1'; // Hoặc lấy từ request
-        const paymentUrl = createVNPayPayment(
-          orderId,
-          data.amount,
-          `Thanh toán appointment`,
-          ipAddr,
-          '', // bankCode
-          'vn'
-        );
-        data.paymentUrl = paymentUrl;
-        data.orderId = orderId;
-      } catch (err) {
-        console.error('❌ Failed to create VNPay payment URL:', err);
-        throw new Error('Cannot create VNPay payment link');
-      }
-    }
+    // Return frontend payment selection URL
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    data.paymentUrl = `${frontendUrl}/patient/payment/select?reservationId=${appointmentHoldKey}&orderId=${orderId}`;
 
-    console.log('Temporary payment created (VNPay):', data);
+    console.log('✅ Temporary payment created:', { orderId, tempPaymentId, amount: data.amount });
     return data;
+  }
+
+  /**
+   * Create VNPay payment URL for appointment
+   * Called from frontend when user selects VNPay on payment selection page
+   */
+  async createVNPayPaymentUrl(orderId, amount, orderInfo, ipAddr, bankCode = '', locale = 'vn') {
+    try {
+      const paymentUrl = createVNPayPayment(
+        orderId,
+        amount,
+        orderInfo || `Thanh toán đơn hàng ${orderId}`,
+        ipAddr,
+        bankCode,
+        locale
+      );
+      
+      console.log('✅ VNPay payment URL created:', { orderId, amount });
+      return { paymentUrl, orderId };
+    } catch (err) {
+      console.error('❌ Failed to create VNPay payment URL:', err);
+      throw new Error('Cannot create VNPay payment link');
+    }
   }
 
   // RPC: confirm payment (từ Redis -> DB + notify Appointment Service)
@@ -651,6 +702,205 @@ class PaymentService {
 
   async clearPatientCache(patientId) {
     await redis.del(`${this.cachePrefix}patient:${patientId}`);
+  }
+
+  // ============ VISA PAYMENT PROCESSING ============
+  /**
+   * Process Visa card payment through sandbox gateway
+   * @param {Object} paymentData - Payment data including card info and reservation
+   * @returns {Object} Payment result with transaction details
+   */
+  async processVisaPayment(paymentData) {
+    try {
+      const {
+        reservationId,
+        cardNumber,
+        cardHolder,
+        expiryMonth,
+        expiryYear,
+        cvv,
+        amount,
+        patientId,
+        patientInfo
+      } = paymentData;
+
+      // Validate required fields
+      if (!reservationId || !cardNumber || !cardHolder || !expiryMonth || !expiryYear || !cvv) {
+        throw new BadRequestError('Thiếu thông tin thanh toán');
+      }
+
+      // Get reservation from Redis
+      const reservationKey = `temp_reservation:${reservationId}`;
+      const reservationData = await redisClient.get(reservationKey);
+      
+      if (!reservationData) {
+        throw new BadRequestError('Đặt khám đã hết hạn hoặc không tồn tại. Vui lòng đặt lại.');
+      }
+
+      const reservation = JSON.parse(reservationData);
+
+      // Validate amount matches reservation
+      if (amount && Math.abs(amount - reservation.totalAmount) > 0.01) {
+        throw new BadRequestError('Số tiền thanh toán không khớp với đặt khám');
+      }
+
+      // Process payment through Visa gateway
+      console.log('Processing Visa payment:', {
+        reservationId,
+        amount: reservation.totalAmount,
+        cardLast4: cardNumber.slice(-4)
+      });
+
+      const paymentResult = await visaGateway.processPayment({
+        cardNumber,
+        cardHolder,
+        expiryMonth,
+        expiryYear,
+        cvv,
+        amount: reservation.totalAmount,
+        currency: 'VND',
+        description: `Payment for appointment reservation ${reservationId}`,
+        metadata: {
+          reservationId,
+          patientId: reservation.patientId,
+          serviceId: reservation.serviceId,
+          doctorId: reservation.doctorId
+        }
+      });
+
+      // Check payment result
+      if (!paymentResult.success) {
+        // Payment failed - publish event
+        await rabbitmqClient.publishToQueue('payment.failed', {
+          reservationId,
+          reason: paymentResult.message || 'Payment declined by gateway',
+          errorCode: paymentResult.errorCode,
+          timestamp: new Date().toISOString()
+        });
+
+        throw new BadRequestError(
+          paymentResult.message || 'Thanh toán thất bại. Vui lòng kiểm tra lại thẻ.'
+        );
+      }
+
+      // Payment successful - create payment record
+      const paymentCode = await this.generatePaymentCode();
+      
+      const payment = await Payment.create({
+        paymentCode,
+        patientId: reservation.patientId,
+        patientInfo: {
+          name: reservation.patientName,
+          phone: reservation.patientPhone,
+          email: patientInfo?.email || '',
+          address: patientInfo?.address || ''
+        },
+        type: PaymentType.PAYMENT,
+        method: PaymentMethod.VISA,
+        status: PaymentStatus.COMPLETED,
+        originalAmount: reservation.totalAmount,
+        discountAmount: 0,
+        taxAmount: 0,
+        finalAmount: reservation.totalAmount,
+        paidAmount: reservation.totalAmount,
+        changeAmount: 0,
+        cardInfo: {
+          cardType: 'visa',
+          cardLast4: paymentResult.cardLast4,
+          cardHolder: cardHolder,
+          authorizationCode: paymentResult.authorizationCode,
+          transactionId: paymentResult.transactionId
+        },
+        externalTransactionId: paymentResult.transactionId,
+        gatewayResponse: {
+          responseCode: paymentResult.status,
+          responseMessage: paymentResult.message || 'Payment successful',
+          additionalData: {
+            authorizationCode: paymentResult.authorizationCode,
+            processedAt: new Date().toISOString()
+          }
+        },
+        processedBy: reservation.patientId,
+        processedByName: reservation.patientName,
+        processedAt: new Date(),
+        completedAt: new Date(),
+        description: `Thanh toán đặt khám qua Visa - ${reservation.serviceName}`,
+        notes: `Reservation ID: ${reservationId}`,
+        isVerified: true,
+        verifiedAt: new Date()
+      });
+
+      console.log('Payment record created:', payment._id);
+
+      // Store payment in Redis temporarily (for tracking)
+      const paymentRedisKey = `temp_payment:${reservationId}`;
+      await redisClient.setex(
+        paymentRedisKey,
+        900, // 15 minutes TTL
+        JSON.stringify({
+          paymentId: payment._id,
+          transactionId: paymentResult.transactionId,
+          amount: reservation.totalAmount,
+          status: 'completed'
+        })
+      );
+
+      // Publish payment.completed event to RabbitMQ
+      await rabbitmqClient.publishToQueue('payment.completed', {
+        reservationId,
+        paymentId: payment._id.toString(),
+        transactionId: paymentResult.transactionId,
+        amount: reservation.totalAmount,
+        paymentMethod: PaymentMethod.VISA,
+        cardLast4: paymentResult.cardLast4,
+        patientId: reservation.patientId.toString(),
+        patientName: reservation.patientName,
+        serviceId: reservation.serviceId.toString(),
+        serviceName: reservation.serviceName,
+        doctorId: reservation.doctorId.toString(),
+        doctorName: reservation.doctorName,
+        slotIds: reservation.slotIds,
+        appointmentDate: reservation.appointmentDate,
+        startTime: reservation.startTime,
+        endTime: reservation.endTime,
+        timestamp: new Date().toISOString()
+      });
+
+      console.log('payment.completed event published for reservation:', reservationId);
+
+      // Return success response
+      return {
+        success: true,
+        payment: {
+          id: payment._id,
+          paymentCode: payment.paymentCode,
+          transactionId: paymentResult.transactionId,
+          amount: payment.finalAmount,
+          status: payment.status,
+          cardLast4: paymentResult.cardLast4,
+          completedAt: payment.completedAt
+        },
+        reservation: {
+          reservationId,
+          serviceName: reservation.serviceName,
+          doctorName: reservation.doctorName,
+          appointmentDate: reservation.appointmentDate,
+          startTime: reservation.startTime,
+          endTime: reservation.endTime
+        },
+        message: 'Thanh toán thành công'
+      };
+
+    } catch (error) {
+      console.error('Error processing Visa payment:', error);
+      
+      // If it's not a BadRequestError, wrap it
+      if (error instanceof BadRequestError) {
+        throw error;
+      }
+      
+      throw new Error(`Lỗi xử lý thanh toán Visa: ${error.message}`);
+    }
   }
 }
 

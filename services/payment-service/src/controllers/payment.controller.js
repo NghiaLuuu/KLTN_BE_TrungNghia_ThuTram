@@ -5,6 +5,122 @@ const { verifyVNPayCallback } = require('../utils/vnpay.utils');
 
 class PaymentController {
   // ============ CREATE PAYMENT METHODS ============
+  
+  /**
+   * Create temporary payment for appointment reservation
+   * Used by appointment-service via HTTP
+   */
+  async createTemporaryPayment(req, res) {
+    try {
+      console.log('🔵 [Temp Payment] Request received:', {
+        body: req.body,
+        headers: {
+          'content-type': req.headers['content-type']
+        }
+      });
+
+      const { appointmentHoldKey, amount } = req.body;
+
+      if (!appointmentHoldKey) {
+        console.log('❌ [Temp Payment] Missing appointmentHoldKey');
+        return res.status(400).json({
+          success: false,
+          message: 'appointmentHoldKey is required'
+        });
+      }
+
+      console.log('🔵 [Temp Payment] Creating temporary payment:', { appointmentHoldKey, amount });
+
+      const result = await paymentService.createTemporaryPayment({
+        appointmentHoldKey,
+        amount
+      });
+
+      console.log('✅ [Temp Payment] Created successfully:', {
+        orderId: result.orderId,
+        paymentUrl: result.paymentUrl
+      });
+
+      res.status(201).json({
+        success: true,
+        message: 'Tạo temporary payment thành công',
+        data: result
+      });
+    } catch (error) {
+      console.error('❌ [Temp Payment] Error creating temporary payment:', error);
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Lỗi tạo temporary payment'
+      });
+    }
+  }
+
+  /**
+   * Create VNPay payment URL
+   * POST /api/payments/vnpay/create-url
+   * Body: { orderId, amount, orderInfo, bankCode?, locale? }
+   */
+  async createVNPayUrl(req, res) {
+    try {
+      console.log('🔵 [VNPay URL] Request received:', {
+        body: req.body,
+        headers: {
+          'content-type': req.headers['content-type'],
+          'user-agent': req.headers['user-agent']
+        }
+      });
+
+      const { orderId, amount, orderInfo, bankCode, locale } = req.body;
+
+      if (!orderId || !amount) {
+        console.log('❌ [VNPay URL] Missing required fields:', { orderId, amount });
+        return res.status(400).json({
+          success: false,
+          message: 'orderId và amount là bắt buộc'
+        });
+      }
+
+      // Get IP address, convert IPv6 localhost to IPv4
+      let ipAddr = req.headers['x-forwarded-for'] ||
+        req.connection.remoteAddress ||
+        req.socket.remoteAddress ||
+        '127.0.0.1';
+      
+      // Convert IPv6 localhost to IPv4
+      if (ipAddr === '::1' || ipAddr === '::ffff:127.0.0.1') {
+        ipAddr = '127.0.0.1';
+      }
+
+      console.log('🔵 [VNPay URL] Creating payment URL:', { orderId, amount, ipAddr });
+
+      const result = await paymentService.createVNPayPaymentUrl(
+        orderId,
+        amount,
+        orderInfo || `Thanh toán đơn hàng ${orderId}`,
+        ipAddr,
+        bankCode || '',
+        locale || 'vn'
+      );
+
+      console.log('✅ [VNPay URL] Payment URL created successfully:', {
+        orderId: result.orderId,
+        paymentUrlLength: result.paymentUrl?.length
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Tạo VNPay payment URL thành công',
+        data: result
+      });
+    } catch (error) {
+      console.error('❌ [VNPay URL] Error creating VNPay URL:', error);
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Lỗi tạo VNPay payment URL'
+      });
+    }
+  }
+
   async createPayment(req, res) {
     try {
       const paymentData = {
@@ -554,12 +670,19 @@ class PaymentController {
   // ============ GATEWAY WEBHOOK METHODS ============
   async vnpayReturn(req, res) {
     try {
+      console.log('🔵 [VNPay Return] Received callback');
+      console.log('🔵 [VNPay Return] Query params:', req.query);
+      console.log('🔵 [VNPay Return] Full URL:', req.originalUrl);
+      
       const vnpParams = req.query;
       console.log('💬 VNPay return params:', vnpParams);
 
       // Verify signature
       const secretKey = process.env.VNPAY_HASH_SECRET || 'LGJNHZSLMX362UGJOKERT14VR4MF3JBD';
+      console.log('🔵 [VNPay Return] Verifying signature with secret key:', secretKey);
+      
       const isValid = verifyVNPayCallback(vnpParams, secretKey);
+      console.log('🔵 [VNPay Return] Signature valid:', isValid);
 
       if (!isValid) {
         console.error('❌ Invalid VNPay signature');
@@ -567,9 +690,11 @@ class PaymentController {
       }
 
       const { vnp_TxnRef, vnp_ResponseCode, vnp_TransactionNo, vnp_Amount } = vnpParams;
+      console.log('🔵 [VNPay Return] Processing:', { vnp_TxnRef, vnp_ResponseCode, vnp_TransactionNo, vnp_Amount });
       
       // Process payment callback
       if (vnp_ResponseCode === '00') {
+        console.log('✅ [VNPay Return] Payment success!');
         // Success
         const callbackData = {
           orderId: vnp_TxnRef,
@@ -580,46 +705,108 @@ class PaymentController {
 
         try {
           const payment = await paymentService.processGatewayCallback(callbackData);
+          console.log('✅ [VNPay Return] Payment processed:', payment);
           return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=success&orderId=${vnp_TxnRef}`);
         } catch (error) {
-          console.error('Error processing payment callback:', error);
+          console.error('❌ [VNPay Return] Error processing payment callback:', error);
           return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=error&orderId=${vnp_TxnRef}`);
         }
       } else {
+        console.log('❌ [VNPay Return] Payment failed with code:', vnp_ResponseCode);
         // Failed
         return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=failed&orderId=${vnp_TxnRef}&code=${vnp_ResponseCode}`);
       }
     } catch (error) {
-      console.error('VNPay return error:', error);
+      console.error('❌ [VNPay Return] Error:', error);
       return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=error`);
     }
   }
 
-  async vnpayReturn(req, res) {
+  // ============ VISA PAYMENT PROCESSING ============
+  /**
+   * Process Visa card payment
+   * POST /api/payment/visa/process
+   */
+  async processVisaPayment(req, res) {
     try {
-      const vnpParams = req.query;
-      
-      // Process VNPay return
-      const callbackData = {
-        orderId: vnpParams.vnp_TxnRef,
-        status: vnpParams.vnp_ResponseCode === '00' ? 'success' : 'failed',
-        transactionId: vnpParams.vnp_TransactionNo
-      };
+      const {
+        reservationId,
+        cardNumber,
+        cardHolder,
+        expiryMonth,
+        expiryYear,
+        cvv,
+        amount
+      } = req.body;
 
-      const payment = await paymentService.processGatewayCallback(callbackData);
-      
-      res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=${callbackData.status}&orderId=${callbackData.orderId}`);
+      // Validate required fields
+      if (!reservationId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Thiếu mã đặt khám'
+        });
+      }
+
+      if (!cardNumber || !cardHolder || !expiryMonth || !expiryYear || !cvv) {
+        return res.status(400).json({
+          success: false,
+          message: 'Thiếu thông tin thẻ thanh toán'
+        });
+      }
+
+      // Get patient info from req.user if authenticated
+      const patientInfo = req.user ? {
+        email: req.user.email,
+        address: req.user.address
+      } : {};
+
+      // Process payment
+      const result = await paymentService.processVisaPayment({
+        reservationId,
+        cardNumber,
+        cardHolder,
+        expiryMonth,
+        expiryYear,
+        cvv,
+        amount,
+        patientId: req.user?.userId,
+        patientInfo
+      });
+
+      // Return success response
+      res.status(201).json({
+        success: true,
+        message: result.message,
+        data: {
+          payment: result.payment,
+          reservation: result.reservation
+        }
+      });
+
     } catch (error) {
-      console.error('VNPay return error:', error);
-      res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=error`);
+      console.error('Visa payment controller error:', error);
+      
+      // Handle different error types
+      if (error.message.includes('hết hạn') || error.message.includes('không tồn tại')) {
+        return res.status(400).json({
+          success: false,
+          message: error.message
+        });
+      }
+
+      if (error.message.includes('Thanh toán thất bại')) {
+        return res.status(400).json({
+          success: false,
+          message: error.message
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        message: 'Lỗi xử lý thanh toán. Vui lòng thử lại sau.'
+      });
     }
   }
-
-
-
-
-
-
 }
 
 module.exports = new PaymentController();

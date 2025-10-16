@@ -93,7 +93,7 @@ exports.find = async (query, options = {}) => {
 // ⚡ NEW: Optimized version for calendar queries
 exports.findForCalendar = async (query) => {
   return await Slot.find(query)
-    .select('_id scheduleId roomId subRoomId shiftName startTime endTime dentist nurse isBooked appointmentId duration')
+    .select('_id scheduleId roomId subRoomId shiftName startTime endTime dentist nurse status appointmentId duration')
     .sort({ startTime: 1 })
     .lean(); // Return plain JS objects (much faster)
 };
@@ -101,7 +101,7 @@ exports.findForCalendar = async (query) => {
 // ⚡ NEW: Optimized version for details queries  
 exports.findForDetails = async (query) => {
   return await Slot.find(query)
-    .select('_id scheduleId roomId subRoomId shiftName startTime endTime dentist nurse isBooked appointmentId duration isAvailable')
+    .select('_id scheduleId roomId subRoomId shiftName startTime endTime dentist nurse status appointmentId duration')
     .sort({ startTime: 1 })
     .lean();
 };

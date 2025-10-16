@@ -20,9 +20,16 @@ function sortObject(obj) {
  * @returns {string} secure hash
  */
 function createVNPaySecureHash(vnpParams, secretKey) {
-  const signData = querystring.stringify(vnpParams, { encode: false });
+  // CRITICAL: Must encode for VNPay signature validation
+  // Default behavior encodes special characters (: / ? etc.)
+  const signData = querystring.stringify(vnpParams);
+  console.log('🔵 [VNPay Hash] Sign data:', signData);
+  console.log('🔵 [VNPay Hash] Secret key:', secretKey);
+  
   const hmac = crypto.createHmac('sha512', secretKey);
   const signed = hmac.update(Buffer.from(signData, 'utf-8')).digest('hex');
+  
+  console.log('🔵 [VNPay Hash] Generated hash:', signed);
   return signed;
 }
 

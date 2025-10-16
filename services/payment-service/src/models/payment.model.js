@@ -4,7 +4,8 @@ const Schema = mongoose.Schema;
 // Constants
 const PaymentMethod = {
   CASH: 'cash',
-  VNPAY: 'vnpay'
+  VNPAY: 'vnpay',
+  VISA: 'visa'
 };
 
 const PaymentStatus = {
@@ -44,6 +45,34 @@ const digitalWalletInfoSchema = new Schema({
   },
   transactionId: {
     type: String,
+    trim: true
+  }
+}, { _id: false });
+
+// Card Info Schema (VISA)
+const cardInfoSchema = new Schema({
+  cardType: {
+    type: String,
+    enum: ['visa', 'mastercard'],
+    default: 'visa'
+  },
+  cardLast4: {
+    type: String,
+    required: true,
+    match: /^\d{4}$/
+  },
+  cardHolder: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  authorizationCode: {
+    type: String,
+    trim: true
+  },
+  transactionId: {
+    type: String,
+    required: true,
     trim: true
   }
 }, { _id: false });
@@ -149,8 +178,9 @@ const paymentSchema = new Schema({
     default: 0
   },
   
-  // Payment method specific information (VNPay only)
-  digitalWalletInfo: digitalWalletInfoSchema,
+  // Payment method specific information
+  digitalWalletInfo: digitalWalletInfoSchema, // VNPay only
+  cardInfo: cardInfoSchema, // VISA/Mastercard
   
   // Transaction details
   externalTransactionId: {

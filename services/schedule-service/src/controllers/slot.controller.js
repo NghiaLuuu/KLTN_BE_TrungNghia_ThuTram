@@ -1,8 +1,47 @@
 const slotService = require('../services/slot.service');
 const slotPatientService = require('../services/slot.patient.service');
+const Slot = require('../models/slot.model');
 
 const isManagerOrAdmin = (user) => {
   return user && (user.role === 'manager' || user.role === 'admin');
+};
+
+// 🆕 Get slot by ID (for inter-service communication)
+exports.getSlotById = async (req, res) => {
+  try {
+    const { slotId } = req.params;
+    
+    if (!slotId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Slot ID is required'
+      });
+    }
+
+    const slot = await Slot.findById(slotId)
+      .populate('roomId', 'name')
+      .populate('subRoomId', 'name')
+      .populate('dentist', 'fullName title')  // Array field
+      .populate('nurse', 'fullName');         // Array field
+
+    if (!slot) {
+      return res.status(404).json({
+        success: false,
+        message: 'Slot not found'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      slot
+    });
+  } catch (error) {
+    console.error('[slotController] getSlotById error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error getting slot: ' + error.message
+    });
+  }
 };
 
 // Assign staff to slots
@@ -658,7 +697,74 @@ exports.getDentistWorkingDates = async (req, res) => {
   }
 };
 
+// 🆕 Bulk update slots (for appointment service)
+exports.bulkUpdateSlots = async (req, res) => {
+  try {
+    const { slotIds, updates } = req.body;
+    
+    if (!slotIds || !Array.isArray(slotIds) || slotIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'slotIds array is required'
+      });
+    }
+    
+    if (!updates || typeof updates !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'updates object is required'
+      });
+    }
+    
+    // Validate updates - Use status instead of isBooked/isAvailable
+    const allowedFields = ['status', 'appointmentId', 'lockedAt', 'lockedBy'];
+    const updateFields = {};
+    
+    for (const [key, value] of Object.entries(updates)) {
+      if (allowedFields.includes(key)) {
+        // Validate status enum
+        if (key === 'status' && !['available', 'locked', 'booked'].includes(value)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid status: ${value}. Must be: available, locked, or booked`
+          });
+        }
+        updateFields[key] = value;
+      }
+    }
+    
+    if (Object.keys(updateFields).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid update fields provided'
+      });
+    }
+    
+    // Update slots
+    const result = await Slot.updateMany(
+      { _id: { $in: slotIds } },
+      { $set: updateFields }
+    );
+    
+    console.log(`✅ Bulk updated ${result.modifiedCount} slots:`, updateFields);
+    
+    return res.status(200).json({
+      success: true,
+      message: `Updated ${result.modifiedCount} slots`,
+      modifiedCount: result.modifiedCount
+    });
+    
+  } catch (error) {
+    console.error('[slotController] bulkUpdateSlots error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error updating slots: ' + error.message
+    });
+  }
+};
+
 module.exports = {
+  getSlotById: exports.getSlotById,                                // 🆕 NEW
   assignStaffToSlots: exports.assignStaffToSlots,
   reassignStaffToSlots: exports.reassignStaffToSlots,
   updateSlotStaff: exports.updateSlotStaff,
@@ -676,5 +782,6 @@ module.exports = {
   getNurseSlotDetailsFuture: exports.getNurseSlotDetailsFuture,    // ⭐ NEW
   checkStaffHasSchedule: exports.checkStaffHasSchedule,
   getDentistsWithNearestSlot: exports.getDentistsWithNearestSlot,  // 🆕 PATIENT BOOKING
-  getDentistWorkingDates: exports.getDentistWorkingDates          // 🆕 PATIENT BOOKING
+  getDentistWorkingDates: exports.getDentistWorkingDates,          // 🆕 PATIENT BOOKING
+  bulkUpdateSlots: exports.bulkUpdateSlots                         // 🆕 BULK UPDATE
 };

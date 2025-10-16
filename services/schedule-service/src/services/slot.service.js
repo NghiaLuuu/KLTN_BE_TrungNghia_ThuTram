@@ -1051,7 +1051,7 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
           employeeCode: nurse.employeeCode || nurse.code,
           role: nurse.role
         } : null,
-        isBooked: slot.isBooked || false,
+        slotStatus: slot.status,
         appointmentId: slot.appointmentId || null,
         hasStaff: hasStaff,
         canUpdate: hasStaff, // Chỉ slot đã có nhân sự mới có thể cập nhật
@@ -1234,7 +1234,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
         calendar[slotDateVN].totalSlots++;
         
         // Count unique appointments
-        if (slot.appointmentId && slot.isBooked) {
+        if (slot.appointmentId && slot.status === 'booked') {
           appointmentCounts[slotDateVN].add(slot.appointmentId.toString());
         }
         
@@ -1282,7 +1282,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
           }),
           dentist: [],
           nurse: [],
-          isBooked: slot.isBooked || false,
+          slotStatus: slot.status,
           appointmentId: slot.appointmentId || null
         };
 
@@ -1366,7 +1366,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
               const slotDateVN = new Date(slot.startTime).toLocaleDateString('en-CA', {
                 timeZone: 'Asia/Ho_Chi_Minh'
               });
-              if (slotDateVN === dateStr && slot.shiftName === shiftName && slot.isBooked && slot.appointmentId) {
+              if (slotDateVN === dateStr && slot.shiftName === shiftName && slot.status === 'booked' && slot.appointmentId) {
                 shiftAppointmentIds.add(slot.appointmentId.toString());
               }
             }
@@ -1817,7 +1817,7 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
           nurse: nurseInfo,
           room: roomInfo,
           subRoom: subRoomInfo,
-          isBooked: slot.isBooked || false,
+          slotStatus: slot.status,
           appointmentId: slot.appointmentId || null
         });
       }
@@ -2319,7 +2319,7 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 0,
           nurse: nurseInfo,
           room: roomInfo,
           subRoom: subRoomInfo,
-          isBooked: slot.isBooked || false,
+          slotStatus: slot.status,
           appointmentId: slot.appointmentId || null
         });
       }
@@ -2606,7 +2606,7 @@ async function getRoomSlotDetailsFuture({ roomId, subRoomId = null, date, shiftN
           fullName: nurse.fullName || nurse.name,
           employeeCode: nurse.employeeCode
         }] : [],
-        isBooked: slot.isBooked || false,
+        slotStatus: slot.status,
         appointmentId: slot.appointmentId || null,
         hasStaff: hasDentist || hasNurse
       };
@@ -2721,7 +2721,7 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName }) {
           employeeCode: nurse.employeeCode
         } : null,
         room: roomInfo,
-        isBooked: slot.isBooked || false,
+        status: slot.status,
         appointmentId: slot.appointmentId || null,
         shiftName: slot.shiftName // Add shiftName to each slot
       };
@@ -2845,7 +2845,7 @@ async function getNurseSlotDetailsFuture({ nurseId, date, shiftName }) {
           employeeCode: dentist.employeeCode
         } : null,
         room: roomInfo,
-        isBooked: slot.isBooked || false,
+        slotStatus: slot.status,
         appointmentId: slot.appointmentId || null
       };
     });
@@ -2884,3 +2884,4 @@ module.exports = {
   getAvailableShifts,              // Lấy danh sách ca làm việc
   checkStaffHasSchedule            // Kiểm tra nhân sự có lịch hay không
 };
+

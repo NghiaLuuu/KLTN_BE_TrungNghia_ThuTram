@@ -109,9 +109,20 @@ app.use(express.urlencoded({
 // Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
+  
+  // Log incoming request
+  console.log(`\n📥 [${new Date().toISOString()}] ${req.method} ${req.path}`);
+  if (Object.keys(req.body).length > 0) {
+    console.log('   Body:', JSON.stringify(req.body, null, 2));
+  }
+  if (Object.keys(req.query).length > 0) {
+    console.log('   Query:', req.query);
+  }
+  
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log(`${req.method} ${req.path} - ${res.statusCode} - ${duration}ms`);
+    const statusEmoji = res.statusCode < 400 ? '✅' : '❌';
+    console.log(`${statusEmoji} ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms\n`);
   });
   next();
 });
