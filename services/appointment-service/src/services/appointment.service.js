@@ -217,30 +217,13 @@ class AppointmentService {
       // 1️⃣ Check slot in DB via schedule-service (source of truth)
       const slot = await this.getSlotInfo(slotId);
       
-      // Check if already booked
+      // Check if already booked or locked in database
       if (slot.status === 'booked') {
         throw new Error('Slot ' + slotId + ' is already booked');
       }
       
-      // Check if locked - but verify lock is still valid
       if (slot.status === 'locked') {
-        // If slot is locked, check if the reservation still exists in Redis
-        const lockedBy = slot.lockedBy; // reservationId
-        if (lockedBy) {
-          const reservationExists = await redisClient.exists('temp_reservation:' + lockedBy);
-          if (reservationExists) {
-            // Lock is still valid
-            throw new Error('Slot ' + slotId + ' is currently locked (another user is booking)');
-          } else {
-            // Lock expired but DB not updated - unlock it now
-            console.log(`⚠️ Slot ${slotId} has expired lock (${lockedBy}), unlocking...`);
-            await this.unlockExpiredSlot(slotId);
-          }
-        } else {
-          // Locked but no lockedBy - invalid state, unlock it
-          console.log(`⚠️ Slot ${slotId} locked without reservationId, unlocking...`);
-          await this.unlockExpiredSlot(slotId);
-        }
+        throw new Error('Slot ' + slotId + ' is currently locked (another user is booking)');
       }
       
       // 2️⃣ Check temporary lock in Redis (for concurrent reservations)
@@ -249,26 +232,6 @@ class AppointmentService {
       if (isLocked) {
         throw new Error('Slot ' + slotId + ' is currently locked by another reservation');
       }
-    }
-  }
-
-  /**
-   * Unlock an expired slot in DB (set status back to 'available')
-   */
-  async unlockExpiredSlot(slotId) {
-    try {
-      const scheduleServiceUrl = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
-      await axios.put(`${scheduleServiceUrl}/api/slot/bulk-update`, {
-        slotIds: [slotId],
-        updates: {
-          status: 'available',
-          lockedAt: null,
-          lockedBy: null
-        }
-      });
-      console.log(`✅ Unlocked expired slot ${slotId}`);
-    } catch (error) {
-      console.error(`❌ Failed to unlock slot ${slotId}:`, error.message);
     }
   }
   
