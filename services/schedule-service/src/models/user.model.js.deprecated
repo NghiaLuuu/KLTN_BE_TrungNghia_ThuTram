@@ -1,4 +1,23 @@
 /**
+ * ⚠️ DEPRECATED - DO NOT USE
+ * 
+ * This file has been deprecated and should not be used.
+ * 
+ * REASON FOR DEPRECATION:
+ * - Schedule-service should not directly query User model from the database
+ * - User data is now fetched from auth-service's Redis cache (users_cache)
+ * - This ensures data consistency and reduces database load
+ * 
+ * MIGRATION:
+ * - Use `filterCachedUsers()` from '../utils/cacheHelper' instead
+ * - Auth-service maintains the users_cache in Redis
+ * - All user queries have been refactored to use the cache
+ * 
+ * Date deprecated: 2025-10-16
+ * Migration completed in: schedule.service.js, cacheHelper.js
+ */
+
+/**
  * User Model Reference for Schedule Service
  * Note: This is a minimal reference model. Full user model is in auth-service
  */

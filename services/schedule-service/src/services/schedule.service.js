@@ -5172,12 +5172,13 @@ exports.getStaffAvailabilityForShift = async ({ roomId, subRoomId, shiftName, mo
       throw new Error(`Không tìm thấy lịch cho phòng trong tháng ${month}/${year}`);
     }
     
-    // 2. Lấy tất cả staff (dentist + nurse) đang active
-    const User = require('../models/user.model');
-    const staff = await User.find({ 
-      role: { $in: ['dentist', 'nurse'] }, 
-      isActive: true 
-    }).select('firstName lastName email role');
+    // 2. Lấy tất cả staff (dentist + nurse) đang active từ cache
+    const { filterCachedUsers } = require('../utils/cacheHelper');
+    const staff = await filterCachedUsers({ 
+      role: ['dentist', 'nurse'], 
+      isActive: true,
+      fields: ['_id', 'firstName', 'lastName', 'email', 'role']
+    });
     
     // 3. Tính date range của tháng
     const monthStart = new Date(Date.UTC(year, month - 1, 1, -7, 0, 0, 0));
@@ -5279,13 +5280,14 @@ exports.getStaffAvailabilityForShift = async ({ roomId, subRoomId, shiftName, mo
 // 🆕 API 4: GET AVAILABLE REPLACEMENT STAFF (Lấy nhân sự thay thế + conflict checking)
 exports.getAvailableReplacementStaff = async ({ originalStaffId, role, slots, fromDate }) => {
   try {
-    // 1. Lấy tất cả staff cùng role (trừ original staff)
-    const User = require('../models/user.model');
-    const staff = await User.find({ 
+    // 1. Lấy tất cả staff cùng role (trừ original staff) từ cache
+    const { filterCachedUsers } = require('../utils/cacheHelper');
+    const staff = await filterCachedUsers({ 
       role,
       isActive: true,
-      _id: { $ne: originalStaffId }
-    }).select('firstName lastName email role');
+      excludeId: originalStaffId,
+      fields: ['_id', 'firstName', 'lastName', 'email', 'role']
+    });
     
     let targetSlots = [];
     

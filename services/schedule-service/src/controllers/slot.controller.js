@@ -1,4 +1,5 @@
 const slotService = require('../services/slot.service');
+const slotPatientService = require('../services/slot.patient.service');
 
 const isManagerOrAdmin = (user) => {
   return user && (user.role === 'manager' || user.role === 'admin');
@@ -558,17 +559,17 @@ exports.getDentistSlotDetailsFuture = async (req, res) => {
     const { dentistId } = req.params;
     const { date, shiftName } = req.query;
     
-    if (!dentistId || !date || !shiftName) {
+    if (!dentistId || !date) {
       return res.status(400).json({
         success: false,
-        message: 'dentistId, date và shiftName là bắt buộc'
+        message: 'dentistId và date là bắt buộc'
       });
     }
 
     const result = await slotService.getDentistSlotDetailsFuture({
       dentistId,
       date,
-      shiftName
+      shiftName // Optional - nếu không có sẽ trả về tất cả các ca
     });
     
     console.log('✅ Found', result.data.totalSlots, 'future slots for dentist');
@@ -616,6 +617,47 @@ exports.getNurseSlotDetailsFuture = async (req, res) => {
   }
 };
 
+// 🆕 API 1: Get dentists with nearest available slot (for patient booking)
+// GET /api/slot/dentists-with-nearest-slot
+exports.getDentistsWithNearestSlot = async (req, res) => {
+  try {
+    console.log('🔍 Getting dentists with nearest available slots...');
+    
+    const result = await slotPatientService.getDentistsWithNearestSlot();
+    
+    console.log('✅ Found', result.data.dentists.length, 'dentists with available slots');
+    
+    res.json(result);
+    
+  } catch (error) {
+    res.status(400).json({ 
+      success: false,
+      message: error.message || 'Không thể lấy danh sách nha sỹ' 
+    });
+  }
+};
+
+// 🆕 API 2: Get dentist working dates within maxBookingDays (for patient booking)
+// GET /api/slot/dentist/:dentistId/working-dates
+exports.getDentistWorkingDates = async (req, res) => {
+  try {
+    const { dentistId } = req.params;
+    console.log('📅 Getting working dates for dentist:', dentistId);
+    
+    const result = await slotPatientService.getDentistWorkingDates(dentistId);
+    
+    console.log('✅ Found', result.data.workingDates.length, 'working dates');
+    
+    res.json(result);
+    
+  } catch (error) {
+    res.status(400).json({ 
+      success: false,
+      message: error.message || 'Không thể lấy lịch làm việc của nha sỹ' 
+    });
+  }
+};
+
 module.exports = {
   assignStaffToSlots: exports.assignStaffToSlots,
   reassignStaffToSlots: exports.reassignStaffToSlots,
@@ -632,5 +674,7 @@ module.exports = {
   getRoomSlotDetailsFuture: exports.getRoomSlotDetailsFuture,      // ⭐ NEW
   getDentistSlotDetailsFuture: exports.getDentistSlotDetailsFuture,  // ⭐ NEW
   getNurseSlotDetailsFuture: exports.getNurseSlotDetailsFuture,    // ⭐ NEW
-  checkStaffHasSchedule: exports.checkStaffHasSchedule
+  checkStaffHasSchedule: exports.checkStaffHasSchedule,
+  getDentistsWithNearestSlot: exports.getDentistsWithNearestSlot,  // 🆕 PATIENT BOOKING
+  getDentistWorkingDates: exports.getDentistWorkingDates          // 🆕 PATIENT BOOKING
 };

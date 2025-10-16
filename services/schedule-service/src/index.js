@@ -2,36 +2,33 @@
 const dotenv = require('dotenv');
 dotenv.config();
 const express = require('express');
+const cors = require('cors');
 const connectDB = require('./config/db');
 const scheduleRoutes = require('./routes/schedule.route');
 const slotRoutes = require('./routes/slot.route');
 const scheduleConfigRoutes = require('./routes/scheduleConfig.route');
-const autoScheduleRoutes = require('./routes/autoSchedule.route');
 const startRpcServer = require('./utils/rpcServer');
 const scheduleConfigService = require('./services/scheduleConfig.service');
 
 connectDB();
-const CronJobManager = require('./utils/cronJobs');
-const cors = require('cors');
 
 
 const app = express();
-app.use(express.json());
+
+// CORS Configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN,
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true
 }));
+
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/api/schedule', scheduleRoutes);
 app.use('/api/slot', slotRoutes);
 app.use('/api/schedule/config', scheduleConfigRoutes);
-app.use('/api/auto-schedule', autoScheduleRoutes);
 
 startRpcServer();
-
-// Initialize cron jobs for auto-schedule
-CronJobManager.init();
 
 // 🆕 Auto-initialize default config and holidays on startup
 setTimeout(async () => {

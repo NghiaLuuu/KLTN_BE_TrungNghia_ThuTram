@@ -2632,9 +2632,15 @@ async function getRoomSlotDetailsFuture({ roomId, subRoomId = null, date, shiftN
 // ⭐ NEW: Get FUTURE dentist slots (filtered by current time) - For staff replacement
 async function getDentistSlotDetailsFuture({ dentistId, date, shiftName }) {
   try {
-    const validShifts = ['Ca Sáng', 'Ca Chiều', 'Ca Tối'];
-    if (!validShifts.includes(shiftName)) {
-      throw new Error('shiftName phải là: Ca Sáng, Ca Chiều hoặc Ca Tối');
+    // Validate shiftName if provided and not empty
+    if (shiftName && shiftName.trim() !== '') {
+      const validShifts = ['Ca Sáng', 'Ca Chiều', 'Ca Tối'];
+      if (!validShifts.includes(shiftName)) {
+        throw new Error('shiftName phải là: Ca Sáng, Ca Chiều hoặc Ca Tối');
+      }
+    } else {
+      // Treat empty string as no shiftName
+      shiftName = null;
     }
 
     const targetDate = new Date(date);
@@ -2660,13 +2666,17 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName }) {
 
     const queryFilter = {
       dentist: dentistId,
-      shiftName,
       startTime: { 
         $gt: effectiveStartTime,  // > max(start of day, now + 15 min)
         $lt: endUTC 
       },
       isActive: true
     };
+    
+    // Only add shiftName to filter if provided
+    if (shiftName) {
+      queryFilter.shiftName = shiftName;
+    }
 
     const slots = await slotRepo.findForDetails(queryFilter); // ⚡ OPTIMIZED
     
@@ -2712,9 +2722,30 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName }) {
         } : null,
         room: roomInfo,
         isBooked: slot.isBooked || false,
-        appointmentId: slot.appointmentId || null
+        appointmentId: slot.appointmentId || null,
+        shiftName: slot.shiftName // Add shiftName to each slot
       };
     });
+    
+    // If no shiftName provided, group slots by shift
+    if (!shiftName) {
+      const groupedByShift = {
+        'Ca Sáng': slotDetails.filter(s => s.shiftName === 'Ca Sáng'),
+        'Ca Chiều': slotDetails.filter(s => s.shiftName === 'Ca Chiều'),
+        'Ca Tối': slotDetails.filter(s => s.shiftName === 'Ca Tối')
+      };
+      
+      return {
+        success: true,
+        data: {
+          dentistId,
+          date,
+          totalSlots: slotDetails.length,
+          shifts: groupedByShift,
+          slots: slotDetails // Also include flat list for backward compatibility
+        }
+      };
+    }
     
     return {
       success: true,

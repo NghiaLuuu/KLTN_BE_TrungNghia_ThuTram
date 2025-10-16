@@ -41,4 +41,11 @@ router.get('/nurse/:nurseId/details/future', slotController.getNurseSlotDetailsF
 // 🆕 Check if staff members have future schedules
 router.post('/check-has-schedule', slotController.checkStaffHasSchedule);
 
+// 🆕 PATIENT BOOKING APIs
+// Get dentists with nearest available slot (> currentTime + 30 minutes)
+router.get('/dentists-with-nearest-slot', slotController.getDentistsWithNearestSlot);
+
+// Get dentist working dates within maxBookingDays from today
+router.get('/dentist/:dentistId/working-dates', slotController.getDentistWorkingDates);
+
 module.exports = router;

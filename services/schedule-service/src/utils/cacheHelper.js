@@ -13,7 +13,8 @@ const cache = {
 
 /**
  * Get users from memory cache or Redis
- * @returns {Promise<Array>} Array of user objects
+ * ⚡ Uses auth-service's Redis cache (users_cache) - no direct DB query
+ * @returns {Promise<Array>} Array of user objects from auth-service cache
  */
 async function getCachedUsers() {
   const now = Date.now();
@@ -23,25 +24,15 @@ async function getCachedUsers() {
     return cache.users.data;
   }
   
-  // Fetch from Redis
+  // Fetch from Redis (auth-service maintains this cache)
   const usersCache = await redisClient.get('users_cache');
   let users = usersCache ? JSON.parse(usersCache) : [];
   
-  // If still empty, fetch from DB
+  // ⚠️ If Redis cache is empty, auth-service needs to refresh it
+  // No fallback to direct DB query - rely on auth-service cache
   if (users.length === 0) {
-    const User = require('../models/user.model');
-    const usersFromDB = await User.find({ 
-      role: { $in: ['dentist', 'nurse', 'admin', 'manager'] },
-      isActive: true 
-    }).select('_id name fullName employeeCode role').lean();
-    
-    users = usersFromDB.map(u => ({
-      _id: u._id.toString(),
-      name: u.name,
-      fullName: u.fullName || u.name,
-      employeeCode: u.employeeCode,
-      role: u.role
-    }));
+    console.warn('⚠️ users_cache is empty in Redis. Auth-service should refresh the cache.');
+    return [];
   }
   
   // Update memory cache
@@ -96,8 +87,72 @@ function clearCache() {
   cache.rooms.timestamp = 0;
 }
 
+/**
+ * Filter users by criteria from cached users
+ * @param {Object} criteria - Filter criteria
+ * @param {Array|String} criteria.role - Role(s) to filter (string or array)
+ * @param {Boolean} criteria.isActive - Active status filter
+ * @param {String} criteria.excludeId - User ID to exclude
+ * @param {Array} criteria.fields - Fields to select (default: all)
+ * @returns {Promise<Array>} Filtered user array
+ */
+async function filterCachedUsers(criteria = {}) {
+  const allUsers = await getCachedUsers();
+  
+  let filtered = allUsers;
+  
+  // Filter by role
+  if (criteria.role) {
+    const roles = Array.isArray(criteria.role) ? criteria.role : [criteria.role];
+    filtered = filtered.filter(u => roles.includes(u.role));
+  }
+  
+  // Filter by isActive
+  if (criteria.isActive !== undefined) {
+    filtered = filtered.filter(u => u.isActive === criteria.isActive);
+  }
+  
+  // Exclude specific user ID
+  if (criteria.excludeId) {
+    filtered = filtered.filter(u => u._id.toString() !== criteria.excludeId.toString());
+  }
+  
+  // ⚡ Map fullName to firstName/lastName for compatibility
+  // Auth-service uses fullName, but some code expects firstName/lastName
+  filtered = filtered.map(u => {
+    const userCopy = { ...u };
+    
+    // If firstName/lastName are requested but don't exist, derive from fullName
+    if (criteria.fields && (criteria.fields.includes('firstName') || criteria.fields.includes('lastName'))) {
+      if (!userCopy.firstName || !userCopy.lastName) {
+        const nameParts = (userCopy.fullName || '').trim().split(' ');
+        userCopy.firstName = nameParts.length > 0 ? nameParts[0] : '';
+        userCopy.lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+      }
+    }
+    
+    return userCopy;
+  });
+  
+  // Select specific fields
+  if (criteria.fields && criteria.fields.length > 0) {
+    filtered = filtered.map(u => {
+      const selected = {};
+      criteria.fields.forEach(field => {
+        if (u[field] !== undefined) {
+          selected[field] = u[field];
+        }
+      });
+      return selected;
+    });
+  }
+  
+  return filtered;
+}
+
 module.exports = {
   getCachedUsers,
   getCachedRooms,
-  clearCache
+  clearCache,
+  filterCachedUsers
 };
