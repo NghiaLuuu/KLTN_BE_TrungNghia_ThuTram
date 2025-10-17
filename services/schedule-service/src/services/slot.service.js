@@ -2630,7 +2630,7 @@ async function getRoomSlotDetailsFuture({ roomId, subRoomId = null, date, shiftN
 }
 
 // ⭐ NEW: Get FUTURE dentist slots (filtered by current time) - For staff replacement
-async function getDentistSlotDetailsFuture({ dentistId, date, shiftName }) {
+async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, serviceId = null }) {
   try {
     // Validate shiftName if provided and not empty
     if (shiftName && shiftName.trim() !== '') {
@@ -2641,6 +2641,22 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName }) {
     } else {
       // Treat empty string as no shiftName
       shiftName = null;
+    }
+
+    // 🏥 Fetch service allowedRoomTypes if serviceId is provided
+    let allowedRoomTypes = null;
+    if (serviceId) {
+      try {
+        const axios = require('axios');
+        const serviceResponse = await axios.get(
+          `${process.env.SERVICE_SERVICE_URL || 'http://localhost:3003'}/api/service/${serviceId}`
+        );
+        allowedRoomTypes = serviceResponse.data?.allowedRoomTypes || null;
+        console.log('🏥 Service allowedRoomTypes:', allowedRoomTypes);
+      } catch (error) {
+        console.warn('⚠️ Failed to fetch service allowedRoomTypes:', error.message);
+        console.warn('⚠️ Service filtering will be skipped');
+      }
     }
 
     const targetDate = new Date(date);
@@ -2687,7 +2703,49 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName }) {
       getCachedRooms()
     ]);
 
-    const slotDetails = slots.map(slot => {
+    // 🏥 Load room data from Redis cache for roomType filtering
+    const roomsCache = await redisClient.get('rooms_cache');
+    const allRooms = roomsCache ? JSON.parse(roomsCache) : [];
+    
+    // Create a map for quick room lookup
+    const roomMap = new Map();
+    slots.forEach(slot => {
+      if (slot.roomId && !roomMap.has(slot.roomId.toString())) {
+        const room = allRooms.find(r => r._id === slot.roomId.toString());
+        if (room) {
+          roomMap.set(slot.roomId.toString(), room);
+        }
+      }
+    });
+
+    // 🏥 Filter slots by roomType if allowedRoomTypes is specified
+    const filteredSlots = [];
+    for (const slot of slots) {
+      // Get room data for this slot
+      const roomData = roomMap.get(slot.roomId?.toString());
+      
+      // If serviceId is provided and allowedRoomTypes exists, apply strict filtering
+      if (allowedRoomTypes && allowedRoomTypes.length > 0) {
+        // Skip slot if no room data or no roomType
+        if (!roomData || !roomData.roomType) {
+          console.log(`⚠️ Skipping slot ${slot._id}: no room data or roomType`);
+          continue;
+        }
+        
+        // Skip slot if roomType doesn't match any allowedRoomTypes
+        if (!allowedRoomTypes.includes(roomData.roomType)) {
+          console.log(`⚠️ Skipping slot ${slot._id}: roomType ${roomData.roomType} not in allowedRoomTypes [${allowedRoomTypes.join(', ')}]`);
+          continue;
+        }
+      }
+      
+      // Slot passes the filter
+      filteredSlots.push(slot);
+    }
+
+    console.log(`🔍 Filtered ${filteredSlots.length}/${slots.length} slots by roomType`);
+
+    const slotDetails = filteredSlots.map(slot => {
       const nurse = slot.nurse ? users.find(u => u._id === slot.nurse) : null;
       const room = rooms.find(r => r._id === slot.roomId);
       let roomInfo = room ? { id: room._id, name: room.name } : { id: slot.roomId, name: 'Phòng không xác định' };

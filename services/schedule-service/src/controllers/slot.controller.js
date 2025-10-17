@@ -596,7 +596,7 @@ exports.getDentistSlotDetailsFuture = async (req, res) => {
   
   try {
     const { dentistId } = req.params;
-    const { date, shiftName } = req.query;
+    const { date, shiftName, serviceId } = req.query;
     
     if (!dentistId || !date) {
       return res.status(400).json({
@@ -605,10 +605,13 @@ exports.getDentistSlotDetailsFuture = async (req, res) => {
       });
     }
 
+    console.log('📋 Request params:', { dentistId, date, shiftName, serviceId });
+
     const result = await slotService.getDentistSlotDetailsFuture({
       dentistId,
       date,
-      shiftName // Optional - nếu không có sẽ trả về tất cả các ca
+      shiftName, // Optional - nếu không có sẽ trả về tất cả các ca
+      serviceId  // Optional - for roomType filtering
     });
     
     console.log('✅ Found', result.data.totalSlots, 'future slots for dentist');
