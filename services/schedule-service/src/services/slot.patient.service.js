@@ -4,6 +4,7 @@
  */
 
 const { getCachedUsers } = require('../utils/cacheHelper');
+const redisClient = require('../utils/redis.client');
 
 // Helper: Format date to Vietnam timezone (YYYY-MM-DD)
 function toVNDateOnlyString(d) {
@@ -119,7 +120,7 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
       try {
         console.log(`\n🔍 Searching slot groups for dentist: ${dentist.fullName} (${dentist._id})`);
         
-        // Get all available slots for this dentist
+        // Get all available slots for this dentist within maxBookingDays range
         const availableSlots = await Slot.find({
           dentist: dentist._id,
           startTime: { $gte: threshold, $lte: maxDate },
@@ -127,53 +128,103 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
           isActive: true
         })
         .sort({ startTime: 1 })
-        .populate({
-          path: 'scheduleId',
-          populate: { path: 'roomId' }
-        })
+        .populate('scheduleId') // Populate schedule to get roomId, subRoomId
         .lean();
         
-        console.log(`📊 Found ${availableSlots.length} available slots for dentist`);
+        console.log(`📊 Found ${availableSlots.length} available slots for dentist within maxBookingDays (${maxBookingDays} days)`);
         
         if (availableSlots.length > 0) {
           const firstSlot = availableSlots[0];
           console.log('🎯 First slot startTime (VN):', toVNDateTimeString(firstSlot.startTime));
-          console.log('🎯 First slot startTime (ISO):', firstSlot.startTime.toISOString());
-          console.log('✅ Comparison: firstSlot.startTime >=', toVNDateTimeString(threshold));
+          console.log('🎯 First slot roomId:', firstSlot.roomId);
+          console.log('🎯 First slot subRoomId:', firstSlot.subRoomId);
         }
         
         if (availableSlots.length === 0) {
-          console.log('❌ No available slots');
+          console.log('❌ No available slots within maxBookingDays range');
           continue;
         }
         
-        // Find first valid consecutive slot group
+        // Fetch room information for all unique roomIds from Redis cache
+        const uniqueRoomIds = [...new Set(availableSlots.map(s => s.roomId.toString()))];
+        console.log('🏥 Unique room IDs:', uniqueRoomIds);
+        
+        // Fetch room details from Redis cache (rooms_cache)
+        const roomMap = new Map();
+        try {
+          const roomsCache = await redisClient.get('rooms_cache');
+          if (!roomsCache) {
+            console.warn('⚠️ rooms_cache not found in Redis. Room filtering will be skipped.');
+          } else {
+            const allRooms = JSON.parse(roomsCache);
+            console.log(`✅ Loaded ${allRooms.length} rooms from Redis cache`);
+            
+            // Build room map for quick lookup
+            uniqueRoomIds.forEach(roomId => {
+              const room = allRooms.find(r => r._id === roomId);
+              if (room) {
+                roomMap.set(roomId, room);
+                console.log(`✅ Found room ${roomId} in cache: ${room.name}, type: ${room.roomType}`);
+              } else {
+                console.warn(`⚠️ Room ${roomId} not found in cache`);
+              }
+            });
+          }
+        } catch (error) {
+          console.error('❌ Error reading rooms_cache from Redis:', error.message);
+          // Continue without room filtering if Redis is unavailable
+        }
+        
+        // Find first valid consecutive slot group with proper roomType filtering
         let nearestSlotGroup = null;
         
         for (let i = 0; i <= availableSlots.length - requiredSlotCount; i++) {
-          let isConsecutive = true;
-          const potentialGroup = [availableSlots[i]];
-          
-          // Check if room type is allowed (if allowedRoomTypes is specified)
           const firstSlot = availableSlots[i];
+          const firstSlotRoomId = firstSlot.roomId.toString();
+          const roomData = roomMap.get(firstSlotRoomId);
+          
+          // ✅ STRICT: Check if room type is allowed (if allowedRoomTypes is specified)
           if (allowedRoomTypes && allowedRoomTypes.length > 0) {
-            const roomType = firstSlot.scheduleId?.roomId?.roomType;
-            if (!roomType || !allowedRoomTypes.includes(roomType)) {
-              console.log(`⏭️ Skipping slot - room type ${roomType} not in allowed types:`, allowedRoomTypes);
+            if (!roomData) {
+              console.log(`⏭️ Skipping slot ${i} - room ${firstSlotRoomId} not found in cache`);
+              continue;
+            }
+            
+            if (!roomData.roomType) {
+              console.log(`⏭️ Skipping slot ${i} - room ${firstSlotRoomId} has no roomType`);
+              continue;
+            }
+            
+            if (!allowedRoomTypes.includes(roomData.roomType)) {
+              console.log(`⏭️ Skipping slot ${i} - room type "${roomData.roomType}" not in allowed types:`, allowedRoomTypes);
               continue; // Skip this slot group
             }
+            
+            console.log(`✅ Slot ${i} - room type "${roomData.roomType}" is ALLOWED`);
           }
           
           // Try to build a group of required size
+          let isConsecutive = true;
+          const potentialGroup = [firstSlot];
+          
           for (let j = 1; j < requiredSlotCount; j++) {
             const prevSlot = availableSlots[i + j - 1];
             const currentSlot = availableSlots[i + j];
             
+            // All slots in group must be from the same room (same roomId AND subRoomId)
+            if (currentSlot.roomId.toString() !== firstSlotRoomId ||
+                currentSlot.subRoomId?.toString() !== firstSlot.subRoomId?.toString()) {
+              console.log(`❌ Slot ${i + j} - different room/subroom (need same for group)`);
+              isConsecutive = false;
+              break;
+            }
+            
+            // Check if consecutive (allow 1 minute tolerance)
             const prevEndTime = new Date(prevSlot.endTime).getTime();
             const currentStartTime = new Date(currentSlot.startTime).getTime();
             
-            // Check if consecutive (allow 1 minute tolerance)
             if (Math.abs(prevEndTime - currentStartTime) > 60000) {
+              console.log(`❌ Slot ${i + j} - not consecutive (gap: ${Math.abs(prevEndTime - currentStartTime) / 1000}s)`);
               isConsecutive = false;
               break;
             }
@@ -182,8 +233,8 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
           }
           
           if (isConsecutive && potentialGroup.length === requiredSlotCount) {
-            const firstSlot = potentialGroup[0];
             const lastSlot = potentialGroup[potentialGroup.length - 1];
+            const roomData = roomMap.get(firstSlotRoomId);
             
             nearestSlotGroup = {
               slotIds: potentialGroup.map(s => s._id),
@@ -193,17 +244,23 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
               shiftName: firstSlot.shiftName,
               slotCount: requiredSlotCount,
               duration: serviceDuration,
-              room: firstSlot.scheduleId?.roomId ? {
-                _id: firstSlot.scheduleId.roomId._id,
-                name: firstSlot.scheduleId.roomId.roomName
-              } : null
+              room: {
+                _id: firstSlot.roomId,
+                subRoomId: firstSlot.subRoomId || null,
+                name: roomData?.name || 'Unknown Room',
+                roomType: roomData?.roomType || null
+              }
             };
             
             console.log('✅ Found nearest slot group:', {
+              date: nearestSlotGroup.date,
               startTime: nearestSlotGroup.startTime,
               endTime: nearestSlotGroup.endTime,
               slotCount: nearestSlotGroup.slotCount,
-              duration: nearestSlotGroup.duration
+              duration: nearestSlotGroup.duration,
+              roomId: nearestSlotGroup.room._id,
+              subRoomId: nearestSlotGroup.room.subRoomId,
+              roomType: nearestSlotGroup.room.roomType
             });
             
             break; // Found the nearest group, stop searching
@@ -216,11 +273,12 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
             nearestSlot: nearestSlotGroup
           });
         } else {
-          console.log(`❌ No valid slot group found (need ${requiredSlotCount} consecutive slots)`);
+          console.log(`❌ No valid slot group found (need ${requiredSlotCount} consecutive slots in same room with allowed roomType)`);
         }
         
       } catch (error) {
         console.warn(`⚠️ Error finding slot for dentist ${dentist._id}:`, error.message);
+        console.error(error.stack);
         continue;
       }
     }
