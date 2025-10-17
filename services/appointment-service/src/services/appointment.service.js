@@ -131,17 +131,26 @@ class AppointmentService {
         dentistId, slotIds, date, notes
       } = reservationData;
       
-      await this.validateSlotsAvailable(slotIds);
+      // 1️⃣ Get schedule config for deposit amount
+      const scheduleConfig = await serviceClient.getScheduleConfig();
+      const depositAmount = scheduleConfig.depositAmount || 50000; // Default 50k VND
+      
+      // Validate slots and get slot details (query once, reuse result)
+      const slots = await this.validateSlotsAvailable(slotIds);
       const serviceInfo = await this.getServiceInfo(serviceId, serviceAddOnId);
       const dentistInfo = await this.getDentistInfo(dentistId);
-      const firstSlot = await this.getSlotInfo(slotIds[0]);
       
       const reservationId = 'RSV' + Date.now();
       
-      const slots = await Promise.all(slotIds.map(id => this.getSlotInfo(id)));
+      // Sort slots by time
       slots.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
-      const startTime = this.formatTime(slots[0].startTime);
+      
+      const firstSlot = slots[0]; // Use first slot from sorted array
+      const startTime = this.formatTime(firstSlot.startTime);
       const endTime = this.formatTime(slots[slots.length - 1].endTime);
+      
+      // 💰 Calculate total deposit: depositAmount × number of slots
+      const totalDepositAmount = depositAmount * slotIds.length;
       
       const reservation = {
         reservationId, patientId, patientInfo,
@@ -160,7 +169,7 @@ class AppointmentService {
         expiresAt: new Date(Date.now() + 15 * 60 * 1000)
       };
       
-      // 1️⃣ Lock slots in DB (set status='locked')
+      // 2️⃣ Lock slots in DB (set status='locked')
       try {
         const scheduleServiceUrl = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
         await axios.put(`${scheduleServiceUrl}/api/slot/bulk-update`, {
@@ -177,7 +186,7 @@ class AppointmentService {
         // Continue anyway - Redis lock is primary
       }
       
-      // 2️⃣ Store reservation + locks in Redis (15 min TTL)
+      // 3️⃣ Store reservation + locks in Redis (15 min TTL)
       const ttl = 15 * 60;
       await redisClient.setEx(
         'temp_reservation:' + reservationId,
@@ -193,16 +202,18 @@ class AppointmentService {
         );
       }
       
-      // 3️⃣ Create temporary payment via HTTP (replaced RPC)
+      // 4️⃣ Create temporary payment with deposit amount (replaced RPC)
       const paymentResult = await serviceClient.createTemporaryPayment(
         reservationId, // appointmentHoldKey
-        serviceInfo.servicePrice // amount
+        totalDepositAmount // 💰 Use deposit amount: depositAmount × slotCount
       );
       
       return {
         reservationId,
         paymentUrl: paymentResult.paymentUrl,
-        amount: serviceInfo.servicePrice,
+        amount: totalDepositAmount, // 💰 Return deposit amount
+        depositPerSlot: depositAmount, // 🆕 Show deposit per slot
+        slotCount: slotIds.length, // 🆕 Show number of slots
         expiresAt: reservation.expiresAt
       };
       
@@ -212,10 +223,19 @@ class AppointmentService {
     }
   }
   
+  /**
+   * Validate slots are available and return slot details
+   * @param {Array<String>} slotIds 
+   * @returns {Array<Object>} slots - Array of slot objects
+   */
   async validateSlotsAvailable(slotIds) {
-    for (const slotId of slotIds) {
-      // 1️⃣ Check slot in DB via schedule-service (source of truth)
-      const slot = await this.getSlotInfo(slotId);
+    // 1️⃣ Query all slots once (parallel query for performance)
+    const slots = await Promise.all(slotIds.map(id => this.getSlotInfo(id)));
+    
+    // 2️⃣ Validate each slot
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      const slotId = slotIds[i];
       
       // Check if already booked or locked in database
       if (slot.status === 'booked') {
@@ -226,13 +246,15 @@ class AppointmentService {
         throw new Error('Slot ' + slotId + ' is currently locked (another user is booking)');
       }
       
-      // 2️⃣ Check temporary lock in Redis (for concurrent reservations)
-      // This is backup check - DB should already have status='locked'
+      // 3️⃣ Check temporary lock in Redis (backup check)
       const isLocked = await this.isSlotLocked(slotId);
       if (isLocked) {
         throw new Error('Slot ' + slotId + ' is currently locked by another reservation');
       }
     }
+    
+    // Return validated slots for reuse
+    return slots;
   }
   
   async getServiceInfo(serviceId, serviceAddOnId) {
@@ -492,8 +514,8 @@ class AppointmentService {
         dentistId, slotIds, date, notes, paymentMethod
       } = appointmentData;
       
-      // Validate slots available
-      await this.validateSlotsAvailable(slotIds);
+      // Validate slots available and get slot details (query once, reuse result)
+      const slots = await this.validateSlotsAvailable(slotIds);
       
       // Get service info
       const serviceInfo = await this.getServiceInfo(serviceId, serviceAddOnId);
@@ -501,8 +523,7 @@ class AppointmentService {
       // Get dentist info
       const dentistInfo = await this.getDentistInfo(dentistId);
       
-      // Get slot info
-      const slots = await Promise.all(slotIds.map(id => this.getSlotInfo(id)));
+      // Sort slots by time
       slots.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
       const firstSlot = slots[0];
       const startTime = this.formatTime(slots[0].startTime);

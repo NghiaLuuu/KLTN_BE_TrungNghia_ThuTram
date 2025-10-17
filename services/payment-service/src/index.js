@@ -11,6 +11,7 @@ const connectDB = require('./config/db');
 const paymentRoutes = require('./routes/payment.route');
 const startRpcServer = require('./utils/rpcServer');
 const rabbitmqClient = require('./utils/rabbitmq.client');
+const redisSubscriber = require('./utils/redis.subscriber'); // ✅ NEW
 
 connectDB();
 const redis = require('./utils/redis.client');
@@ -241,6 +242,13 @@ startRpcServer().then(() => {
   console.error('❌ RPC server failed:', err.message);
 });
 
+// ✅ NEW: Start Redis Subscriber for expired key events
+redisSubscriber.start().then(() => {
+  console.log('✅ Redis Subscriber started (listening for expired temporary payments)');
+}).catch(err => {
+  console.error('❌ Redis Subscriber failed:', err.message);
+});
+
 // Start HTTP Server
 const PORT = process.env.PORT || 3007;
 const server = app.listen(PORT, () => {
@@ -251,6 +259,7 @@ const server = app.listen(PORT, () => {
 process.on('SIGTERM', () => {
   console.log('🛑 SIGTERM received, shutting down gracefully');
   server.close(() => {
+    redisSubscriber.stop(); // Stop Redis subscriber
     console.log('💀 Payment Service process terminated');
     process.exit(0);
   });
@@ -259,6 +268,7 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   console.log('🛑 SIGINT received, shutting down gracefully');
   server.close(() => {
+    redisSubscriber.stop(); // Stop Redis subscriber
     console.log('💀 Payment Service process terminated');
     process.exit(0);
   });

@@ -103,6 +103,15 @@ class ServiceClient {
   }
 
   /**
+   * Get schedule configuration from schedule-service
+   * @returns {Object} Schedule config with shifts, unitDuration, maxBookingDays, depositAmount
+   */
+  async getScheduleConfig() {
+    const response = await this.get('schedule-service', '/api/schedule/config');
+    return response.config || response.data || response;
+  }
+
+  /**
    * Create temporary payment for appointment reservation
    * @param {String} appointmentHoldKey - Redis key for held appointment
    * @param {Number} amount - Payment amount
@@ -114,6 +123,25 @@ class ServiceClient {
       amount
     });
     return response;
+  }
+
+  /**
+   * Make HTTP PUT request to a service
+   */
+  async put(serviceName, path, data, config = {}) {
+    const baseUrl = this.getServiceUrl(serviceName);
+    const url = `${baseUrl}${path}`;
+    
+    try {
+      const response = await axios.put(url, data, {
+        timeout: 10000,
+        ...config
+      });
+      return response.data;
+    } catch (error) {
+      console.error(`[ServiceClient] PUT ${url} failed:`, error.message);
+      throw new Error(`Failed to call ${serviceName}: ${error.message}`);
+    }
   }
 }
 

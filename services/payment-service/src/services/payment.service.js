@@ -660,8 +660,15 @@ class PaymentService {
    * Create VNPay payment URL for appointment
    * Called from frontend when user selects VNPay on payment selection page
    */
-  async createVNPayPaymentUrl(orderId, amount, orderInfo, ipAddr, bankCode = '', locale = 'vn') {
+  async createVNPayPaymentUrl(orderId, amount, orderInfo, ipAddr, bankCode = '', locale = 'vn', userRole = 'patient') {
     try {
+      console.log('='.repeat(60));
+      console.log('🔍 [Create VNPay URL] ROLE STORAGE DEBUG');
+      console.log('='.repeat(60));
+      console.log('📋 Order ID:', orderId);
+      console.log('👤 User Role (received):', userRole);
+      console.log('📊 Role Type:', typeof userRole);
+      
       const paymentUrl = createVNPayPayment(
         orderId,
         amount,
@@ -671,7 +678,24 @@ class PaymentService {
         locale
       );
       
-      console.log('✅ VNPay payment URL created:', { orderId, amount });
+      // Store user role in Redis for later use in return URL redirect
+      // TTL: 30 minutes (enough time for payment process)
+      const roleKey = `payment:role:${orderId}`;
+      const roleToStore = userRole || 'patient';
+      
+      console.log('🔑 Redis Key:', roleKey);
+      console.log('💾 Storing Role:', roleToStore);
+      
+      await redisClient.setEx(roleKey, 1800, roleToStore);
+      
+      console.log('✅ Role stored in Redis successfully');
+      
+      // Verify storage
+      const verifyRole = await redisClient.get(roleKey);
+      console.log('✔️  Verification - Role retrieved:', verifyRole);
+      console.log('='.repeat(60));
+      
+      console.log('✅ VNPay payment URL created:', { orderId, amount, userRole: roleToStore });
       return { paymentUrl, orderId };
     } catch (err) {
       console.error('❌ Failed to create VNPay payment URL:', err);

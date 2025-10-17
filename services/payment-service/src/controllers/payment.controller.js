@@ -49,6 +49,7 @@ class PaymentController {
     try {
       console.log('🔵 [VNPay URL] Request received:', {
         body: req.body,
+        user: req.user,
         headers: {
           'content-type': req.headers['content-type'],
           'user-agent': req.headers['user-agent']
@@ -81,7 +82,8 @@ class PaymentController {
         orderInfo || `Thanh toán đơn hàng ${orderId}`,
         ipAddr,
         bankCode || '',
-        locale || 'vn'
+        locale || 'vn',
+        req.user?.role // Pass user role to service
       );
 
       res.status(200).json({
@@ -667,6 +669,34 @@ class PaymentController {
 
       const { vnp_TxnRef, vnp_ResponseCode, vnp_TransactionNo, vnp_Amount } = vnpParams;
       
+      // Get user role from Redis to determine redirect URL
+      const roleKey = `payment:role:${vnp_TxnRef}`;
+      let userRole = await redis.get(roleKey);
+      
+      console.log('='.repeat(60));
+      console.log('� [VNPay Return] REDIRECT DEBUG INFO');
+      console.log('='.repeat(60));
+      console.log('📋 Order ID (vnp_TxnRef):', vnp_TxnRef);
+      console.log('🔑 Redis Key:', roleKey);
+      console.log('👤 User Role from Redis:', userRole);
+      console.log('📊 Role Type:', typeof userRole);
+      console.log('❓ Is null/undefined?:', userRole === null || userRole === undefined);
+      
+      // Default to patient if not found
+      if (!userRole) {
+        console.log('⚠️  No role found in Redis, defaulting to patient');
+        userRole = 'patient';
+      }
+      
+      // Determine redirect path based on role
+      // Always redirect to payment result page, let frontend handle role-based redirect
+      let redirectPath = '/patient/payment/result';
+      
+      console.log('🔗 Redirect Path:', redirectPath);
+      console.log('� User Role (stored):', userRole);
+      console.log('ℹ️  Frontend will handle role-based redirect after login check');
+      console.log('='.repeat(60));
+      
       // Process payment callback
       if (vnp_ResponseCode === '00') {
         const callbackData = {
@@ -680,16 +710,21 @@ class PaymentController {
           const payment = await paymentService.processGatewayCallback(callbackData);
           console.log('✅ Payment processed successfully:', payment._id);
           
+          // Clean up role from Redis
+          await redis.del(roleKey);
+          
           // Events are sent via RabbitMQ in processGatewayCallback
           // No need for HTTP call here
           
-          return res.redirect(`${process.env.FRONTEND_URL}/patient/appointments?payment=success&orderId=${vnp_TxnRef}`);
+          return res.redirect(`${process.env.FRONTEND_URL}${redirectPath}?payment=success&orderId=${vnp_TxnRef}`);
         } catch (error) {
           console.error('❌ Error processing payment callback:', error);
-          return res.redirect(`${process.env.FRONTEND_URL}/patient/appointments?payment=error&orderId=${vnp_TxnRef}`);
+          return res.redirect(`${process.env.FRONTEND_URL}${redirectPath}?payment=error&orderId=${vnp_TxnRef}`);
         }
       } else {
-        return res.redirect(`${process.env.FRONTEND_URL}/patient/appointments?payment=failed&orderId=${vnp_TxnRef}&code=${vnp_ResponseCode}`);
+        // Clean up role from Redis even on failure
+        await redis.del(roleKey);
+        return res.redirect(`${process.env.FRONTEND_URL}${redirectPath}?payment=failed&orderId=${vnp_TxnRef}&code=${vnp_ResponseCode}`);
       }
     } catch (error) {
       console.error('❌ VNPay return error:', error);

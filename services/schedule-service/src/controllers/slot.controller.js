@@ -657,12 +657,18 @@ exports.getNurseSlotDetailsFuture = async (req, res) => {
 };
 
 // 🆕 API 1: Get dentists with nearest available slot (for patient booking)
-// GET /api/slot/dentists-with-nearest-slot
+// GET /api/slot/dentists-with-nearest-slot?serviceDuration=45
 exports.getDentistsWithNearestSlot = async (req, res) => {
   try {
-    console.log('🔍 Getting dentists with nearest available slots...');
+    const { serviceDuration } = req.query;
     
-    const result = await slotPatientService.getDentistsWithNearestSlot();
+    // Parse serviceDuration, default to 15 minutes
+    const duration = serviceDuration ? parseInt(serviceDuration) : 15;
+    
+    console.log('🔍 Getting dentists with nearest available slot groups...');
+    console.log('🎯 Service duration:', duration, 'minutes');
+    
+    const result = await slotPatientService.getDentistsWithNearestSlot(duration);
     
     console.log('✅ Found', result.data.dentists.length, 'dentists with available slots');
     
@@ -677,13 +683,19 @@ exports.getDentistsWithNearestSlot = async (req, res) => {
 };
 
 // 🆕 API 2: Get dentist working dates within maxBookingDays (for patient booking)
-// GET /api/slot/dentist/:dentistId/working-dates
+// GET /api/slot/dentist/:dentistId/working-dates?serviceDuration=45
 exports.getDentistWorkingDates = async (req, res) => {
   try {
     const { dentistId } = req.params;
-    console.log('📅 Getting working dates for dentist:', dentistId);
+    const { serviceDuration } = req.query;
     
-    const result = await slotPatientService.getDentistWorkingDates(dentistId);
+    // Parse serviceDuration, default to 15 minutes
+    const duration = serviceDuration ? parseInt(serviceDuration) : 15;
+    
+    console.log('📅 Getting working dates for dentist:', dentistId);
+    console.log('🎯 Service duration:', duration, 'minutes');
+    
+    const result = await slotPatientService.getDentistWorkingDates(dentistId, duration);
     
     console.log('✅ Found', result.data.workingDates.length, 'working dates');
     

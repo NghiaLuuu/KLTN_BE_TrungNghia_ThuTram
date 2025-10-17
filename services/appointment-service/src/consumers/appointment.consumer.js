@@ -117,6 +117,13 @@ async function startConsumer() {
 
           // 🔔 PUBLISH appointment.created EVENT for other services
           console.log('📤 [Appointment Consumer] Publishing appointment.created event...');
+          console.log('📊 [Appointment Consumer] Event data:', {
+            appointmentId: appointment._id.toString(),
+            slotIds: appointment.slotIds,
+            slotCount: appointment.slotIds?.length || 0,
+            reservationId: appointment.reservationId,
+            status: 'booked'
+          });
           
           // Notify schedule-service to update slots with appointmentId
           await rabbitmqClient.publishToQueue('schedule_queue', {
@@ -128,7 +135,10 @@ async function startConsumer() {
               status: 'booked'
             }
           });
-          console.log('✅ [Appointment Consumer] Published appointment.created to schedule queue');
+          console.log('✅ [Appointment Consumer] Published appointment.created to schedule_queue');
+          console.log('   → appointmentId:', appointment._id.toString());
+          console.log('   → slotIds:', appointment.slotIds);
+          console.log('   → slotCount:', appointment.slotIds?.length || 0);
           // Notify invoice-service to link invoice with appointmentId (using paymentId)
           await rabbitmqClient.publishToQueue('invoice_queue', {
             event: 'appointment.created',

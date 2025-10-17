@@ -31,16 +31,18 @@ function toVNDateTimeString(d) {
   return `${dateStr} ${timeStr}`;
 }
 
-// 🆕 API 1: Get dentists with nearest available slot
-// Returns list of active dentists with their nearest slot (> currentTime + 30 minutes)
-async function getDentistsWithNearestSlot() {
+// 🆕 API 1: Get dentists with nearest available slot group
+// Returns list of active dentists with their nearest slot group (> currentTime + 30 minutes)
+async function getDentistsWithNearestSlot(serviceDuration = 15) {
   try {
     const Slot = require('../models/slot.model');
     const { ScheduleConfig } = require('../models/scheduleConfig.model');
     
-    // Get schedule config for maxBookingDays
+    // Get schedule config
     const config = await ScheduleConfig.findOne();
     const maxBookingDays = config?.maxBookingDays || 30;
+    const slotDuration = config?.slotDurationMinutes || 15;
+    const requiredSlotCount = Math.ceil(serviceDuration / slotDuration);
     
     // Calculate time threshold: currentTime + 30 minutes
     const now = new Date();
@@ -52,6 +54,7 @@ async function getDentistsWithNearestSlot() {
     
     console.log('⏰ Time threshold:', toVNDateTimeString(threshold));
     console.log('📅 Max date:', toVNDateOnlyString(maxDate));
+    console.log('🎯 Service duration:', serviceDuration, 'minutes | Required slots:', requiredSlotCount);
     
     // Get all active dentists from cache
     const allUsers = await getCachedUsers();
@@ -99,74 +102,89 @@ async function getDentistsWithNearestSlot() {
     
     for (const dentist of activeDentists) {
       try {
-        console.log(`\n🔍 Searching slots for dentist: ${dentist.fullName} (${dentist._id})`);
+        console.log(`\n🔍 Searching slot groups for dentist: ${dentist.fullName} (${dentist._id})`);
         
-        // First, check if there are ANY slots for this dentist (without time filter)
-        const anySlots = await Slot.find({ dentist: dentist._id }).limit(5).lean();
-        console.log(`📊 Total slots found for this dentist (sample):`, anySlots.length);
-        if (anySlots.length > 0) {
-          console.log(`📋 Sample slot:`, {
-            _id: anySlots[0]._id,
-            dentist: anySlots[0].dentist,
-            startTime: anySlots[0].startTime,
-            endTime: anySlots[0].endTime,
-            appointmentCount: anySlots[0].appointmentCount,
-            maxAppointments: anySlots[0].maxAppointments
-          });
-        }
-        
-        // Find nearest slot for this dentist
-        // Conditions:
-        // 1. Slot has this dentist assigned (dentist is array)
-        // 2. Slot start time > threshold
-        // 3. Slot start time <= maxDate
-        // 4. Slot status is available
-        // 5. Slot is active
-        
-        const query = {
-          dentist: dentist._id, // MongoDB will match if _id is in the dentist array
+        // Get all available slots for this dentist
+        const availableSlots = await Slot.find({
+          dentist: dentist._id,
           startTime: { $gte: threshold, $lte: maxDate },
           status: 'available',
           isActive: true
-        };
-        
-        console.log('🔍 Query:', JSON.stringify(query, null, 2));
-        
-        const nearestSlot = await Slot.findOne(query)
+        })
         .sort({ startTime: 1 })
-        .limit(1)
         .populate({
           path: 'scheduleId',
           populate: { path: 'roomId' }
         })
         .lean();
         
-        if (nearestSlot) {
-          console.log('✅ Found nearest slot:', {
-            slotId: nearestSlot._id,
-            startTime: nearestSlot.startTime,
-            endTime: nearestSlot.endTime,
-            status: nearestSlot.status,
-            isActive: nearestSlot.isActive,
-            dentists: nearestSlot.dentist
-          });
+        console.log(`📊 Found ${availableSlots.length} available slots for dentist`);
+        
+        if (availableSlots.length === 0) {
+          console.log('❌ No available slots');
+          continue;
+        }
+        
+        // Find first valid consecutive slot group
+        let nearestSlotGroup = null;
+        
+        for (let i = 0; i <= availableSlots.length - requiredSlotCount; i++) {
+          let isConsecutive = true;
+          const potentialGroup = [availableSlots[i]];
+          
+          // Try to build a group of required size
+          for (let j = 1; j < requiredSlotCount; j++) {
+            const prevSlot = availableSlots[i + j - 1];
+            const currentSlot = availableSlots[i + j];
+            
+            const prevEndTime = new Date(prevSlot.endTime).getTime();
+            const currentStartTime = new Date(currentSlot.startTime).getTime();
+            
+            // Check if consecutive (allow 1 minute tolerance)
+            if (Math.abs(prevEndTime - currentStartTime) > 60000) {
+              isConsecutive = false;
+              break;
+            }
+            
+            potentialGroup.push(currentSlot);
+          }
+          
+          if (isConsecutive && potentialGroup.length === requiredSlotCount) {
+            const firstSlot = potentialGroup[0];
+            const lastSlot = potentialGroup[potentialGroup.length - 1];
+            
+            nearestSlotGroup = {
+              slotIds: potentialGroup.map(s => s._id),
+              date: toVNDateOnlyString(firstSlot.startTime),
+              startTime: toVNTimeString(firstSlot.startTime),
+              endTime: toVNTimeString(lastSlot.endTime),
+              shiftName: firstSlot.shiftName,
+              slotCount: requiredSlotCount,
+              duration: serviceDuration,
+              room: firstSlot.scheduleId?.roomId ? {
+                _id: firstSlot.scheduleId.roomId._id,
+                name: firstSlot.scheduleId.roomId.roomName
+              } : null
+            };
+            
+            console.log('✅ Found nearest slot group:', {
+              startTime: nearestSlotGroup.startTime,
+              endTime: nearestSlotGroup.endTime,
+              slotCount: nearestSlotGroup.slotCount,
+              duration: nearestSlotGroup.duration
+            });
+            
+            break; // Found the nearest group, stop searching
+          }
+        }
+        
+        if (nearestSlotGroup) {
           dentistsWithSlots.push({
             ...dentist,
-            nearestSlot: {
-              _id: nearestSlot._id,
-              date: toVNDateOnlyString(nearestSlot.startTime),
-              startTime: toVNTimeString(nearestSlot.startTime),
-              endTime: toVNTimeString(nearestSlot.endTime),
-              shiftName: nearestSlot.shiftName,
-              availableAppointments: 1, // Each slot can have 1 appointment
-              room: nearestSlot.scheduleId?.roomId ? {
-                _id: nearestSlot.scheduleId.roomId._id,
-                name: nearestSlot.scheduleId.roomId.roomName
-              } : null
-            }
+            nearestSlot: nearestSlotGroup
           });
         } else {
-          console.log('❌ No available slot found for this dentist');
+          console.log(`❌ No valid slot group found (need ${requiredSlotCount} consecutive slots)`);
         }
         
       } catch (error) {
@@ -201,16 +219,59 @@ async function getDentistsWithNearestSlot() {
   }
 }
 
+// 🆕 Helper: Group consecutive slots and check if enough slots available for duration
+function hasEnoughConsecutiveSlots(slots, serviceDuration = 15, slotDuration = 15) {
+  const requiredSlotCount = Math.ceil(serviceDuration / slotDuration);
+  
+  // If service only needs 1 slot, any available slot is enough
+  if (requiredSlotCount <= 1) {
+    return slots.length > 0;
+  }
+  
+  // Sort slots by startTime
+  const sortedSlots = [...slots].sort((a, b) => {
+    const timeA = new Date(a.startTime).getTime();
+    const timeB = new Date(b.startTime).getTime();
+    return timeA - timeB;
+  });
+  
+  // Sliding window to find consecutive groups
+  for (let i = 0; i <= sortedSlots.length - requiredSlotCount; i++) {
+    let isConsecutive = true;
+    
+    for (let j = 0; j < requiredSlotCount - 1; j++) {
+      const currentSlot = sortedSlots[i + j];
+      const nextSlot = sortedSlots[i + j + 1];
+      
+      const currentEndTime = new Date(currentSlot.endTime).getTime();
+      const nextStartTime = new Date(nextSlot.startTime).getTime();
+      
+      // Check if slots are consecutive (allow 1 minute tolerance)
+      if (Math.abs(currentEndTime - nextStartTime) > 60000) {
+        isConsecutive = false;
+        break;
+      }
+    }
+    
+    if (isConsecutive) {
+      return true; // Found at least one valid group
+    }
+  }
+  
+  return false;
+}
+
 // 🆕 API 2: Get dentist working dates within maxBookingDays
-// Returns list of dates when dentist has available slots
-async function getDentistWorkingDates(dentistId) {
+// Returns list of dates when dentist has available slots (with enough consecutive slots for service duration)
+async function getDentistWorkingDates(dentistId, serviceDuration = 15) {
   try {
     const Slot = require('../models/slot.model');
     const { ScheduleConfig } = require('../models/scheduleConfig.model');
     
-    // Get schedule config for maxBookingDays
+    // Get schedule config
     const config = await ScheduleConfig.findOne();
     const maxBookingDays = config?.maxBookingDays || 30;
+    const slotDuration = config?.slotDurationMinutes || 15;
     
     // Calculate date range
     const now = new Date();
@@ -220,6 +281,8 @@ async function getDentistWorkingDates(dentistId) {
     
     console.log('📅 getDentistWorkingDates - Date range:', toVNDateOnlyString(now), 'to', toVNDateOnlyString(maxDate));
     console.log('⏰ Threshold (now + 30min):', threshold.toISOString());
+    console.log('🎯 Service duration:', serviceDuration, 'minutes | Slot duration:', slotDuration, 'minutes');
+    console.log('📊 Required consecutive slots:', Math.ceil(serviceDuration / slotDuration));
     
     // Get all slots for this dentist within date range
     const slots = await Slot.find({
@@ -250,7 +313,7 @@ async function getDentistWorkingDates(dentistId) {
       };
     }
     
-    // Group slots by date
+    // Group slots by date and shift
     const dateMap = new Map();
     
     slots.forEach(slot => {
@@ -264,6 +327,7 @@ async function getDentistWorkingDates(dentistId) {
             afternoon: { available: false, slots: [] },
             evening: { available: false, slots: [] }
           },
+          allSlots: [], // Store all slots for date-level checking
           totalSlots: 0,
           availableSlots: 0
         });
@@ -277,20 +341,65 @@ async function getDentistWorkingDates(dentistId) {
       if (hour >= 12 && hour < 17) shiftKey = 'afternoon';
       else if (hour >= 17) shiftKey = 'evening';
       
-      dateData.shifts[shiftKey].available = true;
-      dateData.shifts[shiftKey].slots.push({
-        _id: slot._id,
-        startTime: toVNTimeString(slot.startTime),
-        endTime: toVNTimeString(slot.endTime),
-        availableAppointments: 1 // Each slot can have 1 appointment
-      });
-      
+      dateData.shifts[shiftKey].slots.push(slot);
+      dateData.allSlots.push(slot);
       dateData.totalSlots++;
-      dateData.availableSlots += 1; // Each slot = 1 available appointment
+      dateData.availableSlots += 1;
     });
     
-    // Convert map to array
-    const workingDates = Array.from(dateMap.values());
+    // Filter dates: only keep dates with enough consecutive slots
+    const validWorkingDates = [];
+    
+    for (const [dateStr, dateData] of dateMap.entries()) {
+      // Check each shift for consecutive slots
+      let hasValidShift = false;
+      
+      for (const [shiftKey, shiftData] of Object.entries(dateData.shifts)) {
+        if (shiftData.slots.length > 0) {
+          const hasEnoughSlots = hasEnoughConsecutiveSlots(
+            shiftData.slots, 
+            serviceDuration, 
+            slotDuration
+          );
+          
+          if (hasEnoughSlots) {
+            shiftData.available = true;
+            hasValidShift = true;
+            
+            // Convert slots to display format
+            shiftData.slots = shiftData.slots.map(s => ({
+              _id: s._id,
+              startTime: toVNTimeString(s.startTime),
+              endTime: toVNTimeString(s.endTime),
+              availableAppointments: 1
+            }));
+          } else {
+            // This shift doesn't have enough consecutive slots
+            shiftData.available = false;
+            shiftData.slots = [];
+          }
+        }
+      }
+      
+      // Only add date if at least one shift has valid slot groups
+      if (hasValidShift) {
+        validWorkingDates.push({
+          date: dateData.date,
+          shifts: dateData.shifts,
+          totalSlots: dateData.totalSlots,
+          availableSlots: dateData.availableSlots
+        });
+        
+        console.log(`✅ Date ${dateStr}: Has valid slot groups`);
+      } else {
+        console.log(`❌ Date ${dateStr}: No valid slot groups (${dateData.totalSlots} slots but not enough consecutive)`);
+      }
+    }
+    
+    // Sort by date
+    const workingDates = validWorkingDates.sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
     
     console.log('✅ Found', workingDates.length, 'working dates');
     

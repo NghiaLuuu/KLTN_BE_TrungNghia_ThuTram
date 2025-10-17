@@ -105,7 +105,8 @@ exports.initializeConfig = async () => {
       isActive: true
     },
     unitDuration: 15,
-    maxBookingDays: 30
+    maxBookingDays: 30,
+    depositAmount: 50000 // 🆕 Default deposit: 50,000 VND per slot
   };
 
   const config = new ScheduleConfig(defaultConfig);
@@ -173,23 +174,11 @@ exports.getCurrentQuarterInfo = async () => {
   const config = await this.getConfig();
   return {
     quarter: config.getCurrentQuarter(),
-    year: config.getCurrentYear(),
-    lastGenerated: config.lastQuarterGenerated
+    year: config.getCurrentYear()
   };
 };
 
-exports.canGenerateQuarter = async (quarter, year) => {
-  const config = await this.getConfig();
-  return config.canGenerateQuarter(quarter, year);
-};
-
-exports.markQuarterGenerated = async (quarter, year) => {
-  const config = await this.getConfig();
-  config.lastQuarterGenerated = { quarter, year };
-  await config.save();
-  try { await redis.set(CACHE_KEY, JSON.stringify(config)); } catch (e) {}
-  return config;
-};
+// ❌ REMOVED: canGenerateQuarter, markQuarterGenerated - lastQuarterGenerated field removed
 
 // ===== HOLIDAY CONFIG (separate) =====
 exports.getHolidays = async () => {

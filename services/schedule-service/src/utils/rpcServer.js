@@ -10,15 +10,9 @@ async function startRpcServer() {
 
   const queue = 'schedule_queue';
 
-  try {
-    await channel.deleteQueue(queue);
-    console.log(`♻️ Refreshing RabbitMQ queue ${queue} before asserting`);
-  } catch (err) {
-    if (err?.code !== 404) {
-      console.warn(`⚠️ Could not delete queue ${queue} during refresh:`, err.message || err);
-    }
-  }
-
+  // ❌ REMOVED: Don't delete queue - it's shared with event consumer
+  // This was causing consumer to lose connection when RPC server starts
+  
   await channel.assertQueue(queue, { durable: true });
 
   console.log(`✅ Schedule RPC server listening on queue: ${queue}`);
@@ -29,7 +23,24 @@ async function startRpcServer() {
     let response;
     try {
       const content = msg.content.toString();
-      const { action, payload } = JSON.parse(content);
+      const data = JSON.parse(content);
+      
+      // 🔍 Check if this is an EVENT message (has 'event' field)
+      // Events should be handled by event consumer, not RPC server
+      if (data.event) {
+        console.log(`📨 [RPC Server] Received event: ${data.event} - Rejecting for event consumer to handle`);
+        channel.nack(msg, false, true); // Requeue for event consumer
+        return;
+      }
+      
+      // ✅ This is an RPC call (has 'action' field)
+      const { action, payload } = data;
+      
+      if (!action) {
+        console.warn('⚠️ [RPC Server] Message has no action or event field, ignoring');
+        channel.ack(msg);
+        return;
+      }
 
       switch (action) {
         case 'validateSlotsForService':

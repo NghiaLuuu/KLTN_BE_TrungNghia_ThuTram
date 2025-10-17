@@ -103,8 +103,6 @@ const scheduleConfigSchema = new mongoose.Schema({
     max: 180
   },
   
-  // maxGenerateScheduleMonths removed per new requirement (generation is quarter-based)
-  
   maxBookingDays: { 
     type: Number, 
     required: true, 
@@ -112,10 +110,13 @@ const scheduleConfigSchema = new mongoose.Schema({
     min: 1,
     max: 365
   },
-  // Track the last generated quarter to prevent duplicates and enforce sequence
-  lastQuarterGenerated: {
-    quarter: { type: Number, default: null },
-    year: { type: Number, default: null }
+  
+  // 🆕 Deposit amount per slot (tiền cọc mỗi slot)
+  depositAmount: {
+    type: Number,
+    required: true,
+    default: 50000, // 50,000 VND per slot
+    min: 0
   }
 }, { timestamps: true });
 
@@ -184,31 +185,7 @@ scheduleConfigSchema.methods.getQuarterDateRange = function(quarter, year) {
   return { startDate, endDate };
 };
 
-scheduleConfigSchema.methods.canGenerateQuarter = function(targetQuarter, targetYear) {
-  const currentQuarter = this.getCurrentQuarter();
-  const currentYear = this.getCurrentYear();
-  
-  // Chỉ được tạo quý hiện tại hoặc quý tiếp theo (bắt buộc tạo quý hiện tại trước)
-  if (targetYear < currentYear) return false;
-  if (targetYear === currentYear && targetQuarter < currentQuarter) return false;
-  
-  // Nếu muốn tạo quý tiếp theo, phải đã tạo quý hiện tại
-  if (targetYear === currentYear && targetQuarter === currentQuarter + 1) {
-    return this.lastQuarterGenerated?.quarter === currentQuarter && 
-           this.lastQuarterGenerated?.year === currentYear;
-  }
-  
-  // Chỉ cho phép tạo quý hiện tại
-  if (targetYear === currentYear && targetQuarter === currentQuarter) return true;
-  
-  // Tạo quý 1 năm sau (chỉ khi đã tạo quý 4 năm hiện tại)
-  if (targetYear === currentYear + 1 && targetQuarter === 1 && currentQuarter === 4) {
-    return this.lastQuarterGenerated?.quarter === 4 && 
-           this.lastQuarterGenerated?.year === currentYear;
-  }
-  
-  return false;
-};
+// ❌ REMOVED: canGenerateQuarter() - lastQuarterGenerated field removed
 
 // Pre-save hook
 scheduleConfigSchema.pre('save', function(next) {
