@@ -52,9 +52,11 @@ async function getDentistsWithNearestSlot(serviceDuration = 15) {
     const maxDate = new Date(now);
     maxDate.setDate(maxDate.getDate() + maxBookingDays);
     
-    console.log('⏰ Time threshold:', toVNDateTimeString(threshold));
+    console.log('⏰ Current time (VN):', toVNDateTimeString(now));
+    console.log('🕐 Time threshold (now + 30min):', toVNDateTimeString(threshold));
     console.log('📅 Max date:', toVNDateOnlyString(maxDate));
     console.log('🎯 Service duration:', serviceDuration, 'minutes | Required slots:', requiredSlotCount);
+    console.log('📊 Threshold ISO:', threshold.toISOString());
     
     // Get all active dentists from cache
     const allUsers = await getCachedUsers();
@@ -119,6 +121,13 @@ async function getDentistsWithNearestSlot(serviceDuration = 15) {
         .lean();
         
         console.log(`📊 Found ${availableSlots.length} available slots for dentist`);
+        
+        if (availableSlots.length > 0) {
+          const firstSlot = availableSlots[0];
+          console.log('🎯 First slot startTime (VN):', toVNDateTimeString(firstSlot.startTime));
+          console.log('🎯 First slot startTime (ISO):', firstSlot.startTime.toISOString());
+          console.log('✅ Comparison: firstSlot.startTime >=', toVNDateTimeString(threshold));
+        }
         
         if (availableSlots.length === 0) {
           console.log('❌ No available slots');
@@ -280,7 +289,9 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15) {
     maxDate.setDate(maxDate.getDate() + maxBookingDays);
     
     console.log('📅 getDentistWorkingDates - Date range:', toVNDateOnlyString(now), 'to', toVNDateOnlyString(maxDate));
-    console.log('⏰ Threshold (now + 30min):', threshold.toISOString());
+    console.log('⏰ Current time (VN):', toVNDateTimeString(now));
+    console.log('🕐 Threshold (now + 30min, VN):', toVNDateTimeString(threshold));
+    console.log('📊 Threshold (ISO):', threshold.toISOString());
     console.log('🎯 Service duration:', serviceDuration, 'minutes | Slot duration:', slotDuration, 'minutes');
     console.log('📊 Required consecutive slots:', Math.ceil(serviceDuration / slotDuration));
     
@@ -296,6 +307,13 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15) {
     .lean();
     
     console.log('📋 Found', slots.length, 'available slots for dentist');
+    
+    if (slots.length > 0) {
+      const firstSlot = slots[0];
+      console.log('🎯 First slot startTime (VN):', toVNDateTimeString(firstSlot.startTime));
+      console.log('🎯 First slot startTime (ISO):', firstSlot.startTime.toISOString());
+      console.log('✅ Query used threshold (ISO):', threshold.toISOString());
+    }
     
     if (slots.length === 0) {
       return {

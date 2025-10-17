@@ -2657,12 +2657,13 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName }) {
       -7 + 24, 0, 0, 0
     ));
 
-    // ⭐ Chỉ lấy slots có startTime > hiện tại + 15 phút (đồng bộ với assign-staff)
+    // ⭐ Chỉ lấy slots có startTime > hiện tại + 30 phút (booking buffer)
     const vietnamNow = getVietnamDate();
-    vietnamNow.setMinutes(vietnamNow.getMinutes() + 15); // Add 15 minutes buffer
+    vietnamNow.setMinutes(vietnamNow.getMinutes() + 30); // Add 30 minutes buffer for booking
     const effectiveStartTime = vietnamNow > startUTC ? vietnamNow : startUTC;
 
-    console.log('🕐 getDentistSlotDetailsFuture (with 15-min buffer):', vietnamNow.toISOString());
+    console.log('🕐 getDentistSlotDetailsFuture (with 30-min buffer):', vietnamNow.toISOString());
+    console.log('📅 Effective start time:', effectiveStartTime.toISOString());
 
     const queryFilter = {
       dentist: dentistId,
