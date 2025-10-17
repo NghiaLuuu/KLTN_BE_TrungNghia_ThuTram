@@ -10,6 +10,10 @@ class AppointmentRepository {
     return await Appointment.findById(id);
   }
 
+  async findOne(filter) {
+    return await Appointment.findOne(filter);
+  }
+
   async findByCode(code) {
     return await Appointment.findByCode(code);
   }
@@ -332,6 +336,42 @@ class AppointmentRepository {
     }
 
     return query;
+  }
+
+  /**
+   * Create appointment (alias for create method)
+   */
+  async createAppointment(appointmentData) {
+    return await this.create(appointmentData);
+  }
+
+  /**
+   * Count appointments on a specific date (for generating appointment code)
+   */
+  async countAppointmentsOnDate(date) {
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+    
+    return await Appointment.countDocuments({
+      appointmentDate: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    });
+  }
+
+  /**
+   * Update appointment with invoice ID
+   */
+  async updateInvoiceId(appointmentId, invoiceId) {
+    return await Appointment.findByIdAndUpdate(
+      appointmentId,
+      { invoiceId },
+      { new: true }
+    );
   }
 }
 

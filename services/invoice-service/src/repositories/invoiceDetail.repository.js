@@ -400,6 +400,26 @@ class InvoiceDetailRepository {
     const savePromises = details.map(detail => detail.save());
     return await Promise.all(savePromises);
   }
+
+  // ============ HELPER METHODS FOR CONSUMER ============
+  
+  /**
+   * Create invoice detail from consumer event
+   */
+  async createInvoiceDetail(detailData) {
+    return await this.create(detailData);
+  }
+
+  /**
+   * Update appointmentId for invoice details after appointment creation
+   */
+  async updateAppointmentId(invoiceId, appointmentId) {
+    return await InvoiceDetail.updateMany(
+      { invoiceId },
+      { appointmentId },
+      { new: true }
+    );
+  }
 }
 
 module.exports = new InvoiceDetailRepository();

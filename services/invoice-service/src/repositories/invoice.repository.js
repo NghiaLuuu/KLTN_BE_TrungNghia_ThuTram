@@ -20,6 +20,10 @@ class InvoiceRepository {
     return await Invoice.findById(id);
   }
 
+  async findOne(filter) {
+    return await Invoice.findOne(filter);
+  }
+
   async findByInvoiceNumber(invoiceNumber) {
     return await Invoice.findByInvoiceNumber(invoiceNumber);
   }
@@ -442,6 +446,42 @@ class InvoiceRepository {
     }
 
     return query;
+  }
+
+  // ============ HELPER METHODS FOR CONSUMER ============
+  
+  /**
+   * Count invoices created today
+   * Used for generating invoice number sequence
+   */
+  async countInvoicesToday() {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+    
+    return await Invoice.countDocuments({
+      createdAt: { $gte: startOfDay, $lte: endOfDay }
+    });
+  }
+
+  /**
+   * Create invoice from consumer event
+   */
+  async createInvoice(invoiceData) {
+    return await this.create(invoiceData);
+  }
+
+  /**
+   * Update appointmentId after appointment creation
+   */
+  async updateAppointmentId(invoiceId, appointmentId) {
+    return await Invoice.findByIdAndUpdate(
+      invoiceId,
+      { appointmentId },
+      { new: true }
+    );
   }
 }
 

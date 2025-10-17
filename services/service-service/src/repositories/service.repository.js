@@ -123,6 +123,18 @@ exports.markServiceAsUsed = async (serviceId) => {
   );
 };
 
+/**
+ * Mark multiple services as used
+ * @param {Array} serviceIds - Array of service IDs
+ * @returns {Object} Update result
+ */
+exports.markServicesAsUsed = async (serviceIds) => {
+  return await Service.updateMany(
+    { _id: { $in: serviceIds } },
+    { $set: { hasBeenUsed: true } }
+  );
+};
+
 exports.markServiceAddOnAsUsed = async (serviceId, addOnId) => {
   return await Service.findOneAndUpdate(
     { 

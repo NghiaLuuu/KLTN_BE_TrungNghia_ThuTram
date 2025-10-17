@@ -38,7 +38,21 @@ function getChannel() {
 async function publishToQueue(queueName, message) {
   try {
     const ch = getChannel();
+    
+    // Try to delete and recreate queue to ensure correct settings
+    try {
+      await ch.deleteQueue(queueName);
+      console.log(`♻️ Deleted queue ${queueName} before recreating`);
+    } catch (delErr) {
+      // Queue might not exist, ignore 404 error
+      if (delErr.code !== 404) {
+        console.warn(`⚠️ Could not delete queue ${queueName}:`, delErr.message);
+      }
+    }
+    
+    // Create queue with durable: true
     await ch.assertQueue(queueName, { durable: true });
+    
     ch.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
       persistent: true
     });
@@ -105,5 +119,6 @@ module.exports = {
   getChannel,
   publishToQueue,
   consumeQueue,
+  consumeFromQueue: consumeQueue, // Alias for compatibility
   publishEvent
 };

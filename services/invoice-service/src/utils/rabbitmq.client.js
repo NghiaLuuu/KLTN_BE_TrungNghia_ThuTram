@@ -120,6 +120,16 @@ class RabbitMQClient {
     }
   }
 
+  // Alias for compatibility
+  async consumeFromQueue(queueName, handler) {
+    return this.consumeQueue(queueName, handler);
+  }
+
+  // Alias for compatibility
+  async connectRabbitMQ(url) {
+    return this.connect(url);
+  }
+
   /**
    * Publish event to an exchange
    */

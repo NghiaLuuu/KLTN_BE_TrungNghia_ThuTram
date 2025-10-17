@@ -219,3 +219,44 @@ exports.getServiceAddOnById = async (req, res) => {
     res.status(404).json({ message: err.message || 'Không tìm thấy dịch vụ bổ sung' });
   }
 };
+
+// ===== SERVICE USAGE TRACKING =====
+/**
+ * Check if services have been used
+ * POST /api/services/check-usage
+ * Body: { serviceIds: ['id1', 'id2'] }
+ */
+exports.checkServiceUsage = async (req, res) => {
+  try {
+    const { serviceIds } = req.body;
+    
+    if (!serviceIds || !Array.isArray(serviceIds) || serviceIds.length === 0) {
+      return res.status(400).json({ message: 'serviceIds is required and must be an array' });
+    }
+    
+    const result = await serviceService.checkServiceUsage(serviceIds);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ message: err.message || 'Error checking service usage' });
+  }
+};
+
+/**
+ * Mark services as used (update hasBeenUsed to true)
+ * POST /api/services/mark-as-used
+ * Body: { serviceIds: ['id1', 'id2'] }
+ */
+exports.markServicesAsUsed = async (req, res) => {
+  try {
+    const { serviceIds, reservationId, paymentId } = req.body;
+    
+    if (!serviceIds || !Array.isArray(serviceIds) || serviceIds.length === 0) {
+      return res.status(400).json({ message: 'serviceIds is required and must be an array' });
+    }
+    
+    const result = await serviceService.markServicesAsUsed(serviceIds, reservationId, paymentId);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ message: err.message || 'Error marking services as used' });
+  }
+};

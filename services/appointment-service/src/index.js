@@ -6,6 +6,7 @@ const cors = require('cors');
 const connectDB = require('./config/db');
 const { connectRabbitMQ } = require('./utils/rabbitmq.client');
 const { setupEventListeners } = require('./utils/eventListeners');
+const { startConsumer } = require('./consumers/appointment.consumer');
 const appointmentRoutes = require('./routes/appointment.route');
 
 connectDB();
@@ -34,6 +35,10 @@ async function startServer() {
     
     await setupEventListeners();
     console.log('✅ Event listeners ready');
+    
+    // Start RabbitMQ consumer for payment events
+    await startConsumer();
+    console.log('✅ Appointment consumer started');
     
     app.listen(PORT, () => {
       console.log(`✅ Appointment Service running on port ${PORT}`);

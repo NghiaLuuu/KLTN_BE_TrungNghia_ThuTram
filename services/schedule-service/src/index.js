@@ -10,6 +10,8 @@ const scheduleConfigRoutes = require('./routes/scheduleConfig.route');
 const startRpcServer = require('./utils/rpcServer');
 const scheduleConfigService = require('./services/scheduleConfig.service');
 const { setupEventListeners } = require('./utils/eventListeners');
+const rabbitmqClient = require('./utils/rabbitmq.client');
+const { startConsumer } = require('./consumers/schedule.consumer');
 
 connectDB();
 
@@ -40,6 +42,19 @@ setTimeout(async () => {
 setTimeout(async () => {
   await setupEventListeners();
 }, 3000); // Wait 3s after DB is ready
+
+// 🆕 Start RabbitMQ consumer for payment events
+setTimeout(async () => {
+  try {
+    await rabbitmqClient.connectRabbitMQ(process.env.RABBITMQ_URL || 'amqp://localhost');
+    console.log('✅ Schedule Service - RabbitMQ connected');
+    
+    await startConsumer();
+    console.log('✅ Schedule consumer started');
+  } catch (err) {
+    console.error('❌ Failed to start RabbitMQ consumer:', err);
+  }
+}, 4000); // Wait 4s to ensure RabbitMQ is ready
 
 // Server
 

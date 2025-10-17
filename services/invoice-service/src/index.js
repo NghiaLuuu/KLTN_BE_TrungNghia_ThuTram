@@ -18,6 +18,8 @@ const invoiceDetailRoutes = require('./routes/invoiceDetail.routes');
 // ============ SERVICES & UTILS ============
 const startRpcServer = require('./utils/rpcServer');
 const { setupEventListeners } = require('./utils/eventListeners');
+const rabbitmqClient = require('./utils/rabbitmq.client');
+const { startConsumer } = require('./consumers/invoice.consumer');
 
 connectDB();
 const invoiceService = require('./services/invoice.service');
@@ -239,6 +241,18 @@ async function startServer() {
     setTimeout(async () => {
       await setupEventListeners();
     }, 3000); // Wait 3s after connections are ready
+    
+    // Start Invoice Consumer for payment events
+    setTimeout(async () => {
+      try {
+        const rabbitmqUrl = process.env.RABBITMQ_URL || 'amqp://localhost';
+        await rabbitmqClient.connectRabbitMQ(rabbitmqUrl);
+        await startConsumer();
+        console.log('✅ [Invoice Service] RabbitMQ Consumer started');
+      } catch (error) {
+        console.error('❌ [Invoice Service] Failed to start consumer:', error);
+      }
+    }, 4000); // Wait 4s to ensure RabbitMQ is ready
     
     const PORT = process.env.PORT || 3008;
     

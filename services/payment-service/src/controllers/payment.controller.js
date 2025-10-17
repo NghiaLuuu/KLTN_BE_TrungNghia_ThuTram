@@ -12,33 +12,18 @@ class PaymentController {
    */
   async createTemporaryPayment(req, res) {
     try {
-      console.log('🔵 [Temp Payment] Request received:', {
-        body: req.body,
-        headers: {
-          'content-type': req.headers['content-type']
-        }
-      });
-
       const { appointmentHoldKey, amount } = req.body;
 
       if (!appointmentHoldKey) {
-        console.log('❌ [Temp Payment] Missing appointmentHoldKey');
         return res.status(400).json({
           success: false,
           message: 'appointmentHoldKey is required'
         });
       }
 
-      console.log('🔵 [Temp Payment] Creating temporary payment:', { appointmentHoldKey, amount });
-
       const result = await paymentService.createTemporaryPayment({
         appointmentHoldKey,
         amount
-      });
-
-      console.log('✅ [Temp Payment] Created successfully:', {
-        orderId: result.orderId,
-        paymentUrl: result.paymentUrl
       });
 
       res.status(201).json({
@@ -47,7 +32,7 @@ class PaymentController {
         data: result
       });
     } catch (error) {
-      console.error('❌ [Temp Payment] Error creating temporary payment:', error);
+      console.error('❌ Error creating temporary payment:', error);
       res.status(400).json({
         success: false,
         message: error.message || 'Lỗi tạo temporary payment'
@@ -73,7 +58,6 @@ class PaymentController {
       const { orderId, amount, orderInfo, bankCode, locale } = req.body;
 
       if (!orderId || !amount) {
-        console.log('❌ [VNPay URL] Missing required fields:', { orderId, amount });
         return res.status(400).json({
           success: false,
           message: 'orderId và amount là bắt buộc'
@@ -91,8 +75,6 @@ class PaymentController {
         ipAddr = '127.0.0.1';
       }
 
-      console.log('🔵 [VNPay URL] Creating payment URL:', { orderId, amount, ipAddr });
-
       const result = await paymentService.createVNPayPaymentUrl(
         orderId,
         amount,
@@ -102,18 +84,13 @@ class PaymentController {
         locale || 'vn'
       );
 
-      console.log('✅ [VNPay URL] Payment URL created successfully:', {
-        orderId: result.orderId,
-        paymentUrlLength: result.paymentUrl?.length
-      });
-
       res.status(200).json({
         success: true,
         message: 'Tạo VNPay payment URL thành công',
         data: result
       });
     } catch (error) {
-      console.error('❌ [VNPay URL] Error creating VNPay URL:', error);
+      console.error('❌ Error creating VNPay URL:', error);
       res.status(400).json({
         success: false,
         message: error.message || 'Lỗi tạo VNPay payment URL'
@@ -682,20 +659,16 @@ class PaymentController {
       console.log('🔵 [VNPay Return] Verifying signature with secret key:', secretKey);
       
       const isValid = verifyVNPayCallback(vnpParams, secretKey);
-      console.log('🔵 [VNPay Return] Signature valid:', isValid);
 
       if (!isValid) {
         console.error('❌ Invalid VNPay signature');
-        return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=error&message=Invalid signature`);
+        return res.redirect(`${process.env.FRONTEND_URL}/patient/appointments?payment=error&message=Invalid+signature`);
       }
 
       const { vnp_TxnRef, vnp_ResponseCode, vnp_TransactionNo, vnp_Amount } = vnpParams;
-      console.log('🔵 [VNPay Return] Processing:', { vnp_TxnRef, vnp_ResponseCode, vnp_TransactionNo, vnp_Amount });
       
       // Process payment callback
       if (vnp_ResponseCode === '00') {
-        console.log('✅ [VNPay Return] Payment success!');
-        // Success
         const callbackData = {
           orderId: vnp_TxnRef,
           status: 'success',
@@ -705,20 +678,22 @@ class PaymentController {
 
         try {
           const payment = await paymentService.processGatewayCallback(callbackData);
-          console.log('✅ [VNPay Return] Payment processed:', payment);
-          return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=success&orderId=${vnp_TxnRef}`);
+          console.log('✅ Payment processed successfully:', payment._id);
+          
+          // Events are sent via RabbitMQ in processGatewayCallback
+          // No need for HTTP call here
+          
+          return res.redirect(`${process.env.FRONTEND_URL}/patient/appointments?payment=success&orderId=${vnp_TxnRef}`);
         } catch (error) {
-          console.error('❌ [VNPay Return] Error processing payment callback:', error);
-          return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=error&orderId=${vnp_TxnRef}`);
+          console.error('❌ Error processing payment callback:', error);
+          return res.redirect(`${process.env.FRONTEND_URL}/patient/appointments?payment=error&orderId=${vnp_TxnRef}`);
         }
       } else {
-        console.log('❌ [VNPay Return] Payment failed with code:', vnp_ResponseCode);
-        // Failed
-        return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=failed&orderId=${vnp_TxnRef}&code=${vnp_ResponseCode}`);
+        return res.redirect(`${process.env.FRONTEND_URL}/patient/appointments?payment=failed&orderId=${vnp_TxnRef}&code=${vnp_ResponseCode}`);
       }
     } catch (error) {
-      console.error('❌ [VNPay Return] Error:', error);
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/result?status=error`);
+      console.error('❌ VNPay return error:', error);
+      return res.redirect(`${process.env.FRONTEND_URL}/patient/appointments?payment=error`);
     }
   }
 

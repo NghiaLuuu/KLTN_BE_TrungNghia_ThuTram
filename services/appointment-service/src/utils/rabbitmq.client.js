@@ -66,5 +66,6 @@ module.exports = {
   connectRabbitMQ, 
   getChannel,
   publishToQueue,
-  consumeQueue
+  consumeQueue,
+  consumeFromQueue: consumeQueue // Alias for compatibility
 };

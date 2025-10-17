@@ -1,4 +1,6 @@
 const crypto = require('crypto');
+const mongoose = require('mongoose');
+const axios = require('axios');
 const paymentRepository = require('../repositories/payment.repository');
 const Payment = require('../models/payment.model');
 const { PaymentMethod, PaymentStatus, PaymentType } = require('../models/payment.model');
@@ -343,62 +345,210 @@ class PaymentService {
   async processGatewayCallback(callbackData) {
     try {
       const { orderId, status, transactionId, amount } = callbackData;
-      console.log('🔵 [Process Callback] Starting with:', callbackData);
       
       // orderId here is actually reservationId (vnp_TxnRef)
       const reservationId = orderId;
       const tempPaymentKey = `payment:temp:${reservationId}`;
       
-      console.log('🔵 [Process Callback] Looking for temp payment:', tempPaymentKey);
-      
       // Get temporary payment from Redis
-      const tempPaymentData = await redis.get(tempPaymentKey);
+      const tempPaymentData = await redisClient.get(tempPaymentKey);
       if (!tempPaymentData) {
-        console.error('❌ [Process Callback] Temporary payment not found or expired:', tempPaymentKey);
+        console.error('❌ Temporary payment not found:', tempPaymentKey);
         throw new Error('Temporary payment not found or expired');
       }
       
       const tempPayment = JSON.parse(tempPaymentData);
-      console.log('✅ [Process Callback] Found temp payment:', tempPayment);
 
       // Create permanent payment record in DB
       if (status === 'success') {
-        console.log('✅ [Process Callback] Payment success, creating permanent record');
+        // Get appointment hold data for patient info and services
+        const appointmentHoldKey = tempPayment.appointmentHoldKey || reservationId;
+        
+        // Try multiple possible Redis keys (different services use different prefixes)
+        const possibleKeys = [
+          appointmentHoldKey,  // Direct key (e.g., "RSV1760631740748")
+          `appointment_hold:${appointmentHoldKey}`,
+          `reservation:${appointmentHoldKey}`,
+          `temp_reservation:${appointmentHoldKey}`
+        ];
+        
+        let patientInfo = {
+          name: 'Bệnh nhân',
+          phone: '0000000000'
+        };
+        let appointmentData = null;
+        let foundKey = null;
+        
+        try {
+          // Try each possible key until we find the data
+          for (const key of possibleKeys) {
+            const appointmentDataStr = await redisClient.get(key);
+            if (appointmentDataStr) {
+              appointmentData = JSON.parse(appointmentDataStr);
+              foundKey = key;
+              console.log('✅ [DEBUG] Appointment data found in Redis:', {
+                key: foundKey,
+                hasPatientInfo: !!appointmentData.patientInfo,
+                hasSlotIds: !!appointmentData.slotIds,
+                slotCount: appointmentData.slotIds?.length || 0,
+                hasServiceId: !!appointmentData.serviceId,
+                serviceAddOnId: appointmentData.serviceAddOnId || 'none'
+              });
+              break;
+            }
+          }
+          
+          if (!appointmentData) {
+            console.error('❌ [DEBUG] No appointment data found in Redis. Tried keys:', possibleKeys);
+            // Don't throw - continue with limited data
+          }
+          
+          // Extract patient info
+          if (appointmentData && appointmentData.patientInfo) {
+            patientInfo = {
+              name: appointmentData.patientInfo.fullName || appointmentData.patientInfo.name || 'Bệnh nhân',
+              phone: appointmentData.patientInfo.phone || '0000000000',
+              email: appointmentData.patientInfo.email || null,
+              address: appointmentData.patientInfo.address || null
+            };
+          }
+        } catch (err) {
+          console.error('❌ [DEBUG] Error fetching appointment data:', err.message);
+        }
+        
+        const paymentAmount = amount || tempPayment.amount;
         
         const paymentData = {
-          code: tempPayment.orderId, // ORD...
-          appointmentId: null, // Will be set when appointment is confirmed
+          paymentCode: tempPayment.orderId,
+          appointmentId: null,
           patientId: tempPayment.patientId || null,
-          amount: amount || tempPayment.amount,
+          patientInfo: patientInfo,
+          type: 'payment',
           method: 'vnpay',
-          status: 'COMPLETED',
-          transactionId: transactionId,
-          metadata: {
-            reservationId,
-            vnp_TxnRef: reservationId,
-            gateway: 'vnpay',
-            processedAt: new Date()
-          }
+          status: 'completed',
+          originalAmount: paymentAmount,
+          discountAmount: 0,
+          taxAmount: 0,
+          finalAmount: paymentAmount,
+          paidAmount: paymentAmount,
+          changeAmount: 0,
+          externalTransactionId: transactionId,
+          gatewayResponse: {
+            responseCode: '00',
+            responseMessage: 'Success',
+            additionalData: {
+              reservationId,
+              vnp_TxnRef: reservationId,
+              gateway: 'vnpay',
+              processedAt: new Date()
+            }
+          },
+          processedBy: new mongoose.Types.ObjectId(),
+          processedByName: 'VNPay Gateway',
+          processedAt: new Date(),
+          description: `Thanh toán VNPay cho đơn hàng ${tempPayment.orderId}`,
+          notes: `Reservation ID: ${reservationId}`,
+          isVerified: true,
+          verifiedAt: new Date()
         };
         
-        console.log('🔵 [Process Callback] Creating payment record:', paymentData);
         const payment = await paymentRepository.create(paymentData);
-        console.log('✅ [Process Callback] Payment created:', payment._id);
+        console.log('✅ Payment created:', payment._id);
         
         // Delete temp payment from Redis
-        await redis.del(tempPaymentKey);
-        console.log('✅ [Process Callback] Deleted temp payment from Redis');
+        await redisClient.del(tempPaymentKey);
         
-        // TODO: Notify appointment-service to confirm appointment
-        // This should be done via HTTP or event
+        // 🚀 Publish events after successful payment
+        if (appointmentData) {
+          console.log('📤 [Payment] Starting to publish events with appointment data:', {
+            reservationId,
+            patientName: appointmentData.patientInfo?.fullName || 'Unknown',
+            slotCount: appointmentData.slotIds?.length || 0,
+            serviceId: appointmentData.serviceId,
+            serviceAddOnId: appointmentData.serviceAddOnId || 'none'
+          });
+          
+          try {
+            // 🔹 STEP 1: Create Appointment (appointment-service will handle the rest)
+            console.log('📤 [Payment] Publishing to appointment_queue...');
+            await rabbitmqClient.publishToQueue('appointment_queue', {
+              event: 'payment.completed',
+              data: {
+                reservationId: reservationId,
+                paymentId: payment._id.toString(),
+                paymentCode: payment.paymentCode,
+                amount: paymentAmount,
+                appointmentData: appointmentData
+              }
+            });
+            console.log('✅ [Payment] Event sent to appointment_queue: payment.completed');
+
+            // 🔹 STEP 2: Create Invoice (initially without appointmentId)
+            console.log('📤 [Payment] Publishing to invoice_queue...');
+            await rabbitmqClient.publishToQueue('invoice_queue', {
+              event: 'payment.completed',
+              data: {
+                reservationId: reservationId,
+                paymentId: payment._id.toString(),
+                paymentCode: payment.paymentCode,
+                amount: paymentAmount,
+                patientInfo: patientInfo,
+                appointmentData: appointmentData
+              }
+            });
+            console.log('✅ [Payment] Event sent to invoice_queue: payment.completed');
+
+            // � STEP 3: Mark Service/ServiceAddOn as Used
+            const servicesToMark = [];
+            
+            if (appointmentData.serviceId) {
+              servicesToMark.push({
+                serviceId: appointmentData.serviceId,
+                serviceAddOnId: appointmentData.serviceAddOnId || null
+              });
+            }
+            
+            if (servicesToMark.length > 0) {
+              console.log('📤 [Payment] Publishing to service_queue...', {
+                services: servicesToMark,
+                mainService: appointmentData.serviceId,
+                addon: appointmentData.serviceAddOnId || 'none'
+              });
+              
+              await rabbitmqClient.publishToQueue('service_queue', {
+                event: 'service.mark_as_used',
+                data: {
+                  services: servicesToMark,
+                  reservationId: reservationId,
+                  paymentId: payment._id.toString()
+                }
+              });
+              
+              console.log('✅ [Payment] Event sent to service_queue: service.mark_as_used');
+            }
+
+            // ℹ️ NOTE: appointment-service will publish events to:
+            //   - schedule_queue (update slots with appointmentId)
+            //   - invoice_queue (link invoice with appointmentId)
+            console.log('ℹ️ [Payment] Appointment-service will handle schedule & invoice linking');
+
+          } catch (eventError) {
+            console.error('⚠️ Error publishing events:', eventError.message);
+            // Don't throw - payment already created successfully
+          }
+        } else {
+          console.warn('⚠️ [Payment] appointmentData is NULL or UNDEFINED - Events NOT published!', {
+            appointmentData,
+            reservationId,
+            tempPaymentKey,
+            appointmentHoldKey
+          });
+        }
         
         return payment;
       } else {
-        console.log('❌ [Process Callback] Payment failed');
-        
-        // Delete temp payment from Redis
-        await redis.del(tempPaymentKey);
-        
+        console.error('❌ Payment failed from gateway');
+        await redisClient.del(tempPaymentKey);
         throw new Error('Payment failed from gateway');
       }
     } catch (error) {

@@ -32,6 +32,10 @@ router.get('/', serviceController.listServices);
 router.get('/search', serviceController.searchService);
 router.get('/:id', serviceController.getServiceById);
 
+// ===== SERVICE USAGE TRACKING =====
+router.post('/check-usage', serviceController.checkServiceUsage);
+router.post('/mark-as-used', serviceController.markServicesAsUsed);
+
 // ===== SERVICE ADD-ON ROUTES =====
 // Protected routes (require admin/manager)
 router.post('/:serviceId/addons', authMiddleware, upload.single('image'), serviceController.addServiceAddOn);

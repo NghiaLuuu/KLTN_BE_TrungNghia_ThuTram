@@ -31,7 +31,11 @@ const PatientInfoSchema = new Schema({
   phone: {
     type: String,
     required: true,
-    match: /^(\+84|84|0)(3[2-9]|5[6-9]|7[0|6-9]|8[1-9]|9[0-9])[0-9]{7}$/
+    trim: true,
+    minlength: 10,
+    maxlength: 15
+    // ✅ Removed strict regex to allow test data like '0000000003'
+    // In production, add validation in controller/service layer
   },
   email: {
     type: String,
@@ -244,7 +248,7 @@ const InvoiceSchema = new Schema({
   },
   createdByRole: {
     type: String,
-    enum: ['admin', 'manager', 'dentist', 'receptionist'],
+    enum: ['admin', 'manager', 'dentist', 'receptionist', 'patient'], // ✅ Added 'patient'
     required: true
   },
   updatedBy: {

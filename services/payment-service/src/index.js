@@ -10,9 +10,20 @@ const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/db');
 const paymentRoutes = require('./routes/payment.route');
 const startRpcServer = require('./utils/rpcServer');
+const rabbitmqClient = require('./utils/rabbitmq.client');
 
 connectDB();
 const redis = require('./utils/redis.client');
+
+// Initialize RabbitMQ connection for event publishing
+const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
+rabbitmqClient.connectRabbitMQ(RABBITMQ_URL)
+  .then(() => {
+    console.log('✅ Payment Service - RabbitMQ connected for event publishing');
+  })
+  .catch(err => {
+    console.error('❌ Payment Service - RabbitMQ connection failed:', err);
+  });
 
 // Initialize Express app
 const app = express();

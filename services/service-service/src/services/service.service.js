@@ -214,6 +214,63 @@ exports.getServiceAddOnById = async (serviceId, addOnId) => {
   return await serviceRepo.findServiceAddOnById(serviceId, addOnId);
 };
 
+// ===== SERVICE USAGE TRACKING =====
+/**
+ * Check if services have been used
+ * @param {Array} serviceIds - Array of service IDs
+ * @returns {Object} { servicesNeedUpdate: [...], allMarked: boolean }
+ */
+exports.checkServiceUsage = async (serviceIds) => {
+  // Get from cache first
+  const cachedData = await redis.get(SERVICE_CACHE_KEY);
+  let services = [];
+  
+  if (cachedData) {
+    services = JSON.parse(cachedData);
+  } else {
+    services = await serviceRepo.listServices();
+  }
+  
+  // Filter services that need to be marked as used
+  const servicesNeedUpdate = serviceIds.filter(id => {
+    const service = services.find(s => s._id.toString() === id.toString());
+    return service && !service.hasBeenUsed;
+  });
+  
+  return {
+    notUsed: servicesNeedUpdate,  // Alias for consistency
+    servicesNeedUpdate,  // Keep old name for backward compatibility
+    allUsed: servicesNeedUpdate.length === 0,
+    allMarked: servicesNeedUpdate.length === 0,
+    total: serviceIds.length,
+    alreadyUsed: serviceIds.length - servicesNeedUpdate.length,
+    alreadyMarked: serviceIds.length - servicesNeedUpdate.length
+  };
+};
+
+/**
+ * Mark services as used (update hasBeenUsed to true)
+ * @param {Array} serviceIds - Array of service IDs
+ * @param {String} reservationId - Reservation ID for tracking
+ * @param {String} paymentId - Payment ID for tracking
+ */
+exports.markServicesAsUsed = async (serviceIds, reservationId, paymentId) => {
+  const result = await serviceRepo.markServicesAsUsed(serviceIds);
+  
+  // Refresh cache after update
+  await refreshServiceCache();
+  
+  console.log(`✅ Marked ${result.modifiedCount} services as used (Reservation: ${reservationId})`);
+  
+  return {
+    success: true,
+    modifiedCount: result.modifiedCount,
+    serviceIds,
+    reservationId,
+    paymentId
+  };
+};
+
 async function refreshServiceCache() {
   const services = await serviceRepo.listServices();
   await redis.set(SERVICE_CACHE_KEY, JSON.stringify(services));

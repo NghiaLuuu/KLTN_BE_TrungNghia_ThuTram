@@ -65,22 +65,24 @@ const appointmentSchema = new Schema({
   },
   serviceAddOnId: {
     type: mongoose.Schema.Types.ObjectId,
-    required: true
+    required: false, // ✅ Not required - service might not have addon
+    default: null
   },
   serviceAddOnName: {
     type: String,
-    required: true,
-    trim: true
+    required: false, // ✅ Not required
+    trim: true,
+    default: null
   },
   serviceDuration: {
     type: Number,
     required: true,
-    min: 1 // minutes
   },
   servicePrice: {
     type: Number,
-    required: true,
-    min: 0
+    required: false, // ✅ Not required - will be calculated from service
+    min: 0,
+    default: 0
   },
   
   // Dentist Assignment
@@ -135,6 +137,12 @@ const appointmentSchema = new Schema({
     min: 0
   },
   
+  // Reservation tracking (for linking with invoice)
+  reservationId: {
+    type: String,
+    index: true
+  },
+  
   // Status
   status: {
     type: String,
@@ -151,16 +159,6 @@ const appointmentSchema = new Schema({
     type: mongoose.Schema.Types.ObjectId,
     required: true
   },
-  bookedByRole: {
-    type: String,
-    enum: ['patient', 'staff', 'dentist', 'admin'],
-    required: true
-  },
-  bookingChannel: {
-    type: String,
-    enum: ['online', 'offline'],
-    default: 'online'
-  },
   
   // Notes
   notes: {
@@ -168,18 +166,10 @@ const appointmentSchema = new Schema({
     trim: true,
     maxlength: 500
   },
-  reasonForVisit: {
-    type: String,
-    trim: true,
-    maxlength: 300
-  },
   
   // Check-in Information
   checkedInAt: {
     type: Date
-  },
-  checkedInBy: {
-    type: mongoose.Schema.Types.ObjectId
   },
   
   // Completion Information
