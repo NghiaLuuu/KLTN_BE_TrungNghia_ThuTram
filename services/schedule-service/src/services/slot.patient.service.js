@@ -44,12 +44,12 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
     let allowedRoomTypes = null;
     if (serviceId) {
       try {
-        const serviceResponse = await axios.get(`${process.env.SERVICE_SERVICE_URL || 'http://localhost:3004'}/api/service/${serviceId}`);
+        const serviceResponse = await axios.get(`${process.env.SERVICE_SERVICE_URL || 'http://localhost:3003'}/api/service/${serviceId}`);
         allowedRoomTypes = serviceResponse.data?.allowedRoomTypes || null;
         console.log('🏥 Service allowed room types from API:', allowedRoomTypes);
       } catch (error) {
         console.warn('⚠️ Could not fetch service info:', error.message);
-        console.warn('⚠️ Service filtering will be skipped. Please ensure Service Service is running.');
+        console.warn('⚠️ Service filtering will be skipped. Please ensure Service Service is running on port 3003.');
       }
     }
     
