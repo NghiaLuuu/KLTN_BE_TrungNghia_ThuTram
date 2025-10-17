@@ -3652,10 +3652,28 @@ exports.getRoomSchedulesWithShifts = async (roomId, subRoomId = null, month = nu
         }
       }
       
-      // 🆕 Check if schedule is expired (currentDate > endDate)
-      const scheduleEndDate = new Date(schedule.endDate);
+      // 🆕 FALLBACK: Nếu startDate/endDate không có, tạo từ month/year
+      let effectiveStartDate = schedule.startDate;
+      let effectiveEndDate = schedule.endDate;
+      
+      if (!effectiveStartDate || !effectiveEndDate) {
+        console.warn(`⚠️ Schedule ${schedule._id} missing startDate/endDate, generating from month/year`);
+        
+        // Tạo startDate = ngày 1 của tháng
+        effectiveStartDate = new Date(schedule.year, schedule.month - 1, 1);
+        effectiveStartDate.setHours(0, 0, 0, 0);
+        
+        // Tạo endDate = ngày cuối của tháng
+        effectiveEndDate = new Date(schedule.year, schedule.month, 0);
+        effectiveEndDate.setHours(23, 59, 59, 999);
+      }
+      
+      // 🆕 Check if schedule is expired (currentDate >= endDate)
+      // ⚠️ IMPORTANT: Nếu hôm nay = endDate, cũng coi như expired
+      // Vì lịch mới chỉ có thể bắt đầu từ ngày MAI
+      const scheduleEndDate = new Date(effectiveEndDate);
       scheduleEndDate.setHours(23, 59, 59, 999);
-      const isExpired = nowVN > scheduleEndDate;
+      const isExpired = nowVN >= scheduleEndDate; // ✅ Đổi > thành >=
       
       // 🆕 Can create = NOT expired AND has at least 1 active missing shift
       const hasAtLeastOneActiveMissing = missingShifts.some(shift => shift.isActive === true);
@@ -3665,8 +3683,8 @@ exports.getRoomSchedulesWithShifts = async (roomId, subRoomId = null, month = nu
         scheduleId: schedule._id,
         month: schedule.month,
         year: schedule.year,
-        startDate: schedule.startDate,
-        endDate: schedule.endDate,
+        startDate: effectiveStartDate,
+        endDate: effectiveEndDate,
         shiftConfig: shiftConfigSnapshot,
         holidaySnapshot: schedule.holidaySnapshot || { recurringHolidays: [], nonRecurringHolidays: [] },
         subRoom, // ✅ Thông tin subroom nếu có

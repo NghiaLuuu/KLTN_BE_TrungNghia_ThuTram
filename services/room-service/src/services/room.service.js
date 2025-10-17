@@ -40,6 +40,11 @@ async function refreshRoomCache() {
 exports.createRoom = async (data) => {
   const { subRoomCount, ...roomData } = data;
 
+  // Validate roomType
+  if (!roomData.roomType) {
+    throw new Error('roomType là bắt buộc');
+  }
+
   // Nếu có subRooms
   if (subRoomCount && subRoomCount > 0) {
     
@@ -94,6 +99,7 @@ exports.updateRoom = async (roomId, updateData) => {
 
   // Update basic fields
   if (updateData.name) room.name = updateData.name;
+  if (updateData.roomType) room.roomType = updateData.roomType;
   if (updateData.isActive !== undefined) room.isActive = updateData.isActive;
   
   // Kiểm tra xem có thay đổi loại phòng không

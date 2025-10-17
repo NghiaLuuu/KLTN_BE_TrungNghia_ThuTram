@@ -1,4 +1,5 @@
 const roomService = require('../services/room.service');
+const Room = require('../models/room.model');
 
 // Chỉ cho phép admin hoặc manager
 const isManagerOrAdmin = (user) => {
@@ -241,6 +242,21 @@ exports.syncAllRoomsScheduleInfo = async (req, res) => {
     res.status(500).json({ 
       success: false,
       message: `Lỗi khi sync: ${err.message}` 
+    });
+  }
+};
+
+// Get room types enum
+exports.getRoomTypes = async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: Room.ROOM_TYPES
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false,
+      message: `Lỗi khi lấy room types: ${err.message}` 
     });
   }
 };

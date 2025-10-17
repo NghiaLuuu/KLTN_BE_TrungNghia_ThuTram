@@ -30,6 +30,7 @@ router.delete('/:id', authMiddleware, serviceController.deleteService);
 // Public routes
 router.get('/', serviceController.listServices);
 router.get('/search', serviceController.searchService);
+router.get('/enums/room-types', serviceController.getRoomTypes); // Get ROOM_TYPES enum
 router.get('/:id', serviceController.getServiceById);
 
 // ===== SERVICE USAGE TRACKING =====

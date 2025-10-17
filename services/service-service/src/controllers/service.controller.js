@@ -1,4 +1,5 @@
 const serviceService = require('../services/service.service');
+const Service = require('../models/service.model');
 
 const isManagerOrAdmin = (user) => {
   return user && (user.role === 'manager' || user.role === 'admin');
@@ -20,6 +21,15 @@ exports.createService = async (req, res) => {
         serviceData.serviceAddOns = JSON.parse(serviceData.serviceAddOns);
       } catch (e) {
         return res.status(400).json({ message: 'serviceAddOns phải là JSON hợp lệ' });
+      }
+    }
+    
+    // Parse allowedRoomTypes if it's a string (from form-data)
+    if (typeof serviceData.allowedRoomTypes === 'string') {
+      try {
+        serviceData.allowedRoomTypes = JSON.parse(serviceData.allowedRoomTypes);
+      } catch (e) {
+        return res.status(400).json({ message: 'allowedRoomTypes phải là JSON hợp lệ' });
       }
     }
     
@@ -258,5 +268,20 @@ exports.markServicesAsUsed = async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(400).json({ message: err.message || 'Error marking services as used' });
+  }
+};
+
+// Get room types enum
+exports.getRoomTypes = async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: Service.ROOM_TYPES
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false,
+      message: `Lỗi khi lấy room types: ${err.message}` 
+    });
   }
 };

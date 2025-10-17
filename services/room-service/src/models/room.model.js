@@ -1,5 +1,20 @@
 const mongoose = require('mongoose');
 
+// ---------------- Room Type Enum ----------------
+const ROOM_TYPES = {
+  CONSULTATION: 'CONSULTATION',           // Phòng tư vấn/khám tổng quát (bookable)
+  GENERAL_TREATMENT: 'GENERAL_TREATMENT', // Phòng điều trị tổng quát - trám, cạo vôi, điều trị tủy (bookable)
+  SURGERY: 'SURGERY',                     // Phòng phẫu thuật/tiểu phẫu, vô khuẩn cao (bookable)
+  ORTHODONTIC: 'ORTHODONTIC',             // Phòng chỉnh nha/niềng (bookable)
+  COSMETIC: 'COSMETIC',                   // Phòng thẩm mỹ nha, bọc sứ, veneer (bookable)
+  PEDIATRIC: 'PEDIATRIC',                 // Phòng nha nhi (bookable)
+  X_RAY: 'X_RAY',                         // Phòng X-quang/CT/Cone-beam (non-bookable bằng UI; gán tự động)
+  STERILIZATION: 'STERILIZATION',         // Phòng tiệt trùng (non-bookable)
+  LAB: 'LAB',                             // Phòng labo/kỹ thuật viên (non-bookable)
+  RECOVERY: 'RECOVERY',                   // Phòng hồi sức sau phẫu thuật (có thể bookable tùy policy)
+  SUPPORT: 'SUPPORT'                      // Phòng phụ trợ/nhân viên (non-bookable)
+};
+
 // ---------------- SubRoom Schema ----------------
 const subRoomSchema = new mongoose.Schema({
   name: {
@@ -31,6 +46,13 @@ const roomSchema = new mongoose.Schema({
     required: true,
     trim: true,
     unique: true, // index MongoDB, vẫn giữ để performance
+  },
+  // Loại phòng - dùng để filter khi đặt lịch với service
+  roomType: {
+    type: String,
+    enum: Object.values(ROOM_TYPES),
+    required: true,
+    index: true
   },
   // Trường phân biệt loại phòng
   hasSubRooms: {
@@ -233,4 +255,8 @@ roomSchema.pre('findOneAndUpdate', async function(next) {
   next();
 });
 
-module.exports = mongoose.model('Room', roomSchema);
+// Export model và enum
+const Room = mongoose.model('Room', roomSchema);
+Room.ROOM_TYPES = ROOM_TYPES;
+
+module.exports = Room;

@@ -33,10 +33,23 @@ function toVNDateTimeString(d) {
 
 // 🆕 API 1: Get dentists with nearest available slot group
 // Returns list of active dentists with their nearest slot group (> currentTime + 30 minutes)
-async function getDentistsWithNearestSlot(serviceDuration = 15) {
+async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null) {
   try {
     const Slot = require('../models/slot.model');
     const { ScheduleConfig } = require('../models/scheduleConfig.model');
+    const axios = require('axios');
+    
+    // Get service info if serviceId provided
+    let allowedRoomTypes = null;
+    if (serviceId) {
+      try {
+        const serviceResponse = await axios.get(`${process.env.SERVICE_SERVICE_URL || 'http://localhost:3004'}/api/service/${serviceId}`);
+        allowedRoomTypes = serviceResponse.data?.allowedRoomTypes || null;
+        console.log('🏥 Service allowed room types:', allowedRoomTypes);
+      } catch (error) {
+        console.warn('⚠️ Could not fetch service info:', error.message);
+      }
+    }
     
     // Get schedule config
     const config = await ScheduleConfig.findOne();
@@ -140,6 +153,16 @@ async function getDentistsWithNearestSlot(serviceDuration = 15) {
         for (let i = 0; i <= availableSlots.length - requiredSlotCount; i++) {
           let isConsecutive = true;
           const potentialGroup = [availableSlots[i]];
+          
+          // Check if room type is allowed (if allowedRoomTypes is specified)
+          const firstSlot = availableSlots[i];
+          if (allowedRoomTypes && allowedRoomTypes.length > 0) {
+            const roomType = firstSlot.scheduleId?.roomId?.roomType;
+            if (!roomType || !allowedRoomTypes.includes(roomType)) {
+              console.log(`⏭️ Skipping slot - room type ${roomType} not in allowed types:`, allowedRoomTypes);
+              continue; // Skip this slot group
+            }
+          }
           
           // Try to build a group of required size
           for (let j = 1; j < requiredSlotCount; j++) {
