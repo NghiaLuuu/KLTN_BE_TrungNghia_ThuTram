@@ -33,10 +33,11 @@ async function startServer() {
     await connectRabbitMQ(process.env.RABBITMQ_URL || 'amqp://localhost');
     console.log('✅ RabbitMQ connected');
     
-    await setupEventListeners();
-    console.log('✅ Event listeners ready');
+    // ❌ COMMENTED OUT: Using new event-driven consumer instead
+    // await setupEventListeners();
+    // console.log('✅ Event listeners ready');
     
-    // Start RabbitMQ consumer for payment events
+    // ✅ Start NEW RabbitMQ consumer for payment events (event-driven)
     await startConsumer();
     console.log('✅ Appointment consumer started');
     

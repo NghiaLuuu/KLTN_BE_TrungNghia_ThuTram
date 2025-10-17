@@ -12,7 +12,7 @@ async function connectRabbitMQ(url) {
   connection = await amqp.connect(url);
   channel = await connection.createChannel();
   
-  console.log('🟢 Payment Service connected to RabbitMQ');
+  // ✅ Connection log removed - will log in index.js only
   
   // Handle connection errors
   connection.on('error', (error) => {
@@ -39,26 +39,16 @@ async function publishToQueue(queueName, message) {
   try {
     const ch = getChannel();
     
-    // Try to delete and recreate queue to ensure correct settings
-    try {
-      await ch.deleteQueue(queueName);
-      console.log(`♻️ Deleted queue ${queueName} before recreating`);
-    } catch (delErr) {
-      // Queue might not exist, ignore 404 error
-      if (delErr.code !== 404) {
-        console.warn(`⚠️ Could not delete queue ${queueName}:`, delErr.message);
-      }
-    }
-    
-    // Create queue with durable: true
+    // ✅ FIXED: Don't delete queue - just assert it exists
+    // Deleting queue removes all consumers listening to it!
     await ch.assertQueue(queueName, { durable: true });
     
     ch.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
       persistent: true
     });
-    console.log(`📤 Published to ${queueName}:`, message.event || message.type);
+    console.log(`📤 Event sent to ${queueName}`);
   } catch (error) {
-    console.error(`❌ Failed to publish to ${queueName}:`, error);
+    console.error(`❌ Failed to publish to ${queueName}:`, error.message);
     throw error;
   }
 }

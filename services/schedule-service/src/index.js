@@ -47,12 +47,12 @@ setTimeout(async () => {
 setTimeout(async () => {
   try {
     await rabbitmqClient.connectRabbitMQ(process.env.RABBITMQ_URL || 'amqp://localhost');
-    console.log('✅ Schedule Service - RabbitMQ connected');
+    console.log('✅ RabbitMQ connected');
     
     await startConsumer();
-    console.log('✅ Schedule consumer started');
+    console.log('✅ Consumer started');
   } catch (err) {
-    console.error('❌ Failed to start RabbitMQ consumer:', err);
+    console.error('❌ Failed to start consumer:', err);
   }
 }, 4000); // Wait 4s to ensure RabbitMQ is ready
 

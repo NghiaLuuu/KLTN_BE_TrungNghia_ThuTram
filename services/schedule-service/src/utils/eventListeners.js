@@ -120,20 +120,16 @@ async function handleAppointmentCancelled(data) {
  */
 async function setupEventListeners() {
   try {
-    console.log('[Schedule] Setting up RabbitMQ event listeners...');
-
     // Connect to RabbitMQ
     await rabbitmqClient.connect();
 
     // Listen to appointment.created events
     await rabbitmqClient.consumeQueue('appointment.created', handleAppointmentCreated);
-    console.log('[Schedule] ✓ Listening to appointment.created events');
 
     // Listen to appointment.cancelled events
     await rabbitmqClient.consumeQueue('appointment.cancelled', handleAppointmentCancelled);
-    console.log('[Schedule] ✓ Listening to appointment.cancelled events');
 
-    console.log('[Schedule] Event listeners setup complete');
+    // ✅ Simplified logs - will show in index.js only
 
   } catch (error) {
     console.error('[Schedule] Error setting up event listeners:', error);

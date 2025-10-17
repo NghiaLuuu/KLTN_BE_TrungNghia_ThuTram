@@ -128,13 +128,13 @@ async function startConsumer() {
               status: 'booked'
             }
           });
-
-          // Notify invoice-service to link invoice with appointmentId
+          console.log('✅ [Appointment Consumer] Published appointment.created to schedule queue');
+          // Notify invoice-service to link invoice with appointmentId (using paymentId)
           await rabbitmqClient.publishToQueue('invoice_queue', {
             event: 'appointment.created',
             data: {
               appointmentId: appointment._id.toString(),
-              reservationId: appointment.reservationId
+              paymentId: appointment.paymentId // ✅ Use paymentId instead of reservationId
             }
           });
 

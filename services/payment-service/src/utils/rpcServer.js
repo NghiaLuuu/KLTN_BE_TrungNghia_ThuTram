@@ -10,16 +10,16 @@ async function startRpcServer() {
 
   try {
     await channel.deleteQueue(queue);
-    console.log(`♻️ Refreshing RabbitMQ queue ${queue} before asserting`);
+    // ✅ Removed refresh log - too verbose
   } catch (err) {
     if (err?.code !== 404) {
-      console.warn(`⚠️ Could not delete queue ${queue} during refresh:`, err.message || err);
+      console.warn(`⚠️ Could not delete queue ${queue}:`, err.message || err);
     }
   }
 
   await channel.assertQueue(queue, { durable: true });
 
-  console.log(`✅ Payment RPC server listening on queue: ${queue}`);
+  console.log(`✅ RPC server ready on: ${queue}`);
 
   channel.consume(queue, async (msg) => {
     if (!msg) return;

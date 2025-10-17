@@ -39,6 +39,9 @@ async function consumeQueue(queueName, handler) {
     const ch = getChannel();
     await ch.assertQueue(queueName, { durable: true });
     
+    // ✅ Set prefetch to 1 - process one message at a time
+    await ch.prefetch(1);
+    
     console.log(`👂 Listening to ${queueName}...`);
     
     ch.consume(queueName, async (msg) => {

@@ -215,25 +215,28 @@ async function startConsumer() {
           throw error; // Will trigger RabbitMQ retry
         }
       } else if (message.event === 'appointment.created') {
-        // Handle appointment created event - link invoice with appointmentId
-        const { appointmentId, reservationId } = message.data;
+        // ✅ NEW APPROACH: Use paymentId instead of reservationId to avoid race condition
+        // When appointment is created, update invoice with appointmentId
+        const { appointmentId, paymentId } = message.data;
 
         console.log('🔄 [Invoice Consumer] Processing appointment.created:', {
           appointmentId,
-          reservationId
+          paymentId
         });
 
-        if (!appointmentId || !reservationId) {
-          console.warn('⚠️ [Invoice Consumer] Missing appointmentId or reservationId, skipping...');
+        if (!appointmentId || !paymentId) {
+          console.warn('⚠️ [Invoice Consumer] Missing appointmentId or paymentId, skipping...');
           return;
         }
 
         try {
-          // Find invoice by reservationId
-          const invoice = await invoiceRepository.findOne({ reservationId });
+          // Find invoice by paymentId (no race condition - invoice always created first)
+          const invoice = await invoiceRepository.findOne({ 
+            'paymentSummary.paymentIds': paymentId 
+          });
 
           if (!invoice) {
-            console.warn('⚠️ [Invoice Consumer] Invoice not found for reservationId:', reservationId);
+            console.warn('⚠️ [Invoice Consumer] Invoice not found for paymentId:', paymentId);
             return;
           }
 
@@ -248,16 +251,8 @@ async function startConsumer() {
 
           console.log('✅ [Invoice Consumer] Invoice updated with appointmentId');
 
-          // 🔗 Now update Appointment with invoiceId using paymentId
-          // Get paymentId from invoice to find and update appointment
-          const paymentId = invoice.paymentSummary?.paymentIds?.[0];
-          
-          if (!paymentId) {
-            console.warn('⚠️ [Invoice Consumer] No paymentId in invoice, cannot link back to appointment');
-            return;
-          }
-
-          console.log('📤 [Invoice Consumer] Publishing event to update appointment invoiceId:', {
+          // 🔗 Now send event to appointment-service to update invoiceId
+          console.log('📤 [Invoice Consumer] Publishing event to update appointment with invoiceId:', {
             invoiceId: invoice._id.toString(),
             paymentId: paymentId.toString(),
             appointmentId
@@ -268,8 +263,7 @@ async function startConsumer() {
             event: 'invoice.created',
             data: {
               invoiceId: invoice._id.toString(),
-              paymentId: paymentId.toString(),
-              reservationId: reservationId
+              paymentId: paymentId.toString()
             }
           });
 
@@ -279,7 +273,7 @@ async function startConsumer() {
           console.error('❌ [Invoice Consumer] Error linking invoice to appointment:', {
             error: error.message,
             appointmentId,
-            reservationId,
+            paymentId,
             stack: error.stack
           });
           throw error; // Will trigger RabbitMQ retry

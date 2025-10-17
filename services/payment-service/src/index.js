@@ -19,10 +19,10 @@ const redis = require('./utils/redis.client');
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
 rabbitmqClient.connectRabbitMQ(RABBITMQ_URL)
   .then(() => {
-    console.log('✅ Payment Service - RabbitMQ connected for event publishing');
+    console.log('✅ RabbitMQ connected');
   })
   .catch(err => {
-    console.error('❌ Payment Service - RabbitMQ connection failed:', err);
+    console.error('❌ RabbitMQ connection failed:', err);
   });
 
 // Initialize Express app
@@ -30,17 +30,17 @@ const app = express();
 
 // Connect to Database
 connectDB().then(() => {
-  console.log('✅ Payment Service - Database connected successfully');
+  console.log('✅ Database connected');
 }).catch(err => {
-  console.error('❌ Payment Service - Database connection failed:', err);
+  console.error('❌ Database connection failed:', err);
   process.exit(1);
 });
 
 // Test Redis connection
 redis.ping().then(() => {
-  console.log('✅ Payment Service - Redis connected successfully');
+  console.log('✅ Redis connected');
 }).catch(err => {
-  console.error('❌ Payment Service - Redis connection failed:', err);
+  console.error('❌ Redis connection failed:', err);
 });
 
 // Security middleware
@@ -121,20 +121,16 @@ app.use(express.urlencoded({
 app.use((req, res, next) => {
   const start = Date.now();
   
-  // Log incoming request
-  console.log(`\n📥 [${new Date().toISOString()}] ${req.method} ${req.path}`);
-  if (Object.keys(req.body).length > 0) {
-    console.log('   Body:', JSON.stringify(req.body, null, 2));
+  // ✅ Simplified logging - only critical endpoints
+  if (req.path.includes('/vnpay') || req.path.includes('/payment')) {
+    console.log(`📥 ${req.method} ${req.path}`);
+    
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      const statusEmoji = res.statusCode < 400 ? '✅' : '❌';
+      console.log(`${statusEmoji} ${res.statusCode} - ${duration}ms`);
+    });
   }
-  if (Object.keys(req.query).length > 0) {
-    console.log('   Query:', req.query);
-  }
-  
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    const statusEmoji = res.statusCode < 400 ? '✅' : '❌';
-    console.log(`${statusEmoji} ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms\n`);
-  });
   next();
 });
 
@@ -240,17 +236,15 @@ app.use((error, req, res, next) => {
 
 // Start RPC Server
 startRpcServer().then(() => {
-  console.log('✅ Payment Service - RPC Server started successfully');
+  console.log('✅ RPC server started');
 }).catch(err => {
-  console.error('❌ Payment Service - RPC Server failed to start:', err);
+  console.error('❌ RPC server failed:', err.message);
 });
 
 // Start HTTP Server
 const PORT = process.env.PORT || 3007;
 const server = app.listen(PORT, () => {
-  console.log(`🚀 Payment Service running on port ${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  console.log(`🚀 Payment Service:${PORT}`);
 });
 
 // Graceful shutdown

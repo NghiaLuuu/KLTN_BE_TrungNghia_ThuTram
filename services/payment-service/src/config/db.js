@@ -3,7 +3,6 @@ const mongoose = require('mongoose');
 const connectDB = async () => {
   try {
     const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/KLTN';
-    console.log('🔧 Payment Service - MongoDB URI:', mongoUri);
     
     const conn = await mongoose.connect(mongoUri, {
       maxPoolSize: 10, // Maintain up to 10 socket connections
@@ -11,9 +10,9 @@ const connectDB = async () => {
       socketTimeoutMS: 45000 // Close sockets after 45 seconds of inactivity
     });
     
-    console.log(`✅ Payment Service - MongoDB Connected: ${conn.connection.host}`);
+    // ✅ Log will be in index.js only
   } catch (err) {
-    console.error('❌ Payment Service - MongoDB connection error:', err.message);
+    console.error('❌ MongoDB connection error:', err.message);
     process.exit(1);
   }
 };

@@ -11,14 +11,13 @@ class RabbitMQClient {
   async connect(url = process.env.RABBITMQ_URL || 'amqp://localhost:5672') {
     try {
       if (this.connection) {
-        console.log('[Invoice RabbitMQ] Already connected');
-        return;
+        return; // ✅ Already connected - no log needed
       }
 
       this.connection = await amqp.connect(url);
       this.channel = await this.connection.createChannel();
 
-      console.log('[Invoice RabbitMQ] Connected successfully');
+      // ✅ Log in index.js only
 
       // Handle connection errors
       this.connection.on('error', (err) => {
@@ -74,7 +73,7 @@ class RabbitMQClient {
       const messageBuffer = Buffer.from(JSON.stringify(message));
       channel.sendToQueue(queueName, messageBuffer, { persistent: true });
       
-      console.log(`[Invoice RabbitMQ] Published to queue ${queueName}:`, message);
+      console.log(`📤 Event sent to ${queueName}`);
       return true;
     } catch (error) {
       console.error(`[Invoice RabbitMQ] Error publishing to queue ${queueName}:`, error);
@@ -92,12 +91,15 @@ class RabbitMQClient {
       // Assert queue exists
       await channel.assertQueue(queueName, { durable: true });
       
+      // ✅ Set prefetch to 1 - process one message at a time (prevent race conditions)
+      await channel.prefetch(1);
+      
       // Consume messages
       channel.consume(queueName, async (msg) => {
         if (msg) {
           try {
             const data = JSON.parse(msg.content.toString());
-            console.log(`[Invoice RabbitMQ] Received from ${queueName}:`, data);
+            console.log(`📥 Received from ${queueName}`);
             
             // Process message
             await handler(data);
@@ -105,7 +107,7 @@ class RabbitMQClient {
             // Acknowledge message
             channel.ack(msg);
           } catch (error) {
-            console.error(`[Invoice RabbitMQ] Error processing message from ${queueName}:`, error);
+            console.error(`❌ Error processing ${queueName}:`, error.message);
             
             // Reject and requeue message (or send to dead letter queue)
             channel.nack(msg, false, false);
@@ -113,7 +115,7 @@ class RabbitMQClient {
         }
       });
       
-      console.log(`[Invoice RabbitMQ] Consuming queue: ${queueName}`);
+      // ✅ Log removed - will show in consumer only
     } catch (error) {
       console.error(`[Invoice RabbitMQ] Error consuming queue ${queueName}:`, error);
       throw error;

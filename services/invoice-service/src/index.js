@@ -247,10 +247,12 @@ async function startServer() {
       try {
         const rabbitmqUrl = process.env.RABBITMQ_URL || 'amqp://localhost';
         await rabbitmqClient.connectRabbitMQ(rabbitmqUrl);
+        console.log('✅ RabbitMQ connected');
+        
         await startConsumer();
-        console.log('✅ [Invoice Service] RabbitMQ Consumer started');
+        console.log('✅ Consumer started');
       } catch (error) {
-        console.error('❌ [Invoice Service] Failed to start consumer:', error);
+        console.error('❌ Failed to start consumer:', error);
       }
     }, 4000); // Wait 4s to ensure RabbitMQ is ready
     

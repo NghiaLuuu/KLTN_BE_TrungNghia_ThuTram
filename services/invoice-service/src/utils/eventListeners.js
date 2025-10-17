@@ -216,20 +216,16 @@ async function generateInvoiceCode() {
  */
 async function setupEventListeners() {
   try {
-    console.log('[Invoice] Setting up RabbitMQ event listeners...');
-
     // Connect to RabbitMQ
     await rabbitmqClient.connect();
 
     // Listen to appointment.created events
     await rabbitmqClient.consumeQueue('appointment.created', handleAppointmentCreated);
-    console.log('[Invoice] ✓ Listening to appointment.created events');
 
     // Listen to appointment.cancelled events
     await rabbitmqClient.consumeQueue('appointment.cancelled', handleAppointmentCancelled);
-    console.log('[Invoice] ✓ Listening to appointment.cancelled events');
 
-    console.log('[Invoice] Event listeners setup complete');
+    // ✅ Simplified logs - will show in index.js only
 
   } catch (error) {
     console.error('[Invoice] Error setting up event listeners:', error);
