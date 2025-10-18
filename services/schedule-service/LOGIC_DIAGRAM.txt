@@ -1,0 +1,164 @@
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  🧪 LOGIC KIỂM TRA THÁNG CÓ THỂ TẠO LỊCH (availableMonths)                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+📊 INPUT:
+   - roomIds: [13 phòng đã chọn]
+   - fromMonth: 10/2025
+   - toMonth: 10/2027 (24 tháng)
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 1: Lấy Config Shifts                                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+   cfgService.getConfig()
+        ↓
+   activeShifts = {
+     morning: true     ✅ ĐANG BẬT
+     afternoon: true   ✅ ĐANG BẬT
+     evening: false    ❌ ĐANG TẮT (KHÔNG TÍNH)
+   }
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 2: Phân tích từng phòng - VÍ DỤ: Phòng thẩm mỹ nha                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+   roomInfo = {
+     name: "Phòng thẩm mỹ nha",
+     hasSubRooms: true,
+     subRooms: [
+       { _id: "...3023", name: "Buồng 1", isActive: true  ✅ },
+       { _id: "...3024", name: "Buồng 2", isActive: false ❌ }
+     ]
+   }
+        ↓
+   Filter: activeSubRooms = [Buồng 1]  (Buồng 2 bị loại)
+   activeSubRoomCount = 1
+   activeSubRoomIds = Set(["...3023"])
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 3: Kiểm tra tháng 10/2025                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+   monthSchedules = [
+     {
+       subRoomId: "...3023" (Buồng 1),
+       isActiveSubRoom: true,
+       shiftConfig: {
+         morning:   { isGenerated: true,  isActive: true  } ✅
+         afternoon: { isGenerated: true,  isActive: true  } ✅
+         evening:   { isGenerated: true,  isActive: false } ❌ (SKIP - ca tắt)
+       }
+     },
+     {
+       subRoomId: "...3024" (Buồng 2),
+       isActiveSubRoom: true,
+       shiftConfig: {
+         morning:   { isGenerated: false, isActive: true  } ❌ THIẾU
+         afternoon: { isGenerated: false, isActive: true  } ❌ THIẾU
+         evening:   { isGenerated: true,  isActive: false } ❌ (SKIP - ca tắt)
+       }
+     }
+   ]
+
+   ┌─────────────────────────────────────────────────────────────────────────┐
+   │ CHECK CA SÁNG (morning)                                                 │
+   └─────────────────────────────────────────────────────────────────────────┘
+   
+   Filter monthSchedules:
+     - Buồng 1:
+         isSubRoomActive? "...3023" in activeSubRoomIds → ✅ YES
+         isScheduleSubRoomActive? true → ✅ YES
+         isShiftGenerated? true → ✅ YES
+         isShiftActive? true → ✅ YES
+         → COUNT ✅
+         
+     - Buồng 2:
+         isSubRoomActive? "...3024" in activeSubRoomIds → ❌ NO (Buồng 2 đã tắt)
+         → SKIP ❌
+         
+   subRoomsWithShift = 1
+   shiftStatus.morning.allHave = (1 >= 1) → ✅ TRUE
+   
+   ┌─────────────────────────────────────────────────────────────────────────┐
+   │ CHECK CA CHIỀU (afternoon)                                              │
+   └─────────────────────────────────────────────────────────────────────────┘
+   
+   Filter monthSchedules:
+     - Buồng 1: ✅ COUNT (same as morning)
+     - Buồng 2: ❌ SKIP (not in activeSubRoomIds)
+     
+   subRoomsWithShift = 1
+   shiftStatus.afternoon.allHave = (1 >= 1) → ✅ TRUE
+   
+   ┌─────────────────────────────────────────────────────────────────────────┐
+   │ CHECK CA TỐI (evening)                                                  │
+   └─────────────────────────────────────────────────────────────────────────┘
+   
+   Filter monthSchedules:
+     - Buồng 1:
+         isShiftActive? false → ❌ NO
+         → SKIP ❌
+     - Buồng 2: ❌ SKIP (not in activeSubRoomIds)
+     
+   subRoomsWithShift = 0
+   shiftStatus.evening.allHave = (0 >= 1) → ❌ FALSE
+   (Nhưng ca tối đang TẮT trong config → KHÔNG TÍNH vào missing)
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ STEP 4: Tính availableMonths                                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+   Check room "Phòng thẩm mỹ nha" - month 10/2025:
+   
+   1. hasSchedule? ✅ YES
+   2. allSubRoomsHaveSchedule? (2 >= 1) → ✅ YES
+   3. Check missing ACTIVE shifts:
+   
+      missingActiveShifts = []
+      
+      if (activeShifts.morning=true && !shiftStatus.morning.allHave=true)
+         → ❌ NO (morning đã đủ) → SKIP
+         
+      if (activeShifts.afternoon=true && !shiftStatus.afternoon.allHave=true)
+         → ❌ NO (afternoon đã đủ) → SKIP
+         
+      if (activeShifts.evening=false)
+         → ❌ SKIP (ca tối đang tắt, không check)
+         
+      missingActiveShifts.length = 0
+      
+   4. Return: (missingActiveShifts.length > 0) → ❌ FALSE
+   
+   → Room "Phòng thẩm mỹ nha" KHÔNG CẦN tạo lịch tháng 10/2025
+
+   (Check tất cả 13 phòng tương tự...)
+   
+   Result: Tất cả 13 phòng đều KHÔNG CẦN tạo lịch tháng 10/2025
+   
+   → Tháng 10/2025 KHÔNG AVAILABLE ❌
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ OUTPUT                                                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+   availableMonths = []  // Hoặc không chứa 10/2025
+   
+   Frontend UI:
+     - Tháng 10/2025: DISABLED (màu xám) ✅
+     - Alert: "Có 0 tháng có thể tạo lịch" hoặc không có 10/2025 ✅
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 🔥 KEY POINTS                                                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+   ✅ Chỉ đếm buồng ĐANG BẬT (subRoom.isActive=true)
+   ✅ Chỉ đếm ca ĐANG BẬT (shift.isActive=true trong config)
+   ✅ Kiểm tra isActiveSubRoom trong schedule
+   ✅ Kiểm tra schedule.isActive (phòng không có buồng)
+   ❌ KHÔNG TÍNH ca đang tắt
+   ❌ KHÔNG TÍNH buồng đang tắt
+   ❌ KHÔNG TÍNH schedule đã tắt
+
+```

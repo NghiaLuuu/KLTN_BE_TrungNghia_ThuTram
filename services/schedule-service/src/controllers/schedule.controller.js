@@ -412,7 +412,7 @@ exports.updateSchedule = async (req, res) => {
 
   try {
     const { scheduleId } = req.params;
-    const { isActive, reactivateShifts, deactivateShifts, reactivateSubRooms } = req.body;
+    const { isActive, reactivateShifts, deactivateShifts, reactivateSubRooms, toggleSubRoom } = req.body; // 🔧 FIXED: Added toggleSubRoom
 
     if (!scheduleId) {
       return res.status(400).json({
@@ -452,6 +452,7 @@ exports.updateSchedule = async (req, res) => {
       reactivateShifts,
       deactivateShifts,
       reactivateSubRooms,
+      toggleSubRoom, // 🔧 FIXED: Added toggleSubRoom
       updatedBy: req.user._id
     });
 
