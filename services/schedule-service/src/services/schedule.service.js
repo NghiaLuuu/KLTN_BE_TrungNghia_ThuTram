@@ -3931,7 +3931,8 @@ module.exports.generateRoomSchedule = exports.generateRoomSchedule;
 // 🆕 Get room schedules with shift information
 exports.getRoomSchedulesWithShifts = async (roomId, subRoomId = null, month = null, year = null) => {
   try {
-    let schedules = await scheduleRepo.findByRoomId(roomId);
+    // 🔥 Lấy TẤT CẢ schedules (bao gồm cả isActive=false) để hiển thị trong modal
+    let schedules = await scheduleRepo.findByRoomId(roomId, true); // includeInactive = true
     
     // 🆕 Filter by month/year if provided
     if (month && year) {
@@ -4088,6 +4089,7 @@ exports.getRoomSchedulesWithShifts = async (roomId, subRoomId = null, month = nu
         isComplete: missingShifts.length === 0,
         isExpired, // 🆕 Đánh dấu lịch đã hết hạn
         canCreate, // 🆕 Có thể tạo ca thiếu không (false nếu expired hoặc tất cả missing đều inactive)
+        isActive: schedule.isActive !== false, // 🔥 Thêm trạng thái hoạt động của lịch
         createdAt: schedule.createdAt,
         updatedAt: schedule.updatedAt
       };
@@ -4247,7 +4249,7 @@ exports.getRoomSchedulesWithShifts = async (roomId, subRoomId = null, month = nu
 module.exports.getRoomSchedulesWithShifts = exports.getRoomSchedulesWithShifts;
 
 // 🆕 Update schedule (reactive scheduling)
-exports.updateSchedule = async ({ scheduleId, isActive, reactivateShifts, reactivateSubRooms, updatedBy }) => {
+exports.updateSchedule = async ({ scheduleId, isActive, reactivateShifts, deactivateShifts, reactivateSubRooms, toggleSubRoom, updatedBy }) => {
   try {
     const schedule = await scheduleRepo.findById(scheduleId);
     
@@ -4258,17 +4260,30 @@ exports.updateSchedule = async ({ scheduleId, isActive, reactivateShifts, reacti
     let updated = false;
     const changes = [];
 
-    // 1. Toggle schedule.isActive (nếu có)
+    // 1. Toggle schedule.isActive (nếu có) → CẬP NHẬT TẤT CẢ SLOTS
     if (typeof isActive === 'boolean' && schedule.isActive !== isActive) {
+      const previousActive = schedule.isActive;
       schedule.isActive = isActive;
       updated = true;
       changes.push(`Toggle isActive: ${isActive ? 'Bật' : 'Tắt'} lịch`);
       
       console.log(`🔄 Toggled schedule.isActive to ${isActive}`);
+      
+      // 🔥 CẬP NHẬT TẤT CẢ SLOTS thuộc schedule này
+      const Slot = require('../models/slot.model');
+      const slotUpdateResult = await Slot.updateMany(
+        { scheduleId: schedule._id },
+        { $set: { isActive: isActive } }
+      );
+      
+      console.log(`🔄 Updated ${slotUpdateResult.modifiedCount} slots to isActive=${isActive}`);
+      changes.push(`Cập nhật ${slotUpdateResult.modifiedCount} slots`);
     }
 
     // 2. Reactivate shifts (false → true only)
     if (reactivateShifts && Array.isArray(reactivateShifts) && reactivateShifts.length > 0) {
+      const Slot = require('../models/slot.model');
+      
       for (const shiftKey of reactivateShifts) {
         if (!schedule.shiftConfig[shiftKey]) {
           throw new Error(`Ca ${shiftKey} không tồn tại trong lịch`);
@@ -4293,8 +4308,54 @@ exports.updateSchedule = async ({ scheduleId, isActive, reactivateShifts, reacti
         console.log(`✅ Reactivated shift: ${shiftKey}`);
       }
     }
+    
+    // 🆕 3. Deactivate/Activate shifts (toggle slots theo ca)
+    if (deactivateShifts && Array.isArray(deactivateShifts) && deactivateShifts.length > 0) {
+      const Slot = require('../models/slot.model');
+      
+      for (const shiftData of deactivateShifts) {
+        const { shiftKey, isActive: newIsActive } = shiftData;
+        
+        if (!schedule.shiftConfig[shiftKey]) {
+          throw new Error(`Ca ${shiftKey} không tồn tại trong lịch`);
+        }
+        
+        const shift = schedule.shiftConfig[shiftKey];
+        const shiftName = shift.name; // "Ca Sáng", "Ca Chiều", "Ca Tối"
+        const currentActive = shift.isActive;
+        
+        // 🔥 Kiểm tra xem có thay đổi không
+        if (currentActive === newIsActive) {
+          console.log(`ℹ️ Ca ${shiftKey} đã ở trạng thái ${newIsActive ? 'bật' : 'tắt'}, bỏ qua`);
+          continue;
+        }
+        
+        // 🔥 Cập nhật shiftConfig.isActive
+        schedule.shiftConfig[shiftKey].isActive = newIsActive;
+        updated = true;
+        changes.push(`${newIsActive ? 'Bật' : 'Tắt'} ca: ${shift.name}`);
+        
+        console.log(`🔄 Updated shift ${shiftKey} isActive: ${currentActive} → ${newIsActive}`);
+        
+        // 🔥 CẬP NHẬT SLOTS thuộc ca này (chỉ nếu đã generate)
+        if (shift.isGenerated === true) {
+          const slotUpdateResult = await Slot.updateMany(
+            { 
+              scheduleId: schedule._id,
+              shiftName: shiftName // Match by shift name
+            },
+            { $set: { isActive: newIsActive } }
+          );
+          
+          console.log(`🔄 ${newIsActive ? 'Bật' : 'Tắt'} ${slotUpdateResult.modifiedCount} slots của ca ${shiftName}`);
+          changes.push(`Cập nhật ${slotUpdateResult.modifiedCount} slots của ca ${shiftName}`);
+        } else {
+          console.log(`ℹ️ Ca ${shiftKey} chưa tạo slots, chỉ cập nhật shiftConfig.isActive`);
+        }
+      }
+    }
 
-    // 3. ✅ Reactivate subrooms (false → true only)
+    // 4. ✅ Reactivate subrooms (false → true only)
     if (reactivateSubRooms && Array.isArray(reactivateSubRooms) && reactivateSubRooms.length > 0) {
       console.log(`🔄 Processing ${reactivateSubRooms.length} subrooms to reactivate`);
       
@@ -4329,6 +4390,44 @@ exports.updateSchedule = async ({ scheduleId, isActive, reactivateShifts, reacti
         updated = true;
         changes.push(`Kích hoạt lại buồng: ${subRoomId}`);
         console.log(`✅ Reactivated subRoom: ${subRoomId}`);
+      }
+    }
+
+    // 5. 🆕 Toggle subroom (bật/tắt isActiveSubRoom) → CẬP NHẬT SLOTS theo subRoomId
+    if (toggleSubRoom && toggleSubRoom.subRoomId) {
+      const { subRoomId, isActive: newIsActive } = toggleSubRoom;
+      
+      console.log(`🔄 Toggle subRoom ${subRoomId} to isActive=${newIsActive}`);
+      
+      // 🔥 Kiểm tra xem schedule hiện tại có phải là schedule của subroom này không
+      if (!schedule.subRoomId || schedule.subRoomId.toString() !== subRoomId.toString()) {
+        console.log(`⚠️ Schedule ${scheduleId} không thuộc subRoom ${subRoomId}, bỏ qua toggle`);
+      } else {
+        const previousActive = schedule.isActiveSubRoom;
+        
+        // 🔥 Kiểm tra xem có thay đổi không
+        if (previousActive === newIsActive) {
+          console.log(`ℹ️ SubRoom ${subRoomId} đã ở trạng thái ${newIsActive ? 'bật' : 'tắt'}, bỏ qua`);
+        } else {
+          schedule.isActiveSubRoom = newIsActive;
+          updated = true;
+          changes.push(`Toggle buồng: ${newIsActive ? 'Bật' : 'Tắt'}`);
+          
+          console.log(`🔄 Toggled schedule.isActiveSubRoom: ${previousActive} → ${newIsActive}`);
+          
+          // 🔥 CẬP NHẬT TẤT CẢ SLOTS thuộc schedule này VÀ subRoomId này
+          const Slot = require('../models/slot.model');
+          const slotUpdateResult = await Slot.updateMany(
+            { 
+              scheduleId: schedule._id,
+              subRoomId: subRoomId // 🔥 Quan trọng: Chỉ update slots của subroom này
+            },
+            { $set: { isActive: newIsActive } }
+          );
+          
+          console.log(`🔄 Updated ${slotUpdateResult.modifiedCount} slots (subRoom ${subRoomId}) to isActive=${newIsActive}`);
+          changes.push(`Cập nhật ${slotUpdateResult.modifiedCount} slots của buồng`);
+        }
       }
     }
 

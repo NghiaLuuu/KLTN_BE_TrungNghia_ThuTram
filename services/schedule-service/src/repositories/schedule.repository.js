@@ -117,9 +117,15 @@ exports.findAll = async () => {
 };
 
 // 🔹 Lấy schedules theo roomId (chỉ active, có populate slots)
-exports.findByRoomId = async (roomId) => {
-  return Schedule.find({ roomId, isActive: true })
-    .lean();
+exports.findByRoomId = async (roomId, includeInactive = false) => {
+  const filter = { roomId };
+  
+  // 🔥 Chỉ filter isActive=true nếu includeInactive=false
+  if (!includeInactive) {
+    filter.isActive = true;
+  }
+  
+  return Schedule.find(filter).lean();
 };
 
 // 🔹 Lấy schedules theo subRoom (lọc theo khoảng ngày)

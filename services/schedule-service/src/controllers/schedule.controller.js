@@ -412,7 +412,7 @@ exports.updateSchedule = async (req, res) => {
 
   try {
     const { scheduleId } = req.params;
-    const { isActive, reactivateShifts, reactivateSubRooms } = req.body;
+    const { isActive, reactivateShifts, deactivateShifts, reactivateSubRooms } = req.body;
 
     if (!scheduleId) {
       return res.status(400).json({
@@ -426,6 +426,14 @@ exports.updateSchedule = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'reactivateShifts phải là mảng'
+      });
+    }
+    
+    // Validate deactivateShifts (nếu có)
+    if (deactivateShifts && !Array.isArray(deactivateShifts)) {
+      return res.status(400).json({
+        success: false,
+        message: 'deactivateShifts phải là mảng [{shiftKey, isActive}, ...]'
       });
     }
 
@@ -442,6 +450,7 @@ exports.updateSchedule = async (req, res) => {
       scheduleId,
       isActive,
       reactivateShifts,
+      deactivateShifts,
       reactivateSubRooms,
       updatedBy: req.user._id
     });
