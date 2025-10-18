@@ -469,14 +469,21 @@ exports.searchPatients = async (req, res) => {
 // 🔄 Enhanced getUserById - handles both profile and user by ID
 exports.getUserById = async (req, res) => {
   try {
-    const currentUser = req.user;
+    const currentUser = req.user; // Có thể undefined nếu không có authentication
     let userId = req.params.id;
     
     // Nếu id = 'me' hoặc 'profile' thì lấy profile của mình
     if (userId === 'me' || userId === 'profile') {
+      if (!currentUser) {
+        return res.status(401).json({
+          success: false,
+          message: 'Phải đăng nhập để truy cập profile của bạn'
+        });
+      }
       userId = currentUser.userId; // ✅ Sử dụng userId từ JWT payload
     }
     
+    // 🔥 Pass currentUser (có thể null) để service xử lý
     const user = await userService.getUserById(currentUser, userId);
     
     res.status(200).json({

@@ -1632,9 +1632,9 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
       };
     });
 
-    // Tính toán danh sách tháng có thể chọn (tháng mà KHÔNG PHẢI TẤT CẢ phòng đều có lịch đầy đủ)
+    // Tính toán danh sách tháng có thể chọn (tháng mà có ít nhất 1 phòng chưa có lịch đầy đủ hoặc thiếu ca)
     const availableMonths = monthsToCheck.filter(({ month, year }) => {
-      // Kiểm tra xem có ít nhất 1 phòng chưa có lịch cho tháng này không
+      // Kiểm tra xem có ít nhất 1 phòng chưa có lịch đầy đủ hoặc thiếu ca cho tháng này không
       return roomsAnalysis.some(room => {
         const monthAnalysis = room.monthsAnalysis.find(
           m => m.month === month && m.year === year
@@ -1642,13 +1642,19 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
         
         if (!monthAnalysis) return true; // Không có dữ liệu = có thể chọn
 
-        // Nếu phòng có subrooms: kiểm tra allSubRoomsHaveSchedule
-        // Nếu phòng không có subrooms: kiểm tra hasSchedule
-        if (room.hasSubRooms) {
-          return !monthAnalysis.allSubRoomsHaveSchedule;
-        } else {
-          return !monthAnalysis.hasSchedule;
-        }
+        // Nếu phòng chưa có lịch tháng này -> có thể chọn
+        if (!monthAnalysis.hasSchedule) return true;
+
+        // Nếu phòng có subrooms nhưng chưa đầy đủ tất cả subrooms -> có thể chọn
+        if (room.hasSubRooms && !monthAnalysis.allSubRoomsHaveSchedule) return true;
+
+        // Kiểm tra xem có thiếu ca nào không (morning/afternoon/evening)
+        const hasAllShifts = monthAnalysis.shiftStatus.morning.allHave &&
+                            monthAnalysis.shiftStatus.afternoon.allHave &&
+                            monthAnalysis.shiftStatus.evening.allHave;
+        
+        // Nếu thiếu ít nhất 1 ca -> có thể chọn
+        return !hasAllShifts;
       });
     });
 
@@ -1708,7 +1714,7 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
 
 // 🆕 Generate schedules for multiple rooms at once
 // Tạo lịch cho nhiều phòng cùng lúc với cùng khoảng thời gian và ca
-exports.generateBulkRoomSchedules = async ({
+async function generateBulkRoomSchedules ({
   roomIds,
   fromMonth,
   toMonth,
@@ -1717,7 +1723,7 @@ exports.generateBulkRoomSchedules = async ({
   startDate,
   shifts,
   createdBy
-}) => {
+}) {
   try {
     if (!roomIds || !Array.isArray(roomIds) || roomIds.length === 0) {
       throw new Error('roomIds phải là mảng và không được rỗng');
@@ -1858,7 +1864,8 @@ module.exports = {
   getNextQuarterForScheduling,
   isLastDayOfMonth,
   checkConflictsForSlots,
-  getBulkRoomSchedulesInfo
+  getBulkRoomSchedulesInfo,
+  generateBulkRoomSchedules
 };
 
 // 🔧 Check conflict chung

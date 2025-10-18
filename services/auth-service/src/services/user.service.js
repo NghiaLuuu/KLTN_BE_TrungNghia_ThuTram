@@ -260,9 +260,14 @@ exports.searchStaff = async (criteria = {}, page = 1, limit = 10) => {
 // 🔹 ADMIN OPERATIONS
 
 exports.getUserById = async (currentUser, userId) => {
-  if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
-    throw new Error('Bạn không có quyền truy cập thông tin người dùng này');
+  // 🔥 Nếu không có currentUser (public access), chỉ cho phép xem thông tin cơ bản
+  if (currentUser) {
+    // Có authentication: kiểm tra quyền
+    if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
+      throw new Error('Bạn không có quyền truy cập thông tin người dùng này');
+    }
   }
+  // Không có authentication: cho phép xem (public access)
 
   const user = await userRepo.findById(userId);
   if (!user) {
