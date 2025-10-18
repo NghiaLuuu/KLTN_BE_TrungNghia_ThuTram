@@ -229,7 +229,7 @@ const paymentSchema = new Schema({
   description: {
     type: String,
     trim: true,
-    maxlength: 500
+    maxlength: 1000
   },
   notes: {
     type: String,

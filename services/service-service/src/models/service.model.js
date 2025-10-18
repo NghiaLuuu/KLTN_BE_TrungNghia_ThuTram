@@ -46,6 +46,7 @@ const serviceAddOnSchema = new mongoose.Schema({
   description: {
     type: String,
     trim: true,
+    maxlength: 1000
   },
   isActive: {
     type: Boolean,
@@ -73,6 +74,7 @@ const serviceSchema = new mongoose.Schema({
   description: {
     type: String,
     trim: true,
+    maxlength: 1000
   },
   requireExamFirst: {
     type: Boolean,
