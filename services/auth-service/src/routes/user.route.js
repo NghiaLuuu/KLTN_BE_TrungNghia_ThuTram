@@ -26,7 +26,7 @@ router.get('/all-patient', authMiddleware, canViewPatients, userController.getAl
 
 
 // Profile & User detail routes (dynamic routes MUST come after specific routes)
-router.get('/:id', authMiddleware, userController.getUserById); // Handles both profile & user by ID
+router.get('/:id', userController.getUserById); // Handles both profile & user by ID
 router.put('/:id', authMiddleware, canUpdateUser, userController.updateUser);
 
 // File uploads

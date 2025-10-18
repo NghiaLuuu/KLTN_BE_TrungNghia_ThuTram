@@ -12,6 +12,10 @@ const authMiddleware = require('../middlewares/auth.middleware');
 // 🆕 Manual schedule generation for specific room with shift selection (MONTHLY RANGE)
 router.post('/room/generate', authMiddleware, scheduleController.generateRoomSchedule);
 
+// 🆕 BULK OPERATIONS - Tạo lịch cho nhiều phòng cùng lúc
+router.get('/rooms/bulk-shifts', scheduleController.getBulkRoomSchedulesInfo);
+router.post('/rooms/bulk-generate', authMiddleware, scheduleController.generateBulkRoomSchedules);
+
 // 🆕 Get holiday preview for schedule creation
 router.get('/holiday-preview', scheduleController.getHolidayPreview);
 

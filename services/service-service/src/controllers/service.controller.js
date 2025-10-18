@@ -285,3 +285,127 @@ exports.getRoomTypes = async (req, res) => {
     });
   }
 };
+
+// ===== PRICE SCHEDULE OPERATIONS =====
+
+/**
+ * Add a price schedule to a ServiceAddOn
+ * POST /api/services/:serviceId/addons/:addOnId/price-schedules
+ */
+exports.addPriceSchedule = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ message: 'Chỉ quản lý hoặc admin mới được phép' });
+  }
+
+  try {
+    const service = await serviceService.addPriceSchedule(
+      req.params.serviceId,
+      req.params.addOnId,
+      req.body
+    );
+    res.status(201).json(service);
+  } catch (err) {
+    res.status(400).json({ message: err.message || 'Không thể thêm lịch giá' });
+  }
+};
+
+/**
+ * Update a price schedule
+ * PUT /api/services/:serviceId/addons/:addOnId/price-schedules/:scheduleId
+ */
+exports.updatePriceSchedule = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ message: 'Chỉ quản lý hoặc admin mới được phép' });
+  }
+
+  try {
+    const service = await serviceService.updatePriceSchedule(
+      req.params.serviceId,
+      req.params.addOnId,
+      req.params.scheduleId,
+      req.body
+    );
+    res.json(service);
+  } catch (err) {
+    res.status(400).json({ message: err.message || 'Không thể cập nhật lịch giá' });
+  }
+};
+
+/**
+ * Delete a price schedule
+ * DELETE /api/services/:serviceId/addons/:addOnId/price-schedules/:scheduleId
+ */
+exports.deletePriceSchedule = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ message: 'Chỉ quản lý hoặc admin mới được phép' });
+  }
+
+  try {
+    await serviceService.deletePriceSchedule(
+      req.params.serviceId,
+      req.params.addOnId,
+      req.params.scheduleId
+    );
+    res.json({ message: 'Đã xóa lịch giá thành công' });
+  } catch (err) {
+    res.status(400).json({ message: err.message || 'Không thể xóa lịch giá' });
+  }
+};
+
+/**
+ * Toggle price schedule active status
+ * PATCH /api/services/:serviceId/addons/:addOnId/price-schedules/:scheduleId/toggle
+ */
+exports.togglePriceScheduleStatus = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ message: 'Chỉ quản lý hoặc admin mới được phép' });
+  }
+
+  try {
+    const service = await serviceService.togglePriceScheduleStatus(
+      req.params.serviceId,
+      req.params.addOnId,
+      req.params.scheduleId
+    );
+    res.json(service);
+  } catch (err) {
+    res.status(400).json({ message: err.message || 'Không thể thay đổi trạng thái lịch giá' });
+  }
+};
+
+/**
+ * Update temporary price for Service
+ * PUT /api/services/:serviceId/temporary-price
+ */
+exports.updateTemporaryPrice = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ message: 'Chỉ quản lý hoặc admin mới được phép' });
+  }
+
+  try {
+    const service = await serviceService.updateTemporaryPrice(
+      req.params.serviceId,
+      req.body
+    );
+    res.json(service);
+  } catch (err) {
+    res.status(400).json({ message: err.message || 'Không thể cập nhật giá tạm thời' });
+  }
+};
+
+/**
+ * Remove temporary price from Service
+ * DELETE /api/services/:serviceId/temporary-price
+ */
+exports.removeTemporaryPrice = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ message: 'Chỉ quản lý hoặc admin mới được phép' });
+  }
+
+  try {
+    await serviceService.removeTemporaryPrice(req.params.serviceId);
+    res.json({ message: 'Đã xóa giá tạm thời thành công' });
+  } catch (err) {
+    res.status(400).json({ message: err.message || 'Không thể xóa giá tạm thời' });
+  }
+};

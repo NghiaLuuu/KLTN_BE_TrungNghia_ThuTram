@@ -90,7 +90,15 @@ exports.deleteService = async (serviceId) => {
 };
 
 exports.getServiceById = async (serviceId) => {
-  return await serviceRepo.findById(serviceId);
+  const service = await serviceRepo.findById(serviceId);
+  if (!service) return null;
+  
+  // 🆕 Add effective prices for all serviceAddOns
+  const serviceObj = service.toObject();
+  serviceObj.hasActiveTemporaryPrice = service.hasActiveTemporaryPrice();
+  serviceObj.serviceAddOns = service.getAddOnsWithEffectivePrices();
+  
+  return serviceObj;
 };
 
 // ===== LIST AND SEARCH =====
@@ -101,12 +109,20 @@ exports.listServices = async (page = 1, limit = 10) => {
     serviceRepo.countServices()
   ]);
 
+  // 🆕 Add effective prices for all services
+  const servicesWithPrices = services.map(service => {
+    const serviceObj = service.toObject();
+    serviceObj.hasActiveTemporaryPrice = service.hasActiveTemporaryPrice();
+    serviceObj.serviceAddOns = service.getAddOnsWithEffectivePrices();
+    return serviceObj;
+  });
+
   return {
     total,
     page: Number(page),
     limit: Number(limit),
     totalPages: Math.ceil(total / limit),
-    services
+    services: servicesWithPrices
   };
 };
 
@@ -117,12 +133,20 @@ exports.searchService = async (keyword, page = 1, limit = 10) => {
     serviceRepo.countSearchService(keyword)
   ]);
 
+  // 🆕 Add effective prices for all services
+  const servicesWithPrices = services.map(service => {
+    const serviceObj = service.toObject();
+    serviceObj.hasActiveTemporaryPrice = service.hasActiveTemporaryPrice();
+    serviceObj.serviceAddOns = service.getAddOnsWithEffectivePrices();
+    return serviceObj;
+  });
+
   return {
     total,
     page: Number(page),
     limit: Number(limit),
     totalPages: Math.ceil(total / limit),
-    services
+    services: servicesWithPrices
   };
 };
 
@@ -269,6 +293,220 @@ exports.markServicesAsUsed = async (serviceIds, reservationId, paymentId) => {
     reservationId,
     paymentId
   };
+};
+
+// ===== PRICE SCHEDULE OPERATIONS =====
+
+/**
+ * Add a price schedule to a ServiceAddOn
+ */
+exports.addPriceSchedule = async (serviceId, addOnId, scheduleData) => {
+  const service = await serviceRepo.findById(serviceId);
+  if (!service) {
+    throw new Error('Không tìm thấy dịch vụ');
+  }
+
+  const addOn = service.serviceAddOns.id(addOnId);
+  if (!addOn) {
+    throw new Error('Không tìm thấy dịch vụ bổ sung');
+  }
+
+  // Validate date range
+  if (new Date(scheduleData.endDate) <= new Date(scheduleData.startDate)) {
+    throw new Error('Ngày kết thúc phải sau ngày bắt đầu');
+  }
+
+  // 🆕 Validate start date must be after today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const startDate = new Date(scheduleData.startDate);
+  startDate.setHours(0, 0, 0, 0);
+  
+  if (startDate <= today) {
+    throw new Error('Ngày bắt đầu phải sau ngày hiện tại ít nhất 1 ngày');
+  }
+
+  // 🆕 Check for overlapping date ranges with existing priceSchedules
+  const newStart = new Date(scheduleData.startDate);
+  const newEnd = new Date(scheduleData.endDate);
+
+  for (const existingSchedule of addOn.priceSchedules) {
+    const existingStart = new Date(existingSchedule.startDate);
+    const existingEnd = new Date(existingSchedule.endDate);
+
+    // Check if ranges overlap
+    // Overlap occurs if: newStart <= existingEnd AND newEnd >= existingStart
+    if (newStart <= existingEnd && newEnd >= existingStart) {
+      throw new Error(
+        `Phạm vi ngày bị trùng với lịch giá khác (${existingStart.toLocaleDateString('vi-VN')} - ${existingEnd.toLocaleDateString('vi-VN')}). ` +
+        `Vui lòng chọn ngày khác.`
+      );
+    }
+  }
+
+  // Add the schedule
+  addOn.priceSchedules.push(scheduleData);
+  await service.save();
+  await refreshServiceCache();
+  
+  return service;
+};
+
+/**
+ * Update a price schedule
+ */
+exports.updatePriceSchedule = async (serviceId, addOnId, scheduleId, updateData) => {
+  const service = await serviceRepo.findById(serviceId);
+  if (!service) {
+    throw new Error('Không tìm thấy dịch vụ');
+  }
+
+  const addOn = service.serviceAddOns.id(addOnId);
+  if (!addOn) {
+    throw new Error('Không tìm thấy dịch vụ bổ sung');
+  }
+
+  const schedule = addOn.priceSchedules.id(scheduleId);
+  if (!schedule) {
+    throw new Error('Không tìm thấy lịch giá');
+  }
+
+  // Update fields
+  if (updateData.price !== undefined) schedule.price = updateData.price;
+  if (updateData.startDate !== undefined) schedule.startDate = updateData.startDate;
+  if (updateData.endDate !== undefined) schedule.endDate = updateData.endDate;
+  if (updateData.isActive !== undefined) schedule.isActive = updateData.isActive;
+  if (updateData.note !== undefined) schedule.note = updateData.note;
+
+  // Validate date range if dates were updated
+  if (schedule.endDate <= schedule.startDate) {
+    throw new Error('Ngày kết thúc phải sau ngày bắt đầu');
+  }
+
+  // 🆕 Check for overlapping date ranges with OTHER priceSchedules (exclude current one)
+  const newStart = new Date(schedule.startDate);
+  const newEnd = new Date(schedule.endDate);
+
+  for (const existingSchedule of addOn.priceSchedules) {
+    // Skip the schedule being updated
+    if (existingSchedule._id.toString() === scheduleId) continue;
+
+    const existingStart = new Date(existingSchedule.startDate);
+    const existingEnd = new Date(existingSchedule.endDate);
+
+    // Check if ranges overlap
+    if (newStart <= existingEnd && newEnd >= existingStart) {
+      throw new Error(
+        `Phạm vi ngày bị trùng với lịch giá khác (${existingStart.toLocaleDateString('vi-VN')} - ${existingEnd.toLocaleDateString('vi-VN')}). ` +
+        `Vui lòng chọn ngày khác.`
+      );
+    }
+  }
+
+  await service.save();
+  await refreshServiceCache();
+  
+  return service;
+};
+
+/**
+ * Delete a price schedule
+ */
+exports.deletePriceSchedule = async (serviceId, addOnId, scheduleId) => {
+  const service = await serviceRepo.findById(serviceId);
+  if (!service) {
+    throw new Error('Không tìm thấy dịch vụ');
+  }
+
+  const addOn = service.serviceAddOns.id(addOnId);
+  if (!addOn) {
+    throw new Error('Không tìm thấy dịch vụ bổ sung');
+  }
+
+  // Remove the schedule
+  addOn.priceSchedules.pull(scheduleId);
+  await service.save();
+  await refreshServiceCache();
+  
+  return { message: 'Đã xóa lịch giá thành công' };
+};
+
+/**
+ * Toggle price schedule active status
+ */
+exports.togglePriceScheduleStatus = async (serviceId, addOnId, scheduleId) => {
+  const service = await serviceRepo.findById(serviceId);
+  if (!service) {
+    throw new Error('Không tìm thấy dịch vụ');
+  }
+
+  const addOn = service.serviceAddOns.id(addOnId);
+  if (!addOn) {
+    throw new Error('Không tìm thấy dịch vụ bổ sung');
+  }
+
+  const schedule = addOn.priceSchedules.id(scheduleId);
+  if (!schedule) {
+    throw new Error('Không tìm thấy lịch giá');
+  }
+
+  schedule.isActive = !schedule.isActive;
+  await service.save();
+  await refreshServiceCache();
+  
+  return service;
+};
+
+/**
+ * Update temporary price for Service
+ */
+exports.updateTemporaryPrice = async (serviceId, temporaryPriceData) => {
+  const service = await serviceRepo.findById(serviceId);
+  if (!service) {
+    throw new Error('Không tìm thấy dịch vụ');
+  }
+
+  // Validate date range if both dates are provided
+  if (temporaryPriceData.startDate && temporaryPriceData.endDate) {
+    if (new Date(temporaryPriceData.endDate) < new Date(temporaryPriceData.startDate)) {
+      throw new Error('Ngày kết thúc phải sau hoặc bằng ngày bắt đầu');
+    }
+  }
+
+  // Update temporary price fields
+  if (temporaryPriceData.temporaryPrice !== undefined) {
+    service.temporaryPrice = temporaryPriceData.temporaryPrice;
+  }
+  if (temporaryPriceData.startDate !== undefined) {
+    service.startDate = temporaryPriceData.startDate;
+  }
+  if (temporaryPriceData.endDate !== undefined) {
+    service.endDate = temporaryPriceData.endDate;
+  }
+
+  await service.save();
+  await refreshServiceCache();
+  
+  return service;
+};
+
+/**
+ * Remove temporary price from Service
+ */
+exports.removeTemporaryPrice = async (serviceId) => {
+  const service = await serviceRepo.findById(serviceId);
+  if (!service) {
+    throw new Error('Không tìm thấy dịch vụ');
+  }
+
+  service.temporaryPrice = null;
+  service.startDate = null;
+  service.endDate = null;
+  
+  await service.save();
+  await refreshServiceCache();
+  
+  return { message: 'Đã xóa giá tạm thời thành công' };
 };
 
 async function refreshServiceCache() {

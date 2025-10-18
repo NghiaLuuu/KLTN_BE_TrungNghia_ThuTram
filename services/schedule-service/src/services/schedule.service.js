@@ -1453,7 +1453,392 @@ async function getExistingScheduleQuarters() {
     return [];
   }
 }
+async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, toYear){
+  try {
+    if (!roomIds || !Array.isArray(roomIds) || roomIds.length === 0) {
+      throw new Error('roomIds phải là mảng và không được rỗng');
+    }
 
+    // Validate months and years
+    if (!fromMonth || !toMonth || fromMonth < 1 || fromMonth > 12 || toMonth < 1 || toMonth > 12) {
+      throw new Error('Tháng không hợp lệ. Vui lòng chọn tháng từ 1-12.');
+    }
+
+    if (!fromYear || !toYear) {
+      throw new Error('Năm không hợp lệ.');
+    }
+
+    if (toYear < fromYear || (toYear === fromYear && toMonth < fromMonth)) {
+      throw new Error('Khoảng thời gian không hợp lệ');
+    }
+
+    console.log(`📊 Getting bulk schedules info for ${roomIds.length} rooms, ${fromMonth}/${fromYear} - ${toMonth}/${toYear}`);
+
+    // Tạo danh sách tất cả các tháng cần kiểm tra
+    const monthsToCheck = [];
+    if (fromYear === toYear) {
+      for (let month = fromMonth; month <= toMonth; month++) {
+        monthsToCheck.push({ month, year: fromYear });
+      }
+    } else {
+      // Năm đầu: từ fromMonth đến 12
+      for (let month = fromMonth; month <= 12; month++) {
+        monthsToCheck.push({ month, year: fromYear });
+      }
+      
+      // Các năm ở giữa: tất cả 12 tháng
+      for (let y = fromYear + 1; y < toYear; y++) {
+        for (let month = 1; month <= 12; month++) {
+          monthsToCheck.push({ month, year: y });
+        }
+      }
+      
+      // Năm cuối: từ 1 đến toMonth
+      for (let month = 1; month <= toMonth; month++) {
+        monthsToCheck.push({ month, year: toYear });
+      }
+    }
+
+    console.log(`📅 Checking ${monthsToCheck.length} months:`, monthsToCheck.map(m => `${m.month}/${m.year}`).join(', '));
+
+    // Lấy thông tin tất cả phòng
+    const roomsInfo = await Promise.all(
+      roomIds.map(async (roomId) => {
+        try {
+          const roomInfo = await getRoomByIdFromCache(roomId);
+          if (!roomInfo) {
+            console.warn(`⚠️ Room ${roomId} not found in cache`);
+            return null;
+          }
+          return roomInfo;
+        } catch (error) {
+          console.error(`❌ Error getting room ${roomId}:`, error);
+          return null;
+        }
+      })
+    );
+
+    const validRooms = roomsInfo.filter(r => r !== null);
+    console.log(`✅ Found ${validRooms.length}/${roomIds.length} valid rooms`);
+
+    // Lấy tất cả schedules của các phòng này cho các tháng cần check
+    // 🔧 Dùng Schedule model trực tiếp vì query phức tạp
+    const allSchedules = await Schedule.find({
+      roomId: { $in: roomIds },
+      $or: monthsToCheck.map(({ month, year }) => ({ month, year }))
+    }).lean();
+
+    console.log(`📋 Found ${allSchedules.length} existing schedules`);
+
+    // Group schedules by room and month
+    const schedulesByRoomMonth = new Map();
+    allSchedules.forEach(schedule => {
+      const key = `${schedule.roomId}_${schedule.month}_${schedule.year}`;
+      if (!schedulesByRoomMonth.has(key)) {
+        schedulesByRoomMonth.set(key, []);
+      }
+      schedulesByRoomMonth.get(key).push(schedule);
+    });
+
+    // Phân tích từng phòng
+    const roomsAnalysis = validRooms.map(roomInfo => {
+      const roomId = roomInfo._id.toString();
+      const roomHasSubRooms = roomInfo.hasSubRooms === true && 
+                              Array.isArray(roomInfo.subRooms) && 
+                              roomInfo.subRooms.length > 0;
+
+      // Phân tích từng tháng cho phòng này
+      const monthsAnalysis = monthsToCheck.map(({ month, year }) => {
+        const key = `${roomId}_${month}_${year}`;
+        const monthSchedules = schedulesByRoomMonth.get(key) || [];
+
+        if (roomHasSubRooms) {
+          // Phòng có subrooms: kiểm tra tất cả subrooms
+          const subRoomCount = roomInfo.subRooms.length;
+          const subRoomsWithSchedule = new Set(
+            monthSchedules.map(s => s.subRoomId?.toString()).filter(Boolean)
+          );
+
+          // Kiểm tra từng ca
+          const shiftStatus = {
+            morning: { allHave: false, someHave: false },
+            afternoon: { allHave: false, someHave: false },
+            evening: { allHave: false, someHave: false }
+          };
+
+          ['morning', 'afternoon', 'evening'].forEach(shiftKey => {
+            const subRoomsWithShift = monthSchedules.filter(s => 
+              s.shiftConfig?.[shiftKey]?.isGenerated === true
+            ).length;
+
+            shiftStatus[shiftKey].allHave = subRoomsWithShift >= subRoomCount;
+            shiftStatus[shiftKey].someHave = subRoomsWithShift > 0;
+          });
+
+          return {
+            month,
+            year,
+            hasSchedule: subRoomsWithSchedule.size > 0,
+            allSubRoomsHaveSchedule: subRoomsWithSchedule.size >= subRoomCount,
+            shiftStatus
+          };
+        } else {
+          // Phòng không có subrooms: chỉ kiểm tra 1 schedule
+          const schedule = monthSchedules.find(s => !s.subRoomId);
+          
+          if (!schedule) {
+            return {
+              month,
+              year,
+              hasSchedule: false,
+              shiftStatus: {
+                morning: { allHave: false, someHave: false },
+                afternoon: { allHave: false, someHave: false },
+                evening: { allHave: false, someHave: false }
+              }
+            };
+          }
+
+          const shiftStatus = {
+            morning: {
+              allHave: schedule.shiftConfig?.morning?.isGenerated === true,
+              someHave: schedule.shiftConfig?.morning?.isGenerated === true
+            },
+            afternoon: {
+              allHave: schedule.shiftConfig?.afternoon?.isGenerated === true,
+              someHave: schedule.shiftConfig?.afternoon?.isGenerated === true
+            },
+            evening: {
+              allHave: schedule.shiftConfig?.evening?.isGenerated === true,
+              someHave: schedule.shiftConfig?.evening?.isGenerated === true
+            }
+          };
+
+          return {
+            month,
+            year,
+            hasSchedule: true,
+            shiftStatus
+          };
+        }
+      });
+
+      return {
+        roomId,
+        roomName: roomInfo.name,
+        hasSubRooms: roomHasSubRooms,
+        subRoomCount: roomHasSubRooms ? roomInfo.subRooms.length : 0,
+        monthsAnalysis
+      };
+    });
+
+    // Tính toán danh sách tháng có thể chọn (tháng mà KHÔNG PHẢI TẤT CẢ phòng đều có lịch đầy đủ)
+    const availableMonths = monthsToCheck.filter(({ month, year }) => {
+      // Kiểm tra xem có ít nhất 1 phòng chưa có lịch cho tháng này không
+      return roomsAnalysis.some(room => {
+        const monthAnalysis = room.monthsAnalysis.find(
+          m => m.month === month && m.year === year
+        );
+        
+        if (!monthAnalysis) return true; // Không có dữ liệu = có thể chọn
+
+        // Nếu phòng có subrooms: kiểm tra allSubRoomsHaveSchedule
+        // Nếu phòng không có subrooms: kiểm tra hasSchedule
+        if (room.hasSubRooms) {
+          return !monthAnalysis.allSubRoomsHaveSchedule;
+        } else {
+          return !monthAnalysis.hasSchedule;
+        }
+      });
+    });
+
+    console.log(`✅ Available months: ${availableMonths.length}/${monthsToCheck.length}`);
+
+    // Tính toán ca có thể chọn (ca mà KHÔNG PHẢI TẤT CẢ phòng đều có ca đó trong toàn bộ khoảng thời gian)
+    const availableShifts = {
+      morning: false,
+      afternoon: false,
+      evening: false
+    };
+
+    ['morning', 'afternoon', 'evening'].forEach(shiftKey => {
+      // Ca có thể chọn nếu có ít nhất 1 phòng trong 1 tháng bất kỳ chưa có ca này
+      const canSelectShift = roomsAnalysis.some(room => {
+        return room.monthsAnalysis.some(monthAnalysis => {
+          // Chỉ check trong các tháng được chọn
+          const isInRange = availableMonths.some(
+            m => m.month === monthAnalysis.month && m.year === monthAnalysis.year
+          );
+          
+          if (!isInRange) return false;
+
+          // Nếu phòng chưa có lịch tháng đó -> có thể chọn ca
+          if (!monthAnalysis.hasSchedule) return true;
+
+          // Nếu phòng có lịch nhưng chưa có ca này -> có thể chọn
+          return !monthAnalysis.shiftStatus[shiftKey].allHave;
+        });
+      });
+
+      availableShifts[shiftKey] = canSelectShift;
+    });
+
+    console.log('✅ Available shifts:', availableShifts);
+
+    return {
+      success: true,
+      data: {
+        roomsAnalysis,
+        availableMonths,
+        availableShifts,
+        summary: {
+          totalRooms: validRooms.length,
+          totalMonthsChecked: monthsToCheck.length,
+          availableMonthsCount: availableMonths.length,
+          totalSchedules: allSchedules.length
+        }
+      }
+    };
+
+  } catch (error) {
+    console.error('❌ Error getting bulk room schedules info:', error);
+    throw error;
+  }
+};
+
+// 🆕 Generate schedules for multiple rooms at once
+// Tạo lịch cho nhiều phòng cùng lúc với cùng khoảng thời gian và ca
+exports.generateBulkRoomSchedules = async ({
+  roomIds,
+  fromMonth,
+  toMonth,
+  fromYear,
+  toYear,
+  startDate,
+  shifts,
+  createdBy
+}) => {
+  try {
+    if (!roomIds || !Array.isArray(roomIds) || roomIds.length === 0) {
+      throw new Error('roomIds phải là mảng và không được rỗng');
+    }
+
+    console.log(`🔄 Starting bulk schedule generation for ${roomIds.length} rooms`);
+    console.log(`   Period: ${fromMonth}/${fromYear} - ${toMonth}/${toYear}`);
+    console.log(`   Shifts: ${shifts.join(', ')}`);
+    console.log(`   Start date: ${startDate}`);
+
+    const results = {
+      success: true,
+      totalRooms: roomIds.length,
+      successCount: 0,
+      failCount: 0,
+      results: [],
+      errors: []
+    };
+
+    // Lấy thông tin tất cả phòng trước
+    const roomsInfo = await Promise.all(
+      roomIds.map(async (roomId) => {
+        try {
+          const roomInfo = await getRoomByIdFromCache(roomId);
+          return { roomId, roomInfo };
+        } catch (error) {
+          console.error(`❌ Error getting room ${roomId}:`, error);
+          return { roomId, roomInfo: null, error: error.message };
+        }
+      })
+    );
+
+    // Xử lý từng phòng tuần tự để tránh conflict
+    for (const { roomId, roomInfo, error } of roomsInfo) {
+      if (!roomInfo) {
+        results.failCount++;
+        results.errors.push({
+          roomId,
+          roomName: 'Unknown',
+          error: error || 'Không tìm thấy thông tin phòng'
+        });
+        continue;
+      }
+
+      try {
+        console.log(`\n📍 Processing room: ${roomInfo.name} (${roomId})`);
+
+        // Gọi generateRoomSchedule cho phòng này
+        // Nếu phòng có subrooms, API sẽ tự động tạo cho tất cả active subrooms
+        const result = await exports.generateRoomSchedule({
+          roomId,
+          subRoomId: null, // null để tạo cho tất cả subrooms
+          selectedSubRoomIds: null, // null để tạo cho tất cả active subrooms
+          fromMonth,
+          toMonth,
+          fromYear,
+          toYear,
+          startDate,
+          partialStartDate: null,
+          shifts,
+          createdBy
+        });
+
+        results.successCount++;
+        results.results.push({
+          roomId,
+          roomName: roomInfo.name,
+          hasSubRooms: roomInfo.hasSubRooms || false,
+          subRoomCount: roomInfo.subRooms?.length || 0,
+          success: true,
+          message: result.message || 'Tạo lịch thành công',
+          details: {
+            schedulesCreated: result.schedulesCreated || 0,
+            schedulesUpdated: result.schedulesUpdated || 0,
+            totalSlots: result.totalSlots || 0
+          }
+        });
+
+        console.log(`✅ Success: ${roomInfo.name}`);
+
+      } catch (error) {
+        console.error(`❌ Error creating schedule for room ${roomInfo.name}:`, error);
+        
+        results.failCount++;
+        results.errors.push({
+          roomId,
+          roomName: roomInfo.name,
+          error: error.message || 'Lỗi không xác định'
+        });
+        
+        results.results.push({
+          roomId,
+          roomName: roomInfo.name,
+          success: false,
+          error: error.message
+        });
+      }
+    }
+
+    // Tổng kết
+    const summary = `Tạo lịch cho ${results.successCount}/${results.totalRooms} phòng thành công`;
+    console.log(`\n📊 ${summary}`);
+    
+    if (results.failCount > 0) {
+      console.log(`⚠️ ${results.failCount} phòng thất bại:`);
+      results.errors.forEach(err => {
+        console.log(`   - ${err.roomName}: ${err.error}`);
+      });
+    }
+
+    return {
+      success: results.failCount === 0, // success = true nếu tất cả đều thành công
+      message: summary,
+      ...results
+    };
+
+  } catch (error) {
+    console.error('❌ Error in bulk schedule generation:', error);
+    throw error;
+  }
+};
 module.exports = {
   generateQuarterSchedule,
   generateQuarterScheduleForSingleRoom,
@@ -1472,7 +1857,8 @@ module.exports = {
   isLastDayOfQuarter,
   getNextQuarterForScheduling,
   isLastDayOfMonth,
-  checkConflictsForSlots
+  checkConflictsForSlots,
+  getBulkRoomSchedulesInfo
 };
 
 // 🔧 Check conflict chung
@@ -5514,6 +5900,26 @@ exports.replaceStaff = async ({ originalStaffId, replacementStaffId, slots, from
     throw error;
   }
 };
+
+// 🆕 Get bulk room schedules info for multiple rooms
+// Dùng để kiểm tra trạng thái lịch của nhiều phòng cùng lúc
+// Trả về: danh sách tháng có thể chọn và ca có thể chọn cho khoảng thời gian
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

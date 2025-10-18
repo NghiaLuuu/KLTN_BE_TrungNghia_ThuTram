@@ -991,6 +991,134 @@ exports.replaceStaff = async (req, res) => {
   }
 };
 
+// 🆕 Get bulk room schedules info
+// API: GET /api/schedules/rooms/bulk-shifts
+// Query params: roomIds (comma-separated), fromMonth, toMonth, fromYear, toYear
+exports.getBulkRoomSchedulesInfo = async (req, res) => {
+  try {
+    const { roomIds, fromMonth, toMonth, fromYear, toYear } = req.query;
+
+    // Validate roomIds
+    if (!roomIds) {
+      return res.status(400).json({
+        success: false,
+        message: 'roomIds là bắt buộc'
+      });
+    }
+
+    // Parse roomIds (comma-separated string to array)
+    const roomIdsArray = roomIds.split(',').map(id => id.trim()).filter(Boolean);
+
+    if (roomIdsArray.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phải cung cấp ít nhất 1 roomId'
+      });
+    }
+
+    // Validate month/year
+    if (!fromMonth || !toMonth || !fromYear || !toYear) {
+      return res.status(400).json({
+        success: false,
+        message: 'fromMonth, toMonth, fromYear, toYear là bắt buộc'
+      });
+    }
+
+    const result = await scheduleService.getBulkRoomSchedulesInfo(
+      roomIdsArray,
+      parseInt(fromMonth),
+      parseInt(toMonth),
+      parseInt(fromYear),
+      parseInt(toYear)
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error getting bulk room schedules info:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Không thể lấy thông tin lịch'
+    });
+  }
+};
+
+// 🆕 Generate schedules for multiple rooms
+// API: POST /api/schedules/rooms/bulk-generate
+// Body: { roomIds: string[], fromMonth, toMonth, fromYear, toYear, startDate, shifts: string[] }
+exports.generateBulkRoomSchedules = async (req, res) => {
+  // Check permission
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({
+      success: false,
+      message: 'Chỉ quản lý hoặc admin mới được phép tạo lịch'
+    });
+  }
+
+  try {
+    const {
+      roomIds,
+      fromMonth,
+      toMonth,
+      fromYear,
+      toYear,
+      startDate,
+      shifts
+    } = req.body;
+
+    // Validate roomIds
+    if (!roomIds || !Array.isArray(roomIds) || roomIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'roomIds phải là mảng và không được rỗng'
+      });
+    }
+
+    // Validate other fields
+    if (!fromMonth || !toMonth || !fromYear || !toYear || !startDate || !shifts) {
+      return res.status(400).json({
+        success: false,
+        message: 'Thiếu thông tin: fromMonth, toMonth, fromYear, toYear, startDate, shifts là bắt buộc'
+      });
+    }
+
+    // Validate shifts
+    if (!Array.isArray(shifts) || shifts.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'shifts phải là mảng và không được rỗng'
+      });
+    }
+
+    const validShifts = ['morning', 'afternoon', 'evening'];
+    const invalidShifts = shifts.filter(s => !validShifts.includes(s));
+    if (invalidShifts.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Ca không hợp lệ: ${invalidShifts.join(', ')}. Chỉ chấp nhận: morning, afternoon, evening`
+      });
+    }
+
+    const result = await scheduleService.generateBulkRoomSchedules({
+      roomIds,
+      fromMonth: parseInt(fromMonth),
+      toMonth: parseInt(toMonth),
+      fromYear: parseInt(fromYear),
+      toYear: parseInt(toYear),
+      startDate,
+      shifts,
+      createdBy: req.user?._id || req.user?.id
+    });
+
+    res.status(201).json(result);
+  } catch (error) {
+    console.error('Error generating bulk room schedules:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Không thể tạo lịch cho nhiều phòng'
+    });
+  }
+};
+
 module.exports = {
   generateQuarterSchedule: exports.generateQuarterSchedule,
   getAvailableQuarters: exports.getAvailableQuarters,
@@ -1018,5 +1146,7 @@ module.exports = {
   getStaffSchedule: exports.getStaffSchedule,
   checkConflictsForSlots: exports.checkConflictsForSlots, // ⚡ Optimized conflict check
   getAvailableReplacementStaff: exports.getAvailableReplacementStaff,
-  replaceStaff: exports.replaceStaff
-};
+  replaceStaff: exports.replaceStaff,
+  getBulkRoomSchedulesInfo: exports.getBulkRoomSchedulesInfo,
+  generateBulkRoomSchedules: exports.generateBulkRoomSchedules
+}

@@ -47,4 +47,15 @@ router.delete('/:serviceId/addons/:addOnId', authMiddleware, serviceController.d
 // Public routes
 router.get('/:serviceId/addons/:addOnId', serviceController.getServiceAddOnById);
 
+// ===== PRICE SCHEDULE ROUTES =====
+// Protected routes (require admin/manager)
+router.post('/:serviceId/addons/:addOnId/price-schedules', authMiddleware, serviceController.addPriceSchedule);
+router.put('/:serviceId/addons/:addOnId/price-schedules/:scheduleId', authMiddleware, serviceController.updatePriceSchedule);
+router.delete('/:serviceId/addons/:addOnId/price-schedules/:scheduleId', authMiddleware, serviceController.deletePriceSchedule);
+router.patch('/:serviceId/addons/:addOnId/price-schedules/:scheduleId/toggle', authMiddleware, serviceController.togglePriceScheduleStatus);
+
+// Temporary price routes for Service
+router.put('/:serviceId/temporary-price', authMiddleware, serviceController.updateTemporaryPrice);
+router.delete('/:serviceId/temporary-price', authMiddleware, serviceController.removeTemporaryPrice);
+
 module.exports = router;
