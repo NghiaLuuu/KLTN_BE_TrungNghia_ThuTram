@@ -101,7 +101,7 @@ exports.findForCalendar = async (query) => {
 // ⚡ NEW: Optimized version for details queries  
 exports.findForDetails = async (query) => {
   return await Slot.find(query)
-    .select('_id scheduleId roomId subRoomId shiftName startTime endTime dentist nurse status appointmentId duration')
+    .select('_id scheduleId roomId subRoomId shiftName startTime endTime dentist nurse status appointmentId duration isActive')
     .sort({ startTime: 1 })
     .lean();
 };

@@ -106,7 +106,7 @@ exports.initializeConfig = async () => {
     },
     unitDuration: 15,
     maxBookingDays: 30,
-    depositAmount: 50000 // 🆕 Default deposit: 50,000 VND per slot
+    depositAmount: 100000 // 🆕 Default deposit: 50,000 VND per slot
   };
 
   const config = new ScheduleConfig(defaultConfig);

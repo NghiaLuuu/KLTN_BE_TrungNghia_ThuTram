@@ -133,7 +133,7 @@ class AppointmentService {
       
       // 1️⃣ Get schedule config for deposit amount
       const scheduleConfig = await serviceClient.getScheduleConfig();
-      const depositAmount = scheduleConfig.depositAmount || 50000; // Default 50k VND
+      const depositAmount = scheduleConfig.depositAmount || 100000; // Default 50k VND
       
       // Validate slots and get slot details (query once, reuse result)
       const slots = await this.validateSlotsAvailable(slotIds);

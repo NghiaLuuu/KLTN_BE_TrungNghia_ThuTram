@@ -2899,7 +2899,8 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
         room: roomInfo,
         status: slot.status,
         appointmentId: slot.appointmentId || null,
-        shiftName: slot.shiftName // Add shiftName to each slot
+        shiftName: slot.shiftName, // Add shiftName to each slot
+        isActive: slot.isActive // ✅ Add isActive field for frontend filtering
       };
     });
     
@@ -3022,7 +3023,8 @@ async function getNurseSlotDetailsFuture({ nurseId, date, shiftName }) {
         } : null,
         room: roomInfo,
         slotStatus: slot.status,
-        appointmentId: slot.appointmentId || null
+        appointmentId: slot.appointmentId || null,
+        isActive: slot.isActive // ✅ Add isActive field for frontend filtering
       };
     });
     
@@ -3042,11 +3044,84 @@ async function getNurseSlotDetailsFuture({ nurseId, date, shiftName }) {
   }
 }
 
+/**
+ * 🆕 Remove staff from slots (clear dentist and/or nurse arrays)
+ * @param {Object} params
+ * @param {Array<String>} params.slotIds - Array of slot IDs
+ * @param {Boolean} params.removeDentists - Remove all dentists
+ * @param {Boolean} params.removeNurses - Remove all nurses
+ * @returns {Object} Result with modifiedCount
+ */
+async function removeStaffFromSlots({ slotIds, removeDentists, removeNurses }) {
+  try {
+    // Build update object
+    const updateFields = {};
+    if (removeDentists) {
+      updateFields.dentist = [];
+    }
+    if (removeNurses) {
+      updateFields.nurse = [];
+    }
+
+    console.log('🗑️ Removing staff from', slotIds.length, 'slots:', updateFields);
+
+    // Get slot data before updating (for Redis cache invalidation)
+    const slotsBeforeUpdate = await slotRepo.find({ _id: { $in: slotIds } }, { lean: true });
+
+    // Update multiple slots at once
+    const result = await slotRepo.updateMany(
+      { _id: { $in: slotIds } },
+      { $set: updateFields }
+    );
+
+    console.log('✅ Staff removal result:', {
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount
+    });
+
+    // 🔥 Invalidate Redis cache for affected room calendars
+    try {
+      const affectedRooms = new Set();
+      const affectedSubRooms = new Set();
+      
+      for (const slot of slotsBeforeUpdate) {
+        if (slot.roomId) affectedRooms.add(slot.roomId.toString());
+        if (slot.subRoomId) affectedSubRooms.add(slot.subRoomId.toString());
+      }
+
+      // Delete all calendar cache keys for affected rooms
+      for (const roomId of affectedRooms) {
+        const pattern = `room_calendar:${roomId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          console.log(`🗑️ [Redis Cache INVALIDATED] Deleted ${keys.length} calendar cache keys for room ${roomId}`);
+        }
+      }
+
+      console.log(`✅ Successfully invalidated calendar cache for ${affectedRooms.size} room(s)`);
+    } catch (redisError) {
+      console.error('❌ Redis cache invalidation error (data still updated):', redisError.message);
+    }
+
+    return {
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+      removedDentists: removeDentists,
+      removedNurses: removeNurses
+    };
+  } catch (error) {
+    console.error('❌ Error removing staff from slots:', error);
+    throw new Error('Lỗi khi xóa nhân sự: ' + error.message);
+  }
+}
+
 module.exports = {
   assignStaffToSlots,              // ⭐ NEW: Phân công theo slotIds
   assignStaffToSpecificSlots,      // Phân công cho specific slots
   reassignStaffToSlots,            // ⭐ NEW: Thay thế nhân sự theo slotIds (replace old staff with new)
   reassignStaffToSpecificSlots,    // Thay thế nhân sự cho specific slots
+  removeStaffFromSlots,            // 🆕 Xóa nhân sự khỏi slots
   updateSlotStaff,                 // Cập nhật nhân sự cho slots
   getSlotsByShiftAndDate,          // Lấy slots theo ca và ngày
   getRoomCalendar,                 // Lịch phòng

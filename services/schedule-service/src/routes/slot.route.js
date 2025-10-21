@@ -11,6 +11,10 @@ router.post('/assign-staff', authMiddleware, slotController.assignStaffToSlots);
 // Request body example: { slotIds: ['slot1', 'slot2'], oldStaffId, newStaffId, role: 'dentist' | 'nurse' }
 router.post('/reassign-staff', authMiddleware, slotController.reassignStaffToSlots);
 
+// ⭐ Remove staff from slots (clear dentist and/or nurse arrays)
+// Request body example: { slotIds: ['slot1', 'slot2'], removeDentists: true, removeNurses: true }
+router.post('/remove-staff', authMiddleware, slotController.removeStaffFromSlots);
+
 // Update staff for single or multiple slots
 router.patch('/staff', authMiddleware, slotController.updateSlotStaff);
 

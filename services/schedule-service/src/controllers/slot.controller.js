@@ -233,6 +233,59 @@ exports.reassignStaffToSlots = async (req, res) => {
   }
 };
 
+// 🆕 Remove staff from slots (clear dentist and/or nurse arrays)
+exports.removeStaffFromSlots = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ 
+      success: false,
+      message: 'Chỉ quản lý hoặc admin mới được phép xóa nhân sự' 
+    });
+  }
+  
+  try {
+    const { slotIds, removeDentists, removeNurses } = req.body;
+
+    if (!slotIds || !Array.isArray(slotIds) || slotIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phải cung cấp slotIds (array)'
+      });
+    }
+
+    if (!removeDentists && !removeNurses) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phải chọn ít nhất một loại nhân sự để xóa (removeDentists hoặc removeNurses)'
+      });
+    }
+
+    console.log('🗑️ Removing staff from slots:', { 
+      slotIds: slotIds.length, 
+      removeDentists, 
+      removeNurses 
+    });
+
+    const result = await slotService.removeStaffFromSlots({
+      slotIds,
+      removeDentists,
+      removeNurses
+    });
+    
+    return res.status(200).json({
+      success: true,
+      message: `Đã xóa nhân sự khỏi ${result.modifiedCount} slot`,
+      data: result
+    });
+    
+  } catch (error) {
+    console.error('❌ Remove staff error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Không thể xóa nhân sự' 
+    });
+  }
+};
+
 // Update staff for single or multiple slots
 exports.updateSlotStaff = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
@@ -785,6 +838,7 @@ module.exports = {
   getSlotById: exports.getSlotById,                                // 🆕 NEW
   assignStaffToSlots: exports.assignStaffToSlots,
   reassignStaffToSlots: exports.reassignStaffToSlots,
+  removeStaffFromSlots: exports.removeStaffFromSlots,              // 🆕 NEW - Remove staff
   updateSlotStaff: exports.updateSlotStaff,
   getSlotsByShiftAndDate: exports.getSlotsByShiftAndDate,
   getRoomCalendar: exports.getRoomCalendar,

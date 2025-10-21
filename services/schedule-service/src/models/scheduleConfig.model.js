@@ -115,7 +115,7 @@ const scheduleConfigSchema = new mongoose.Schema({
   depositAmount: {
     type: Number,
     required: true,
-    default: 50000, // 50,000 VND per slot
+    default: 100000, // 50,000 VND per slot
     min: 0
   }
 }, { timestamps: true });
