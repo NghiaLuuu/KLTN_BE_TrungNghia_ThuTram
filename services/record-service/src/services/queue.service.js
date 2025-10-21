@@ -1,5 +1,6 @@
 const recordRepo = require("../repositories/record.repository");
 const redis = require('../utils/redis.client');
+const { emitRecordStatusChange, emitQueueUpdate, emitRecordUpdate } = require('../utils/socket');
 
 class QueueService {
   /**
@@ -71,11 +72,13 @@ class QueueService {
       lastModifiedBy: userId
     });
 
-    // TODO: Publish event to RabbitMQ for realtime update
-    // await publishToQueue('record_queue', {
-    //   event: 'record_called',
-    //   data: { recordId, queueNumber, status: 'in_progress' }
-    // });
+    // Emit Socket.IO event
+    emitRecordStatusChange(updatedRecord);
+    emitQueueUpdate(
+      record.roomId.toString(),
+      new Date(record.date).toISOString().split('T')[0],
+      `Đang khám: ${updatedRecord.patientInfo?.name || 'Bệnh nhân'} (STT ${queueNumber})`
+    );
 
     // Clear cache
     await redis.del(`record:${recordId}`);
@@ -106,6 +109,14 @@ class QueueService {
       completedAt: new Date(),
       lastModifiedBy: userId
     });
+
+    // Emit Socket.IO event
+    emitRecordStatusChange(updatedRecord);
+    emitQueueUpdate(
+      record.roomId.toString(),
+      new Date(record.date).toISOString().split('T')[0],
+      `Hoàn thành: ${updatedRecord.patientInfo?.name || 'Bệnh nhân'}`
+    );
 
     // Calculate total amount from record
     // TODO: Get actual service prices from service/appointment
@@ -158,6 +169,14 @@ class QueueService {
       notes: record.notes ? `${record.notes}\n[HỦY] ${reason}` : `[HỦY] ${reason}`,
       lastModifiedBy: userId
     });
+
+    // Emit Socket.IO event
+    emitRecordStatusChange(updatedRecord);
+    emitQueueUpdate(
+      record.roomId.toString(),
+      new Date(record.date).toISOString().split('T')[0],
+      `Đã hủy: ${updatedRecord.patientInfo?.name || 'Bệnh nhân'} - ${reason}`
+    );
 
     // Clear cache
     await redis.del(`record:${recordId}`);

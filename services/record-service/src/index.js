@@ -3,11 +3,12 @@ const dotenv = require('dotenv');
 dotenv.config();
 // ✅ Load .env ngay từ đầu
 const cors = require('cors');
-
+const http = require('http');
 
 const express = require('express');
 const connectDB = require('./config/db');
 const recordRoutes = require('./routes/record.routes');
+const { initializeSocket } = require('./utils/socket');
 
 const startRpcServer = require('./utils/rpcServer');
 const { connectRabbitMQ, consumeQueue } = require('./utils/rabbitmq.client');
@@ -20,9 +21,14 @@ connectDB();
 
 // ✅ Kết nối DB
 const app = express();
+const server = http.createServer(app);
+
+// ✅ Initialize Socket.IO
+initializeSocket(server);
+
 app.use(express.json());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN,
+  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   credentials: true
 }));
 app.use(express.urlencoded({ extended: true }));
@@ -64,7 +70,8 @@ startEventListeners();
 
 // ✅ Server listen
 const PORT = process.env.PORT || 3010;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Record service running on port ${PORT}`);
+  console.log(`🔌 Socket.IO ready for connections`);
 });
 
