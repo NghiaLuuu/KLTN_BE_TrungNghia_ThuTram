@@ -527,6 +527,26 @@ class PaymentService {
               console.log('✅ [Payment] Event sent to service_queue: service.mark_as_used');
             }
 
+            // ⭐ STEP 4: Mark Exam Record as Used (if treatment requires exam first)
+            if (appointmentData.examRecordId) {
+              console.log('📤 [Payment] Publishing to record_queue to mark exam record as used...');
+              await rabbitmqClient.publishToQueue('record_queue', {
+                event: 'record.mark_as_used',
+                data: {
+                  recordId: appointmentData.examRecordId,
+                  reservationId: reservationId,
+                  paymentId: payment._id.toString(),
+                  appointmentData: {
+                    serviceId: appointmentData.serviceId,
+                    serviceName: appointmentData.serviceName || 'Unknown Service'
+                  }
+                }
+              });
+              console.log('✅ [Payment] Event sent to record_queue: record.mark_as_used', {
+                recordId: appointmentData.examRecordId
+              });
+            }
+
             // ℹ️ NOTE: appointment-service will publish events to:
             //   - schedule_queue (update slots with appointmentId)
             //   - invoice_queue (link invoice with appointmentId)

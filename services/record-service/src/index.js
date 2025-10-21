@@ -1,7 +1,7 @@
-﻿// Load environment variables first
+// Load environment variables first
 const dotenv = require('dotenv');
 dotenv.config();
-// ✅ Load .env ngay từ đầu
+// ✅ Load .env ngay từ đầu - Restart to apply RabbitMQ fixes
 const cors = require('cors');
 const http = require('http');
 
@@ -42,6 +42,8 @@ async function startEventListeners() {
     const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
     await connectRabbitMQ(RABBITMQ_URL);
     
+    console.log('📋 Initializing RabbitMQ queues...');
+    
     // Listen for appointment_checked_in events
     await consumeQueue('record_queue', async (message) => {
       if (message.event === 'appointment_checked_in') {
@@ -57,8 +59,13 @@ async function startEventListeners() {
     });
     
     console.log('✅ RabbitMQ event listeners started');
+    console.log('   - Listening on: record_queue');
+    console.log('   - Listening on: record_response_queue');
   } catch (error) {
     console.error('❌ Failed to start RabbitMQ event listeners:', error);
+    console.error('Error details:', error.message);
+    // Don't crash the service if RabbitMQ fails
+    console.log('⚠️  Service will continue without RabbitMQ listeners');
   }
 }
 
@@ -74,4 +81,5 @@ server.listen(PORT, () => {
   console.log(`🚀 Record service running on port ${PORT}`);
   console.log(`🔌 Socket.IO ready for connections`);
 });
+
 

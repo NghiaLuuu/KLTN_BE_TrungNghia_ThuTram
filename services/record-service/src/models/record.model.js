@@ -119,7 +119,7 @@ const recordSchema = new mongoose.Schema({
   recordCode: {
     type: String,
     unique: true,
-    required: true
+    required: false // ⭐ Auto-generated in pre-save hook
   },
   
   patientId: {

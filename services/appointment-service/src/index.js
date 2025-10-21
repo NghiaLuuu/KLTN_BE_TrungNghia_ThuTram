@@ -2,16 +2,23 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const connectDB = require('./config/db');
 const { connectRabbitMQ } = require('./utils/rabbitmq.client');
 const { setupEventListeners } = require('./utils/eventListeners');
 const { startConsumer } = require('./consumers/appointment.consumer');
+const { initializeSocket } = require('./utils/socket');
+const { setupQueueCronJobs } = require('./utils/queueCron');
 const appointmentRoutes = require('./routes/appointment.route');
 
 connectDB();
 
 const app = express();
+const server = http.createServer(app);
+
+// 🔥 Initialize Socket.IO
+initializeSocket(server);
 
 app.use(express.json());
 app.use(cors({
@@ -41,8 +48,12 @@ async function startServer() {
     await startConsumer();
     console.log('✅ Appointment consumer started');
     
-    app.listen(PORT, () => {
+    // 🔥 Start queue cron jobs for auto-start
+    setupQueueCronJobs();
+    
+    server.listen(PORT, () => {
       console.log(`✅ Appointment Service running on port ${PORT}`);
+      console.log(`🔌 Socket.IO ready for realtime queue updates`);
       console.log(`📍 Health: http://localhost:${PORT}/health`);
     });
     

@@ -143,6 +143,13 @@ const appointmentSchema = new Schema({
     index: true
   },
   
+  // ⭐ Exam Record Reference (for services that require exam first)
+  examRecordId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null,
+    index: true
+  },
+  
   // Status
   status: {
     type: String,
@@ -295,7 +302,9 @@ appointmentSchema.methods.canBeCancelled = function() {
 
 // Instance: Check if can check-in
 appointmentSchema.methods.canCheckIn = function() {
-  return this.status === 'confirmed' && this.isToday;
+  // Allow check-in if status is 'confirmed' regardless of date
+  // Staff can check-in appointments from past or future dates
+  return this.status === 'confirmed';
 };
 
 // Instance: Check if can complete

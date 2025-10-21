@@ -3,6 +3,7 @@ const redisClient = require('../utils/redis.client');
 const { publishToQueue } = require('../utils/rabbitmq.client');
 const rpcClient = require('../utils/rpcClient');
 const serviceClient = require('../utils/serviceClient');
+const { getIO } = require('../utils/socket');
 const axios = require('axios');
 
 class AppointmentService {
@@ -264,19 +265,34 @@ class AppointmentService {
         const services = JSON.parse(cached);
         const service = services.find(s => s._id.toString() === serviceId.toString());
         if (service) {
-          const addOn = service.serviceAddOns.find(a => a._id.toString() === serviceAddOnId.toString());
-          if (addOn) {
+          console.log('🔍 Found service in cache:', JSON.stringify(service, null, 2));
+          
+          // ⭐ If serviceAddOnId provided, find the addOn
+          if (serviceAddOnId) {
+            const addOn = service.serviceAddOns.find(a => a._id.toString() === serviceAddOnId.toString());
+            if (addOn) {
+              return {
+                serviceName: service.name,
+                serviceType: service.type,
+                serviceDuration: service.duration || service.durationMinutes || 30, // ⭐ Support both field names
+                serviceAddOnName: addOn.name,
+                servicePrice: addOn.price
+              };
+            }
+          } else {
+            // ⭐ No addOn - return service info only
             return {
               serviceName: service.name,
               serviceType: service.type,
-              serviceDuration: service.durationMinutes,
-              serviceAddOnName: addOn.name,
-              servicePrice: addOn.price
+              serviceDuration: service.duration || service.durationMinutes || 30,
+              serviceAddOnName: null,
+              servicePrice: service.price || 0
             };
           }
         }
       }
       
+      // ⭐ Fallback to RPC if cache miss
       const result = await rpcClient.call('service-service', 'getServiceAddOn', {
         serviceId, serviceAddOnId
       });
@@ -295,7 +311,14 @@ class AppointmentService {
       const dentist = users.find(u => u._id.toString() === dentistId.toString());
       
       if (!dentist) throw new Error('Dentist not found');
-      return dentist;
+      
+      // ⭐ Return normalized object with 'name' field
+      return {
+        _id: dentist._id,
+        name: dentist.fullName || dentist.name, // Support both fullName and name
+        role: dentist.role,
+        specialization: dentist.specialization
+      };
     } catch (error) {
       throw new Error('Cannot get dentist info: ' + error.message);
     }
@@ -443,6 +466,20 @@ class AppointmentService {
     appointment.checkedInBy = userId;
     await appointment.save();
     
+    // 🔥 Emit realtime queue update
+    try {
+      const io = getIO();
+      if (io) {
+        io.emit('queue_updated', {
+          roomId: appointment.roomId.toString(),
+          timestamp: new Date()
+        });
+        console.log(`📡 Emitted queue_updated for room ${appointment.roomName || appointment.roomId}`);
+      }
+    } catch (socketError) {
+      console.warn('⚠️ Socket emit failed:', socketError.message);
+    }
+    
     // 🔥 Publish event to record-service to auto-create record
     try {
       await publishToQueue('record_queue', {
@@ -546,9 +583,11 @@ class AppointmentService {
       
       // Get service info
       const serviceInfo = await this.getServiceInfo(serviceId, serviceAddOnId);
+      console.log('📦 Service Info:', serviceInfo);
       
       // Get dentist info
       const dentistInfo = await this.getDentistInfo(dentistId);
+      console.log('👨‍⚕️ Dentist Info:', dentistInfo);
       
       // Sort slots by time
       slots.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
@@ -584,7 +623,7 @@ class AppointmentService {
         totalAmount: serviceInfo.servicePrice,
         status: 'checked-in', // ✅ Auto check-in for walk-in appointments
         bookedAt: new Date(),
-        bookedBy: currentUser._id,
+        bookedBy: currentUser.userId || currentUser._id, // ⭐ Support both userId and _id
         bookedByRole: currentUser.role,
         bookingChannel: 'offline',
         notes: notes || '',
@@ -605,10 +644,14 @@ class AppointmentService {
           dentistName: appointment.dentistName,
           serviceId: appointment.serviceId,
           serviceName: appointment.serviceName,
+          serviceType: appointment.serviceType, // ⭐ Added serviceType
           serviceAddOnId: appointment.serviceAddOnId,
           serviceAddOnName: appointment.serviceAddOnName,
           appointmentDate: appointment.appointmentDate,
           startTime: appointment.startTime,
+          roomId: appointment.roomId, // ⭐ Added roomId
+          roomName: appointment.roomName, // ⭐ Added roomName
+          createdBy: currentUser.userId || currentUser._id, // ⭐ Added createdBy
           notes: appointment.notes || ''
         }
       });

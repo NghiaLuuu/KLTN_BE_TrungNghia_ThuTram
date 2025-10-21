@@ -173,13 +173,19 @@ class RecordController {
       const { patientId } = req.params;
       const limit = parseInt(req.query.limit) || 10;
       
+      console.log('🔍 [DEBUG] getByPatient - patientId:', patientId, 'limit:', limit);
+      
       const records = await recordService.getRecordsByPatient(patientId, limit);
+      
+      console.log('🔍 [DEBUG] getByPatient - Found records:', records.length);
+      
       res.json({
         success: true,
         data: records,
         total: records.length
       });
     } catch (error) {
+      console.error('❌ [getByPatient] Error:', error);
       res.status(400).json({ 
         success: false,
         message: error.message 

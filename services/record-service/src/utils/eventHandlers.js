@@ -23,18 +23,22 @@ async function handleAppointmentCheckedIn(eventData) {
       appointmentId: data.appointmentId,
       patientId: data.patientId || null,
       patientInfo: data.patientInfo || null,
-      date: data.checkedInAt || new Date(),
+      date: data.appointmentDate || new Date(),
       serviceId: data.serviceId,
       serviceName: data.serviceName,
-      type: data.serviceType, // 'exam' or 'treatment'
+      serviceAddOnId: data.serviceAddOnId || null,
+      serviceAddOnName: data.serviceAddOnName || null,
+      type: data.serviceType || 'exam', // 'exam' or 'treatment'
       dentistId: data.dentistId,
       dentistName: data.dentistName,
       roomId: data.roomId || null,
       roomName: data.roomName || null,
       status: 'pending', // Initial status when created from check-in
       priority: 'normal',
-      createdBy: data.checkedInBy
+      createdBy: data.createdBy || data.dentistId // Use createdBy from appointment or fallback to dentistId
     };
+    
+    console.log('🔍 [DEBUG] Creating record with patientId:', data.patientId);
     
     // If missing patient info and have patientId, fetch from user-service
     if (!recordData.patientInfo && recordData.patientId) {
@@ -131,7 +135,51 @@ async function handlePatientInfoResponse(eventData) {
   }
 }
 
+/**
+ * ⭐ Handle record.mark_as_used event (from payment-service)
+ * Mark exam record as used when patient books treatment based on that exam
+ */
+async function handleMarkRecordAsUsed(eventData) {
+  try {
+    const { data } = eventData;
+    const { recordId, reservationId, paymentId, appointmentData } = data;
+    
+    console.log(`🔄 [handleMarkRecordAsUsed] Processing record ${recordId} for reservation ${reservationId}`);
+    
+    // Find the exam record
+    const record = await Record.findById(recordId);
+    if (!record) {
+      console.log(`⚠️ [handleMarkRecordAsUsed] Record not found: ${recordId}`);
+      return;
+    }
+    
+    // Verify it's an exam record
+    if (record.type !== 'exam') {
+      console.log(`⚠️ [handleMarkRecordAsUsed] Record ${record.recordCode} is not an exam record (type: ${record.type})`);
+      return;
+    }
+    
+    // Mark as used
+    record.hasBeenUsed = true;
+    
+    // Add note about which service it was used for
+    const usageNote = `Đã sử dụng để đặt lịch điều trị: ${appointmentData.serviceName || 'Unknown'} (Payment: ${paymentId})`;
+    record.notes = record.notes 
+      ? `${record.notes}\n${usageNote}` 
+      : usageNote;
+    
+    await record.save();
+    
+    console.log(`✅ [handleMarkRecordAsUsed] Marked record ${record.recordCode} as used for treatment booking`);
+    
+  } catch (error) {
+    console.error('❌ [handleMarkRecordAsUsed] Error:', error);
+    // Don't throw - this is non-critical, payment already succeeded
+  }
+}
+
 module.exports = {
   handleAppointmentCheckedIn,
-  handlePatientInfoResponse
+  handlePatientInfoResponse,
+  handleMarkRecordAsUsed
 };

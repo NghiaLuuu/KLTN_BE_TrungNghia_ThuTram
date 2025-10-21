@@ -18,6 +18,12 @@ router.post("/",
   invoiceController.createInvoice
 );
 
+// Patient can get their own invoices
+router.get("/my-invoices",
+  authMiddleware.authorize(['patient']),
+  invoiceController.getMyInvoices
+);
+
 router.get("/",
   authMiddleware.authorize(['admin', 'manager', 'dentist', 'receptionist']),
   invoiceController.getInvoices

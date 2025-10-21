@@ -1,4 +1,5 @@
 const appointmentService = require('../services/appointment.service');
+const queueService = require('../services/queue.service');
 
 class AppointmentController {
   
@@ -63,6 +64,35 @@ class AppointmentController {
     }
   }
   
+  // ⭐ Get logged-in patient's own appointments
+  async getMyAppointments(req, res) {
+    try {
+      const patientId = req.user?.userId || req.user?._id;
+      
+      if (!patientId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+      
+      const filters = {
+        status: req.query.status,
+        dateFrom: req.query.dateFrom,
+        dateTo: req.query.dateTo
+      };
+      
+      console.log('🔍 [DEBUG] getMyAppointments - patientId:', patientId);
+      
+      const appointments = await appointmentService.getByPatient(patientId, filters);
+      
+      console.log('🔍 [DEBUG] getMyAppointments - Found:', appointments.length);
+      
+      res.json({ success: true, data: appointments });
+      
+    } catch (error) {
+      console.error('getMyAppointments error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+  
   async getByDentist(req, res) {
     try {
       const filters = {
@@ -81,7 +111,8 @@ class AppointmentController {
   
   async checkIn(req, res) {
     try {
-      const appointment = await appointmentService.checkIn(req.params.id, req.user._id);
+      const userId = req.user?.userId || req.user?._id;
+      const appointment = await appointmentService.checkIn(req.params.id, userId);
       res.json({ success: true, message: 'Check-in successful', data: appointment });
       
     } catch (error) {
@@ -92,9 +123,26 @@ class AppointmentController {
   
   async complete(req, res) {
     try {
+      const userId = req.user?.userId || req.user?._id;
+      const appointmentId = req.params.id;
+      
+      // Complete current appointment
       const appointment = await appointmentService.complete(
-        req.params.id, req.user._id, req.body
+        appointmentId, userId, req.body
       );
+      
+      // 🔥 Auto-activate next patient in queue
+      try {
+        const nextPatient = await queueService.activateNextPatient(appointmentId);
+        
+        if (nextPatient) {
+          console.log(`✅ [Complete] Auto-activated next patient: ${nextPatient.appointmentCode}`);
+        }
+      } catch (queueError) {
+        // Don't fail the completion if queue activation fails
+        console.error('⚠️ [Complete] Queue activation failed:', queueError);
+      }
+      
       res.json({ success: true, message: 'Appointment completed successfully', data: appointment });
       
     } catch (error) {
@@ -105,8 +153,9 @@ class AppointmentController {
   
   async cancel(req, res) {
     try {
+      const userId = req.user?.userId || req.user?._id;
       const appointment = await appointmentService.cancel(
-        req.params.id, req.user._id, req.body.reason
+        req.params.id, userId, req.body.reason
       );
       res.json({ success: true, message: 'Appointment cancelled successfully', data: appointment });
       
@@ -118,7 +167,17 @@ class AppointmentController {
   
   async createOffline(req, res) {
     try {
-      const appointment = await appointmentService.createAppointmentDirectly(req.body, req.user);
+      console.log('📝 createOffline received body:', JSON.stringify(req.body, null, 2));
+      console.log('👤 patientInfo:', req.body.patientInfo);
+      console.log('🔐 req.user:', req.user);
+      
+      // Use req.user if available, otherwise use createdBy from body
+      const currentUser = req.user || { 
+        _id: req.body.createdBy, 
+        role: 'staff' 
+      };
+      
+      const appointment = await appointmentService.createAppointmentDirectly(req.body, currentUser);
       
       res.status(201).json({
         success: true,

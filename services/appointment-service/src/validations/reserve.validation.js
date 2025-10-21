@@ -1,10 +1,102 @@
 const { body, param, query } = require('express-validator');
 
 /**
+ * Validation for Create Offline Appointment
+ * ⭐ Requires patientInfo (name, phone) for walk-in/offline bookings
+ */
+const createOfflineAppointmentValidation = [
+  // Service fields (single service, not array)
+  body('serviceId')
+    .notEmpty()
+    .withMessage('Service ID là bắt buộc')
+    .isMongoId()
+    .withMessage('Service ID không hợp lệ'),
+  
+  // serviceAddOnId is OPTIONAL - some services don't have addons
+  body('serviceAddOnId')
+    .optional({ nullable: true, checkFalsy: true })
+    .isMongoId()
+    .withMessage('Service Add-On ID không hợp lệ'),
+  
+  // Dentist
+  body('dentistId')
+    .notEmpty()
+    .withMessage('Dentist ID là bắt buộc')
+    .isMongoId()
+    .withMessage('Dentist ID không hợp lệ'),
+  
+  // Slot IDs array
+  body('slotIds')
+    .isArray({ min: 1 })
+    .withMessage('Cần chọn ít nhất một slot'),
+  
+  body('slotIds.*')
+    .isMongoId()
+    .withMessage('Slot ID không hợp lệ'),
+  
+  // Appointment date
+  body('date')
+    .notEmpty()
+    .withMessage('Ngày hẹn là bắt buộc')
+    .isISO8601()
+    .withMessage('Ngày không hợp lệ (YYYY-MM-DD)')
+    .custom((value) => {
+      const appointmentDate = new Date(value);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (appointmentDate < today) {
+        throw new Error('Ngày hẹn không thể là quá khứ');
+      }
+      return true;
+    }),
+  
+  // ⭐ patientInfo is REQUIRED for offline booking
+  body('patientInfo')
+    .notEmpty()
+    .withMessage('Thông tin bệnh nhân là bắt buộc')
+    .isObject()
+    .withMessage('Thông tin bệnh nhân phải là object'),
+  
+  body('patientInfo.name')
+    .notEmpty()
+    .withMessage('Tên bệnh nhân là bắt buộc')
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Tên bệnh nhân phải từ 2 đến 100 ký tự')
+    .trim(),
+  
+  body('patientInfo.phone')
+    .notEmpty()
+    .withMessage('Số điện thoại là bắt buộc')
+    .matches(/^[0-9]{10,11}$/)
+    .withMessage('Số điện thoại không hợp lệ (10-11 số)'),
+  
+  body('patientInfo.birthYear')
+    .optional({ nullable: true })
+    .isInt({ min: 1900, max: new Date().getFullYear() })
+    .withMessage('Năm sinh không hợp lệ'),
+  
+  body('patientInfo.email')
+    .optional({ nullable: true, checkFalsy: true })
+    .isEmail()
+    .withMessage('Email không hợp lệ')
+    .normalizeEmail(),
+  
+  // Optional fields
+  body('patientId')
+    .optional({ nullable: true, checkFalsy: true })
+    .isMongoId()
+    .withMessage('Patient ID không hợp lệ'),
+  
+  body('notes')
+    .optional()
+    .isLength({ max: 500 })
+    .withMessage('Ghi chú không được quá 500 ký tự')
+    .trim()
+];
+
+/**
  * Validation for Reserve Appointment (Online Booking)
- * và Create Offline Appointment
- * 
- * Payload đơn giản với single service (không phải array)
+ * Patient info is optional - will use authenticated user's info
  */
 const reserveAppointmentValidation = [
   // Service fields (single service, not array)
@@ -76,7 +168,7 @@ const reserveAppointmentValidation = [
     .withMessage('Năm sinh không hợp lệ'),
   
   body('patientInfo.email')
-    .optional()
+    .optional({ nullable: true, checkFalsy: true }) // ⭐ Allow empty string
     .isEmail()
     .withMessage('Email không hợp lệ')
     .normalizeEmail(),
@@ -217,6 +309,7 @@ const availableSlotsValidation = [
 ];
 
 module.exports = {
+  createOfflineAppointmentValidation, // ⭐ New validation for offline booking
   reserveAppointmentValidation,
   cancelAppointmentValidation,
   completeAppointmentValidation,

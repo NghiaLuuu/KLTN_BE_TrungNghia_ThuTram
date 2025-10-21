@@ -7,11 +7,8 @@ class RecordRepository {
   }
 
   async findById(id) {
-    return await Record.findById(id)
-      .populate('patientId', 'name phone email')
-      .populate('dentistId', 'name email')
-      .populate('createdBy', 'name email')
-      .populate('lastModifiedBy', 'name email');
+    // ✅ Don't populate - record already has patientInfo & dentistName
+    return await Record.findById(id);
   }
 
   async findAll(filters = {}) {
@@ -50,19 +47,16 @@ class RecordRepository {
     }
 
     return await Record.find(query)
-      .populate('patientId', 'name phone email')
-      .populate('dentistId', 'name email')
-      .populate('createdBy', 'name email')
       .sort({ createdAt: -1 });
   }
 
   async update(id, data) {
+    // ✅ Don't populate - record already has patientInfo & dentistName
     return await Record.findByIdAndUpdate(
       id, 
       { ...data, lastModifiedBy: data.modifiedBy },
       { new: true, runValidators: true }
-    ).populate('patientId', 'name phone email')
-     .populate('dentistId', 'name email');
+    );
   }
 
   async delete(id) {
@@ -79,9 +73,8 @@ class RecordRepository {
   }
 
   async findByPatient(patientId, limit = 10) {
+    // ✅ Don't populate - record already has dentistName & patientInfo
     return await Record.find({ patientId })
-      .populate('dentistId', 'name email')
-      .populate('createdBy', 'name email')
       .sort({ date: -1 })
       .limit(limit);
   }
@@ -96,23 +89,19 @@ class RecordRepository {
       };
     }
     
+    // ✅ Don't populate - record already has patientInfo & dentistName
     return await Record.find(query)
-      .populate('patientId', 'name phone email')
-      .populate('createdBy', 'name email')
       .sort({ date: -1 });
   }
 
   async findByRecordCode(recordCode) {
-    return await Record.findOne({ recordCode })
-      .populate('patientId', 'name phone email')
-      .populate('dentistId', 'name email')
-      .populate('createdBy', 'name email');
+    // ✅ Don't populate - record already has patientInfo & dentistName
+    return await Record.findOne({ recordCode });
   }
 
   async findPending() {
+    // ✅ Don't populate - record already has patientInfo & dentistName
     return await Record.find({ status: 'pending' })
-      .populate('patientId', 'name phone email')
-      .populate('dentistId', 'name email')
       .sort({ priority: -1, createdAt: 1 });
   }
 

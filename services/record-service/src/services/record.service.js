@@ -137,7 +137,7 @@ class RecordService {
     const records = await recordRepo.findAll(filters);
     
     try {
-      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(records));
+      await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(records));
     } catch (error) {
       console.warn('Cache set failed:', error.message);
     }
@@ -231,7 +231,7 @@ class RecordService {
     const records = await recordRepo.findByPatient(patientId, limit);
     
     try {
-      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(records));
+      await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(records));
     } catch (error) {
       console.warn('Cache set failed:', error.message);
     }
@@ -258,7 +258,7 @@ class RecordService {
     const records = await recordRepo.findByDentist(dentistId, startDate, endDate);
     
     try {
-      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(records));
+      await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(records));
     } catch (error) {
       console.warn('Cache set failed:', error.message);
     }
@@ -281,7 +281,7 @@ class RecordService {
     const records = await recordRepo.findPending();
     
     try {
-      await redis.setex(cacheKey, CACHE_TTL / 2, JSON.stringify(records)); // Shorter cache for pending
+      await redis.setEx(cacheKey, CACHE_TTL / 2, JSON.stringify(records)); // Shorter cache for pending
     } catch (error) {
       console.warn('Cache set failed:', error.message);
     }
@@ -349,7 +349,7 @@ class RecordService {
     const stats = await recordRepo.getStatistics(startDate, endDate);
     
     try {
-      await redis.setex(cacheKey, CACHE_TTL * 2, JSON.stringify(stats)); // Longer cache for stats
+      await redis.setEx(cacheKey, CACHE_TTL * 2, JSON.stringify(stats)); // Longer cache for stats
     } catch (error) {
       console.warn('Cache set failed:', error.message);
     }

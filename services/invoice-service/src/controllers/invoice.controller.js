@@ -57,6 +57,43 @@ class InvoiceController {
     }
   }
 
+  // Get invoices for current patient
+  async getMyInvoices(req, res) {
+    try {
+      const patientId = req.user.id; // Get patient ID from authenticated user
+      const { page, limit, status, dateFrom, dateTo, paymentMethod } = req.query;
+      
+      const options = {
+        page: parseInt(page) || 1,
+        limit: parseInt(limit) || 20,
+        sortBy: req.query.sortBy || 'createdAt',
+        sortOrder: req.query.sortOrder || 'desc'
+      };
+
+      const filter = {
+        patientId, // Force filter by current patient
+        ...(status && { status }),
+        ...(paymentMethod && { paymentMethod }),
+        ...(dateFrom && { dateFrom: new Date(dateFrom) }),
+        ...(dateTo && { dateTo: new Date(dateTo) })
+      };
+
+      const result = await invoiceService.getInvoices(filter, options);
+
+      res.json({
+        success: true,
+        message: "Lấy danh sách hóa đơn thành công",
+        data: result
+      });
+    } catch (error) {
+      console.error("❌ Get my invoices error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Lỗi khi lấy danh sách hóa đơn"
+      });
+    }
+  }
+
   async getInvoiceById(req, res) {
     try {
       const { id } = req.params;

@@ -1,9 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const appointmentController = require('../controllers/appointment.controller');
+const queueController = require('../controllers/queue.controller');
 const { authenticate, authorize } = require('../middlewares/auth.middleware');
 const { validate } = require('../middlewares/validate.middleware');
 const {
+  createOfflineAppointmentValidation, // ⭐ Import new validation
   reserveAppointmentValidation,
   cancelAppointmentValidation,
   completeAppointmentValidation,
@@ -41,7 +43,7 @@ router.post('/reserve',
 router.post('/create-offline', 
   authenticate, 
   authorize(['staff', 'admin', 'dentist']),
-  reserveAppointmentValidation,
+  createOfflineAppointmentValidation, // ⭐ Use dedicated validation for offline booking
   validate,
   appointmentController.createOffline
 );
@@ -52,6 +54,12 @@ router.get('/code/:appointmentCode',
   appointmentCodeValidation,
   validate,
   appointmentController.getByCode
+);
+
+// ⭐ Get my appointments (logged-in patient's own appointments)
+router.get('/my-appointments',
+  authenticate,
+  appointmentController.getMyAppointments
 );
 
 // Get appointments by patient
@@ -94,6 +102,30 @@ router.post('/:id/cancel',
   cancelAppointmentValidation,
   validate,
   appointmentController.cancel
+);
+
+// ============================================
+// 🔥 QUEUE MANAGEMENT ROUTES
+// ============================================
+
+// Get queue for all rooms or specific room
+router.get('/queue',
+  authenticate,
+  queueController.getQueue
+);
+
+// Get queue statistics
+router.get('/queue/stats',
+  authenticate,
+  authorize(['admin', 'manager', 'dentist', 'staff', 'receptionist']),
+  queueController.getQueueStats
+);
+
+// Trigger auto-start (for testing/manual trigger)
+router.post('/queue/auto-start',
+  authenticate,
+  authorize(['admin', 'manager']),
+  queueController.triggerAutoStart
 );
 
 module.exports = router;

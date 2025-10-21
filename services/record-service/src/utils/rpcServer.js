@@ -5,17 +5,9 @@ async function startRecordRpcServer() {
   const connection = await amqp.connect(process.env.RABBITMQ_URL);
   const channel = await connection.createChannel();
 
-  const queue = "record_queue";
+  const queue = "record_rpc_queue"; // ⭐ Changed from record_queue to record_rpc_queue
 
-  try {
-    await channel.deleteQueue(queue);
-    console.log(`♻️ Refreshing RabbitMQ queue ${queue} before asserting`);
-  } catch (err) {
-    if (err?.code !== 404) {
-      console.warn(`⚠️ Could not delete queue ${queue} during refresh:`, err.message || err);
-    }
-  }
-
+  // ⭐ Just assert queue, don't delete it (consumer is using it)
   await channel.assertQueue(queue, { durable: true });
 
   console.log(`✅ Record RPC server listening on queue: ${queue}`);
