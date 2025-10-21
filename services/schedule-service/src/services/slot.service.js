@@ -480,6 +480,36 @@ async function assignStaffToSpecificSlots({
       await markUserAsUsed(staffId);
     }
 
+    // 🔥 Invalidate Redis cache for affected room calendars
+    try {
+      const affectedRooms = new Set();
+      const affectedSubRooms = new Set();
+      
+      for (const slot of updatedSlots) {
+        // Collect unique roomId and subRoomId from updated slots
+        const slotDoc = slots.find(s => s._id.toString() === slot.slotId.toString());
+        if (slotDoc) {
+          if (slotDoc.roomId) affectedRooms.add(slotDoc.roomId.toString());
+          if (slotDoc.subRoomId) affectedSubRooms.add(slotDoc.subRoomId.toString());
+        }
+      }
+
+      // Delete all calendar cache keys for affected rooms
+      for (const roomId of affectedRooms) {
+        // Delete cache for main room and all its subrooms
+        const pattern = `room_calendar:${roomId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          console.log(`🗑️ [Redis Cache INVALIDATED] Deleted ${keys.length} calendar cache keys for room ${roomId}`);
+        }
+      }
+
+      console.log(`✅ Successfully invalidated calendar cache for ${affectedRooms.size} room(s)`);
+    } catch (redisError) {
+      console.error('❌ Redis cache invalidation error (data still updated):', redisError.message);
+    }
+
     console.log(`✅ Successfully assigned staff to ${updatedCount}/${slots.length} slots`);
 
     return {
@@ -628,6 +658,33 @@ async function reassignStaffToSpecificSlots({
 
     // Mark new staff as used in Redis cache
     await markUserAsUsed(newStaffId);
+
+    // 🔥 Invalidate Redis cache for affected room calendars
+    try {
+      const affectedRooms = new Set();
+      
+      for (const slot of updatedSlots) {
+        // Collect unique roomId from updated slots
+        const slotDoc = slots.find(s => s._id.toString() === slot.slotId.toString());
+        if (slotDoc && slotDoc.roomId) {
+          affectedRooms.add(slotDoc.roomId.toString());
+        }
+      }
+
+      // Delete all calendar cache keys for affected rooms
+      for (const roomId of affectedRooms) {
+        const pattern = `room_calendar:${roomId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          console.log(`🗑️ [Redis Cache INVALIDATED] Deleted ${keys.length} calendar cache keys for room ${roomId}`);
+        }
+      }
+
+      console.log(`✅ Successfully invalidated calendar cache for ${affectedRooms.size} room(s)`);
+    } catch (redisError) {
+      console.error('❌ Redis cache invalidation error (data still updated):', redisError.message);
+    }
 
     console.log(`✅ Successfully reassigned ${updatedCount}/${slots.length} slots from ${oldStaffId} to ${newStaffId}`);
 
@@ -780,6 +837,21 @@ async function assignStaffToSlots({
     const totalSlotsRequested = slotIds.length;
     const totalSlotsFound = slots.length;
     const slotsUpdated = updatedSlots.length;
+    
+    // 🔥 Invalidate Redis cache for affected room calendars
+    if (slotsUpdated > 0) {
+      try {
+        // Delete all calendar cache keys for the room
+        const pattern = `room_calendar:${roomId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          console.log(`🗑️ [Redis Cache INVALIDATED] Deleted ${keys.length} calendar cache keys for room ${roomId}`);
+        }
+      } catch (redisError) {
+        console.error('❌ Redis cache invalidation error (data still updated):', redisError.message);
+      }
+    }
     
     return {
       success: true,
@@ -2072,11 +2144,31 @@ async function reassignStaffToSlots({
       await markUserAsUsed(newStaffId);
     }
 
-    // Clear cache
-    try {
-      await redisClient.del('slots:*');
-    } catch (e) {
-      console.warn('Failed to clear slots cache', e);
+    // 🔥 Invalidate Redis cache for affected room calendars
+    if (updatedCount > 0) {
+      try {
+        const affectedRooms = new Set();
+        
+        for (const slot of updatedSlots) {
+          if (slot.roomId) {
+            affectedRooms.add(slot.roomId.toString());
+          }
+        }
+
+        // Delete all calendar cache keys for affected rooms
+        for (const roomId of affectedRooms) {
+          const pattern = `room_calendar:${roomId}:*`;
+          const keys = await redisClient.keys(pattern);
+          if (keys.length > 0) {
+            await redisClient.del(keys);
+            console.log(`🗑️ [Redis Cache INVALIDATED] Deleted ${keys.length} calendar cache keys for room ${roomId}`);
+          }
+        }
+
+        console.log(`✅ Successfully invalidated calendar cache for ${affectedRooms.size} room(s)`);
+      } catch (redisError) {
+        console.error('❌ Redis cache invalidation error (data still updated):', redisError.message);
+      }
     }
 
     console.log(`✅ Successfully reassigned ${updatedCount}/${slotsWithOldStaff.length} slots from ${oldStaffId} to ${newStaffId}`);

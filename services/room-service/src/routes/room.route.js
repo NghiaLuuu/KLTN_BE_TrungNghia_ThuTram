@@ -19,6 +19,9 @@ router.patch('/:id/toggle', authMiddleware, roomController.toggleStatus);
 // 🆕 Get rooms with schedule info (for schedule management page)
 router.get('/schedule-info', roomController.getRoomsForSchedule);
 
+// 🆕 Get active rooms (for queue dashboard)
+router.get('/active', authMiddleware, roomController.getActiveRooms);
+
 // 🆕 Get room types enum
 router.get('/enums/room-types', roomController.getRoomTypes);
 

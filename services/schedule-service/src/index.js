@@ -12,6 +12,7 @@ const scheduleConfigService = require('./services/scheduleConfig.service');
 const { setupEventListeners } = require('./utils/eventListeners');
 const rabbitmqClient = require('./utils/rabbitmq.client');
 const { startConsumer } = require('./consumers/schedule.consumer');
+const redisClient = require('./utils/redis.client');
 
 connectDB();
 
@@ -32,6 +33,23 @@ app.use('/api/slot', slotRoutes);
 app.use('/api/schedule/config', scheduleConfigRoutes);
 
 startRpcServer();
+
+// 🔥 Clear calendar cache on startup to ensure fresh data
+setTimeout(async () => {
+  try {
+    console.log('🧹 Clearing calendar cache on startup...');
+    const pattern = 'room_calendar:*';
+    const keys = await redisClient.keys(pattern);
+    if (keys.length > 0) {
+      await redisClient.del(keys);
+      console.log(`✅ Cleared ${keys.length} calendar cache keys on startup`);
+    } else {
+      console.log('✅ No calendar cache to clear on startup');
+    }
+  } catch (error) {
+    console.error('❌ Error clearing calendar cache on startup:', error.message);
+  }
+}, 1000); // Wait 1s for Redis connection
 
 // 🆕 Auto-initialize default config and holidays on startup
 setTimeout(async () => {

@@ -260,3 +260,23 @@ exports.getRoomTypes = async (req, res) => {
     });
   }
 };
+
+// Get active rooms (isActive = true)
+exports.getActiveRooms = async (req, res) => {
+  try {
+    const activeRooms = await Room.find({ isActive: true })
+      .select('_id name type isActive hasSubrooms description')
+      .sort({ name: 1 });
+
+    res.json({
+      success: true,
+      data: activeRooms,
+      total: activeRooms.length
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false,
+      message: `Lỗi khi lấy danh sách phòng active: ${err.message}` 
+    });
+  }
+};
