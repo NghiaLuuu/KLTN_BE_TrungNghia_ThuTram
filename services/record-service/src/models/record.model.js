@@ -230,6 +230,21 @@ const recordSchema = new mongoose.Schema({
     default: false
   },
 
+  // ========== Queue Management Fields ==========
+  queueNumber: {
+    type: String,
+    trim: true,
+    index: true // For quick lookup of current queue number
+  },
+  
+  startedAt: {
+    type: Date // Timestamp when status changed to in_progress (when Call button pressed)
+  },
+  
+  completedAt: {
+    type: Date // Timestamp when status changed to completed (when Complete button pressed)
+  },
+
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     required: true,

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const paymentController = require('../controllers/payment.controller');
+const cashPaymentController = require('../controllers/cashPayment.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
 const roleMiddleware = require('../middlewares/role.middleware');
 const validationMiddleware = require('../middlewares/validation.middleware');
@@ -203,6 +204,15 @@ router.get('/stats/refunds',
   getStatisticsValidation,
   validationMiddleware.validate,
   paymentController.getRefundStatistics
+);
+
+// ============ CASH PAYMENT CONFIRMATION ROUTE ============
+// Confirm cash payment and create invoice
+router.post('/:paymentId/confirm-cash',
+  roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
+  getPaymentByIdValidation,
+  validationMiddleware.validate,
+  cashPaymentController.confirmCashPayment
 );
 
 // ============ RPC ROUTES ============

@@ -3,6 +3,7 @@ const router = express.Router();
 
 // Import controller
 const recordController = require('../controllers/record.controller');
+const queueController = require('../controllers/queue.controller');
 
 // Import middleware
 const { authenticate, authorize } = require('../middlewares/auth.middleware');
@@ -26,6 +27,49 @@ const {
 
 // Routes
 
+// ========== Queue Management Routes ==========
+// Get next queue number for a room
+router.get('/queue/next-number',
+  authenticate,
+  authorize(['dentist', 'admin', 'manager', 'staff', 'receptionist']),
+  queueController.getNextQueueNumber
+);
+
+// Get queue status for a room
+router.get('/queue/status',
+  authenticate,
+  authorize(['dentist', 'admin', 'manager', 'staff', 'receptionist']),
+  queueController.getQueueStatus
+);
+
+// Call a record (assign queue number and start)
+router.post('/:recordId/call',
+  authenticate,
+  authorize(['dentist', 'admin', 'manager', 'staff', 'receptionist']),
+  recordIdValidation,
+  validate,
+  queueController.callRecord
+);
+
+// Complete a record
+router.post('/:recordId/complete',
+  authenticate,
+  authorize(['dentist', 'admin', 'manager']),
+  recordIdValidation,
+  validate,
+  queueController.completeRecord
+);
+
+// Cancel a record
+router.post('/:recordId/cancel',
+  authenticate,
+  authorize(['dentist', 'admin', 'manager', 'staff', 'receptionist']),
+  recordIdValidation,
+  validate,
+  queueController.cancelRecord
+);
+
+// ========== Record Management Routes ==========
 // List all records with filters
 router.get('/', 
   authenticate,
