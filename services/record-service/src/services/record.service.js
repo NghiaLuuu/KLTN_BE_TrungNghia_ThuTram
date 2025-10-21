@@ -376,6 +376,46 @@ class RecordService {
 
     return await recordRepo.markAsUsed(id);
   }
+
+  // ✅ Get unused services from exam records for booking selection
+  async getUnusedServices(patientId) {
+    if (!patientId) {
+      throw new Error('Patient ID is required');
+    }
+
+    // Find exam records that haven't been used and have treatment indications
+    const records = await recordRepo.findAll({
+      patientId,
+      type: 'exam',
+      hasBeenUsed: false
+    });
+
+    // Extract unique unused treatment indications (serviceAddOn)
+    const servicesMap = new Map();
+    
+    records.forEach(record => {
+      if (record.treatmentIndications && record.treatmentIndications.length > 0) {
+        record.treatmentIndications.forEach(indication => {
+          if (!indication.used && indication.serviceId) {
+            const key = indication.serviceId.toString();
+            if (!servicesMap.has(key)) {
+              servicesMap.set(key, {
+                serviceId: indication.serviceId,
+                serviceName: indication.serviceName,
+                recordId: record._id,
+                recordCode: record.recordCode,
+                dentistName: record.dentistName,
+                createdAt: record.createdAt,
+                notes: indication.notes || ''
+              });
+            }
+          }
+        });
+      }
+    });
+
+    return Array.from(servicesMap.values());
+  }
 }
 
 module.exports = new RecordService();

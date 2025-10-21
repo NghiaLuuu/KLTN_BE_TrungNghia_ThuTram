@@ -131,6 +131,29 @@ class AppointmentController {
       res.status(400).json({ success: false, message: error.message });
     }
   }
+
+  async getAllAppointments(req, res) {
+    try {
+      const filters = {
+        status: req.query.status,
+        dentistId: req.query.dentistId,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate,
+        page: parseInt(req.query.page) || 1,
+        limit: parseInt(req.query.limit) || 50
+      };
+      
+      const result = await appointmentService.getAllAppointments(filters);
+      res.json({ 
+        success: true, 
+        data: result
+      });
+      
+    } catch (error) {
+      console.error('getAllAppointments error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
 }
 
 module.exports = new AppointmentController();

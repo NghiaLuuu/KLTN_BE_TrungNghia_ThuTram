@@ -125,9 +125,7 @@ const recordSchema = new mongoose.Schema({
   patientId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: function() {
-      return !this.patientInfo;
-    }
+    required: false // ✅ Not required - can use patientInfo for walk-in patients
   },
   patientInfo: patientInfoSchema, // Used when staff creates record for walk-in patient
 

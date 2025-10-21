@@ -59,6 +59,14 @@ router.get('/patient/:patientId',
   recordController.getByPatient
 );
 
+// ✅ Get unused services from exam records (for booking service selection)
+router.get('/patient/:patientId/unused-services',
+  authenticate,
+  patientIdValidation,
+  validate,
+  recordController.getUnusedServices
+);
+
 // Get records by dentist
 router.get('/dentist/:dentistId',
   authenticate,

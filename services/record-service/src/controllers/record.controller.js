@@ -334,6 +334,24 @@ class RecordController {
       });
     }
   }
+
+  // ✅ Get unused services from exam records (for booking service selection)
+  async getUnusedServices(req, res) {
+    try {
+      const { patientId } = req.params;
+      const services = await recordService.getUnusedServices(patientId);
+      res.json({
+        success: true,
+        data: services,
+        total: services.length
+      });
+    } catch (error) {
+      res.status(500).json({ 
+        success: false,
+        message: error.message 
+      });
+    }
+  }
 }
 
 module.exports = new RecordController();

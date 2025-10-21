@@ -14,6 +14,13 @@ const {
   availableSlotsValidation
 } = require('../validations/reserve.validation');
 
+// Get all appointments (Admin/Manager/Receptionist only)
+router.get('/', 
+  authenticate, 
+  authorize(['admin', 'manager', 'receptionist']),
+  appointmentController.getAllAppointments
+);
+
 // Get available slot groups
 router.get('/available-slots', 
   authenticate, 
@@ -64,16 +71,16 @@ router.get('/dentist/:dentistId',
 );
 
 // Check-in appointment
-router.patch('/:id/check-in', 
+router.post('/:id/check-in', 
   authenticate, 
-  authorize(['dentist', 'admin', 'staff']),
+  authorize(['dentist', 'admin', 'staff', 'receptionist']),
   checkInAppointmentValidation,
   validate,
   appointmentController.checkIn
 );
 
 // Complete appointment
-router.patch('/:id/complete', 
+router.post('/:id/complete', 
   authenticate, 
   authorize(['dentist', 'admin']),
   completeAppointmentValidation,
@@ -82,7 +89,7 @@ router.patch('/:id/complete',
 );
 
 // Cancel appointment
-router.patch('/:id/cancel', 
+router.post('/:id/cancel', 
   authenticate,
   cancelAppointmentValidation,
   validate,

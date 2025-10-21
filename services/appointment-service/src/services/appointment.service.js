@@ -443,6 +443,33 @@ class AppointmentService {
     appointment.checkedInBy = userId;
     await appointment.save();
     
+    // 🔥 Publish event to record-service to auto-create record
+    try {
+      await publishToQueue('record_queue', {
+        event: 'appointment_checked_in',
+        data: {
+          appointmentId: appointment._id.toString(),
+          appointmentCode: appointment.appointmentCode,
+          patientId: appointment.patientId ? appointment.patientId.toString() : null,
+          patientInfo: appointment.patientInfo,
+          serviceId: appointment.serviceId.toString(),
+          serviceName: appointment.serviceName,
+          serviceType: appointment.serviceType,
+          dentistId: appointment.dentistId.toString(),
+          dentistName: appointment.dentistName,
+          roomId: appointment.roomId ? appointment.roomId.toString() : null,
+          roomName: appointment.roomName || null,
+          appointmentDate: appointment.appointmentDate,
+          checkedInAt: appointment.checkedInAt,
+          checkedInBy: userId.toString()
+        }
+      });
+      console.log(`✅ Published appointment_checked_in event for appointment ${appointment.appointmentCode}`);
+    } catch (publishError) {
+      console.error('❌ Failed to publish appointment_checked_in event:', publishError);
+      // Don't throw error - appointment check-in still successful
+    }
+    
     return appointment;
   }
   
@@ -555,15 +582,36 @@ class AppointmentService {
         roomName: firstSlot.roomName || '',
         paymentId: null, // Will be created later if needed
         totalAmount: serviceInfo.servicePrice,
-        status: 'confirmed',
+        status: 'checked-in', // ✅ Auto check-in for walk-in appointments
         bookedAt: new Date(),
         bookedBy: currentUser._id,
         bookedByRole: currentUser.role,
         bookingChannel: 'offline',
-        notes: notes || ''
+        notes: notes || '',
+        checkedInAt: new Date() // ✅ Set check-in timestamp
       });
       
       await appointment.save();
+      
+      // ✅ Publish check-in event to auto-create record
+      await publishToQueue('record_queue', {
+        event: 'appointment_checked_in',
+        data: {
+          appointmentId: appointment._id,
+          appointmentCode: appointment.appointmentCode,
+          patientId: appointment.patientId,
+          patientInfo: appointment.patientInfo,
+          dentistId: appointment.dentistId,
+          dentistName: appointment.dentistName,
+          serviceId: appointment.serviceId,
+          serviceName: appointment.serviceName,
+          serviceAddOnId: appointment.serviceAddOnId,
+          serviceAddOnName: appointment.serviceAddOnName,
+          appointmentDate: appointment.appointmentDate,
+          startTime: appointment.startTime,
+          notes: appointment.notes || ''
+        }
+      });
       
       // Update slots as booked
       await serviceClient.bulkUpdateSlots(slotIds, {
@@ -759,6 +807,68 @@ class AppointmentService {
       
     } catch (error) {
       console.error('❌ Error cancelling reservation:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all appointments with filters (Admin/Manager)
+   * @param {Object} filters - { status, dentistId, startDate, endDate, page, limit }
+   * @returns {Object} - { appointments, total, page, limit }
+   */
+  async getAllAppointments(filters = {}) {
+    try {
+      const {
+        status,
+        dentistId,
+        startDate,
+        endDate,
+        page = 1,
+        limit = 50
+      } = filters;
+
+      // Build query
+      const query = {};
+
+      if (status) {
+        query.status = status;
+      }
+
+      if (dentistId) {
+        query.dentistId = dentistId;
+      }
+
+      if (startDate || endDate) {
+        query.appointmentDate = {};
+        if (startDate) {
+          query.appointmentDate.$gte = new Date(startDate);
+        }
+        if (endDate) {
+          query.appointmentDate.$lte = new Date(endDate);
+        }
+      }
+
+      // Execute query with pagination
+      const skip = (page - 1) * limit;
+      const appointments = await Appointment.find(query)
+        .sort({ appointmentDate: -1, startTime: 1 })
+        .skip(skip)
+        .limit(limit)
+        .lean();
+
+      const total = await Appointment.countDocuments(query);
+
+      console.log(`✅ Retrieved ${appointments.length} appointments (total: ${total})`);
+
+      return {
+        appointments,
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      };
+    } catch (error) {
+      console.error('❌ Error getting all appointments:', error);
       throw error;
     }
   }
