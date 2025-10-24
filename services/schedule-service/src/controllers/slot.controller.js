@@ -834,6 +834,58 @@ exports.bulkUpdateSlots = async (req, res) => {
   }
 };
 
+// 🆕 Nhiệm vụ 2.2: Tắt slots linh hoạt
+exports.disableSlots = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ 
+      success: false,
+      message: 'Chỉ manager/admin mới có quyền tắt lịch'
+    });
+  }
+
+  try {
+    const scheduleService = require('../services/schedule.service');
+    const result = await scheduleService.disableSlotsFlexible(req.body);
+    
+    return res.status(200).json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    console.error('[slotController] disableSlots error:', error);
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// 🆕 Nhiệm vụ 2.2: Bật lại slots đã tắt
+exports.enableSlots = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ 
+      success: false,
+      message: 'Chỉ manager/admin mới có quyền bật lịch'
+    });
+  }
+
+  try {
+    const scheduleService = require('../services/schedule.service');
+    const result = await scheduleService.enableSlotsFlexible(req.body);
+    
+    return res.status(200).json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    console.error('[slotController] enableSlots error:', error);
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getSlotById: exports.getSlotById,                                // 🆕 NEW
   assignStaffToSlots: exports.assignStaffToSlots,
@@ -855,5 +907,7 @@ module.exports = {
   checkStaffHasSchedule: exports.checkStaffHasSchedule,
   getDentistsWithNearestSlot: exports.getDentistsWithNearestSlot,  // 🆕 PATIENT BOOKING
   getDentistWorkingDates: exports.getDentistWorkingDates,          // 🆕 PATIENT BOOKING
-  bulkUpdateSlots: exports.bulkUpdateSlots                         // 🆕 BULK UPDATE
+  bulkUpdateSlots: exports.bulkUpdateSlots,                        // 🆕 BULK UPDATE
+  disableSlots: exports.disableSlots,                              // 🆕 Nhiệm vụ 2.2
+  enableSlots: exports.enableSlots                                 // 🆕 Nhiệm vụ 2.2
 };

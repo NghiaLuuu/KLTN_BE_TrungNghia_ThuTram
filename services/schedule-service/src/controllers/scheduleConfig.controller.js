@@ -177,6 +177,42 @@ exports.addHoliday = async (req, res) => {
   }
 };
 
+// 🆕 Nhiệm vụ 2.1: Bulk create holidays
+exports.addHolidays = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Chỉ manager hoặc admin mới có quyền thêm ngày nghỉ' 
+    });
+  }
+
+  try {
+    const { holidays } = req.body;
+
+    if (!Array.isArray(holidays) || holidays.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'holidays phải là mảng và không rỗng'
+      });
+    }
+
+    const result = await cfgService.addHolidays(holidays);
+    
+    const statusCode = result.success > 0 ? 201 : 400;
+    res.status(statusCode).json({
+      success: result.success > 0,
+      message: `Tạo thành công ${result.success}/${holidays.length} ngày nghỉ`,
+      data: result
+    });
+  } catch (error) {
+    console.error('Error bulk adding holidays:', error);
+    res.status(400).json({ 
+      success: false, 
+      message: error.message
+    });
+  }
+};
+
 // 🆕 Get blocked date ranges for holiday DatePicker
 exports.getBlockedDateRanges = async (req, res) => {
   try {

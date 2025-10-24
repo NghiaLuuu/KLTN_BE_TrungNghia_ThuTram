@@ -11,8 +11,8 @@ exports.register = async (req, res) => {
 
 exports.login = async (req, res) => {
   try {
-    const { login, password } = req.body; // đổi từ email -> login
-    const result = await authService.login({ login, password });
+    const { login, password, role } = req.body; // 🆕 Thêm role (optional)
+    const result = await authService.login({ login, password, role });
     res.status(200).json({ message: 'Đăng nhập thành công', ...result });
   } catch (err) {
     res.status(401).json({ message: err.message || 'Đăng nhập thất bại' });

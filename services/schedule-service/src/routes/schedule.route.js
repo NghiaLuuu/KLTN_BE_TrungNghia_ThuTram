@@ -81,4 +81,10 @@ router.post('/replacement-staff', scheduleController.getAvailableReplacementStaf
 // Replace staff (manager/admin)
 router.post('/replace-staff', authMiddleware, scheduleController.replaceStaff);
 
+// 🆕 Nhiệm vụ 2.3: Tạo lịch override trong ngày nghỉ
+router.post('/override-holiday', authMiddleware, scheduleController.createScheduleOverrideHoliday);
+
+// 🆕 Nhiệm vụ 2.4: Validate incomplete schedule
+router.get('/validate-incomplete', scheduleController.validateIncompleteSchedule);
+
 module.exports = router;

@@ -20,6 +20,7 @@ router.get('/holidays', cfgController.getHolidays);
 router.get('/holidays/blocked-ranges', cfgController.getBlockedDateRanges); // 🆕 Get blocked date ranges
 router.patch('/holidays/:holidayId', authMiddleware, updateHolidayValidation, validationErrorHandler, cfgController.updateHoliday);
 router.post('/holidays', authMiddleware, createHolidayValidation, validationErrorHandler, cfgController.addHoliday);
+router.post('/holidays/bulk', authMiddleware, cfgController.addHolidays); // 🆕 Nhiệm vụ 2.1: Bulk create
 router.delete('/holidays/:holidayId', authMiddleware, holidayIdValidation, validationErrorHandler, cfgController.removeHoliday);
 
 module.exports = router;

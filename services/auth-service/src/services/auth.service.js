@@ -109,13 +109,28 @@ exports.register = async (data) => {
 };
 
 // Đăng nhập
-exports.login = async ({ login, password }) => {
-  // login có thể là email hoặc employeeCode
-  const user = await userRepo.findByLogin(login);
-  if (!user) throw new Error('Không tìm thấy người dùng');
+exports.login = async ({ login, password, role }) => {
+  // 🆕 Nếu có role, dùng logic mới (patient=email, staff=employeeCode)
+  // Nếu không có role, dùng logic cũ (backward compatibility)
+  const user = await userRepo.findByLogin(login, role);
+  if (!user) {
+    const errorMsg = role === 'patient' 
+      ? 'Không tìm thấy tài khoản với email này'
+      : role 
+        ? 'Không tìm thấy nhân viên với mã nhân viên này'
+        : 'Không tìm thấy người dùng';
+    throw new Error(errorMsg);
+  }
 
   const match = await bcrypt.compare(password, user.password);
-  if (!match) throw new Error('Sai email/mã nhân viên hoặc mật khẩu');
+  if (!match) {
+    const errorMsg = role === 'patient'
+      ? 'Sai email hoặc mật khẩu'
+      : role
+        ? 'Sai mã nhân viên hoặc mật khẩu'
+        : 'Sai email/mã nhân viên hoặc mật khẩu';
+    throw new Error(errorMsg);
+  }
 
   const refreshToken = generateRefreshToken(user);
   const accessToken = generateAccessToken(user);

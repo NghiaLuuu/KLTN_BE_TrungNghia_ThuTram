@@ -4,18 +4,34 @@ const User = require('../models/user.model');
 // 🔹 BASIC QUERIES
 exports.findByEmail = (email) => User.findOne({ email, deletedAt: null });
 
-exports.findByLogin = (login) => {
-  return User.findOne({
-    $and: [
-      { deletedAt: null },
-      {
-        $or: [
-          { email: login },
-          { employeeCode: login }
-        ]
-      }
-    ]
-  });
+// 🆕 Sửa logic đăng nhập theo role
+exports.findByLogin = async (login, role = null) => {
+  // Nếu không truyền role, giữ logic cũ (hỗ trợ backward compatibility)
+  if (!role) {
+    return User.findOne({
+      $and: [
+        { deletedAt: null },
+        {
+          $or: [
+            { email: login },
+            { employeeCode: login }
+          ]
+        }
+      ]
+    });
+  }
+  
+  // 🆕 Logic mới: patient dùng email, staff dùng employeeCode
+  if (role === 'patient') {
+    return User.findOne({ email: login, role: 'patient', deletedAt: null });
+  } else {
+    // Staff roles: admin, manager, dentist, nurse, receptionist
+    return User.findOne({ 
+      employeeCode: login, 
+      role: { $ne: 'patient' }, 
+      deletedAt: null 
+    });
+  }
 };
 
 exports.findByPhone = (phone) => User.findOne({ phone, deletedAt: null });
@@ -25,6 +41,36 @@ exports.findById = async (id) => {
 };
 
 exports.saveUser = (user) => user.save();
+
+// 🆕 CREATE USER (thêm mới)
+exports.createUser = async (data) => {
+  const bcrypt = require('bcrypt');
+  
+  // Tạo user tạm để trigger pre-save hook (generate employeeCode)
+  const tempUser = new User(data);
+  
+  // Nếu là patient → không cần logic mật khẩu mặc định
+  if (tempUser.role === 'patient') {
+    // Patient tự đăng ký sẽ có password từ form
+    if (data.password) {
+      tempUser.password = await bcrypt.hash(data.password, 10);
+    }
+    return await tempUser.save();
+  }
+  
+  // Nếu là staff → mật khẩu mặc định = employeeCode
+  await tempUser.validate(); // Trigger pre-save để generate employeeCode
+  
+  // Lấy employeeCode vừa generate
+  const employeeCode = tempUser.employeeCode;
+  
+  // Hash mật khẩu = employeeCode
+  tempUser.password = await bcrypt.hash(employeeCode, 10);
+  tempUser.isFirstLogin = true; // Đánh dấu lần đầu đăng nhập
+  tempUser.isActive = true; // Staff mặc định active
+  
+  return await tempUser.save();
+};
 
 // 🔹 UPDATE OPERATIONS
 exports.updateById = async (id, data, updatedBy = null) => {

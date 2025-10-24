@@ -1950,6 +1950,12 @@ module.exports = {
   generateBulkRoomSchedules
 };
 
+// 🆕 Export thêm các functions mới (sau module.exports chính)
+module.exports.disableSlotsFlexible = exports.disableSlotsFlexible;
+module.exports.enableSlotsFlexible = exports.enableSlotsFlexible;
+module.exports.createScheduleOverrideHoliday = exports.createScheduleOverrideHoliday;
+module.exports.validateIncompleteSchedule = exports.validateIncompleteSchedule;
+
 // 🔧 Check conflict chung
 // Note: schedules no longer persist shiftIds. Conflict is determined by overlapping start/end for the same room.
 async function checkScheduleConflict(roomId, startDate, endDate, excludeId = null) {
@@ -6133,6 +6139,549 @@ exports.replaceStaff = async ({ originalStaffId, replacementStaffId, slots, from
 // 🆕 Get bulk room schedules info for multiple rooms
 // Dùng để kiểm tra trạng thái lịch của nhiều phòng cùng lúc
 // Trả về: danh sách tháng có thể chọn và ca có thể chọn cho khoảng thời gian
+
+// 🆕 Nhiệm vụ 2.2: Tắt lịch linh hoạt
+// Tắt slots theo ngày, ca, nha sĩ, hoặc buồng
+exports.disableSlotsFlexible = async (criteria) => {
+  const {
+    date,           // Tắt theo ngày cụ thể (YYYY-MM-DD)
+    shiftName,      // Tắt theo ca ('Ca Sáng', 'Ca Chiều', 'Ca Tối')
+    dentistId,      // Tắt theo nha sĩ
+    roomId,         // Tắt theo buồng
+    subRoomId,      // Tắt theo buồng con (optional)
+    startDate,      // Tắt khoảng thời gian (từ ngày)
+    endDate         // Tắt khoảng thời gian (đến ngày)
+  } = criteria;
+
+  try {
+    // Build query
+    const query = { isActive: true }; // Chỉ tắt slots đang active
+
+    // 1. Tắt theo ngày hoặc khoảng thời gian
+    if (date) {
+      const targetDate = new Date(date);
+      targetDate.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(targetDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      
+      query.startTime = { $gte: targetDate, $lte: endOfDay };
+    } else if (startDate && endDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      
+      query.startTime = { $gte: start, $lte: end };
+    }
+
+    // 2. Tắt theo ca
+    if (shiftName) {
+      query.shiftName = shiftName;
+    }
+
+    // 3. Tắt theo nha sĩ
+    if (dentistId) {
+      query.dentist = dentistId;
+    }
+
+    // 4. Tắt theo buồng
+    if (roomId) {
+      query.roomId = roomId;
+      if (subRoomId) {
+        query.subRoomId = subRoomId;
+      }
+    }
+
+    // Validate: phải có ít nhất 1 điều kiện
+    if (Object.keys(query).length === 1) { // Chỉ có isActive
+      throw new Error('Phải chỉ định ít nhất một điều kiện: date/dateRange, shiftName, dentistId, hoặc roomId');
+    }
+
+    // Tìm slots cần tắt
+    const slotsToDisable = await Slot.find(query);
+    
+    if (slotsToDisable.length === 0) {
+      return {
+        success: true,
+        message: 'Không tìm thấy slot nào phù hợp với điều kiện',
+        disabledCount: 0,
+        affectedPatients: []
+      };
+    }
+
+    // Kiểm tra slots đã có bệnh nhân đặt
+    const bookedSlots = slotsToDisable.filter(slot => 
+      slot.status === 'booked' && slot.appointmentId
+    );
+
+    // Tắt tất cả slots
+    await Slot.updateMany(query, { $set: { isActive: false } });
+
+    // 🆕 Nhiệm vụ 2.5: Lấy thông tin bệnh nhân bị ảnh hưởng và gửi thông báo
+    const patientNotifications = await getAffectedPatientsAndNotify(bookedSlots);
+
+    // Clear cache
+    for (const slot of slotsToDisable) {
+      await redisClient.del(`slot:${slot._id}`);
+    }
+
+    console.log(`✅ Đã tắt ${slotsToDisable.length} slots (${bookedSlots.length} slots đã có bệnh nhân)`);
+
+    return {
+      success: true,
+      message: `Đã tắt ${slotsToDisable.length} slots thành công`,
+      disabledCount: slotsToDisable.length,
+      bookedCount: bookedSlots.length,
+      ...patientNotifications // Thông tin email đã gửi và danh sách liên hệ
+    };
+
+  } catch (error) {
+    console.error('❌ Error disabling slots:', error);
+    throw error;
+  }
+};
+
+// 🆕 Nhiệm vụ 2.2: Bật lại slots đã tắt
+exports.enableSlotsFlexible = async (criteria) => {
+  const query = { isActive: false }; // Chỉ bật slots đang tắt
+
+  // Build query tương tự disableSlotsFlexible
+  if (criteria.date) {
+    const targetDate = new Date(criteria.date);
+    targetDate.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+    query.startTime = { $gte: targetDate, $lte: endOfDay };
+  } else if (criteria.startDate && criteria.endDate) {
+    const start = new Date(criteria.startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(criteria.endDate);
+    end.setHours(23, 59, 59, 999);
+    query.startTime = { $gte: start, $lte: end };
+  }
+
+  if (criteria.shiftName) query.shiftName = criteria.shiftName;
+  if (criteria.dentistId) query.dentist = criteria.dentistId;
+  if (criteria.roomId) {
+    query.roomId = criteria.roomId;
+    if (criteria.subRoomId) query.subRoomId = criteria.subRoomId;
+  }
+
+  if (Object.keys(query).length === 1) {
+    throw new Error('Phải chỉ định ít nhất một điều kiện');
+  }
+
+  const result = await Slot.updateMany(query, { $set: { isActive: true } });
+  
+  // Clear cache
+  const slots = await Slot.find(query);
+  for (const slot of slots) {
+    await redisClient.del(`slot:${slot._id}`);
+  }
+
+  return {
+    success: true,
+    message: `Đã bật lại ${result.modifiedCount} slots`,
+    enabledCount: result.modifiedCount
+  };
+};
+
+// 🆕 Nhiệm vụ 2.3: Tạo lịch override trong ngày nghỉ
+exports.createScheduleOverrideHoliday = async (data) => {
+  const {
+    roomId,
+    subRoomId,
+    date,           // Ngày cần tạo lịch (YYYY-MM-DD)
+    shifts,         // Mảng ca cần tạo: ['Ca Sáng', 'Ca Chiều', 'Ca Tối']
+    note            // Ghi chú lý do override
+  } = data;
+
+  try {
+    // Validate input
+    if (!roomId || !date || !shifts || !Array.isArray(shifts) || shifts.length === 0) {
+      throw new Error('Thiếu thông tin: roomId, date, và shifts (array) là bắt buộc');
+    }
+
+    // Kiểm tra date có phải ngày nghỉ không
+    const targetDate = new Date(date);
+    targetDate.setHours(0, 0, 0, 0);
+    
+    const isHolidayDay = await isHoliday(targetDate);
+    if (!isHolidayDay) {
+      throw new Error('Ngày này không phải ngày nghỉ. Override chỉ áp dụng cho ngày nghỉ.');
+    }
+
+    // Kiểm tra room tồn tại
+    const axios = require('axios');
+    const ROOM_SERVICE_URL = process.env.ROOM_SERVICE_URL || 'http://localhost:3004';
+    
+    let roomResponse;
+    try {
+      roomResponse = await axios.get(`${ROOM_SERVICE_URL}/api/room/${roomId}`);
+    } catch (error) {
+      throw new Error(`Không tìm thấy phòng với ID: ${roomId}`);
+    }
+    
+    const room = roomResponse.data.room;
+    if (!room.isActive) {
+      throw new Error(`Phòng ${room.name} không hoạt động`);
+    }
+
+    // Kiểm tra subroom (nếu có)
+    if (subRoomId) {
+      const subRoom = room.subRooms?.find(sr => sr._id.toString() === subRoomId);
+      if (!subRoom) {
+        throw new Error(`Không tìm thấy buồng con với ID: ${subRoomId}`);
+      }
+      if (!subRoom.isActive) {
+        throw new Error(`Buồng con ${subRoom.name} không hoạt động`);
+      }
+    }
+
+    // Lấy config
+    const config = await cfgService.getConfig();
+    if (!config) {
+      throw new Error('Schedule config chưa được khởi tạo');
+    }
+
+    // Kiểm tra shifts hợp lệ
+    const validShifts = ['Ca Sáng', 'Ca Chiều', 'Ca Tối'];
+    const invalidShifts = shifts.filter(s => !validShifts.includes(s));
+    if (invalidShifts.length > 0) {
+      throw new Error(`Ca không hợp lệ: ${invalidShifts.join(', ')}`);
+    }
+
+    // Kiểm tra xem đã có slots trong ngày này chưa
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+    
+    const existingSlots = await Slot.find({
+      roomId,
+      subRoomId: subRoomId || null,
+      startTime: { $gte: targetDate, $lte: endOfDay }
+    });
+
+    if (existingSlots.length > 0) {
+      throw new Error(
+        `Đã có ${existingSlots.length} slots trong ngày này. ` +
+        `Vui lòng xóa slots cũ trước khi tạo override.`
+      );
+    }
+
+    // Tạo schedule document (cần có để generate slots)
+    const schedule = await scheduleRepo.createSchedule({
+      roomId,
+      subRoomId: subRoomId || null,
+      month: targetDate.getMonth() + 1,
+      year: targetDate.getFullYear(),
+      startDate: targetDate,
+      endDate: targetDate,
+      shiftConfig: {
+        morning: {
+          name: 'Ca Sáng',
+          startTime: config.morningShift.startTime,
+          endTime: config.morningShift.endTime,
+          slotDuration: config.unitDuration,
+          isActive: config.morningShift.isActive,
+          isGenerated: shifts.includes('Ca Sáng')
+        },
+        afternoon: {
+          name: 'Ca Chiều',
+          startTime: config.afternoonShift.startTime,
+          endTime: config.afternoonShift.endTime,
+          slotDuration: config.unitDuration,
+          isActive: config.afternoonShift.isActive,
+          isGenerated: shifts.includes('Ca Chiều')
+        },
+        evening: {
+          name: 'Ca Tối',
+          startTime: config.eveningShift.startTime,
+          endTime: config.eveningShift.endTime,
+          slotDuration: config.unitDuration,
+          isActive: config.eveningShift.isActive,
+          isGenerated: shifts.includes('Ca Tối')
+        }
+      },
+      isActive: true,
+      generationType: 'manual',
+      createdBy: data.createdBy || null
+    });
+
+    // Generate slots cho các ca được chọn với flag isHolidayOverride = true
+    const createdSlots = [];
+    
+    for (const shiftName of shifts) {
+      let shiftConfig;
+      if (shiftName === 'Ca Sáng') shiftConfig = config.morningShift;
+      else if (shiftName === 'Ca Chiều') shiftConfig = config.afternoonShift;
+      else if (shiftName === 'Ca Tối') shiftConfig = config.eveningShift;
+      
+      if (!shiftConfig.isActive) {
+        console.log(`⚠️ Bỏ qua ${shiftName} vì không active trong config`);
+        continue;
+      }
+
+      // Generate slots for this shift
+      const shiftSlots = await generateSlotsForShiftAllDays({
+        scheduleId: schedule._id,
+        roomId,
+        subRoomId: subRoomId || null,
+        shiftName,
+        shiftStart: shiftConfig.startTime,
+        shiftEnd: shiftConfig.endTime,
+        slotDuration: config.unitDuration,
+        scheduleStartDate: targetDate,
+        scheduleEndDate: targetDate
+      });
+
+      // 🆕 Đánh dấu tất cả slots là holiday override
+      await Slot.updateMany(
+        { _id: { $in: shiftSlots.map(s => s._id) } },
+        { $set: { isHolidayOverride: true } }
+      );
+
+      createdSlots.push(...shiftSlots);
+      console.log(`✅ Tạo ${shiftSlots.length} slots override cho ${shiftName}`);
+    }
+
+    console.log(`✅ Tạo lịch override holiday thành công: ${createdSlots.length} slots cho ngày ${date}`);
+
+    return {
+      success: true,
+      message: `Đã tạo ${createdSlots.length} slots override trong ngày nghỉ ${date}`,
+      schedule,
+      slotsCreated: createdSlots.length,
+      shifts,
+      isHolidayOverride: true,
+      note
+    };
+
+  } catch (error) {
+    console.error('❌ Error creating schedule override holiday:', error);
+    throw error;
+  }
+};
+
+// 🆕 Nhiệm vụ 2.4: Kiểm tra lịch chưa đủ (Incomplete Schedule Validation)
+exports.validateIncompleteSchedule = async (data) => {
+  const { roomId, subRoomId, startDate, endDate, shifts } = data;
+
+  try {
+    if (!roomId || !startDate || !endDate) {
+      throw new Error('Thiếu thông tin: roomId, startDate, endDate là bắt buộc');
+    }
+
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    // Lấy tất cả schedules trong khoảng thời gian
+    const existingSchedules = await Schedule.find({
+      roomId,
+      subRoomId: subRoomId || null,
+      $or: [
+        { startDate: { $lte: end }, endDate: { $gte: start } }
+      ]
+    });
+
+    if (existingSchedules.length === 0) {
+      // Chưa có lịch nào → Có thể tạo
+      return {
+        canCreate: true,
+        message: 'Chưa có lịch nào trong khoảng thời gian này. Có thể tạo mới.',
+        missingDays: [],
+        missingShifts: []
+      };
+    }
+
+    // Kiểm tra từng ngày trong khoảng thời gian
+    const missingDays = [];
+    const missingShifts = [];
+    const currentDate = new Date(start);
+    
+    while (currentDate <= end) {
+      const dateStr = currentDate.toISOString().split('T')[0];
+      
+      // Kiểm tra xem ngày này có trong schedule không
+      const scheduleForDay = existingSchedules.find(s => {
+        const scheduleStart = new Date(s.startDate);
+        scheduleStart.setHours(0, 0, 0, 0);
+        const scheduleEnd = new Date(s.endDate);
+        scheduleEnd.setHours(0, 0, 0, 0);
+        return currentDate >= scheduleStart && currentDate <= scheduleEnd;
+      });
+
+      if (!scheduleForDay) {
+        // Ngày này chưa có schedule
+        missingDays.push(dateStr);
+      } else {
+        // Kiểm tra ca nào chưa được tạo
+        const shiftConfig = scheduleForDay.shiftConfig;
+        const missingShiftsForDay = [];
+
+        if (shiftConfig) {
+          if (!shiftConfig.morning.isGenerated && shiftConfig.morning.isActive) {
+            missingShiftsForDay.push('Ca Sáng');
+          }
+          if (!shiftConfig.afternoon.isGenerated && shiftConfig.afternoon.isActive) {
+            missingShiftsForDay.push('Ca Chiều');
+          }
+          if (!shiftConfig.evening.isGenerated && shiftConfig.evening.isActive) {
+            missingShiftsForDay.push('Ca Tối');
+          }
+        }
+
+        if (missingShiftsForDay.length > 0) {
+          missingShifts.push({
+            date: dateStr,
+            shifts: missingShiftsForDay
+          });
+        }
+      }
+
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    // Kiểm tra xem có slots nào chưa được tạo không
+    const startOfDay = new Date(start);
+    const endOfDay = new Date(end);
+    
+    const existingSlots = await Slot.countDocuments({
+      roomId,
+      subRoomId: subRoomId || null,
+      startTime: { $gte: startOfDay, $lte: endOfDay }
+    });
+
+    const canCreate = missingDays.length > 0 || missingShifts.length > 0;
+
+    return {
+      canCreate,
+      message: canCreate 
+        ? `Có thể tạo lịch cho ${missingDays.length} ngày và ${missingShifts.length} ca còn thiếu`
+        : 'Lịch đã đầy đủ cho khoảng thời gian này',
+      missingDays,
+      missingShifts,
+      existingSlotsCount: existingSlots,
+      existingSchedulesCount: existingSchedules.length
+    };
+
+  } catch (error) {
+    console.error('❌ Error validating incomplete schedule:', error);
+    throw error;
+  }
+};
+
+// 🆕 Nhiệm vụ 2.5: Helper function - Lấy thông tin bệnh nhân và gửi thông báo
+async function getAffectedPatientsAndNotify(bookedSlots) {
+  if (bookedSlots.length === 0) {
+    return {
+      affectedPatients: [],
+      emailsSent: [],
+      needsManualContact: []
+    };
+  }
+
+  const axios = require('axios');
+  const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
+  const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3000';
+
+  const emailsSent = [];
+  const needsManualContact = [];
+
+  for (const slot of bookedSlots) {
+    try {
+      // 1. Lấy thông tin appointment
+      const appointmentResponse = await axios.get(
+        `${APPOINTMENT_SERVICE_URL}/api/appointment/${slot.appointmentId}`
+      );
+      
+      const appointment = appointmentResponse.data.appointment;
+      const patientId = appointment.patientId;
+
+      // 2. Lấy thông tin patient từ auth-service
+      let patientResponse;
+      try {
+        patientResponse = await axios.get(
+          `${AUTH_SERVICE_URL}/api/user/${patientId}`
+        );
+      } catch (error) {
+        console.error(`❌ Không tìm thấy patient ${patientId}:`, error.message);
+        needsManualContact.push({
+          appointmentId: slot.appointmentId,
+          slotId: slot._id,
+          startTime: slot.startTime,
+          reason: 'Không tìm thấy thông tin bệnh nhân'
+        });
+        continue;
+      }
+
+      const patient = patientResponse.data;
+      
+      // 3. Kiểm tra có email không
+      if (patient.email) {
+        // Gửi email thông báo (giả sử có email service)
+        try {
+          // TODO: Gọi email service thực tế
+          // await axios.post(`${EMAIL_SERVICE_URL}/send`, {
+          //   to: patient.email,
+          //   subject: 'Thông báo hủy lịch khám',
+          //   body: `Xin chào ${patient.fullName}, lịch khám của bạn vào ${slot.startTime} đã bị hủy...`
+          // });
+          
+          console.log(`📧 [MOCK] Đã gửi email đến: ${patient.email}`);
+          
+          emailsSent.push({
+            appointmentId: slot.appointmentId,
+            slotId: slot._id,
+            patientName: patient.fullName,
+            patientEmail: patient.email,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            shiftName: slot.shiftName
+          });
+        } catch (emailError) {
+          console.error(`❌ Lỗi gửi email cho ${patient.email}:`, emailError.message);
+          needsManualContact.push({
+            appointmentId: slot.appointmentId,
+            slotId: slot._id,
+            patientName: patient.fullName,
+            patientPhone: patient.phone,
+            startTime: slot.startTime,
+            reason: 'Lỗi gửi email'
+          });
+        }
+      } else {
+        // Không có email → cần liên hệ thủ công
+        needsManualContact.push({
+          appointmentId: slot.appointmentId,
+          slotId: slot._id,
+          patientName: patient.fullName,
+          patientPhone: patient.phone,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          shiftName: slot.shiftName,
+          reason: 'Bệnh nhân không có email'
+        });
+      }
+
+    } catch (error) {
+      console.error(`❌ Lỗi xử lý slot ${slot._id}:`, error.message);
+      needsManualContact.push({
+        appointmentId: slot.appointmentId,
+        slotId: slot._id,
+        startTime: slot.startTime,
+        reason: 'Lỗi hệ thống: ' + error.message
+      });
+    }
+  }
+
+  return {
+    affectedPatients: bookedSlots.length,
+    emailsSent,           // Danh sách đã gửi email thành công
+    needsManualContact    // Danh sách cần liên hệ thủ công (số điện thoại)
+  };
+}
 
 
 

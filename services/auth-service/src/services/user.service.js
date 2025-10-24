@@ -189,26 +189,22 @@ exports.updateUserWithPermissions = async (currentUser, targetUserId, updateData
     }));
   }
   
-  // �🔒 ADMIN RULES
+  // 🔒 ADMIN RULES
   if (currentRole === 'admin') {
-    // Admin không thể cập nhật chính mình
-    if (isUpdatingSelf) {
-      throw new Error('Admin không thể tự cập nhật thông tin của mình');
+    // 🆕 Admin có thể update tất cả user trừ admin/manager khác (không phải chính mình)
+    if (!isUpdatingSelf && (targetUser.role === 'admin' || targetUser.role === 'manager')) {
+      throw new Error('Admin không thể cập nhật admin hoặc manager khác');
     }
-    // Admin có thể cập nhật tất cả role khác (không giới hạn field nào)
-    // Không có restriction nào khác
+    // Admin có thể cập nhật chính mình và tất cả role khác
   }
   
   // 🔒 MANAGER RULES  
   else if (currentRole === 'manager') {
-    // Manager không thể cập nhật admin và manager khác
-    if (targetUser.role === 'admin' || (targetUser.role === 'manager' && !isUpdatingSelf)) {
+    // Manager không thể cập nhật admin và manager khác (không phải chính mình)
+    if (!isUpdatingSelf && (targetUser.role === 'admin' || targetUser.role === 'manager')) {
       throw new Error('Manager không thể cập nhật admin hoặc manager khác');
     }
-    // Manager có thể cập nhật tất cả user còn lại (trừ email + số điện thoại)
-    if (updateData.email || updateData.phoneNumber) {
-      throw new Error('Manager không thể cập nhật email hoặc số điện thoại');
-    }
+    // Manager có thể cập nhật chính mình và tất cả role khác
   }
   
   // 🔒 PATIENT RULES
@@ -229,8 +225,23 @@ exports.updateUserWithPermissions = async (currentUser, targetUserId, updateData
   
   // 🔒 STAFF RULES (dentist, nurse, receptionist, etc.)
   else {
-    // Các nhân viên khác không thể cập nhật chính mình hay bất kì ai
-    throw new Error(`Nhân viên với role '${currentRole}' không có quyền cập nhật thông tin người dùng`);
+    // 🆕 Staff chỉ có thể cập nhật thông tin cá nhân của chính mình
+    if (!isUpdatingSelf) {
+      throw new Error(`Bạn chỉ có thể cập nhật thông tin của chính mình`);
+    }
+    
+    // 🆕 Nếu staff đổi email → yêu cầu OTP (sẽ xử lý ở controller/service riêng)
+    // Ở đây chỉ check không cho update trực tiếp
+    if (updateData.email) {
+      throw new Error('Thay đổi email yêu cầu xác thực OTP. Vui lòng sử dụng chức năng đổi email.');
+    }
+    
+    // Staff không thể thay đổi role, employeeCode, certificates, isActive
+    const restrictedFields = ['role', 'employeeCode', 'certificates', 'isActive'];
+    const hasRestrictedField = restrictedFields.some(field => updateData[field] !== undefined);
+    if (hasRestrictedField) {
+      throw new Error('Bạn không có quyền thay đổi các trường này');
+    }
   }
   
   // Execute update

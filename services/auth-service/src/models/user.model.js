@@ -94,6 +94,20 @@ const userSchema = new Schema({
     sparse: true,
   },
   
+  // 🆕 DANH SÁCH CHUYÊN KHOA (mảng string)
+  specialties: {
+    type: [String],
+    default: [],
+    validate: {
+      validator: function(specialties) {
+        // Không có specialties trùng lặp
+        const uniqueSpecialties = [...new Set(specialties)];
+        return specialties.length === uniqueSpecialties.length;
+      },
+      message: 'Danh sách chuyên khoa không được trùng lặp'
+    }
+  },
+  
   // 🆕 DANH SÁCH CHỨNG CHỈ (chỉ cho dentist)
   certificates: {
     type: [certificateSchema],
@@ -153,6 +167,10 @@ const userSchema = new Schema({
     default: false,
     index: true // Index for performance when checking delete permissions
   },
+  isFirstLogin: {
+    type: Boolean,
+    default: false, // Mặc định false, chỉ true khi admin/manager tạo nhân viên
+  },
   refreshTokens: [{
     type: String,
   }],
@@ -164,21 +182,17 @@ const userSchema = new Schema({
 userSchema.pre('save', async function(next) {
   const user = this;
 
+  // Bỏ qua patient hoặc đã có mã nhân viên
   if (user.role === 'patient' || user.employeeCode) return next();
 
-  const prefixMap = {
-    admin: 'A',
-    dentist: 'D', 
-    nurse: 'N',
-    receptionist: 'R',
-    manager: 'M'
-  };
-  const prefix = prefixMap[user.role] || 'X';
+  // 🆕 Format mới: NV + 8 chữ số (NV00000001)
+  const prefix = 'NV';
 
   const User = mongoose.model('User');
+  // Tìm user có mã nhân viên lớn nhất (tất cả role staff)
   const lastUser = await User.findOne({ 
-    role: user.role, 
-    employeeCode: { $exists: true } 
+    employeeCode: { $exists: true, $ne: null },
+    role: { $ne: 'patient' } // Loại trừ patient
   }).sort({ employeeCode: -1 }).exec();
 
   let nextNumber = 1;
@@ -187,7 +201,7 @@ userSchema.pre('save', async function(next) {
     if (match) nextNumber = parseInt(match[0], 10) + 1;
   }
 
-  user.employeeCode = `${prefix}${String(nextNumber).padStart(7, '0')}`;
+  user.employeeCode = `${prefix}${String(nextNumber).padStart(8, '0')}`;
   next();
 });
 

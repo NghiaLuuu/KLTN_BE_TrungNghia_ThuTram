@@ -55,6 +55,10 @@ router.get('/dentist/:dentistId/working-dates', slotController.getDentistWorking
 // 🆕 Bulk update slots (for appointment service to update booked status)
 router.put('/bulk-update', slotController.bulkUpdateSlots);
 
+// 🆕 Nhiệm vụ 2.2: Tắt/bật lịch linh hoạt
+router.post('/disable', authMiddleware, slotController.disableSlots);
+router.post('/enable', authMiddleware, slotController.enableSlots);
+
 // 🆕 Get slot by ID (for inter-service communication)
 // ⚠️ IMPORTANT: This route MUST be last because it's a catch-all pattern
 // Place all specific routes ABOVE this line

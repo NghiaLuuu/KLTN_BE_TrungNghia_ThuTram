@@ -299,6 +299,131 @@ exports.addHoliday = async (holiday) => {
   return holidayConfig;
 };
 
+// 🆕 Nhiệm vụ 2.1: Tạo nhiều ngày nghỉ cùng lúc (bulk create)
+exports.addHolidays = async (holidays) => {
+  if (!Array.isArray(holidays) || holidays.length === 0) {
+    throw new Error('Danh sách ngày nghỉ phải là mảng và không rỗng');
+  }
+
+  let holidayConfig = await HolidayConfig.findOne();
+  if (!holidayConfig) {
+    holidayConfig = new HolidayConfig({ holidays: [] });
+  }
+
+  const createdHolidays = [];
+  const errors = [];
+
+  for (let i = 0; i < holidays.length; i++) {
+    const holiday = holidays[i];
+    try {
+      const isRecurring = holiday.isRecurring === true;
+
+      if (isRecurring) {
+        errors.push({
+          index: i,
+          name: holiday.name,
+          error: 'Không thể tạo ngày nghỉ cố định mới qua API'
+        });
+        continue;
+      }
+
+      const h = {
+        name: holiday.name,
+        isRecurring: false,
+        startDate: new Date(holiday.startDate),
+        endDate: new Date(holiday.endDate),
+        note: holiday.note || '',
+        isActive: true,
+        hasBeenUsed: false
+      };
+
+      if (!h.name || isNaN(h.startDate.getTime()) || isNaN(h.endDate.getTime()) || h.endDate < h.startDate) {
+        errors.push({
+          index: i,
+          name: holiday.name,
+          error: 'Dữ liệu không hợp lệ (name, startDate, endDate)'
+        });
+        continue;
+      }
+
+      // Check duplicate name
+      if (holidayConfig.holidays.some(x => !x.isRecurring && x.name === h.name)) {
+        errors.push({
+          index: i,
+          name: h.name,
+          error: `Tên ngày nghỉ đã tồn tại`
+        });
+        continue;
+      }
+
+      // Check overlap
+      let hasOverlap = false;
+      for (const ex of holidayConfig.holidays) {
+        if (ex.isRecurring) continue;
+        const exStart = new Date(ex.startDate);
+        const exEnd = new Date(ex.endDate);
+        if (!(h.endDate < exStart || h.startDate > exEnd)) {
+          errors.push({
+            index: i,
+            name: h.name,
+            error: `Trùng với ngày nghỉ '${ex.name}'`
+          });
+          hasOverlap = true;
+          break;
+        }
+      }
+      if (hasOverlap) continue;
+
+      // Check existing slots
+      const startOfDay = new Date(h.startDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(h.endDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      
+      const existingSlots = await Slot.countDocuments({
+        $or: [
+          { date: { $gte: startOfDay, $lte: endOfDay } },
+          { startTime: { $gte: startOfDay, $lte: endOfDay } }
+        ]
+      });
+      
+      if (existingSlots > 0) {
+        errors.push({
+          index: i,
+          name: h.name,
+          error: `Đã có ${existingSlots} slots trong khoảng thời gian này`
+        });
+        continue;
+      }
+
+      // Success - add to config
+      holidayConfig.holidays.push(h);
+      createdHolidays.push(h);
+      console.log(`✅ [${i}] Tạo ngày nghỉ: ${h.name}`);
+
+    } catch (error) {
+      errors.push({
+        index: i,
+        name: holiday.name || 'N/A',
+        error: error.message
+      });
+    }
+  }
+
+  // Save if there are any successfully created holidays
+  if (createdHolidays.length > 0) {
+    await holidayConfig.save();
+    try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig)); } catch (e) {}
+  }
+
+  return {
+    success: createdHolidays.length,
+    failed: errors.length,
+    createdHolidays,
+    errors
+  };
+};
+
 // Helper function to get day name
 function getDayName(dayOfWeek) {
   const names = {

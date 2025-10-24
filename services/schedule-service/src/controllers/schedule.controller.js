@@ -1129,6 +1129,52 @@ exports.generateBulkRoomSchedules = async (req, res) => {
   }
 };
 
+// 🆕 Nhiệm vụ 2.3: Tạo lịch override trong ngày nghỉ
+exports.createScheduleOverrideHoliday = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ 
+      success: false,
+      message: 'Chỉ manager/admin mới có quyền tạo lịch override ngày nghỉ'
+    });
+  }
+
+  try {
+    const result = await scheduleService.createScheduleOverrideHoliday({
+      ...req.body,
+      createdBy: req.user.userId
+    });
+
+    res.status(201).json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    console.error('Error creating schedule override holiday:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// 🆕 Nhiệm vụ 2.4: Validate incomplete schedule
+exports.validateIncompleteSchedule = async (req, res) => {
+  try {
+    const result = await scheduleService.validateIncompleteSchedule(req.query);
+
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    console.error('Error validating incomplete schedule:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   generateQuarterSchedule: exports.generateQuarterSchedule,
   getAvailableQuarters: exports.getAvailableQuarters,
@@ -1158,5 +1204,7 @@ module.exports = {
   getAvailableReplacementStaff: exports.getAvailableReplacementStaff,
   replaceStaff: exports.replaceStaff,
   getBulkRoomSchedulesInfo: exports.getBulkRoomSchedulesInfo,
-  generateBulkRoomSchedules: exports.generateBulkRoomSchedules
+  generateBulkRoomSchedules: exports.generateBulkRoomSchedules,
+  createScheduleOverrideHoliday: exports.createScheduleOverrideHoliday, // 🆕 Nhiệm vụ 2.3
+  validateIncompleteSchedule: exports.validateIncompleteSchedule        // 🆕 Nhiệm vụ 2.4
 }

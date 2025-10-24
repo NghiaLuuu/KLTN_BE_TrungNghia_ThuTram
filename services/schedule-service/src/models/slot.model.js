@@ -79,6 +79,12 @@ const slotSchema = new mongoose.Schema({
   duration: {
     type: Number,
     default: 30
+  },
+  // 🆕 Nhiệm vụ 2.3: Flag đánh dấu slot được tạo trong ngày nghỉ (override holiday)
+  isHolidayOverride: {
+    type: Boolean,
+    default: false,
+    index: true
   }
 }, {
   timestamps: true
