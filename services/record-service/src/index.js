@@ -48,6 +48,28 @@ async function startEventListeners() {
     await consumeQueue('record_queue', async (message) => {
       if (message.event === 'appointment_checked_in') {
         await handleAppointmentCheckedIn(message);
+      } else if (message.event === 'invoice.created') {
+        // Update record with invoiceId when invoice is created
+        try {
+          const { recordId, invoiceId, invoiceCode } = message.data;
+          const Record = require('./models/record.model');
+          
+          console.log('[Record] Updating record with invoiceId:', {
+            recordId,
+            invoiceId,
+            invoiceCode
+          });
+          
+          await Record.findByIdAndUpdate(
+            recordId,
+            { invoiceId: invoiceId },
+            { new: true }
+          );
+          
+          console.log('[Record] Successfully updated record with invoiceId');
+        } catch (error) {
+          console.error('[Record] Error updating record with invoiceId:', error);
+        }
       }
     });
     

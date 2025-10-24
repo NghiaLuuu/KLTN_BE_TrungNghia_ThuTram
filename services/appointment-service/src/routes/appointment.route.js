@@ -78,6 +78,12 @@ router.get('/dentist/:dentistId',
   appointmentController.getByDentist
 );
 
+// Get appointments by staff (dentist or nurse)
+router.get('/by-staff/:staffId',
+  authenticate,
+  appointmentController.getByStaff
+);
+
 // Check-in appointment
 router.post('/:id/check-in', 
   authenticate, 

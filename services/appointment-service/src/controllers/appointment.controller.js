@@ -213,6 +213,30 @@ class AppointmentController {
       res.status(500).json({ success: false, message: error.message });
     }
   }
+
+  async getByStaff(req, res) {
+    try {
+      const { staffId } = req.params;
+      const { date } = req.query;
+      
+      if (!date) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Date parameter is required (format: yyyy-MM-dd)' 
+        });
+      }
+      
+      const appointments = await appointmentService.getByStaff(staffId, date);
+      res.json({ 
+        success: true, 
+        data: appointments 
+      });
+      
+    } catch (error) {
+      console.error('getByStaff error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
 }
 
 module.exports = new AppointmentController();

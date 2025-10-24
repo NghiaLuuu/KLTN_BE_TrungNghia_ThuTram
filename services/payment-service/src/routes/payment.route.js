@@ -99,6 +99,12 @@ router.get('/invoice/:invoiceId',
   paymentController.getInvoicePayments
 );
 
+// Get payment by recordId (for testing and staff operations)
+router.get('/by-record/:recordId', 
+  roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
+  paymentController.getPaymentByRecordId
+);
+
 // ============ LIST & SEARCH ROUTES ============
 // List payments with filters (Staff only)
 router.get('/', 
@@ -155,6 +161,12 @@ router.post('/:id/confirm',
   getPaymentByIdValidation,
   validationMiddleware.validate,
   paymentController.confirmPayment
+);
+
+// Confirm cash payment (Staff only) - NEW
+router.post('/:id/confirm-cash',
+  roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
+  paymentController.confirmCashPayment
 );
 
 // Manual confirm payment (Staff only)

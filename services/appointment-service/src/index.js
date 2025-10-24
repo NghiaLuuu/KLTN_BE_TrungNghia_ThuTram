@@ -10,6 +10,7 @@ const { setupEventListeners } = require('./utils/eventListeners');
 const { startConsumer } = require('./consumers/appointment.consumer');
 const { initializeSocket } = require('./utils/socket');
 const { setupQueueCronJobs } = require('./utils/queueCron');
+const { startAllCronJobs } = require('./utils/cronJobs');
 const appointmentRoutes = require('./routes/appointment.route');
 
 connectDB();
@@ -50,6 +51,9 @@ async function startServer() {
     
     // 🔥 Start queue cron jobs for auto-start
     setupQueueCronJobs();
+    
+    // 🔥 Start appointment status cron jobs
+    startAllCronJobs();
     
     server.listen(PORT, () => {
       console.log(`✅ Appointment Service running on port ${PORT}`);

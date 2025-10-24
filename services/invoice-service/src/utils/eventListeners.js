@@ -190,6 +190,158 @@ async function handleAppointmentCancelled(data) {
 }
 
 /**
+ * Handle payment.success event
+ * Create invoice after payment is completed
+ */
+async function handlePaymentSuccess(data) {
+  try {
+    const {
+      paymentId,
+      paymentCode,
+      recordId,
+      appointmentId,
+      patientId,
+      patientInfo,
+      method,
+      originalAmount,
+      discountAmount,
+      finalAmount,
+      paidAmount,
+      changeAmount,
+      completedAt,
+      processedBy,
+      processedByName
+    } = data;
+
+    console.log('[Invoice] Processing payment.success event:', {
+      paymentId,
+      paymentCode,
+      recordId,
+      finalAmount
+    });
+
+    // Check if invoice already exists
+    const existingInvoice = await Invoice.findOne({ 
+      $or: [
+        { 'paymentSummary.paymentId': paymentId },
+        { recordId: recordId }
+      ]
+    });
+
+    if (existingInvoice) {
+      console.log('[Invoice] Invoice already exists:', existingInvoice.invoiceCode);
+      
+      // Update record with invoiceId if not set
+      if (recordId && !existingInvoice.recordId) {
+        existingInvoice.recordId = recordId;
+        await existingInvoice.save();
+        console.log('[Invoice] Updated invoice with recordId');
+      }
+      
+      return existingInvoice;
+    }
+
+    // Generate invoice code
+    const invoiceCode = await generateInvoiceCode();
+
+    // Create invoice
+    const invoice = await Invoice.create({
+      invoiceCode,
+      appointmentId: appointmentId || null,
+      recordId: recordId || null,
+      
+      // Patient information
+      patientId: patientId || null,
+      patientInfo: {
+        name: patientInfo?.name || 'Unknown Patient',
+        phone: patientInfo?.phone || '0000000000',
+        email: patientInfo?.email || '',
+        address: patientInfo?.address || '',
+        dateOfBirth: null
+      },
+      
+      // Dentist information (will be updated from record if available)
+      dentistId: null,
+      dentistInfo: {
+        name: 'TBD',
+        specialization: '',
+        licenseNumber: ''
+      },
+      
+      // Financial details
+      subtotal: originalAmount,
+      taxInfo: {
+        taxRate: 0,
+        taxAmount: 0,
+        taxType: 'VAT'
+      },
+      discountInfo: {
+        discountType: discountAmount > 0 ? 'fixed' : 'none',
+        discountValue: discountAmount,
+        discountAmount: discountAmount,
+        discountReason: discountAmount > 0 ? 'Trừ tiền cọc' : null
+      },
+      totalAmount: finalAmount,
+      
+      // Payment information
+      paymentSummary: {
+        paidAmount: paidAmount,
+        remainingAmount: 0,
+        paymentMethod: method,
+        paymentStatus: 'paid',
+        paymentId: paymentId,
+        transactionId: paymentCode
+      },
+      
+      // Status
+      status: 'paid',
+      
+      // Notes
+      notes: `Hóa đơn thanh toán sau điều trị. Phương thức: ${method === 'cash' ? 'Tiền mặt' : 'VNPay'}`,
+      
+      // Dates
+      invoiceDate: new Date(),
+      dueDate: new Date(),
+      paidDate: completedAt || new Date(),
+      
+      // Created by
+      createdBy: processedBy || patientId,
+      createdByRole: 'staff'
+    });
+
+    console.log('[Invoice] Created invoice:', {
+      invoiceId: invoice._id,
+      invoiceCode: invoice.invoiceCode,
+      paymentId,
+      amount: invoice.totalAmount
+    });
+
+    // TODO: Publish event to update record with invoiceId
+    try {
+      if (recordId) {
+        await rabbitmqClient.publishToQueue('record_queue', {
+          event: 'invoice.created',
+          data: {
+            invoiceId: invoice._id.toString(),
+            invoiceCode: invoice.invoiceCode,
+            recordId: recordId
+          }
+        });
+        console.log('[Invoice] Published invoice.created event to record-service');
+      }
+    } catch (publishError) {
+      console.error('[Invoice] Failed to publish invoice.created event:', publishError);
+    }
+
+    return invoice;
+
+  } catch (error) {
+    console.error('[Invoice] Error handling payment.success event:', error);
+    throw error;
+  }
+}
+
+/**
  * Generate unique invoice code
  */
 async function generateInvoiceCode() {
@@ -225,6 +377,21 @@ async function setupEventListeners() {
     // Listen to appointment.cancelled events
     await rabbitmqClient.consumeQueue('appointment.cancelled', handleAppointmentCancelled);
 
+    // Listen to invoice_queue for payment.success events
+    await rabbitmqClient.consumeQueue('invoice_queue', async (message) => {
+      try {
+        const { event, data } = message;
+        
+        if (event === 'payment.success') {
+          await handlePaymentSuccess(data);
+        } else {
+          console.log('[Invoice] Unknown event from invoice_queue:', event);
+        }
+      } catch (error) {
+        console.error('[Invoice] Error processing invoice_queue message:', error);
+      }
+    });
+
     // ✅ Simplified logs - will show in index.js only
 
   } catch (error) {
@@ -241,5 +408,6 @@ async function setupEventListeners() {
 module.exports = {
   setupEventListeners,
   handleAppointmentCreated,
-  handleAppointmentCancelled
+  handleAppointmentCancelled,
+  handlePaymentSuccess
 };

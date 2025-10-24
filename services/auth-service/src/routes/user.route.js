@@ -21,6 +21,7 @@ const upload = multer({
 });
 
 // Staff & Patient management (specific routes MUST come before /:id)
+router.post('/create-staff', authMiddleware, userController.createStaff); // 🆕 Nhiệm vụ 1.2: Create staff without OTP
 router.get('/all-staff', userController.getAllStaff); // Supports search via query params
 router.get('/all-patient', authMiddleware, canViewPatients, userController.getAllPatients); // Supports search via query params
 

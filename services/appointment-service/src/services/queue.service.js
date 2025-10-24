@@ -246,7 +246,7 @@ class QueueService {
   }
 
   /**
-   * Format appointment for queue display
+   * Format appointment for queue response
    * @private
    */
   _formatAppointment(apt) {
@@ -257,10 +257,13 @@ class QueueService {
       serviceName: apt.serviceName,
       serviceAddOnName: apt.serviceAddOnName,
       dentistName: apt.dentistName,
+      nurseId: apt.nurseId || null,
+      nurseName: apt.nurseName || null,
       startTime: apt.startTime,
       endTime: apt.endTime,
       status: apt.status,
       checkedInAt: apt.checkedInAt,
+      recordId: apt.examRecordId || null, // Include recordId
       estimatedWaitTime: this._calculateWaitTime(apt)
     };
   }

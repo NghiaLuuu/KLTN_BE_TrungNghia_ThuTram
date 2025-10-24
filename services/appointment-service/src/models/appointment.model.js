@@ -96,6 +96,17 @@ const appointmentSchema = new Schema({
     trim: true
   },
   
+  // Nurse Assignment
+  nurseId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null
+  },
+  nurseName: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  
   // Slot Information
   slotIds: [{
     type: mongoose.Schema.Types.ObjectId,

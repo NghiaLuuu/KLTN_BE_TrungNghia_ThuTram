@@ -1,5 +1,6 @@
 const recordRepo = require("../repositories/record.repository");
 const redis = require('../utils/redis.client');
+const { publishToQueue } = require('../utils/rabbitmq.client');
 
 const CACHE_TTL = 300; // 5 minutes
 
@@ -183,6 +184,13 @@ class RecordService {
       throw new Error('Trạng thái không hợp lệ');
     }
 
+    // Get record first to check appointmentId
+    const existingRecord = await recordRepo.findById(id);
+    if (!existingRecord) {
+      throw new Error('Không tìm thấy hồ sơ');
+    }
+
+    // Update record status
     const record = await recordRepo.updateStatus(id, status, modifiedBy);
     
     // Clear caches
@@ -190,6 +198,48 @@ class RecordService {
       await redis.del(`records:*`);
     } catch (error) {
       console.warn('Failed to clear record cache:', error.message);
+    }
+
+    // 🔥 Publish events and update appointment based on status
+    try {
+      if (status === 'in_progress') {
+        // Emit record.in-progress event
+        await publishToQueue('appointment_queue', {
+          event: 'record.in-progress',
+          data: {
+            recordId: record._id.toString(),
+            recordCode: record.recordCode,
+            appointmentId: record.appointmentId ? record.appointmentId.toString() : null,
+            patientId: record.patientId ? record.patientId.toString() : null,
+            dentistId: record.dentistId.toString(),
+            startedAt: record.startedAt,
+            modifiedBy: modifiedBy ? modifiedBy.toString() : null
+          }
+        });
+        console.log(`✅ Published record.in-progress event for record ${record.recordCode}`);
+      } else if (status === 'completed') {
+        // Emit record.completed event
+        await publishToQueue('appointment_queue', {
+          event: 'record.completed',
+          data: {
+            recordId: record._id.toString(),
+            recordCode: record.recordCode,
+            appointmentId: record.appointmentId ? record.appointmentId.toString() : null,
+            patientId: record.patientId ? record.patientId.toString() : null,
+            patientInfo: record.patientInfo,
+            dentistId: record.dentistId.toString(),
+            serviceId: record.serviceId.toString(),
+            serviceName: record.serviceName,
+            totalCost: record.totalCost || 0,
+            completedAt: record.completedAt,
+            modifiedBy: modifiedBy ? modifiedBy.toString() : null
+          }
+        });
+        console.log(`✅ Published record.completed event for record ${record.recordCode}`);
+      }
+    } catch (publishError) {
+      console.error('❌ Failed to publish record status event:', publishError);
+      // Don't throw - status update already successful
     }
 
     return record;

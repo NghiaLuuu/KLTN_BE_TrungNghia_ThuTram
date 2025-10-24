@@ -949,5 +949,62 @@ exports.getDentistsForPatients = async () => {
 
 exports.refreshUserCache = refreshUserCache;
 
+// 🆕 Nhiệm vụ 1.2: Create staff without OTP
+exports.createStaff = async (data, createdBy) => {
+  const { email, phone, role, fullName, specialties, ...rest } = data;
+
+  // Validation
+  if (!email) throw new Error('Thiếu email');
+  if (!phone) throw new Error('Thiếu số điện thoại');
+  if (!role) throw new Error('Thiếu vai trò');
+  if (!fullName) throw new Error('Thiếu họ tên');
+  
+  // Role must be staff
+  const staffRoles = ['admin', 'manager', 'dentist', 'nurse', 'receptionist'];
+  if (!staffRoles.includes(role)) {
+    throw new Error('Vai trò không hợp lệ. Chỉ được tạo nhân viên (admin, manager, dentist, nurse, receptionist)');
+  }
+
+  // Check existing email/phone
+  const [existingEmail, existingPhone] = await Promise.all([
+    userRepo.findByEmail(email),
+    userRepo.findByPhone(phone),
+  ]);
+
+  if (existingEmail) throw new Error('Email đã được sử dụng');
+  if (existingPhone) throw new Error('Số điện thoại đã được sử dụng');
+
+  // Generate employeeCode (NV + 8 digits)
+  const lastEmployee = await userRepo.getLastEmployeeCode();
+  const lastNumber = lastEmployee ? parseInt(lastEmployee.employeeCode.replace('NV', '')) : 0;
+  const employeeCode = `NV${String(lastNumber + 1).padStart(8, '0')}`;
+
+  // Hash password = employeeCode
+  const hashedPassword = await bcrypt.hash(employeeCode, 10);
+
+  // Create staff
+  const User = require('../models/user.model');
+  const staff = new User({
+    email,
+    phone,
+    employeeCode,
+    password: hashedPassword,
+    role,
+    fullName,
+    specialties: specialties || [], // Support multi-specialty
+    isFirstLogin: true, // Force password change on first login
+    ...rest,
+  });
+
+  const savedStaff = await staff.save();
+  await refreshUserCache();
+
+  return {
+    user: savedStaff,
+    employeeCode, // Return employeeCode to display in UI
+    defaultPassword: employeeCode // For admin reference
+  };
+};
+
 // Initialize cache on startup
 initUserCache().catch(err => console.error('❌ Lỗi khi tải cache người dùng:', err));

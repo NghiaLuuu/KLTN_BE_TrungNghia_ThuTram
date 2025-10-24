@@ -555,6 +555,32 @@ class AppointmentService {
     }
     
     await appointment.save();
+    
+    // 🔥 Publish appointment.completed event
+    try {
+      await publishToQueue('appointment_queue', {
+        event: 'appointment.completed',
+        data: {
+          appointmentId: appointment._id.toString(),
+          appointmentCode: appointment.appointmentCode,
+          patientId: appointment.patientId ? appointment.patientId.toString() : null,
+          patientInfo: appointment.patientInfo,
+          serviceId: appointment.serviceId.toString(),
+          serviceName: appointment.serviceName,
+          serviceType: appointment.serviceType,
+          dentistId: appointment.dentistId.toString(),
+          dentistName: appointment.dentistName,
+          roomId: appointment.roomId ? appointment.roomId.toString() : null,
+          completedAt: appointment.completedAt,
+          completedBy: userId.toString(),
+          actualDuration: appointment.actualDuration
+        }
+      });
+      console.log(`✅ Published appointment.completed event for ${appointment.appointmentCode}`);
+    } catch (publishError) {
+      console.error('❌ Failed to publish appointment.completed event:', publishError);
+    }
+    
     return appointment;
   }
   
@@ -949,6 +975,85 @@ class AppointmentService {
       };
     } catch (error) {
       console.error('❌ Error getting all appointments:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get appointments by staff (dentist or nurse) for specific date
+   * @param {String} staffId - ID of dentist or nurse
+   * @param {String} date - Date in yyyy-MM-dd format
+   * @returns {Array} - Array of appointments with full details
+   */
+  async getByStaff(staffId, date) {
+    try {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      // Query appointments where staff is dentist OR nurse
+      const query = {
+        appointmentDate: { $gte: startOfDay, $lte: endOfDay },
+        $or: [
+          { dentistId: staffId },
+          { nurseId: staffId }
+        ],
+        status: { $nin: ['cancelled'] }
+      };
+
+      const appointments = await Appointment.find(query)
+        .sort({ startTime: 1 })
+        .lean();
+
+      console.log(`✅ Retrieved ${appointments.length} appointments for staff ${staffId} on ${date}`);
+
+      // Return full appointment details including:
+      // - Patient info (name, phone, birthYear)
+      // - Service info (serviceName, serviceAddOnName, serviceDuration)
+      // - Slot time (startTime, endTime)
+      // - Room info (roomId, roomName)
+      // - Status
+      // - Record ID if exists
+      return appointments.map(apt => ({
+        appointmentId: apt._id,
+        appointmentCode: apt.appointmentCode,
+        patientInfo: {
+          name: apt.patientInfo.name,
+          phone: apt.patientInfo.phone,
+          email: apt.patientInfo.email || null,
+          birthYear: apt.patientInfo.birthYear
+        },
+        service: {
+          serviceName: apt.serviceName,
+          serviceAddOnName: apt.serviceAddOnName || null,
+          serviceDuration: apt.serviceDuration
+        },
+        slotTime: {
+          date: apt.appointmentDate,
+          startTime: apt.startTime,
+          endTime: apt.endTime
+        },
+        room: {
+          roomId: apt.roomId,
+          roomName: apt.roomName || null
+        },
+        dentist: {
+          dentistId: apt.dentistId,
+          dentistName: apt.dentistName
+        },
+        nurse: apt.nurseId ? {
+          nurseId: apt.nurseId,
+          nurseName: apt.nurseName
+        } : null,
+        status: apt.status,
+        recordId: apt.examRecordId || null,
+        checkedInAt: apt.checkedInAt || null,
+        completedAt: apt.completedAt || null,
+        notes: apt.notes || null
+      }));
+    } catch (error) {
+      console.error('❌ Error getting appointments by staff:', error);
       throw error;
     }
   }

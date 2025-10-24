@@ -274,6 +274,36 @@ class PaymentController {
     }
   }
 
+  /**
+   * Get payment by recordId
+   * GET /api/payment/by-record/:recordId
+   */
+  async getPaymentByRecordId(req, res) {
+    try {
+      const { recordId } = req.params;
+      
+      const payments = await paymentService.getPaymentsByRecordId(recordId);
+      
+      if (!payments || payments.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Không tìm thấy thanh toán cho record này'
+        });
+      }
+      
+      res.json({
+        success: true,
+        data: payments[0], // Return first payment (usually only one)
+        total: payments.length
+      });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Lỗi lấy thanh toán theo recordId'
+      });
+    }
+  }
+
   // ============ LIST & SEARCH METHODS ============
   async listPayments(req, res) {
     try {
@@ -814,6 +844,48 @@ class PaymentController {
       res.status(500).json({
         success: false,
         message: 'Lỗi xử lý thanh toán. Vui lòng thử lại sau.'
+      });
+    }
+  }
+
+  /**
+   * Confirm cash payment
+   * POST /api/payments/:id/confirm-cash
+   */
+  async confirmCashPayment(req, res) {
+    try {
+      const { id } = req.params;
+      const { paidAmount, notes } = req.body;
+
+      if (!paidAmount || paidAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Số tiền thanh toán không hợp lệ'
+        });
+      }
+
+      const payment = await paymentService.confirmCashPayment(
+        id,
+        { paidAmount, notes },
+        req.user
+      );
+
+      res.status(200).json({
+        success: true,
+        message: 'Xác nhận thanh toán tiền mặt thành công',
+        data: {
+          paymentCode: payment.paymentCode,
+          paidAmount: payment.paidAmount,
+          finalAmount: payment.finalAmount,
+          changeAmount: payment.changeAmount,
+          completedAt: payment.completedAt
+        }
+      });
+    } catch (error) {
+      console.error('❌ Error confirming cash payment:', error);
+      res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || 'Lỗi xác nhận thanh toán'
       });
     }
   }

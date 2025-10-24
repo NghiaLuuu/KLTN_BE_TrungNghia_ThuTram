@@ -522,3 +522,22 @@ exports.uploadAvatar = async (req, res) => {
   }
 };
 
+// 🆕 Nhiệm vụ 1.2: Create staff without OTP
+exports.createStaff = async (req, res) => {
+  try {
+    const currentUser = req.user; // From auth middleware
+    const result = await userService.createStaff(req.body, currentUser);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Tạo nhân viên thành công',
+      ...result
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+

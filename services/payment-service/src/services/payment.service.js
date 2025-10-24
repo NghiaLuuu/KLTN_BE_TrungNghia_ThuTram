@@ -196,6 +196,11 @@ class PaymentService {
     return payments;
   }
 
+  async getPaymentsByRecordId(recordId) {
+    const payments = await paymentRepository.findByRecord(recordId);
+    return payments;
+  }
+
   // ============ LIST & SEARCH METHODS ============
   async listPayments(filter = {}, options = {}) {
     return await paymentRepository.findAll(filter, options);
@@ -458,7 +463,36 @@ class PaymentService {
         // Delete temp payment from Redis
         await redisClient.del(tempPaymentKey);
         
-        // 🚀 Publish events after successful payment
+        // � CRITICAL: Publish payment.success event for invoice creation
+        // This ensures invoice is created for VNPay payments just like cash payments
+        try {
+          console.log('[Payment] Publishing payment.success event to invoice_queue...');
+          await rabbitmqClient.publishToQueue('invoice_queue', {
+            event: 'payment.success',
+            data: {
+              paymentId: payment._id.toString(),
+              paymentCode: payment.paymentCode,
+              recordId: null, // VNPay deposit doesn't have recordId yet
+              appointmentId: null, // Will be set after appointment created
+              patientId: payment.patientId,
+              patientInfo: patientInfo,
+              method: 'vnpay',
+              originalAmount: paymentAmount,
+              discountAmount: 0,
+              finalAmount: paymentAmount,
+              paidAmount: paymentAmount,
+              changeAmount: 0,
+              completedAt: payment.processedAt,
+              processedBy: payment.processedBy,
+              processedByName: payment.processedByName
+            }
+          });
+          console.log('✅ [Payment] payment.success event published for invoice creation');
+        } catch (publishError) {
+          console.error('❌ [Payment] Failed to publish payment.success event:', publishError);
+        }
+        
+        // �🚀 Publish events after successful payment
         if (appointmentData) {
           console.log('📤 [Payment] Starting to publish events with appointment data:', {
             reservationId,
@@ -1094,6 +1128,75 @@ class PaymentService {
       }
       
       throw new Error(`Lỗi xử lý thanh toán Visa: ${error.message}`);
+    }
+  }
+
+  /**
+   * Confirm cash payment
+   * Used when staff confirms cash payment after treatment completion
+   */
+  async confirmCashPayment(paymentId, confirmData, processedBy) {
+    try {
+      const payment = await paymentRepository.findById(paymentId);
+      if (!payment) {
+        throw new NotFoundError('Không tìm thấy thanh toán');
+      }
+
+      if (payment.status === PaymentStatus.COMPLETED) {
+        throw new BadRequestError('Thanh toán đã được xác nhận');
+      }
+
+      if (payment.method !== PaymentMethod.CASH) {
+        throw new BadRequestError('Chỉ áp dụng cho thanh toán tiền mặt');
+      }
+
+      // Update payment
+      payment.status = PaymentStatus.COMPLETED;
+      payment.paidAmount = confirmData.paidAmount || payment.finalAmount;
+      payment.changeAmount = Math.max(0, payment.paidAmount - payment.finalAmount);
+      payment.processedBy = processedBy._id || processedBy;
+      payment.processedByName = processedBy.fullName || processedBy.name || 'Staff';
+      payment.completedAt = new Date();
+      payment.notes = payment.notes 
+        ? `${payment.notes}\n${confirmData.notes || ''}` 
+        : confirmData.notes || '';
+
+      await payment.save();
+
+      console.log(`✅ Cash payment confirmed: ${payment.paymentCode}`);
+
+      // Publish payment.success event to invoice-service
+      try {
+        await rabbitmqClient.publishToQueue('invoice_queue', {
+          event: 'payment.success',
+          data: {
+            paymentId: payment._id.toString(),
+            paymentCode: payment.paymentCode,
+            recordId: payment.recordId ? payment.recordId.toString() : null,
+            appointmentId: payment.appointmentId ? payment.appointmentId.toString() : null,
+            patientId: payment.patientId ? payment.patientId.toString() : null,
+            patientInfo: payment.patientInfo,
+            method: payment.method,
+            originalAmount: payment.originalAmount,
+            discountAmount: payment.discountAmount,
+            finalAmount: payment.finalAmount,
+            paidAmount: payment.paidAmount,
+            changeAmount: payment.changeAmount,
+            completedAt: payment.completedAt,
+            processedBy: payment.processedBy.toString(),
+            processedByName: payment.processedByName
+          }
+        });
+        console.log(`✅ Published payment.success for ${payment.paymentCode}`);
+      } catch (publishError) {
+        console.error('❌ Failed to publish payment.success:', publishError);
+        // Don't fail - payment is already confirmed
+      }
+
+      return payment;
+    } catch (error) {
+      console.error('Error confirming cash payment:', error);
+      throw error;
     }
   }
 }

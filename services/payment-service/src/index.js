@@ -12,6 +12,7 @@ const paymentRoutes = require('./routes/payment.route');
 const startRpcServer = require('./utils/rpcServer');
 const rabbitmqClient = require('./utils/rabbitmq.client');
 const redisSubscriber = require('./utils/redis.subscriber'); // ✅ NEW
+const { handlePaymentCreate, handleCashPaymentConfirm } = require('./utils/eventHandlers');
 
 connectDB();
 const redis = require('./utils/redis.client');
@@ -248,6 +249,33 @@ redisSubscriber.start().then(() => {
 }).catch(err => {
   console.error('❌ Redis Subscriber failed:', err.message);
 });
+
+// ✅ NEW: Start RabbitMQ Event Listeners
+async function startEventListeners() {
+  try {
+    await rabbitmqClient.connectRabbitMQ(RABBITMQ_URL);
+    
+    // Listen for payment.create events from record-service
+    await rabbitmqClient.consumeQueue('payment_queue', async (message) => {
+      const { event, data } = message;
+      
+      if (event === 'payment.create') {
+        await handlePaymentCreate(message);
+      } else if (event === 'payment.cash_confirm') {
+        await handleCashPaymentConfirm(message);
+      } else {
+        console.warn(`⚠️ Unknown payment event: ${event}`);
+      }
+    });
+    
+    console.log('✅ RabbitMQ event listeners started');
+    console.log('   - Listening on: payment_queue');
+  } catch (error) {
+    console.error('❌ Failed to start event listeners:', error);
+  }
+}
+
+startEventListeners();
 
 // Start HTTP Server
 const PORT = process.env.PORT || 3007;

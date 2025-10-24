@@ -415,3 +415,14 @@ exports.markUserAsUsed = async (userId) => {
   );
 };
 
+// 🆕 Nhiệm vụ 1.2: Get last employee code for auto-increment
+exports.getLastEmployeeCode = async () => {
+  return await User.findOne({ 
+    employeeCode: { $exists: true, $ne: null },
+    deletedAt: null
+  })
+    .sort({ employeeCode: -1 })
+    .select('employeeCode')
+    .lean();
+};
+

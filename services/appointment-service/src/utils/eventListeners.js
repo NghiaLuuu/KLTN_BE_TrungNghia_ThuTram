@@ -1,5 +1,6 @@
 const { consumeQueue } = require('./rabbitmq.client');
 const appointmentService = require('../services/appointment.service');
+const Appointment = require('../models/appointment.model');
 const { 
   handlePaymentCompleted, 
   handlePaymentFailed, 
@@ -22,6 +23,28 @@ async function setupEventListeners() {
     
     await consumeQueue('payment.timeout', async (message) => {
       await handlePaymentTimeout(message.data);
+    });
+    
+    // 🔥 Listen to record events
+    await consumeQueue('appointment_queue', async (message) => {
+      const { event, data } = message;
+      
+      switch (event) {
+        case 'record.in-progress':
+          await handleRecordInProgress(data);
+          break;
+          
+        case 'record.completed':
+          await handleRecordCompleted(data);
+          break;
+          
+        case 'appointment.completed':
+          // Already handled internally
+          break;
+          
+        default:
+          console.warn(`⚠️ Unknown event in appointment_queue: ${event}`);
+      }
     });
     
     // Legacy: Listen to payment_success events for backward compatibility
@@ -96,6 +119,117 @@ async function handlePaymentExpired(data) {
     
   } catch (error) {
     console.error('❌ Error handling payment expired:', error);
+  }
+}
+
+/**
+ * Handle record.in-progress event
+ * Update appointment status to 'in-progress'
+ */
+async function handleRecordInProgress(data) {
+  try {
+    console.log('🔄 Record in progress - Updating appointment:', data.appointmentId);
+    
+    if (!data.appointmentId) {
+      console.warn('⚠️ No appointmentId provided in record.in-progress event');
+      return;
+    }
+    
+    const appointment = await Appointment.findById(data.appointmentId);
+    if (!appointment) {
+      console.warn(`⚠️ Appointment not found: ${data.appointmentId}`);
+      return;
+    }
+    
+    // Update appointment status to in-progress
+    if (appointment.status !== 'in-progress') {
+      appointment.status = 'in-progress';
+      await appointment.save();
+      console.log(`✅ Appointment ${appointment.appointmentCode} status updated to in-progress`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error handling record.in-progress:', error);
+  }
+}
+
+/**
+ * Handle record.completed event
+ * Update appointment status to 'completed' and create payment
+ */
+async function handleRecordCompleted(data) {
+  try {
+    console.log('✅ Record completed - Updating appointment:', data.appointmentId);
+    
+    if (!data.appointmentId) {
+      console.warn('⚠️ No appointmentId provided in record.completed event');
+      return;
+    }
+    
+    const appointment = await Appointment.findById(data.appointmentId);
+    if (!appointment) {
+      console.warn(`⚠️ Appointment not found: ${data.appointmentId}`);
+      return;
+    }
+    
+    // Update appointment status to completed
+    if (appointment.status !== 'completed') {
+      appointment.status = 'completed';
+      appointment.completedAt = data.completedAt || new Date();
+      await appointment.save();
+      console.log(`✅ Appointment ${appointment.appointmentCode} status updated to completed`);
+    }
+    
+    // 🔥 Create payment request
+    try {
+      const { publishToQueue } = require('./rabbitmq.client');
+      
+      // Calculate total amount (service price)
+      let totalAmount = data.totalCost || appointment.servicePrice || 0;
+      
+      // Check if appointment was created by patient (online booking)
+      // If yes, subtract deposit amount
+      let depositToDeduct = 0;
+      if (appointment.bookingChannel === 'online' && appointment.paymentId) {
+        // Patient already paid deposit during online booking
+        // Need to check payment service for deposit amount
+        // For now, assume standard deposit amount
+        const scheduleConfig = await appointmentService.getScheduleConfig ? appointmentService.getScheduleConfig() : null;
+        const depositPerSlot = scheduleConfig?.depositAmount || 100000;
+        const slotCount = appointment.slotIds ? appointment.slotIds.length : 1;
+        depositToDeduct = depositPerSlot * slotCount;
+        console.log(`💰 Deducting deposit: ${depositToDeduct} VND (${slotCount} slots × ${depositPerSlot})`);
+      }
+      
+      const finalAmount = Math.max(0, totalAmount - depositToDeduct);
+      
+      // Publish payment.create event to payment-service
+      await publishToQueue('payment_queue', {
+        event: 'payment.create',
+        data: {
+          recordId: data.recordId,
+          appointmentId: data.appointmentId,
+          patientId: data.patientId,
+          patientInfo: data.patientInfo,
+          dentistId: data.dentistId,
+          serviceId: data.serviceId,
+          serviceName: data.serviceName,
+          originalAmount: totalAmount,
+          depositDeducted: depositToDeduct,
+          finalAmount: finalAmount,
+          createdBy: data.modifiedBy,
+          completedAt: data.completedAt
+        }
+      });
+      console.log(`✅ Published payment.create event for record ${data.recordCode}`);
+      
+    } catch (paymentError) {
+      console.error('❌ Failed to create payment:', paymentError);
+      // Don't throw - appointment completion already successful
+    }
+    
+  } catch (error) {
+    console.error('❌ Error handling record.completed:', error);
   }
 }
 
