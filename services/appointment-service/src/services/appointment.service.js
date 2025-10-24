@@ -395,10 +395,22 @@ class AppointmentService {
         appointmentId: appointment._id
       });
       
-      await rpcClient.call('service-service', 'markServiceAddOnAsUsed', {
-        serviceId: reservation.serviceId,
-        serviceAddOnId: reservation.serviceAddOnId
-      });
+      // Mark service as used via Queue (non-blocking)
+      try {
+        await publishToQueue('service_queue', {
+          event: 'service.mark_as_used',
+          data: {
+            services: [{
+              serviceId: reservation.serviceId,
+              serviceAddOnId: reservation.serviceAddOnId
+            }]
+          }
+        });
+        console.log('✅ Published service mark_as_used event (from reservation)');
+      } catch (queueError) {
+        console.warn('⚠️ Could not publish service event:', queueError.message);
+        // Don't throw - allow appointment creation to continue
+      }
       
       await redisClient.del('temp_reservation:' + reservationId);
       for (const slotId of reservation.slotIds) {
@@ -457,8 +469,21 @@ class AppointmentService {
     const appointment = await Appointment.findById(appointmentId);
     if (!appointment) throw new Error('Appointment not found');
     
+    console.log('🔍 [CheckIn] Appointment status:', {
+      appointmentId,
+      currentStatus: appointment.status,
+      canCheckIn: appointment.canCheckIn(),
+      appointmentCode: appointment.appointmentCode
+    });
+    
+    // If already checked-in, return success (idempotent)
+    if (appointment.status === 'checked-in') {
+      console.log('⚠️ [CheckIn] Already checked-in, skipping...');
+      return appointment;
+    }
+    
     if (!appointment.canCheckIn()) {
-      throw new Error('Cannot check-in this appointment');
+      throw new Error(`Cannot check-in this appointment. Current status: ${appointment.status}`);
     }
     
     appointment.status = 'checked-in';
@@ -621,40 +646,21 @@ class AppointmentService {
         roomName: firstSlot.roomName || '',
         paymentId: null, // Will be created later if needed
         totalAmount: serviceInfo.servicePrice,
-        status: 'checked-in', // ✅ Auto check-in for walk-in appointments
+        status: 'confirmed', // ⭐ Start with confirmed, then check-in
         bookedAt: new Date(),
         bookedBy: currentUser.userId || currentUser._id, // ⭐ Support both userId and _id
         bookedByRole: currentUser.role,
         bookingChannel: 'offline',
-        notes: notes || '',
-        checkedInAt: new Date() // ✅ Set check-in timestamp
+        notes: notes || ''
       });
       
       await appointment.save();
+      console.log('✅ Walk-in appointment created:', appointmentCode);
       
-      // ✅ Publish check-in event to auto-create record
-      await publishToQueue('record_queue', {
-        event: 'appointment_checked_in',
-        data: {
-          appointmentId: appointment._id,
-          appointmentCode: appointment.appointmentCode,
-          patientId: appointment.patientId,
-          patientInfo: appointment.patientInfo,
-          dentistId: appointment.dentistId,
-          dentistName: appointment.dentistName,
-          serviceId: appointment.serviceId,
-          serviceName: appointment.serviceName,
-          serviceType: appointment.serviceType, // ⭐ Added serviceType
-          serviceAddOnId: appointment.serviceAddOnId,
-          serviceAddOnName: appointment.serviceAddOnName,
-          appointmentDate: appointment.appointmentDate,
-          startTime: appointment.startTime,
-          roomId: appointment.roomId, // ⭐ Added roomId
-          roomName: appointment.roomName, // ⭐ Added roomName
-          createdBy: currentUser.userId || currentUser._id, // ⭐ Added createdBy
-          notes: appointment.notes || ''
-        }
-      });
+      // ✅ Auto check-in for walk-in appointments (triggers record creation event)
+      const userId = currentUser.userId || currentUser._id;
+      await this.checkIn(appointment._id, userId);
+      console.log('✅ Walk-in appointment auto checked-in:', appointmentCode);
       
       // Update slots as booked
       await serviceClient.bulkUpdateSlots(slotIds, {
@@ -662,38 +668,58 @@ class AppointmentService {
         appointmentId: appointment._id
       });
       
-      // Mark service as used
-      await rpcClient.call('service-service', 'markServiceAddOnAsUsed', {
-        serviceId,
-        serviceAddOnId
-      });
+      // Mark service as used via Queue (non-blocking)
+      try {
+        await publishToQueue('service_queue', {
+          event: 'service.mark_as_used',
+          data: {
+            services: [{
+              serviceId,
+              serviceAddOnId
+            }]
+          }
+        });
+        console.log('✅ Published service mark_as_used event');
+      } catch (queueError) {
+        console.warn('⚠️ Could not publish service event (RabbitMQ may be down):', queueError.message);
+        // Don't throw - allow appointment creation to continue
+      }
       
-      // Publish event to create invoice
-      await publishToQueue('invoice_queue', {
-        event: 'appointment_created',
-        data: {
-          appointmentId: appointment._id,
-          appointmentCode: appointment.appointmentCode,
-          patientId: appointment.patientId,
-          patientInfo: appointment.patientInfo,
-          serviceId: appointment.serviceId,
-          serviceName: appointment.serviceName,
-          serviceAddOnId: appointment.serviceAddOnId,
-          serviceAddOnName: appointment.serviceAddOnName,
-          servicePrice: appointment.servicePrice,
-          dentistId: appointment.dentistId,
-          dentistName: appointment.dentistName,
-          appointmentDate: appointment.appointmentDate,
-          startTime: appointment.startTime,
-          endTime: appointment.endTime,
-          paymentId: null,
-          totalAmount: appointment.totalAmount,
-          paymentMethod: paymentMethod || 'cash'
-        }
-      });
+      // Publish event to create invoice (non-blocking)
+      try {
+        await publishToQueue('invoice_queue', {
+          event: 'appointment_created',
+          data: {
+            appointmentId: appointment._id,
+            appointmentCode: appointment.appointmentCode,
+            patientId: appointment.patientId,
+            patientInfo: appointment.patientInfo,
+            serviceId: appointment.serviceId,
+            serviceName: appointment.serviceName,
+            serviceAddOnId: appointment.serviceAddOnId,
+            serviceAddOnName: appointment.serviceAddOnName,
+            servicePrice: appointment.servicePrice,
+            dentistId: appointment.dentistId,
+            dentistName: appointment.dentistName,
+            appointmentDate: appointment.appointmentDate,
+            startTime: appointment.startTime,
+            endTime: appointment.endTime,
+            paymentId: null,
+            totalAmount: appointment.totalAmount,
+            paymentMethod: paymentMethod || 'cash'
+          }
+        });
+        console.log('✅ Invoice event published');
+      } catch (queueError) {
+        console.warn('⚠️ Could not publish invoice event (RabbitMQ may be down):', queueError.message);
+        // Don't throw - allow appointment creation to continue
+      }
       
-      console.log('Offline appointment created: ' + appointmentCode);
-      return appointment;
+      console.log('✅ Offline appointment created and checked-in: ' + appointmentCode);
+      
+      // Refetch appointment to get updated status and check-in info
+      const updatedAppointment = await Appointment.findById(appointment._id);
+      return updatedAppointment;
       
     } catch (error) {
       console.error('Error creating offline appointment:', error);
@@ -778,11 +804,22 @@ class AppointmentService {
         console.error('⚠️ CRITICAL: Appointment created but slots not updated to booked!');
       }
       
-      // Mark service as used (keep RPC for now)
-      await rpcClient.call('service-service', 'markServiceAddOnAsUsed', {
-        serviceId: reservation.serviceId,
-        serviceAddOnId: reservation.serviceAddOnId
-      });
+      // Mark service as used via Queue (non-blocking)
+      try {
+        await publishToQueue('service_queue', {
+          event: 'service.mark_as_used',
+          data: {
+            services: [{
+              serviceId: reservation.serviceId,
+              serviceAddOnId: reservation.serviceAddOnId
+            }]
+          }
+        });
+        console.log('✅ Published service mark_as_used event (payment flow)');
+      } catch (queueError) {
+        console.warn('⚠️ Could not publish service event:', queueError.message);
+        // Don't throw - allow appointment creation to continue
+      }
       
       // Cleanup reservation và slot locks from Redis
       await redisClient.del('temp_reservation:' + reservationId);
