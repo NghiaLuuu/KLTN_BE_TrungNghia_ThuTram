@@ -87,4 +87,10 @@ router.post('/override-holiday', authMiddleware, scheduleController.createSchedu
 // 🆕 Nhiệm vụ 2.4: Validate incomplete schedule
 router.get('/validate-incomplete', scheduleController.validateIncompleteSchedule);
 
+// 🆕 Validate holiday từ holidaySnapshot của schedule cụ thể
+router.get('/validate-holiday-from-schedule', scheduleController.validateHolidayFromSchedule);
+
+// 🆕 Bulk disable schedule cho nhiều ngày/ca/buồng
+router.post('/bulk-disable', authMiddleware, scheduleController.bulkDisableSchedule);
+
 module.exports = router;

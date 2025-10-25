@@ -132,7 +132,55 @@ const scheduleSchema = new mongoose.Schema({
       endDate: { type: Date },
       note: { type: String }
     }]
-  }
+  },
+  
+  // 🆕 Tracking những ngày/ca đã bị tắt
+  // Lưu lại lịch sử tắt lịch để hiển thị trên UI
+  disabledDates: [{
+    date: {
+      type: Date,
+      required: true
+    },
+    shifts: [{
+      shiftType: {
+        type: String,
+        enum: ['morning', 'afternoon', 'evening'],
+        required: true
+      },
+      isActive: {
+        type: Boolean,
+        default: false
+      }
+    }]
+  }],
+  
+  // 🆕 Tracking những ngày nghỉ đã được override (tạo lịch làm việc)
+  // Khi admin tạo lịch cho ngày nghỉ, lưu lại để hiển thị trên UI
+  overriddenHolidays: [{
+    date: {
+      type: Date,
+      required: true
+    },
+    shifts: [{
+      shiftType: {
+        type: String,
+        enum: ['morning', 'afternoon', 'evening'],
+        required: true
+      }
+    }],
+    note: {
+      type: String,
+      default: ''
+    },
+    originalHolidayName: {
+      type: String,
+      default: ''
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  }]
 }, {
   timestamps: true
 });

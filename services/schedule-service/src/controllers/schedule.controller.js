@@ -412,7 +412,7 @@ exports.updateSchedule = async (req, res) => {
 
   try {
     const { scheduleId } = req.params;
-    const { isActive, reactivateShifts, deactivateShifts, reactivateSubRooms, toggleSubRoom } = req.body; // 🔧 FIXED: Added toggleSubRoom
+    const { isActive, reactivateShifts, deactivateShifts, reactivateSubRooms, toggleSubRoom, dateRange } = req.body; // 🔧 FIXED: Added toggleSubRoom and dateRange
 
     if (!scheduleId) {
       return res.status(400).json({
@@ -453,6 +453,7 @@ exports.updateSchedule = async (req, res) => {
       deactivateShifts,
       reactivateSubRooms,
       toggleSubRoom, // 🔧 FIXED: Added toggleSubRoom
+      dateRange, // 🆕 FIXED: Added dateRange
       updatedBy: req.user._id
     });
 
@@ -1175,6 +1176,55 @@ exports.validateIncompleteSchedule = async (req, res) => {
   }
 };
 
+/**
+ * 🆕 Validate holiday từ holidaySnapshot của schedule
+ */
+exports.validateHolidayFromSchedule = async (req, res) => {
+  try {
+    const { roomId, subRoomId, month, year, date } = req.query;
+    
+    const result = await scheduleService.validateHolidayFromSchedule({
+      roomId,
+      subRoomId,
+      month: parseInt(month),
+      year: parseInt(year),
+      date
+    });
+    
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('❌ Error validateHolidayFromSchedule:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
+  }
+};
+
+/**
+ * 🆕 Bulk disable schedule cho nhiều ngày/ca/buồng
+ */
+exports.bulkDisableSchedule = async (req, res) => {
+  try {
+    const { roomId, month, year, disableRules } = req.body;
+    
+    const result = await scheduleService.bulkDisableSchedule({
+      roomId,
+      month,
+      year,
+      disableRules
+    });
+    
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('❌ Error bulkDisableSchedule:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
+  }
+};
+
 module.exports = {
   generateQuarterSchedule: exports.generateQuarterSchedule,
   getAvailableQuarters: exports.getAvailableQuarters,
@@ -1206,5 +1256,7 @@ module.exports = {
   getBulkRoomSchedulesInfo: exports.getBulkRoomSchedulesInfo,
   generateBulkRoomSchedules: exports.generateBulkRoomSchedules,
   createScheduleOverrideHoliday: exports.createScheduleOverrideHoliday, // 🆕 Nhiệm vụ 2.3
-  validateIncompleteSchedule: exports.validateIncompleteSchedule        // 🆕 Nhiệm vụ 2.4
+  validateIncompleteSchedule: exports.validateIncompleteSchedule,       // 🆕 Nhiệm vụ 2.4
+  validateHolidayFromSchedule: exports.validateHolidayFromSchedule,     // 🆕 Validate holiday từ holidaySnapshot
+  bulkDisableSchedule: exports.bulkDisableSchedule                      // 🆕 Disable nhiều ngày/ca/buồng
 }

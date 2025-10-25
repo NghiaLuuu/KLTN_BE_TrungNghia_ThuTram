@@ -4,6 +4,7 @@ const redisClient = require('../utils/redis.client');
 const cfgService = require('./scheduleConfig.service');
 const { publishToQueue } = require('../utils/rabbitClient');
 const Schedule = require('../models/schedule.model');
+const mongoose = require('mongoose');
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
@@ -1954,6 +1955,253 @@ module.exports = {
 module.exports.disableSlotsFlexible = exports.disableSlotsFlexible;
 module.exports.enableSlotsFlexible = exports.enableSlotsFlexible;
 module.exports.createScheduleOverrideHoliday = exports.createScheduleOverrideHoliday;
+
+/**
+ * 🆕 API: Validate ngày nghỉ từ holidaySnapshot của schedule cụ thể
+ * GET /api/schedule/validate-holiday-from-schedule?roomId=xxx&subRoomId=xxx&month=12&year=2025&date=2025-12-10
+ * @param {string} roomId
+ * @param {string|null} subRoomId
+ * @param {number} month
+ * @param {number} year
+ * @param {string} date - Format: YYYY-MM-DD
+ * @returns {Object} { isHoliday: true/false, holidayInfo: {...}, validDates: [] }
+ */
+exports.validateHolidayFromSchedule = async ({ roomId, subRoomId, month, year, date }) => {
+  try {
+    // Find schedule
+    const query = {
+      roomId: new mongoose.Types.ObjectId(roomId),
+      month: parseInt(month),
+      year: parseInt(year)
+    };
+    
+    if (subRoomId && subRoomId !== 'null' && subRoomId !== 'undefined') {
+      query.subRoomId = new mongoose.Types.ObjectId(subRoomId);
+    } else {
+      query.subRoomId = null;
+    }
+    
+    const schedule = await Schedule.findOne(query);
+    
+    if (!schedule) {
+      return {
+        success: false,
+        message: 'Không tìm thấy lịch phòng khám cho tháng này',
+        isHoliday: false
+      };
+    }
+    
+    // Parse target date
+    const targetDate = new Date(date);
+    targetDate.setHours(0, 0, 0, 0);
+    const dayOfWeek = targetDate.getDay(); // 0=CN, 1=T2, ..., 6=T7
+    
+    const holidaySnapshot = schedule.holidaySnapshot || {};
+    const recurringHolidays = holidaySnapshot.recurringHolidays || [];
+    const nonRecurringHolidays = holidaySnapshot.nonRecurringHolidays || [];
+    
+    let isHoliday = false;
+    let holidayInfo = null;
+    
+    // Check recurring holidays (dayOfWeek)
+    const matchingRecurring = recurringHolidays.find(h => h.dayOfWeek === dayOfWeek);
+    if (matchingRecurring) {
+      isHoliday = true;
+      holidayInfo = {
+        type: 'recurring',
+        name: matchingRecurring.name,
+        dayOfWeek: matchingRecurring.dayOfWeek,
+        note: matchingRecurring.note || ''
+      };
+    }
+    
+    // Check non-recurring holidays (date range)
+    if (!isHoliday) {
+      for (const holiday of nonRecurringHolidays) {
+        const startDate = new Date(holiday.startDate);
+        const endDate = new Date(holiday.endDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+        
+        if (targetDate >= startDate && targetDate <= endDate) {
+          isHoliday = true;
+          holidayInfo = {
+            type: 'non-recurring',
+            name: holiday.name,
+            startDate: holiday.startDate,
+            endDate: holiday.endDate,
+            note: holiday.note || ''
+          };
+          break;
+        }
+      }
+    }
+    
+    // Get all valid holiday dates in this month
+    const validDates = [];
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay = new Date(year, month, 0);
+    
+    for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
+      const checkDate = new Date(d);
+      const checkDayOfWeek = checkDate.getDay();
+      
+      // Check recurring
+      const isRecurring = recurringHolidays.some(h => h.dayOfWeek === checkDayOfWeek);
+      
+      // Check non-recurring
+      const isNonRecurring = nonRecurringHolidays.some(holiday => {
+        const start = new Date(holiday.startDate);
+        const end = new Date(holiday.endDate);
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        return checkDate >= start && checkDate <= end;
+      });
+      
+      if (isRecurring || isNonRecurring) {
+        validDates.push(checkDate.toISOString().split('T')[0]);
+      }
+    }
+    
+    return {
+      success: true,
+      isHoliday,
+      holidayInfo,
+      validDates, // All holiday dates in this month
+      scheduleId: schedule._id
+    };
+    
+  } catch (error) {
+    console.error('❌ Error validateHolidayFromSchedule:', error);
+    throw error;
+  }
+};
+
+module.exports.validateHolidayFromSchedule = exports.validateHolidayFromSchedule;
+
+/**
+ * 🆕 API: Disable schedule cho nhiều ngày, nhiều ca, nhiều buồng
+ * POST /api/schedule/bulk-disable
+ * Body: {
+ *   roomId: string,
+ *   month: number,
+ *   year: number,
+ *   disableRules: [
+ *     {
+ *       dates: ['2025-12-10', '2025-12-11'], // Array of dates
+ *       shifts: ['morning', 'afternoon'],     // Array of shift keys
+ *       subRoomIds: [null] or ['subId1', 'subId2'] // null for main room
+ *     }
+ *   ]
+ * }
+ */
+exports.bulkDisableSchedule = async ({ roomId, month, year, disableRules }) => {
+  try {
+    if (!roomId || !month || !year || !disableRules || !Array.isArray(disableRules)) {
+      throw new Error('Thiếu thông tin: roomId, month, year, disableRules (array) là bắt buộc');
+    }
+    
+    const results = [];
+    
+    for (const rule of disableRules) {
+      const { dates, shifts, subRoomIds } = rule;
+      
+      if (!dates || !Array.isArray(dates) || dates.length === 0) {
+        results.push({ error: 'dates array is required' });
+        continue;
+      }
+      
+      if (!shifts || !Array.isArray(shifts) || shifts.length === 0) {
+        results.push({ error: 'shifts array is required' });
+        continue;
+      }
+      
+      if (!subRoomIds || !Array.isArray(subRoomIds)) {
+        results.push({ error: 'subRoomIds array is required' });
+        continue;
+      }
+      
+      // Process each subroom
+      for (const subRoomId of subRoomIds) {
+        const query = {
+          roomId: new mongoose.Types.ObjectId(roomId),
+          month: parseInt(month),
+          year: parseInt(year)
+        };
+        
+        if (subRoomId && subRoomId !== 'null') {
+          query.subRoomId = new mongoose.Types.ObjectId(subRoomId);
+        } else {
+          query.subRoomId = null;
+        }
+        
+        const schedule = await Schedule.findOne(query);
+        
+        if (!schedule) {
+          results.push({
+            subRoomId,
+            error: 'Schedule not found'
+          });
+          continue;
+        }
+        
+        // Process each date
+        for (const dateStr of dates) {
+          const targetDate = new Date(dateStr);
+          
+          // Find or create workShift for this date
+          let workShift = schedule.workShifts.find(ws => {
+            const wsDate = new Date(ws.date);
+            return wsDate.toISOString().split('T')[0] === dateStr;
+          });
+          
+          if (!workShift) {
+            // Create new workShift
+            workShift = {
+              date: targetDate,
+              shifts: {}
+            };
+            schedule.workShifts.push(workShift);
+          }
+          
+          // Disable specified shifts
+          for (const shiftKey of shifts) {
+            if (!workShift.shifts) {
+              workShift.shifts = {};
+            }
+            
+            workShift.shifts[shiftKey] = {
+              isActive: false,
+              disabledAt: new Date(),
+              note: 'Bulk disabled by admin'
+            };
+          }
+        }
+        
+        await schedule.save();
+        
+        results.push({
+          subRoomId: subRoomId || 'main',
+          scheduleId: schedule._id,
+          success: true,
+          disabledDates: dates,
+          disabledShifts: shifts
+        });
+      }
+    }
+    
+    return {
+      success: true,
+      results
+    };
+    
+  } catch (error) {
+    console.error('❌ Error bulkDisableSchedule:', error);
+    throw error;
+  }
+};
+
+module.exports.bulkDisableSchedule = exports.bulkDisableSchedule;
 module.exports.validateIncompleteSchedule = exports.validateIncompleteSchedule;
 
 // 🔧 Check conflict chung
@@ -4209,6 +4457,8 @@ exports.getRoomSchedulesWithShifts = async (roomId, subRoomId = null, month = nu
         endDate: effectiveEndDate,
         shiftConfig: shiftConfigSnapshot,
         holidaySnapshot: schedule.holidaySnapshot || { recurringHolidays: [], nonRecurringHolidays: [] },
+        disabledDates: schedule.disabledDates || [], // 🆕 Danh sách ngày/ca đã tắt
+        overriddenHolidays: schedule.overriddenHolidays || [], // 🆕 Danh sách ngày nghỉ đã override
         subRoom, // ✅ Thông tin subroom nếu có
         isActiveSubRoom: schedule.isActiveSubRoom !== undefined ? schedule.isActiveSubRoom : true, // 🆕 Trạng thái buồng trong lịch
         generatedShifts,
@@ -4378,7 +4628,7 @@ exports.getRoomSchedulesWithShifts = async (roomId, subRoomId = null, month = nu
 module.exports.getRoomSchedulesWithShifts = exports.getRoomSchedulesWithShifts;
 
 // 🆕 Update schedule (reactive scheduling)
-exports.updateSchedule = async ({ scheduleId, isActive, reactivateShifts, deactivateShifts, reactivateSubRooms, toggleSubRoom, updatedBy }) => {
+exports.updateSchedule = async ({ scheduleId, isActive, reactivateShifts, deactivateShifts, reactivateSubRooms, toggleSubRoom, dateRange, updatedBy }) => {
   try {
     const schedule = await scheduleRepo.findById(scheduleId);
     
@@ -4442,6 +4692,11 @@ exports.updateSchedule = async ({ scheduleId, isActive, reactivateShifts, deacti
     if (deactivateShifts && Array.isArray(deactivateShifts) && deactivateShifts.length > 0) {
       const Slot = require('../models/slot.model');
       
+      // 🆕 BẮT BUỘC phải có dateRange khi toggle shifts
+      if (!dateRange || !dateRange.startDate || !dateRange.endDate) {
+        throw new Error('Bắt buộc phải chọn khoảng ngày khi tắt/bật ca làm việc');
+      }
+      
       for (const shiftData of deactivateShifts) {
         const { shiftKey, isActive: newIsActive } = shiftData;
         
@@ -4459,27 +4714,79 @@ exports.updateSchedule = async ({ scheduleId, isActive, reactivateShifts, deacti
           continue;
         }
         
-        // 🔥 Cập nhật shiftConfig.isActive
-        schedule.shiftConfig[shiftKey].isActive = newIsActive;
-        updated = true;
-        changes.push(`${newIsActive ? 'Bật' : 'Tắt'} ca: ${shift.name}`);
+        // 🆕 Chỉ update slots trong khoảng ngày đã chọn
+        let slotQuery = { 
+          scheduleId: schedule._id,
+          shiftName: shiftName // Match by shift name
+        };
         
-        console.log(`🔄 Updated shift ${shiftKey} isActive: ${currentActive} → ${newIsActive}`);
+        const startDate = new Date(dateRange.startDate);
+        const endDate = new Date(dateRange.endDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+        
+        slotQuery.slotDate = {
+          $gte: startDate,
+          $lte: endDate
+        };
+        
+        console.log(`📅 Applying date filter for shift ${shiftKey}:`, {
+          start: dateRange.startDate,
+          end: dateRange.endDate
+        });
+        
+        updated = true;
         
         // 🔥 CẬP NHẬT SLOTS thuộc ca này (chỉ nếu đã generate)
         if (shift.isGenerated === true) {
           const slotUpdateResult = await Slot.updateMany(
-            { 
-              scheduleId: schedule._id,
-              shiftName: shiftName // Match by shift name
-            },
+            slotQuery,
             { $set: { isActive: newIsActive } }
           );
           
-          console.log(`🔄 ${newIsActive ? 'Bật' : 'Tắt'} ${slotUpdateResult.modifiedCount} slots của ca ${shiftName}`);
-          changes.push(`Cập nhật ${slotUpdateResult.modifiedCount} slots của ca ${shiftName}`);
+          const dateRangeText = `từ ${dateRange.startDate} đến ${dateRange.endDate}`;
+          
+          console.log(`🔄 ${newIsActive ? 'Bật' : 'Tắt'} ${slotUpdateResult.modifiedCount} slots của ca ${shiftName} (${dateRangeText})`);
+          changes.push(`${newIsActive ? 'Bật' : 'Tắt'} ca ${shift.name} (${dateRangeText}): ${slotUpdateResult.modifiedCount} slots`);
         } else {
-          console.log(`ℹ️ Ca ${shiftKey} chưa tạo slots, chỉ cập nhật shiftConfig.isActive`);
+          console.log(`ℹ️ Ca ${shiftKey} chưa tạo slots`);
+          changes.push(`${newIsActive ? 'Bật' : 'Tắt'} ca: ${shift.name} (chưa có slots)`);
+        }
+        
+        // 🆕 CẬP NHẬT disabledDates trong schedule
+        const currentDate = new Date(startDate);
+        while (currentDate <= endDate) {
+          const dateStr = currentDate.toISOString().split('T')[0]; // "YYYY-MM-DD"
+          
+          // Tìm hoặc tạo entry cho ngày này
+          let dateEntry = schedule.disabledDates.find(d => {
+            const dStr = new Date(d.date).toISOString().split('T')[0];
+            return dStr === dateStr;
+          });
+          
+          if (!dateEntry) {
+            dateEntry = {
+              date: new Date(currentDate),
+              shifts: []
+            };
+            schedule.disabledDates.push(dateEntry);
+          }
+          
+          // Tìm hoặc tạo entry cho ca này
+          let shiftEntry = dateEntry.shifts.find(s => s.shiftType === shiftKey);
+          
+          if (!shiftEntry) {
+            shiftEntry = {
+              shiftType: shiftKey,
+              isActive: newIsActive
+            };
+            dateEntry.shifts.push(shiftEntry);
+          } else {
+            shiftEntry.isActive = newIsActive;
+          }
+          
+          // Move to next day
+          currentDate.setDate(currentDate.getDate() + 1);
         }
       }
     }
@@ -4526,6 +4833,11 @@ exports.updateSchedule = async ({ scheduleId, isActive, reactivateShifts, deacti
     if (toggleSubRoom && toggleSubRoom.subRoomId) {
       const { subRoomId, isActive: newIsActive } = toggleSubRoom;
       
+      // 🆕 BẮT BUỘC phải có dateRange khi toggle subrooms
+      if (!dateRange || !dateRange.startDate || !dateRange.endDate) {
+        throw new Error('Bắt buộc phải chọn khoảng ngày khi tắt/bật buồng');
+      }
+      
       console.log(`🔄 Toggle subRoom ${subRoomId} to isActive=${newIsActive}`);
       
       // 🔥 Kiểm tra xem schedule hiện tại có phải là schedule của subroom này không
@@ -4544,18 +4856,37 @@ exports.updateSchedule = async ({ scheduleId, isActive, reactivateShifts, deacti
           
           console.log(`🔄 Toggled schedule.isActiveSubRoom: ${previousActive} → ${newIsActive}`);
           
-          // 🔥 CẬP NHẬT TẤT CẢ SLOTS thuộc schedule này VÀ subRoomId này
+          // 🔥 CẬP NHẬT SLOTS thuộc schedule này VÀ subRoomId này TRONG KHOẢNG NGÀY
           const Slot = require('../models/slot.model');
+          
+          const startDate = new Date(dateRange.startDate);
+          const endDate = new Date(dateRange.endDate);
+          startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(23, 59, 59, 999);
+          
+          let slotQuery = { 
+            scheduleId: schedule._id,
+            subRoomId: subRoomId, // 🔥 Quan trọng: Chỉ update slots của subroom này
+            slotDate: {
+              $gte: startDate,
+              $lte: endDate
+            }
+          };
+          
+          console.log(`📅 Applying date filter for subroom ${subRoomId}:`, {
+            start: dateRange.startDate,
+            end: dateRange.endDate
+          });
+          
           const slotUpdateResult = await Slot.updateMany(
-            { 
-              scheduleId: schedule._id,
-              subRoomId: subRoomId // 🔥 Quan trọng: Chỉ update slots của subroom này
-            },
+            slotQuery,
             { $set: { isActive: newIsActive } }
           );
           
-          console.log(`🔄 Updated ${slotUpdateResult.modifiedCount} slots (subRoom ${subRoomId}) to isActive=${newIsActive}`);
-          changes.push(`Cập nhật ${slotUpdateResult.modifiedCount} slots của buồng`);
+          const dateRangeText = `từ ${dateRange.startDate} đến ${dateRange.endDate}`;
+          
+          console.log(`🔄 Updated ${slotUpdateResult.modifiedCount} slots (subRoom ${subRoomId}) (${dateRangeText}) to isActive=${newIsActive}`);
+          changes.push(`${newIsActive ? 'Bật' : 'Tắt'} buồng (${dateRangeText}): ${slotUpdateResult.modifiedCount} slots`);
         }
       }
     }
@@ -6291,74 +6622,86 @@ exports.createScheduleOverrideHoliday = async (data) => {
   const {
     roomId,
     subRoomId,
+    month,          // Tháng của schedule
+    year,           // Năm của schedule
     date,           // Ngày cần tạo lịch (YYYY-MM-DD)
-    shifts,         // Mảng ca cần tạo: ['Ca Sáng', 'Ca Chiều', 'Ca Tối']
+    shifts,         // Mảng shift keys: ['morning', 'afternoon', 'evening']
     note            // Ghi chú lý do override
   } = data;
 
   try {
     // Validate input
-    if (!roomId || !date || !shifts || !Array.isArray(shifts) || shifts.length === 0) {
-      throw new Error('Thiếu thông tin: roomId, date, và shifts (array) là bắt buộc');
+    if (!roomId || !month || !year || !date || !shifts || !Array.isArray(shifts) || shifts.length === 0) {
+      throw new Error('Thiếu thông tin: roomId, month, year, date, và shifts (array) là bắt buộc');
     }
 
-    // Kiểm tra date có phải ngày nghỉ không
+    // Tìm schedule hiện tại
+    const query = {
+      roomId: new mongoose.Types.ObjectId(roomId),
+      month: parseInt(month),
+      year: parseInt(year)
+    };
+    
+    if (subRoomId && subRoomId !== 'null' && subRoomId !== 'undefined') {
+      query.subRoomId = new mongoose.Types.ObjectId(subRoomId);
+    } else {
+      query.subRoomId = null;
+    }
+    
+    const schedule = await Schedule.findOne(query);
+    
+    if (!schedule) {
+      throw new Error('Không tìm thấy lịch phòng khám cho tháng này');
+    }
+
+    // Parse target date
     const targetDate = new Date(date);
     targetDate.setHours(0, 0, 0, 0);
     
-    const isHolidayDay = await isHoliday(targetDate);
-    if (!isHolidayDay) {
-      throw new Error('Ngày này không phải ngày nghỉ. Override chỉ áp dụng cho ngày nghỉ.');
-    }
-
-    // Kiểm tra room tồn tại
-    const axios = require('axios');
-    const ROOM_SERVICE_URL = process.env.ROOM_SERVICE_URL || 'http://localhost:3004';
+    // Kiểm tra ngày có phải holiday không (từ holidaySnapshot)
+    const dayOfWeek = targetDate.getDay() === 0 ? 7 : targetDate.getDay(); // Chuyển 0 (CN) thành 7
+    const holidaySnapshot = schedule.holidaySnapshot || {};
+    const recurringHolidays = holidaySnapshot.recurringHolidays || [];
+    const nonRecurringHolidays = holidaySnapshot.nonRecurringHolidays || [];
     
-    let roomResponse;
-    try {
-      roomResponse = await axios.get(`${ROOM_SERVICE_URL}/api/room/${roomId}`);
-    } catch (error) {
-      throw new Error(`Không tìm thấy phòng với ID: ${roomId}`);
+    let isHoliday = false;
+    let originalHolidayName = '';
+    
+    // Check recurring holidays
+    const matchingRecurring = recurringHolidays.find(h => h.dayOfWeek === dayOfWeek);
+    if (matchingRecurring) {
+      isHoliday = true;
+      originalHolidayName = matchingRecurring.name;
     }
     
-    const room = roomResponse.data.room;
-    if (!room.isActive) {
-      throw new Error(`Phòng ${room.name} không hoạt động`);
-    }
-
-    // Kiểm tra subroom (nếu có)
-    if (subRoomId) {
-      const subRoom = room.subRooms?.find(sr => sr._id.toString() === subRoomId);
-      if (!subRoom) {
-        throw new Error(`Không tìm thấy buồng con với ID: ${subRoomId}`);
+    // Check non-recurring holidays
+    if (!isHoliday) {
+      for (const holiday of nonRecurringHolidays) {
+        const startDate = new Date(holiday.startDate);
+        const endDate = new Date(holiday.endDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+        
+        if (targetDate >= startDate && targetDate <= endDate) {
+          isHoliday = true;
+          originalHolidayName = holiday.name;
+          break;
+        }
       }
-      if (!subRoom.isActive) {
-        throw new Error(`Buồng con ${subRoom.name} không hoạt động`);
-      }
     }
-
-    // Lấy config
-    const config = await cfgService.getConfig();
-    if (!config) {
-      throw new Error('Schedule config chưa được khởi tạo');
-    }
-
-    // Kiểm tra shifts hợp lệ
-    const validShifts = ['Ca Sáng', 'Ca Chiều', 'Ca Tối'];
-    const invalidShifts = shifts.filter(s => !validShifts.includes(s));
-    if (invalidShifts.length > 0) {
-      throw new Error(`Ca không hợp lệ: ${invalidShifts.join(', ')}`);
+    
+    if (!isHoliday) {
+      throw new Error('Ngày này không phải ngày nghỉ trong holidaySnapshot của lịch');
     }
 
     // Kiểm tra xem đã có slots trong ngày này chưa
+    const Slot = require('../models/slot.model');
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(23, 59, 59, 999);
     
     const existingSlots = await Slot.find({
-      roomId,
-      subRoomId: subRoomId || null,
-      startTime: { $gte: targetDate, $lte: endOfDay }
+      scheduleId: schedule._id,
+      slotDate: targetDate
     });
 
     if (existingSlots.length > 0) {
@@ -6368,91 +6711,104 @@ exports.createScheduleOverrideHoliday = async (data) => {
       );
     }
 
-    // Tạo schedule document (cần có để generate slots)
-    const schedule = await scheduleRepo.createSchedule({
-      roomId,
-      subRoomId: subRoomId || null,
-      month: targetDate.getMonth() + 1,
-      year: targetDate.getFullYear(),
-      startDate: targetDate,
-      endDate: targetDate,
-      shiftConfig: {
-        morning: {
-          name: 'Ca Sáng',
-          startTime: config.morningShift.startTime,
-          endTime: config.morningShift.endTime,
-          slotDuration: config.unitDuration,
-          isActive: config.morningShift.isActive,
-          isGenerated: shifts.includes('Ca Sáng')
-        },
-        afternoon: {
-          name: 'Ca Chiều',
-          startTime: config.afternoonShift.startTime,
-          endTime: config.afternoonShift.endTime,
-          slotDuration: config.unitDuration,
-          isActive: config.afternoonShift.isActive,
-          isGenerated: shifts.includes('Ca Chiều')
-        },
-        evening: {
-          name: 'Ca Tối',
-          startTime: config.eveningShift.startTime,
-          endTime: config.eveningShift.endTime,
-          slotDuration: config.unitDuration,
-          isActive: config.eveningShift.isActive,
-          isGenerated: shifts.includes('Ca Tối')
-        }
-      },
-      isActive: true,
-      generationType: 'manual',
-      createdBy: data.createdBy || null
-    });
+    // Lấy config để biết slot duration
+    const config = await cfgService.getConfig();
+    if (!config) {
+      throw new Error('Schedule config chưa được khởi tạo');
+    }
 
-    // Generate slots cho các ca được chọn với flag isHolidayOverride = true
+    // Generate slots cho các ca được chọn
     const createdSlots = [];
+    const shiftMapping = {
+      morning: { key: 'morning', name: 'Ca Sáng', config: schedule.shiftConfig.morning },
+      afternoon: { key: 'afternoon', name: 'Ca Chiều', config: schedule.shiftConfig.afternoon },
+      evening: { key: 'evening', name: 'Ca Tối', config: schedule.shiftConfig.evening }
+    };
     
-    for (const shiftName of shifts) {
-      let shiftConfig;
-      if (shiftName === 'Ca Sáng') shiftConfig = config.morningShift;
-      else if (shiftName === 'Ca Chiều') shiftConfig = config.afternoonShift;
-      else if (shiftName === 'Ca Tối') shiftConfig = config.eveningShift;
+    for (const shiftKey of shifts) {
+      const shiftInfo = shiftMapping[shiftKey];
+      if (!shiftInfo || !shiftInfo.config) {
+        console.log(`⚠️ Bỏ qua shift ${shiftKey} - không có config`);
+        continue;
+      }
+      
+      const shiftConfig = shiftInfo.config;
       
       if (!shiftConfig.isActive) {
-        console.log(`⚠️ Bỏ qua ${shiftName} vì không active trong config`);
+        console.log(`⚠️ Bỏ qua ${shiftInfo.name} vì không active trong schedule`);
         continue;
       }
 
-      // Generate slots for this shift
-      const shiftSlots = await generateSlotsForShiftAllDays({
-        scheduleId: schedule._id,
-        roomId,
-        subRoomId: subRoomId || null,
-        shiftName,
-        shiftStart: shiftConfig.startTime,
-        shiftEnd: shiftConfig.endTime,
-        slotDuration: config.unitDuration,
-        scheduleStartDate: targetDate,
-        scheduleEndDate: targetDate
-      });
-
-      // 🆕 Đánh dấu tất cả slots là holiday override
-      await Slot.updateMany(
-        { _id: { $in: shiftSlots.map(s => s._id) } },
-        { $set: { isHolidayOverride: true } }
-      );
-
-      createdSlots.push(...shiftSlots);
-      console.log(`✅ Tạo ${shiftSlots.length} slots override cho ${shiftName}`);
+      // Generate slots for this shift (1 ngày duy nhất)
+      const shiftSlots = [];
+      const year = targetDate.getFullYear();
+      const month = targetDate.getMonth() + 1;
+      const day = targetDate.getDate();
+      
+      // Parse shift times (format: "HH:mm")
+      const [startHour, startMin] = shiftConfig.startTime.split(':').map(Number);
+      const [endHour, endMin] = shiftConfig.endTime.split(':').map(Number);
+      
+      // Create UTC times (VN is UTC+7)
+      let slotStartTime = new Date(Date.UTC(year, month - 1, day, startHour - 7, startMin, 0, 0));
+      const shiftEndTime = new Date(Date.UTC(year, month - 1, day, endHour - 7, endMin, 0, 0));
+      
+      // Generate slots within the shift
+      while (slotStartTime < shiftEndTime) {
+        const slotEndTime = new Date(slotStartTime.getTime() + shiftConfig.slotDuration * 60 * 1000);
+        
+        if (slotEndTime > shiftEndTime) break; // Don't exceed shift end time
+        
+        shiftSlots.push({
+          scheduleId: schedule._id,
+          roomId: schedule.roomId,
+          subRoomId: schedule.subRoomId || null,
+          shiftName: shiftInfo.name,
+          startTime: new Date(slotStartTime),
+          endTime: new Date(slotEndTime),
+          slotDate: new Date(targetDate),
+          duration: shiftConfig.slotDuration,
+          status: 'available',
+          isActive: true,
+          isHolidayOverride: true // 🔥 Đánh dấu là override holiday
+        });
+        
+        slotStartTime = slotEndTime;
+      }
+      
+      // Bulk insert slots
+      if (shiftSlots.length > 0) {
+        await Slot.insertMany(shiftSlots);
+        createdSlots.push(...shiftSlots);
+        console.log(`✅ Tạo ${shiftSlots.length} slots override cho ${shiftInfo.name} ngày ${date}`);
+      }
     }
+    
+    // 🆕 Cập nhật overriddenHolidays trong schedule
+    if (!schedule.overriddenHolidays) {
+      schedule.overriddenHolidays = [];
+    }
+    
+    schedule.overriddenHolidays.push({
+      date: targetDate,
+      shifts: shifts.map(shiftKey => ({ shiftType: shiftKey })),
+      note: note || '',
+      originalHolidayName,
+      createdAt: new Date()
+    });
+    
+    await schedule.save();
 
     console.log(`✅ Tạo lịch override holiday thành công: ${createdSlots.length} slots cho ngày ${date}`);
 
     return {
       success: true,
       message: `Đã tạo ${createdSlots.length} slots override trong ngày nghỉ ${date}`,
-      schedule,
+      scheduleId: schedule._id,
       slotsCreated: createdSlots.length,
       shifts,
       isHolidayOverride: true,
+      originalHolidayName,
       note
     };
 
