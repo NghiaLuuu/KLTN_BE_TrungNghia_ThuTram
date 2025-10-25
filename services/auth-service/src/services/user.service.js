@@ -951,28 +951,48 @@ exports.refreshUserCache = refreshUserCache;
 
 // 🆕 Nhiệm vụ 1.2: Create staff without OTP
 exports.createStaff = async (data, createdBy) => {
-  const { email, phone, role, fullName, specialties, ...rest } = data;
+  const { email, phone, roles, fullName, ...rest } = data;
 
   // Validation
-  if (!email) throw new Error('Thiếu email');
   if (!phone) throw new Error('Thiếu số điện thoại');
-  if (!role) throw new Error('Thiếu vai trò');
+  if (!roles || !Array.isArray(roles) || roles.length === 0) {
+    throw new Error('Phải chọn ít nhất 1 vai trò');
+  }
   if (!fullName) throw new Error('Thiếu họ tên');
   
-  // Role must be staff
-  const staffRoles = ['admin', 'manager', 'dentist', 'nurse', 'receptionist'];
-  if (!staffRoles.includes(role)) {
-    throw new Error('Vai trò không hợp lệ. Chỉ được tạo nhân viên (admin, manager, dentist, nurse, receptionist)');
+  // ✅ Validate all roles are valid
+  const validRoles = ['admin', 'manager', 'dentist', 'nurse', 'receptionist'];
+  const invalidRoles = roles.filter(r => !validRoles.includes(r));
+  if (invalidRoles.length > 0) {
+    throw new Error(`Vai trò không hợp lệ: ${invalidRoles.join(', ')}`);
   }
 
-  // Check existing email/phone
-  const [existingEmail, existingPhone] = await Promise.all([
-    userRepo.findByEmail(email),
-    userRepo.findByPhone(phone),
-  ]);
+  // ✅ Check role creation permissions based on createdBy role
+  const creatorRole = createdBy?.role;
+  
+  if (creatorRole === 'admin') {
+    // Admin KHÔNG được tạo admin
+    if (roles.includes('admin')) {
+      throw new Error('Admin không thể tạo tài khoản Admin khác');
+    }
+  } else if (creatorRole === 'manager') {
+    // Manager KHÔNG được tạo admin và manager
+    if (roles.includes('admin') || roles.includes('manager')) {
+      throw new Error('Manager không thể tạo tài khoản Admin hoặc Manager');
+    }
+  } else {
+    // Other roles cannot create staff
+    throw new Error('Bạn không có quyền tạo nhân viên');
+  }
 
-  if (existingEmail) throw new Error('Email đã được sử dụng');
+  // Check existing phone
+  const existingPhone = await userRepo.findByPhone(phone);
   if (existingPhone) throw new Error('Số điện thoại đã được sử dụng');
+  
+  if (email) {
+    const existingEmail = await userRepo.findByEmail(email);
+    if (existingEmail) throw new Error('Email đã được sử dụng');
+  }
 
   // Generate employeeCode (NV + 8 digits)
   const lastEmployee = await userRepo.getLastEmployeeCode();
@@ -984,18 +1004,23 @@ exports.createStaff = async (data, createdBy) => {
 
   // Create staff
   const User = require('../models/user.model');
-  const staff = new User({
-    email,
+  const staffData = {
     phone,
     employeeCode,
     password: hashedPassword,
-    role,
+    roles: roles, // ✅ Multiple roles
+    role: roles[0], // ✅ Primary role
     fullName,
-    specialties: specialties || [], // Support multi-specialty
     isFirstLogin: true, // Force password change on first login
     ...rest,
-  });
+  };
 
+  // ✅ Email is optional
+  if (email) {
+    staffData.email = email;
+  }
+
+  const staff = new User(staffData);
   const savedStaff = await staff.save();
   await refreshUserCache();
 
@@ -1003,6 +1028,67 @@ exports.createStaff = async (data, createdBy) => {
     user: savedStaff,
     employeeCode, // Return employeeCode to display in UI
     defaultPassword: employeeCode // For admin reference
+  };
+};
+
+// 🆕 Reset password về mặc định (admin/manager only)
+exports.resetUserPasswordToDefault = async (userId, resetBy) => {
+  const user = await userRepo.findById(userId);
+  if (!user) throw new Error('Không tìm thấy người dùng');
+
+  // Get the person who is resetting the password
+  const resetByUser = await userRepo.findById(resetBy);
+  if (!resetByUser) throw new Error('Không tìm thấy người thực hiện reset');
+
+  // Check permissions: Admin can reset all (except admin), Manager can reset all (except admin/manager)
+  const isResetByAdmin = resetByUser.role === 'admin' || (resetByUser.roles && resetByUser.roles.includes('admin'));
+  const isResetByManager = resetByUser.role === 'manager' || (resetByUser.roles && resetByUser.roles.includes('manager'));
+
+  // Check if target user has admin role
+  const targetIsAdmin = user.role === 'admin' || (user.roles && user.roles.includes('admin'));
+  const targetIsManager = user.role === 'manager' || (user.roles && user.roles.includes('manager'));
+
+  // Permission validation
+  if (targetIsAdmin) {
+    throw new Error('Không thể reset mật khẩu của admin');
+  }
+
+  if (targetIsManager && !isResetByAdmin) {
+    throw new Error('Chỉ admin mới có thể reset mật khẩu của manager');
+  }
+
+  if (!isResetByAdmin && !isResetByManager) {
+    throw new Error('Chỉ admin hoặc manager mới có thể reset mật khẩu');
+  }
+
+  let defaultPassword;
+  
+  // Xác định mật khẩu mặc định dựa trên role
+  const isPatient = user.role === 'patient' || (user.roles && user.roles.length === 1 && user.roles[0] === 'patient');
+  
+  if (isPatient) {
+    // Patient: mật khẩu mặc định là "12345678"
+    defaultPassword = '12345678';
+  } else {
+    // Staff: mật khẩu mặc định là employeeCode
+    if (!user.employeeCode) {
+      throw new Error('Nhân viên này không có mã nhân viên');
+    }
+    defaultPassword = user.employeeCode;
+  }
+
+  // Hash password
+  const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+  user.password = hashedPassword;
+  user.isFirstLogin = true; // Bắt buộc đổi mật khẩu khi đăng nhập lần tiếp theo
+  
+  await userRepo.saveUser(user);
+  await refreshUserCache();
+
+  return {
+    message: 'Đã reset mật khẩu về mặc định',
+    defaultPassword: defaultPassword, // Trả về để admin có thể thông báo cho user
+    isFirstLogin: true
   };
 };
 

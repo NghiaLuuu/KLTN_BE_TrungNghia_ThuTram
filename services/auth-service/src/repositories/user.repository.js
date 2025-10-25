@@ -4,34 +4,22 @@ const User = require('../models/user.model');
 // 🔹 BASIC QUERIES
 exports.findByEmail = (email) => User.findOne({ email, deletedAt: null });
 
-// 🆕 Sửa logic đăng nhập theo role
+// 🆕 Sửa logic đăng nhập - tìm user theo email HOẶC employeeCode (không phân biệt role)
 exports.findByLogin = async (login, role = null) => {
-  // Nếu không truyền role, giữ logic cũ (hỗ trợ backward compatibility)
-  if (!role) {
-    return User.findOne({
-      $and: [
-        { deletedAt: null },
-        {
-          $or: [
-            { email: login },
-            { employeeCode: login }
-          ]
-        }
-      ]
-    });
-  }
-  
-  // 🆕 Logic mới: patient dùng email, staff dùng employeeCode
-  if (role === 'patient') {
-    return User.findOne({ email: login, role: 'patient', deletedAt: null });
-  } else {
-    // Staff roles: admin, manager, dentist, nurse, receptionist
-    return User.findOne({ 
-      employeeCode: login, 
-      role: { $ne: 'patient' }, 
-      deletedAt: null 
-    });
-  }
+  // ✅ LOGIC MỚI: Tìm theo email hoặc employeeCode, không quan tâm role
+  // Backend sẽ verify password và check user.isActive sau đó
+  return User.findOne({
+    $and: [
+      { deletedAt: null },
+      {
+        $or: [
+          { email: login },
+          { employeeCode: login },
+          { phone: login } // Có thể login bằng số điện thoại
+        ]
+      }
+    ]
+  });
 };
 
 exports.findByPhone = (phone) => User.findOne({ phone, deletedAt: null });
@@ -417,12 +405,23 @@ exports.markUserAsUsed = async (userId) => {
 
 // 🆕 Nhiệm vụ 1.2: Get last employee code for auto-increment
 exports.getLastEmployeeCode = async () => {
-  return await User.findOne({ 
-    employeeCode: { $exists: true, $ne: null },
+  // ✅ Chỉ lấy employeeCode có format NVxxxxxxxx
+  const allEmployees = await User.find({ 
+    employeeCode: { $exists: true, $ne: null, $regex: /^NV\d{8}$/ },
     deletedAt: null
   })
-    .sort({ employeeCode: -1 })
     .select('employeeCode')
     .lean();
+  
+  if (!allEmployees || allEmployees.length === 0) {
+    return null;
+  }
+  
+  // ✅ Parse number và tìm max
+  const maxNumber = Math.max(
+    ...allEmployees.map(emp => parseInt(emp.employeeCode.replace('NV', ''), 10))
+  );
+  
+  return { employeeCode: `NV${String(maxNumber).padStart(8, '0')}` };
 };
 

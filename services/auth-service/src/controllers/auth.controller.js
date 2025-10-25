@@ -110,3 +110,39 @@ exports.resetPassword = async (req, res) => {
     res.status(400).json({ message: err.message || 'Đặt lại mật khẩu thất bại' });
   }
 };
+
+// 🆕 Select role (for users with multiple roles)
+exports.selectRole = async (req, res) => {
+  try {
+    const { tempToken, selectedRole } = req.body;
+
+    if (!tempToken || !selectedRole) {
+      return res.status(400).json({ message: 'Thiếu thông tin tempToken hoặc selectedRole' });
+    }
+
+    const result = await authService.selectRole(tempToken, selectedRole);
+    res.status(200).json({ message: 'Chọn vai trò thành công', ...result });
+  } catch (err) {
+    res.status(400).json({ message: err.message || 'Chọn vai trò thất bại' });
+  }
+};
+
+// 🆕 Complete forced password change (first login or default password)
+exports.completePasswordChange = async (req, res) => {
+  try {
+    const { tempToken, newPassword, confirmPassword } = req.body;
+
+    if (!tempToken || !newPassword || !confirmPassword) {
+      return res.status(400).json({ message: 'Thiếu thông tin tempToken, newPassword hoặc confirmPassword' });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ message: 'Mật khẩu mới và xác nhận mật khẩu không khớp' });
+    }
+
+    const result = await authService.completePasswordChange(tempToken, newPassword);
+    res.status(200).json({ message: 'Đổi mật khẩu thành công', ...result });
+  } catch (err) {
+    res.status(400).json({ message: err.message || 'Đổi mật khẩu thất bại' });
+  }
+};

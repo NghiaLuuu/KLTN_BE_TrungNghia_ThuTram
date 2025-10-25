@@ -25,6 +25,9 @@ router.post('/create-staff', authMiddleware, userController.createStaff); // �
 router.get('/all-staff', userController.getAllStaff); // Supports search via query params
 router.get('/all-patient', authMiddleware, canViewPatients, userController.getAllPatients); // Supports search via query params
 
+// 🆕 Reset password về mặc định
+router.post('/:id/reset-password', authMiddleware, userController.resetUserPasswordToDefault);
+
 
 // Profile & User detail routes (dynamic routes MUST come after specific routes)
 router.get('/:id', userController.getUserById); // Handles both profile & user by ID

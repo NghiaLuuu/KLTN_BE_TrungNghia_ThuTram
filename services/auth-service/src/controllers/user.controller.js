@@ -541,3 +541,23 @@ exports.createStaff = async (req, res) => {
   }
 };
 
+// 🆕 Reset password về mặc định
+exports.resetUserPasswordToDefault = async (req, res) => {
+  try {
+    const currentUser = req.user; // From auth middleware (JWT payload: {userId, role})
+    const userId = req.params.id;
+    
+    // req.user từ JWT có userId, không phải _id
+    const result = await userService.resetUserPasswordToDefault(userId, currentUser.userId);
+    
+    res.status(200).json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};

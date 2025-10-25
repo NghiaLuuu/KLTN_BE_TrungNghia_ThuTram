@@ -110,28 +110,82 @@ exports.register = async (data) => {
 
 // Đăng nhập
 exports.login = async ({ login, password, role }) => {
-  // 🆕 Nếu có role, dùng logic mới (patient=email, staff=employeeCode)
-  // Nếu không có role, dùng logic cũ (backward compatibility)
-  const user = await userRepo.findByLogin(login, role);
+  // ✅ Tìm user theo email/employeeCode/phone (KHÔNG validation format)
+  const user = await userRepo.findByLogin(login);
+  
   if (!user) {
-    const errorMsg = role === 'patient' 
-      ? 'Không tìm thấy tài khoản với email này'
-      : role 
-        ? 'Không tìm thấy nhân viên với mã nhân viên này'
-        : 'Không tìm thấy người dùng';
-    throw new Error(errorMsg);
+    throw new Error('Không tìm thấy người dùng với thông tin đăng nhập này');
   }
 
+  // ✅ Kiểm tra mật khẩu
   const match = await bcrypt.compare(password, user.password);
   if (!match) {
-    const errorMsg = role === 'patient'
-      ? 'Sai email hoặc mật khẩu'
-      : role
-        ? 'Sai mã nhân viên hoặc mật khẩu'
-        : 'Sai email/mã nhân viên hoặc mật khẩu';
-    throw new Error(errorMsg);
+    throw new Error('Sai mật khẩu');
   }
 
+  // ✅ Kiểm tra trạng thái tài khoản
+  if (!user.isActive) {
+    throw new Error('Tài khoản đã bị tạm khóa. Vui lòng liên hệ quản trị viên để được hỗ trợ.');
+  }
+
+  // ✅ Kiểm tra mật khẩu mặc định - BẮT BUỘC đổi mật khẩu
+  const isPatient = user.role === 'patient' || (user.roles && user.roles.length === 1 && user.roles[0] === 'patient');
+  const isUsingDefaultPassword = isPatient 
+    ? (password === '12345678') // Patient default password
+    : (user.employeeCode && password === user.employeeCode); // Staff default password
+  
+  if (isUsingDefaultPassword) {
+    // Generate temp token for password change
+    const tempToken = jwt.sign(
+      { userId: user._id, type: 'password-change' },
+      process.env.JWT_SECRET,
+      { expiresIn: '15m' } // 15 minutes to change password
+    );
+    
+    return {
+      message: 'Cần đổi mật khẩu',
+      pendingData: {
+        requiresPasswordChange: true,
+        userId: user._id,
+        tempToken,
+        user: {
+          _id: user._id,
+          fullName: user.fullName,
+          email: user.email,
+          employeeCode: user.employeeCode,
+          role: user.role
+        }
+      }
+    };
+  }
+
+  // ✅ Check if user has multiple roles
+  if (user.roles && user.roles.length > 1) {
+    // Generate temporary token for role selection
+    const tempToken = jwt.sign(
+      { userId: user._id, type: 'role-selection' },
+      process.env.JWT_SECRET,
+      { expiresIn: '10m' } // Short expiry for security
+    );
+    
+    return {
+      message: 'Đăng nhập thành công',
+      pendingData: {
+        requiresRoleSelection: true,
+        roles: user.roles,
+        userId: user._id,
+        tempToken,
+        user: {
+          _id: user._id,
+          fullName: user.fullName,
+          email: user.email,
+          employeeCode: user.employeeCode
+        }
+      }
+    };
+  }
+
+  // ✅ Single role - normal login
   const refreshToken = generateRefreshToken(user);
   const accessToken = generateAccessToken(user);
 
@@ -218,4 +272,93 @@ exports.resetPassword = async (email, otp, newPassword) => {
 
   await userRepo.saveUser(user);
   return { message: 'Đặt lại mật khẩu thành công' };
+};
+
+// 🆕 Select role after login (for users with multiple roles)
+exports.selectRole = async (tempToken, selectedRole) => {
+  // Verify temp token
+  let payload;
+  try {
+    payload = jwt.verify(tempToken, process.env.JWT_SECRET);
+    if (payload.type !== 'role-selection') {
+      throw new Error('Token không hợp lệ');
+    }
+  } catch (err) {
+    throw new Error('Token không hợp lệ hoặc đã hết hạn');
+  }
+
+  // Get user
+  const user = await userRepo.findById(payload.userId);
+  if (!user) {
+    throw new Error('Không tìm thấy người dùng');
+  }
+
+  // Validate selected role
+  if (!user.roles || !user.roles.includes(selectedRole)) {
+    throw new Error('Vai trò không hợp lệ');
+  }
+
+  // Update user's primary role to selected role
+  user.role = selectedRole;
+  await userRepo.saveUser(user);
+
+  // Generate real tokens
+  const refreshToken = generateRefreshToken(user);
+  const accessToken = generateAccessToken(user);
+
+  await userRepo.updateRefreshTokens(user, [refreshToken]);
+
+  return { accessToken, refreshToken, user };
+};
+
+// 🆕 Complete forced password change (first login or default password)
+exports.completePasswordChange = async (tempToken, newPassword) => {
+  // Verify temp token
+  let payload;
+  try {
+    payload = jwt.verify(tempToken, process.env.JWT_SECRET);
+    if (payload.type !== 'password-change') {
+      throw new Error('Token không hợp lệ');
+    }
+  } catch (err) {
+    throw new Error('Token không hợp lệ hoặc đã hết hạn');
+  }
+
+  // Get user
+  const user = await userRepo.findById(payload.userId);
+  if (!user) {
+    throw new Error('Không tìm thấy người dùng');
+  }
+
+  // Validate new password
+  if (newPassword.length < 8 || newPassword.length > 16) {
+    throw new Error('Mật khẩu mới phải có độ dài từ 8 đến 16 ký tự');
+  }
+
+  // Check if new password is same as default password
+  const isPatient = user.role === 'patient' || (user.roles && user.roles.length === 1 && user.roles[0] === 'patient');
+  if (isPatient && newPassword === '12345678') {
+    throw new Error('Mật khẩu mới không được trùng với mật khẩu mặc định');
+  }
+  if (!isPatient && user.employeeCode && newPassword === user.employeeCode) {
+    throw new Error('Mật khẩu mới không được trùng với mã nhân viên');
+  }
+
+  // Hash and save new password
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+  user.password = hashedPassword;
+  user.isFirstLogin = false; // Mark as not first login anymore
+  await userRepo.saveUser(user);
+
+  // Generate real tokens and complete login
+  const refreshToken = generateRefreshToken(user);
+  const accessToken = generateAccessToken(user);
+  await userRepo.updateRefreshTokens(user, [refreshToken]);
+
+  return { 
+    accessToken, 
+    refreshToken, 
+    user,
+    message: 'Đổi mật khẩu thành công' 
+  };
 };

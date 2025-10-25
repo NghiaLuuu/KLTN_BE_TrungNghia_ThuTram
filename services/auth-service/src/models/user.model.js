@@ -51,19 +51,34 @@ const certificateSchema = new Schema({
 
 const userSchema = new Schema({
   avatar: { type: String, default: null },
+  
+  // 🆕 MULTIPLE ROLES - User có thể có nhiều role
+  roles: {
+    type: [String],
+    enum: ['admin', 'manager', 'dentist', 'nurse', 'receptionist', 'patient'],
+    required: false, // ✅ Not required for backward compatibility
+    default: function() {
+      // Auto-generate from role if not provided
+      return this.role ? [this.role] : [];
+    }
+  },
+  
+  // 🔄 Keep backward compatibility - role là primary role (role đầu tiên)
   role: {
     type: String,
-    enum: ['admin', 'dentist', 'nurse', 'receptionist', 'patient', 'manager'],
+    enum: ['admin', 'manager', 'dentist', 'nurse', 'receptionist', 'patient'],
     required: true,
   },
+  
   email: {
     type: String,
     unique: true,
-    required: true,
+    sparse: true, // Allow null/undefined for staff without email
   },
   phone: {
     type: String,
     required: true,
+    unique: true,
   },
   password: {
     type: String,
@@ -92,20 +107,6 @@ const userSchema = new Schema({
     type: String,
     unique: true,
     sparse: true,
-  },
-  
-  // 🆕 DANH SÁCH CHUYÊN KHOA (mảng string)
-  specialties: {
-    type: [String],
-    default: [],
-    validate: {
-      validator: function(specialties) {
-        // Không có specialties trùng lặp
-        const uniqueSpecialties = [...new Set(specialties)];
-        return specialties.length === uniqueSpecialties.length;
-      },
-      message: 'Danh sách chuyên khoa không được trùng lặp'
-    }
   },
   
   // 🆕 DANH SÁCH CHỨNG CHỈ (chỉ cho dentist)
@@ -178,9 +179,26 @@ const userSchema = new Schema({
   timestamps: true
 });
 
-// 🔹 Hook pre-save tự sinh employeeCode
+// 🔹 Hook pre-save tự sinh employeeCode và sync roles
 userSchema.pre('save', async function(next) {
   const user = this;
+
+  // 🆕 SYNC roles và role (role là primary role = roles[0])
+  if (user.isModified('roles')) {
+    if (user.roles && user.roles.length > 0) {
+      user.role = user.roles[0]; // Primary role
+    }
+  }
+  
+  // 🆕 Nếu set role nhưng chưa có roles, tự động tạo roles
+  if (user.isModified('role') && (!user.roles || user.roles.length === 0)) {
+    user.roles = [user.role];
+  }
+  
+  // ✅ Nếu không có roles (old data), tạo từ role
+  if (!user.roles || user.roles.length === 0) {
+    user.roles = user.role ? [user.role] : [];
+  }
 
   // Bỏ qua patient hoặc đã có mã nhân viên
   if (user.role === 'patient' || user.employeeCode) return next();
@@ -203,6 +221,19 @@ userSchema.pre('save', async function(next) {
 
   user.employeeCode = `${prefix}${String(nextNumber).padStart(8, '0')}`;
   next();
+});
+
+// ✅ Hook post-find để auto-populate roles từ role (backward compatibility)
+userSchema.post(['find', 'findOne'], function(docs) {
+  if (!docs) return;
+  
+  const processDocs = Array.isArray(docs) ? docs : [docs];
+  
+  processDocs.forEach(doc => {
+    if (doc && (!doc.roles || doc.roles.length === 0) && doc.role) {
+      doc.roles = [doc.role];
+    }
+  });
 });
 
 // 🆕 Method để lấy thống kê chứng chỉ

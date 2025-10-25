@@ -13,6 +13,8 @@ router.post('/refresh', authController.refresh);
 router.post('/send-otp-reset-password', authController.sendOtpResetPassword);
 router.post('/change-password', authMiddleware, authController.changePassword);
 router.post('/reset-password', authController.resetPassword);
+router.post('/select-role', authController.selectRole); // 🆕 Select role for multiple roles
+router.post('/complete-password-change', authController.completePasswordChange); // 🆕 Complete forced password change
 
 
 module.exports = router;
