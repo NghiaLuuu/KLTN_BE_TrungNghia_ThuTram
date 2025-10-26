@@ -62,7 +62,8 @@ exports.createUser = async (data) => {
 
 // 🔹 UPDATE OPERATIONS
 exports.updateById = async (id, data, updatedBy = null) => {
-  const { password, email, role, ...allowedData } = data;
+  // ✅ Only remove password (không remove email và role nữa, để service layer handle)
+  const { password, ...allowedData } = data;
   
   if (updatedBy) allowedData.updatedBy = updatedBy;
 

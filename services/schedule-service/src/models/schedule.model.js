@@ -94,12 +94,6 @@ const scheduleSchema = new mongoose.Schema({
     type: Date,
     required: false
   },
-  workShifts: [{
-    name: { type: String },
-    startTime: { type: String },
-    endTime: { type: String },
-    isActive: { type: Boolean, default: true }
-  }],
   dateVNStr: { type: String, index: true },
   isActive: { type: Boolean, default: true },
   slotDuration: { type: Number },
@@ -131,56 +125,22 @@ const scheduleSchema = new mongoose.Schema({
       startDate: { type: Date },
       endDate: { type: Date },
       note: { type: String }
-    }]
-  },
-  
-  // 🆕 Tracking những ngày/ca đã bị tắt
-  // Lưu lại lịch sử tắt lịch để hiển thị trên UI
-  disabledDates: [{
-    date: {
-      type: Date,
-      required: true
-    },
-    shifts: [{
-      shiftType: {
-        type: String,
-        enum: ['morning', 'afternoon', 'evening'],
+    }],
+    
+    // 🆕 Danh sách ngày nghỉ thực tế đã tính toán trong tháng
+    // Tự động generate từ recurringHolidays và nonRecurringHolidays
+    // ⚠️ Khi tạo override holiday (làm việc trong ngày nghỉ), XÓA ngày đó khỏi array này
+    computedDaysOff: [{
+      date: {
+        type: String, // Format: YYYY-MM-DD
         required: true
       },
-      isActive: {
-        type: Boolean,
-        default: false
-      }
-    }]
-  }],
-  
-  // 🆕 Tracking những ngày nghỉ đã được override (tạo lịch làm việc)
-  // Khi admin tạo lịch cho ngày nghỉ, lưu lại để hiển thị trên UI
-  overriddenHolidays: [{
-    date: {
-      type: Date,
-      required: true
-    },
-    shifts: [{
-      shiftType: {
-        type: String,
-        enum: ['morning', 'afternoon', 'evening'],
+      reason: {
+        type: String, // Tên ngày nghỉ (vd: "Nghỉ Chủ nhật", "Nghỉ tháng 11")
         required: true
       }
-    }],
-    note: {
-      type: String,
-      default: ''
-    },
-    originalHolidayName: {
-      type: String,
-      default: ''
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now
-    }
-  }]
+    }]
+  }
 }, {
   timestamps: true
 });

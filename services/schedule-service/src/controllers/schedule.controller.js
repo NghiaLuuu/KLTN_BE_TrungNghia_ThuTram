@@ -1225,6 +1225,56 @@ exports.bulkDisableSchedule = async (req, res) => {
   }
 };
 
+/**
+ * 🆕 Tắt/bật lịch cho nhiều ngày - toàn bộ room và subroom
+ */
+exports.bulkToggleScheduleDates = async (req, res) => {
+  try {
+    const { roomId, dateRange, isActive, reason } = req.body;
+    
+    const result = await scheduleService.bulkToggleScheduleDates(
+      roomId,
+      dateRange,
+      isActive,
+      reason
+    );
+    
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('❌ Error bulkToggleScheduleDates:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
+  }
+};
+
+/**
+ * 🆕 Tạo lịch cho ngày nghỉ - toàn bộ room và subroom
+ */
+exports.createOverrideHolidayForAllRooms = async (req, res) => {
+  try {
+    const { roomId, month, year, date, shifts, note } = req.body;
+    
+    const result = await scheduleService.createOverrideHolidayForAllRooms(
+      roomId,
+      month,
+      year,
+      date,
+      shifts,
+      note
+    );
+    
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('❌ Error createOverrideHolidayForAllRooms:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
+  }
+};
+
 module.exports = {
   generateQuarterSchedule: exports.generateQuarterSchedule,
   getAvailableQuarters: exports.getAvailableQuarters,
@@ -1258,5 +1308,7 @@ module.exports = {
   createScheduleOverrideHoliday: exports.createScheduleOverrideHoliday, // 🆕 Nhiệm vụ 2.3
   validateIncompleteSchedule: exports.validateIncompleteSchedule,       // 🆕 Nhiệm vụ 2.4
   validateHolidayFromSchedule: exports.validateHolidayFromSchedule,     // 🆕 Validate holiday từ holidaySnapshot
-  bulkDisableSchedule: exports.bulkDisableSchedule                      // 🆕 Disable nhiều ngày/ca/buồng
-}
+  bulkDisableSchedule: exports.bulkDisableSchedule,                     // 🆕 Bulk disable
+  bulkToggleScheduleDates: exports.bulkToggleScheduleDates,             // 🆕 Bulk toggle dates
+  createOverrideHolidayForAllRooms: exports.createOverrideHolidayForAllRooms // 🆕 Override holiday for all rooms
+};

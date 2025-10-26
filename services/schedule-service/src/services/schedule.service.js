@@ -16,6 +16,72 @@ dayjs.extend(timezone);
 dayjs.extend(isSameOrBefore);
 dayjs.extend(isSameOrAfter);
 
+/**
+ * 🆕 Helper function: Tính toán danh sách ngày nghỉ thực tế trong khoảng thời gian
+ * @param {Date} startDate - Ngày bắt đầu
+ * @param {Date} endDate - Ngày kết thúc
+ * @param {Array} recurringHolidays - Ngày nghỉ cố định theo tuần [{name, dayOfWeek, note}]
+ * @param {Array} nonRecurringHolidays - Ngày nghỉ đặc biệt [{name, startDate, endDate, note}]
+ * @returns {Array} - Mảng [{date: "YYYY-MM-DD", reason: "Tên ngày nghỉ"}]
+ */
+function computeDaysOff(startDate, endDate, recurringHolidays = [], nonRecurringHolidays = []) {
+  const daysOffMap = new Map(); // Dùng Map để tránh trùng lặp, key = date string
+  
+  // Normalize dates
+  const start = dayjs(startDate).startOf('day');
+  const end = dayjs(endDate).endOf('day');
+  
+  // 1. Tính recurring holidays (ngày nghỉ cố định theo tuần)
+  let currentDate = start;
+  while (currentDate.isSameOrBefore(end, 'day')) {
+    // Convention: 1=Sunday, 2=Monday, 3=Tuesday, ..., 7=Saturday
+    // dayjs.day(): 0=Sunday, 1=Monday, ..., 6=Saturday
+    const dayOfWeek = currentDate.day() + 1; // Convert: 0->1, 1->2, ..., 6->7
+    
+    // Kiểm tra xem ngày này có phải ngày nghỉ cố định không
+    const matchingRecurring = recurringHolidays.find(h => h.dayOfWeek === dayOfWeek);
+    if (matchingRecurring) {
+      const dateStr = currentDate.format('YYYY-MM-DD');
+      if (!daysOffMap.has(dateStr)) {
+        daysOffMap.set(dateStr, {
+          date: dateStr,
+          reason: matchingRecurring.name
+        });
+      }
+    }
+    
+    currentDate = currentDate.add(1, 'day');
+  }
+  
+  // 2. Tính non-recurring holidays (ngày nghỉ đặc biệt)
+  for (const holiday of nonRecurringHolidays) {
+    const holidayStart = dayjs(holiday.startDate).startOf('day');
+    const holidayEnd = dayjs(holiday.endDate).endOf('day');
+    
+    // Chỉ lấy phần overlap với khoảng [startDate, endDate]
+    const overlapStart = holidayStart.isAfter(start) ? holidayStart : start;
+    const overlapEnd = holidayEnd.isBefore(end) ? holidayEnd : end;
+    
+    // Nếu có overlap
+    if (overlapStart.isSameOrBefore(overlapEnd)) {
+      let hDate = overlapStart;
+      while (hDate.isSameOrBefore(overlapEnd, 'day')) {
+        const dateStr = hDate.format('YYYY-MM-DD');
+        if (!daysOffMap.has(dateStr)) {
+          daysOffMap.set(dateStr, {
+            date: dateStr,
+            reason: holiday.name
+          });
+        }
+        hDate = hDate.add(1, 'day');
+      }
+    }
+  }
+  
+  // Convert Map to Array và sort theo date
+  return Array.from(daysOffMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
 // ✅ dayjs installed successfully
 // Helper functions
 function toVNDateOnlyString(d) {
@@ -442,7 +508,9 @@ async function isHoliday(date) {
 
   const checkVN = toVNDateOnlyString(date);
   const checkDate = new Date(checkVN); // Parse back to Date for day of week check
-  const dayOfWeek = checkDate.getDay() + 1; // JavaScript: 0=Sunday, 1=Monday... -> Convert to 1=Sunday, 2=Monday...
+  // Convention: 1=Sunday, 2=Monday, 3=Tuesday, ..., 7=Saturday
+  // JavaScript getDay(): 0=Sunday, 1=Monday, ..., 6=Saturday
+  const dayOfWeek = checkDate.getDay() + 1; // Convert: 0->1, 1->2, ..., 6->7
   
   // Get current date in VN timezone (00:00:00)
   const nowVN = getVietnamDate();
@@ -518,9 +586,20 @@ async function getHolidaySnapshot(scheduleStartDate, scheduleEndDate) {
     }
   });
   
+  // 🆕 Tự động tính computedDaysOff từ recurringHolidays và nonRecurringHolidays
+  const computedDaysOff = computeDaysOff(
+    scheduleStartDate,
+    scheduleEndDate,
+    recurringHolidays,
+    nonRecurringHolidays
+  );
+  
+  console.log(`📅 Computed ${computedDaysOff.length} days off for period ${scheduleStartDate} to ${scheduleEndDate}`);
+  
   return {
     recurringHolidays,
     nonRecurringHolidays,
+    computedDaysOff, // 🆕 Thêm computed days off
     nonRecurringHolidayIds // 🆕 Trả về IDs
   };
 }
@@ -531,7 +610,15 @@ function isHolidayFromSnapshot(date, holidaySnapshot) {
   
   const checkDate = new Date(date);
   checkDate.setHours(0, 0, 0, 0);
-  const dayOfWeek = checkDate.getDay() + 1; // 1=CN, 2=T2, ..., 7=T7
+  const dateStr = checkDate.toISOString().split('T')[0]; // YYYY-MM-DD
+  
+  // 🆕 PRIORITY 1: Kiểm tra computedDaysOff trước (nếu có)
+  if (holidaySnapshot.computedDaysOff && holidaySnapshot.computedDaysOff.length > 0) {
+    return holidaySnapshot.computedDaysOff.some(day => day.date === dateStr);
+  }
+  
+  // FALLBACK: Kiểm tra recurring và non-recurring (cho backward compatibility)
+  const dayOfWeek = checkDate.getDay() === 0 ? 7 : checkDate.getDay(); // 1=CN, 2=T2, ..., 7=T7
   
   // Kiểm tra ngày nghỉ cố định
   const recurringHolidays = holidaySnapshot.recurringHolidays || [];
@@ -2793,7 +2880,7 @@ exports.createSchedulesForNewSubRooms = async (roomId, subRoomIds) => {
             continue;
           }
 
-          // 🆕 TẠO SCHEDULE MỚI với isActiveSubRoom=true (subroom mới mặc định đang hoạt động)
+          // 🆕 TẠO SCHEDULE MỚI với isActiveSubRoom=false (subroom mới chưa có lịch)
           const newScheduleData = {
             roomId,
             subRoomId,
@@ -2801,7 +2888,7 @@ exports.createSchedulesForNewSubRooms = async (roomId, subRoomIds) => {
             month: config.month, // ✅ Bắt buộc
             startDate: config.startDate,
             endDate: config.endDate,
-            isActiveSubRoom: true, // ✅ TRUE vì subroom mới được tạo với isActive=true
+            isActiveSubRoom: false, // ✅ FALSE vì subroom mới chưa có lịch sinh ra
             shiftConfig: {
               morning: {
                 isActive: config.shiftConfig.morning.isActive, // ✅ Lấy từ config hiện có
@@ -4456,9 +4543,7 @@ exports.getRoomSchedulesWithShifts = async (roomId, subRoomId = null, month = nu
         startDate: effectiveStartDate,
         endDate: effectiveEndDate,
         shiftConfig: shiftConfigSnapshot,
-        holidaySnapshot: schedule.holidaySnapshot || { recurringHolidays: [], nonRecurringHolidays: [] },
-        disabledDates: schedule.disabledDates || [], // 🆕 Danh sách ngày/ca đã tắt
-        overriddenHolidays: schedule.overriddenHolidays || [], // 🆕 Danh sách ngày nghỉ đã override
+        holidaySnapshot: schedule.holidaySnapshot || { recurringHolidays: [], nonRecurringHolidays: [], computedDaysOff: [] },
         subRoom, // ✅ Thông tin subroom nếu có
         isActiveSubRoom: schedule.isActiveSubRoom !== undefined ? schedule.isActiveSubRoom : true, // 🆕 Trạng thái buồng trong lịch
         generatedShifts,
@@ -4753,41 +4838,8 @@ exports.updateSchedule = async ({ scheduleId, isActive, reactivateShifts, deacti
           changes.push(`${newIsActive ? 'Bật' : 'Tắt'} ca: ${shift.name} (chưa có slots)`);
         }
         
-        // 🆕 CẬP NHẬT disabledDates trong schedule
-        const currentDate = new Date(startDate);
-        while (currentDate <= endDate) {
-          const dateStr = currentDate.toISOString().split('T')[0]; // "YYYY-MM-DD"
-          
-          // Tìm hoặc tạo entry cho ngày này
-          let dateEntry = schedule.disabledDates.find(d => {
-            const dStr = new Date(d.date).toISOString().split('T')[0];
-            return dStr === dateStr;
-          });
-          
-          if (!dateEntry) {
-            dateEntry = {
-              date: new Date(currentDate),
-              shifts: []
-            };
-            schedule.disabledDates.push(dateEntry);
-          }
-          
-          // Tìm hoặc tạo entry cho ca này
-          let shiftEntry = dateEntry.shifts.find(s => s.shiftType === shiftKey);
-          
-          if (!shiftEntry) {
-            shiftEntry = {
-              shiftType: shiftKey,
-              isActive: newIsActive
-            };
-            dateEntry.shifts.push(shiftEntry);
-          } else {
-            shiftEntry.isActive = newIsActive;
-          }
-          
-          // Move to next day
-          currentDate.setDate(currentDate.getDate() + 1);
-        }
+        // ✅ KHÔNG CẦN CẬP NHẬT disabledDates - đã xóa trường này khỏi schema
+        // Logic tắt/bật ca được lưu thông qua slot.isActive
       }
     }
 
@@ -6784,18 +6836,20 @@ exports.createScheduleOverrideHoliday = async (data) => {
       }
     }
     
-    // 🆕 Cập nhật overriddenHolidays trong schedule
-    if (!schedule.overriddenHolidays) {
-      schedule.overriddenHolidays = [];
+    // ✅ XÓA ngày này khỏi computedDaysOff (thay vì thêm vào overriddenHolidays)
+    if (schedule.holidaySnapshot && schedule.holidaySnapshot.computedDaysOff) {
+      const dateStr = targetDate.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+      const initialLength = schedule.holidaySnapshot.computedDaysOff.length;
+      
+      schedule.holidaySnapshot.computedDaysOff = schedule.holidaySnapshot.computedDaysOff.filter(
+        dayOff => dayOff.date !== dateStr
+      );
+      
+      const removedCount = initialLength - schedule.holidaySnapshot.computedDaysOff.length;
+      if (removedCount > 0) {
+        console.log(`🗑️ Đã xóa ${removedCount} ngày khỏi computedDaysOff: ${dateStr}`);
+      }
     }
-    
-    schedule.overriddenHolidays.push({
-      date: targetDate,
-      shifts: shifts.map(shiftKey => ({ shiftType: shiftKey })),
-      note: note || '',
-      originalHolidayName,
-      createdAt: new Date()
-    });
     
     await schedule.save();
 
@@ -7038,6 +7092,211 @@ async function getAffectedPatientsAndNotify(bookedSlots) {
     needsManualContact    // Danh sách cần liên hệ thủ công (số điện thoại)
   };
 }
+
+/**
+ * 🆕 Tắt/bật lịch cho nhiều ngày - toàn bộ room và tất cả subroom
+ * @param {string} roomId - ID của room chính
+ * @param {object} dateRange - {startDate: Date, endDate: Date}
+ * @param {boolean} isActive - true = bật, false = tắt
+ * @param {string} reason - Lý do (bắt buộc khi tắt)
+ * @returns {Promise<object>} - Kết quả cập nhật
+ */
+exports.bulkToggleScheduleDates = async (roomId, dateRange, isActive, reason) => {
+  try {
+    const { startDate, endDate } = dateRange;
+
+    // Validate input
+    if (!roomId || !startDate || !endDate) {
+      throw new Error('Thiếu thông tin: roomId, startDate, endDate là bắt buộc');
+    }
+
+    if (isActive === false && !reason) {
+      throw new Error('Bắt buộc phải có lý do khi tắt lịch');
+    }
+
+    // Convert to Date objects
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+
+    if (start > end) {
+      throw new Error('Ngày bắt đầu phải trước ngày kết thúc');
+    }
+
+    console.log(`🔄 Bulk toggle schedules for room ${roomId} from ${startDate} to ${endDate}, isActive=${isActive}`);
+
+    // 🔍 TÌM TẤT CẢ SCHEDULES (room chính + tất cả subroom) có overlap với khoảng ngày
+    const allSchedules = await Schedule.find({
+      roomId: new mongoose.Types.ObjectId(roomId),
+      $or: [
+        { startDate: { $lte: end }, endDate: { $gte: start } }
+      ]
+    });
+
+    if (allSchedules.length === 0) {
+      throw new Error('Không tìm thấy lịch nào cho room này trong khoảng thời gian đã chọn');
+    }
+
+    console.log(`✅ Tìm thấy ${allSchedules.length} schedules cần cập nhật`);
+
+    let totalSlotsUpdated = 0;
+    const updatedSchedules = [];
+
+    // 🔄 CẬP NHẬT TỪNG SCHEDULE
+    for (const schedule of allSchedules) {
+      // 🔍 TÌM TẤT CẢ SLOTS trong khoảng ngày
+      const slotsToUpdate = await Slot.find({
+        scheduleId: schedule._id,
+        date: { $gte: start, $lte: end }
+      });
+
+      if (slotsToUpdate.length === 0) {
+        console.log(`⚠️ Schedule ${schedule._id} không có slot nào trong khoảng ${startDate} - ${endDate}`);
+        continue;
+      }
+
+      // 🔄 CẬP NHẬT SLOTS
+      const slotIds = slotsToUpdate.map(s => s._id);
+      const updateResult = await Slot.updateMany(
+        { _id: { $in: slotIds } },
+        { $set: { isActive } }
+      );
+
+      totalSlotsUpdated += updateResult.modifiedCount;
+      console.log(`✅ Updated ${updateResult.modifiedCount} slots for schedule ${schedule._id}`);
+
+      // 🔄 CẬP NHẬT disabledDates TRACKING
+      // Lấy danh sách unique dates từ slots
+      const uniqueDates = [...new Set(slotsToUpdate.map(s => {
+        const slotDate = new Date(s.date);
+        slotDate.setHours(0, 0, 0, 0);
+        return slotDate.toISOString().split('T')[0];
+      }))];
+
+      // ✅ KHÔNG CẦN CẬP NHẬT disabledDates - đã xóa trường này khỏi schema
+      // Logic tắt/bật ngày được lưu thông qua slot.isActive
+      // Nếu cần track ngày tắt thủ công, sử dụng overriddenHolidays
+
+      await schedule.save();
+      updatedSchedules.push({
+        scheduleId: schedule._id,
+        subRoomId: schedule.subRoomId || null,
+        slotsUpdated: updateResult.modifiedCount
+      });
+    }
+
+    console.log(`✅ Bulk toggle completed: ${totalSlotsUpdated} slots updated across ${updatedSchedules.length} schedules`);
+
+    return {
+      success: true,
+      roomId,
+      dateRange: { startDate, endDate },
+      isActive,
+      reason,
+      totalSlotsUpdated,
+      schedulesUpdated: updatedSchedules.length,
+      details: updatedSchedules
+    };
+
+  } catch (error) {
+    console.error('❌ Error in bulkToggleScheduleDates:', error);
+    throw error;
+  }
+};
+
+/**
+ * 🆕 Tạo lịch cho ngày nghỉ - toàn bộ room và tất cả subroom
+ * @param {string} roomId - ID của room chính
+ * @param {number} month - Tháng (1-12)
+ * @param {number} year - Năm
+ * @param {string} date - Ngày cụ thể (YYYY-MM-DD)
+ * @param {Array<string>} shifts - Mảng ca làm việc ['morning', 'afternoon', 'evening']
+ * @param {string} note - Ghi chú
+ * @returns {Promise<object>} - Kết quả tạo lịch
+ */
+exports.createOverrideHolidayForAllRooms = async (roomId, month, year, date, shifts, note) => {
+  try {
+    // Validate input
+    if (!roomId || !month || !year || !date || !shifts || !Array.isArray(shifts) || shifts.length === 0) {
+      throw new Error('Thiếu thông tin: roomId, month, year, date, shifts là bắt buộc');
+    }
+
+    console.log(`🔄 Creating override holiday for all rooms: ${roomId}, date: ${date}, shifts: ${shifts.join(', ')}`);
+
+    // 🔍 TÌM TẤT CẢ SCHEDULES (room chính + tất cả subroom) cho tháng/năm
+    const allSchedules = await Schedule.find({
+      roomId: new mongoose.Types.ObjectId(roomId),
+      month: parseInt(month),
+      year: parseInt(year)
+    });
+
+    if (allSchedules.length === 0) {
+      throw new Error('Không tìm thấy lịch nào cho room này trong tháng đã chọn');
+    }
+
+    console.log(`✅ Tìm thấy ${allSchedules.length} schedules (room + subrooms) cho tháng ${month}/${year}`);
+
+    const results = [];
+    let totalSlotsCreated = 0;
+
+    // 🔄 TẠO OVERRIDE HOLIDAY CHO TỪNG SCHEDULE
+    for (const schedule of allSchedules) {
+      try {
+        // Gọi hàm createScheduleOverrideHoliday hiện có
+        const result = await exports.createScheduleOverrideHoliday(
+          schedule._id.toString(),
+          date,
+          shifts,
+          note
+        );
+
+        results.push({
+          scheduleId: schedule._id,
+          subRoomId: schedule.subRoomId || null,
+          success: true,
+          slotsCreated: result.slotsCreated || 0
+        });
+
+        totalSlotsCreated += result.slotsCreated || 0;
+
+        console.log(`✅ Created override holiday for schedule ${schedule._id} (subRoom: ${schedule.subRoomId || 'main'})`);
+
+      } catch (error) {
+        console.error(`❌ Error creating override for schedule ${schedule._id}:`, error.message);
+        results.push({
+          scheduleId: schedule._id,
+          subRoomId: schedule.subRoomId || null,
+          success: false,
+          error: error.message
+        });
+      }
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    const failCount = results.filter(r => !r.success).length;
+
+    console.log(`✅ Bulk override holiday completed: ${successCount} success, ${failCount} failed, ${totalSlotsCreated} total slots created`);
+
+    return {
+      success: true,
+      roomId,
+      date,
+      shifts,
+      month,
+      year,
+      totalSchedules: allSchedules.length,
+      successCount,
+      failCount,
+      totalSlotsCreated,
+      details: results
+    };
+
+  } catch (error) {
+    console.error('❌ Error in createOverrideHolidayForAllRooms:', error);
+    throw error;
+  }
+};
 
 
 

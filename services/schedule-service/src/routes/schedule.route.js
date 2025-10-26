@@ -93,4 +93,10 @@ router.get('/validate-holiday-from-schedule', scheduleController.validateHoliday
 // 🆕 Bulk disable schedule cho nhiều ngày/ca/buồng
 router.post('/bulk-disable', authMiddleware, scheduleController.bulkDisableSchedule);
 
+// 🆕 Tắt/bật lịch cho nhiều ngày - toàn bộ room và subroom
+router.post('/bulk-toggle-dates', authMiddleware, scheduleController.bulkToggleScheduleDates);
+
+// 🆕 Tạo lịch cho ngày nghỉ - toàn bộ room và subroom
+router.post('/override-holiday-all-rooms', authMiddleware, scheduleController.createOverrideHolidayForAllRooms);
+
 module.exports = router;
