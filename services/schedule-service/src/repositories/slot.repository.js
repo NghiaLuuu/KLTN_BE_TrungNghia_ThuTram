@@ -93,7 +93,7 @@ exports.find = async (query, options = {}) => {
 // ⚡ NEW: Optimized version for calendar queries
 exports.findForCalendar = async (query) => {
   return await Slot.find(query)
-    .select('_id scheduleId roomId subRoomId shiftName startTime endTime dentist nurse status appointmentId duration')
+    .select('_id scheduleId roomId subRoomId shiftName startTime endTime dentist nurse status appointmentId duration isActive')
     .sort({ startTime: 1 })
     .lean(); // Return plain JS objects (much faster)
 };

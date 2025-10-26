@@ -886,11 +886,51 @@ exports.enableSlots = async (req, res) => {
   }
 };
 
+// 🆕 Toggle isActive status of multiple slots
+exports.toggleSlotsIsActive = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ 
+      success: false,
+      message: 'Chỉ manager/admin mới có quyền bật/tắt slots'
+    });
+  }
+
+  try {
+    const { slotIds, isActive, reason } = req.body;
+    
+    if (!slotIds || !Array.isArray(slotIds) || slotIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'slotIds array is required and must not be empty'
+      });
+    }
+    
+    if (isActive === undefined || isActive === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'isActive is required (true/false)'
+      });
+    }
+    
+    const slotService = require('../services/slot.service');
+    const result = await slotService.toggleSlotsIsActive(slotIds, isActive, reason);
+    
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('[slotController] toggleSlotsIsActive error:', error);
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getSlotById: exports.getSlotById,                                // 🆕 NEW
   assignStaffToSlots: exports.assignStaffToSlots,
   reassignStaffToSlots: exports.reassignStaffToSlots,
   removeStaffFromSlots: exports.removeStaffFromSlots,              // 🆕 NEW - Remove staff
+  toggleSlotsIsActive: exports.toggleSlotsIsActive,                // 🆕 NEW - Toggle isActive
   updateSlotStaff: exports.updateSlotStaff,
   getSlotsByShiftAndDate: exports.getSlotsByShiftAndDate,
   getRoomCalendar: exports.getRoomCalendar,

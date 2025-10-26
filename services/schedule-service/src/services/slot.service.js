@@ -5,6 +5,7 @@ const { publishToQueue } = require('../utils/rabbitClient');
 const { getVietnamDate, toVietnamTime } = require('../utils/vietnamTime.util');
 const { getCachedUsers, getCachedRooms } = require('../utils/cacheHelper'); // ⚡ NEW
 const mongoose = require('mongoose');
+const Slot = require('../models/slot.model'); // 🆕 Import Slot model for toggleSlotsIsActive
 
 // ⭐ Date/Time formatting helpers for Vietnam timezone
 function toVNDateOnlyString(d) {
@@ -1254,8 +1255,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
       roomId,
       startTime: futureOnly 
         ? { $gt: effectiveStartTime, $lt: endUTC }  // Future-only with 15-min buffer
-        : { $gte: startUTC, $lt: endUTC },          // All slots (including past) by default
-      isActive: true
+        : { $gte: startUTC, $lt: endUTC }           // All slots (including past and inactive) by default
     };
     
     if (subRoomId) {
@@ -1367,6 +1367,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
           endTimeVN: new Date(slot.endTime).toLocaleTimeString('en-GB', { 
             timeZone: 'Asia/Ho_Chi_Minh', hour12: false, hour: '2-digit', minute: '2-digit'
           }),
+          isActive: slot.isActive !== false, // 🆕 Add isActive field
           dentist: [],
           nurse: [],
           slotStatus: slot.status,
@@ -1764,8 +1765,7 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
       dentist: { $in: [dentistId] },
       startTime: futureOnly 
         ? { $gt: effectiveStartTime, $lt: endUTC }  // Future-only with 15-min buffer
-        : { $gte: startUTC, $lt: endUTC },
-      isActive: true
+        : { $gte: startUTC, $lt: endUTC }
     };
 
     const slots = await slotRepo.findForCalendar(queryFilter); // ⚡ OPTIMIZED
@@ -1910,6 +1910,7 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
             hour: '2-digit',
             minute: '2-digit'
           }),
+          isActive: slot.isActive !== false,
           dentist: dentistInfo,
           nurse: nurseInfo,
           room: roomInfo,
@@ -2286,8 +2287,7 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 0,
       nurse: { $in: [nurseId] },
       startTime: futureOnly 
         ? { $gt: effectiveStartTime, $lt: endUTC }  // Future-only with 15-min buffer
-        : { $gte: startUTC, $lt: endUTC },
-      isActive: true
+        : { $gte: startUTC, $lt: endUTC }
     };
 
     const slots = await slotRepo.findForCalendar(queryFilter); // ⚡ OPTIMIZED
@@ -2432,6 +2432,7 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 0,
             hour: '2-digit',
             minute: '2-digit'
           }),
+          isActive: slot.isActive !== false,
           dentist: dentistInfo,
           nurse: nurseInfo,
           room: roomInfo,
@@ -3116,12 +3117,185 @@ async function removeStaffFromSlots({ slotIds, removeDentists, removeNurses }) {
   }
 }
 
+/**
+ * 🆕 Toggle isActive status of multiple slots
+ * @param {Array<string>} slotIds - Array of slot IDs to toggle
+ * @param {boolean} isActive - New isActive status (true = enable, false = disable)
+ * @param {string} reason - Reason for toggling (required when disabling)
+ * @returns {Promise<object>} - Result with modified count
+ */
+async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
+  try {
+    // Validate input
+    if (!slotIds || !Array.isArray(slotIds) || slotIds.length === 0) {
+      throw new Error('slotIds array is required and must not be empty');
+    }
+
+    if (isActive === undefined || isActive === null) {
+      throw new Error('isActive is required (true/false)');
+    }
+
+    if (isActive === false && !reason) {
+      throw new Error('Reason is required when disabling slots');
+    }
+
+    console.log(`🔄 Toggling isActive=${isActive} for ${slotIds.length} slots`);
+
+    // Convert string IDs to ObjectIds
+    const objectIds = slotIds.map(id => new mongoose.Types.ObjectId(id));
+
+    // Get slots before update (for cache invalidation)
+    const slotsBeforeUpdate = await Slot.find({ _id: { $in: objectIds } })
+      .select('roomId subRoomId dentist nurse startTime endTime shiftName')
+      .lean();
+
+    if (slotsBeforeUpdate.length === 0) {
+      throw new Error('No slots found with provided IDs');
+    }
+
+    // Update slots isActive status
+    const updateData = { isActive };
+    
+    // If disabling, add reason to a metadata field (if exists in schema)
+    // Note: Current schema doesn't have 'disableReason' field
+    // If needed, add it to slot.model.js first
+    
+    const result = await Slot.updateMany(
+      { _id: { $in: objectIds } },
+      { $set: updateData }
+    );
+
+    console.log(`✅ Updated isActive=${isActive} for ${result.modifiedCount}/${slotIds.length} slots`);
+
+    // Get updated slots with full details
+    const updatedSlots = await Slot.find({ _id: { $in: objectIds } })
+      .populate('roomId', 'name code')
+      .populate('subRoomId', 'name code')
+      .populate('dentist', 'fullName employeeCode')
+      .populate('nurse', 'fullName employeeCode')
+      .lean();
+
+    // Format slot details for response
+    const slotDetails = updatedSlots.map(slot => ({
+      _id: slot._id,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      startTimeVN: toVNTimeString(slot.startTime),
+      endTimeVN: toVNTimeString(slot.endTime),
+      shiftName: slot.shiftName,
+      isActive: slot.isActive,
+      room: slot.roomId ? {
+        _id: slot.roomId._id,
+        name: slot.roomId.name,
+        code: slot.roomId.code
+      } : null,
+      subRoom: slot.subRoomId ? {
+        _id: slot.subRoomId._id,
+        name: slot.subRoomId.name,
+        code: slot.subRoomId.code
+      } : null,
+      dentist: slot.dentist ? {
+        _id: slot.dentist._id,
+        fullName: slot.dentist.fullName,
+        employeeCode: slot.dentist.employeeCode
+      } : null,
+      nurse: slot.nurse ? {
+        _id: slot.nurse._id,
+        fullName: slot.nurse.fullName,
+        employeeCode: slot.nurse.employeeCode
+      } : null
+    }));
+
+    // Invalidate Redis cache for affected rooms and staff
+    try {
+      const affectedRooms = new Set();
+      const affectedDentists = new Set();
+      const affectedNurses = new Set();
+
+      slotsBeforeUpdate.forEach(slot => {
+        if (slot.roomId) affectedRooms.add(slot.roomId.toString());
+        
+        // Handle dentist (can be array or single ObjectId)
+        if (Array.isArray(slot.dentist)) {
+          slot.dentist.forEach(d => {
+            if (d) affectedDentists.add(d.toString());
+          });
+        } else if (slot.dentist) {
+          affectedDentists.add(slot.dentist.toString());
+        }
+        
+        // Handle nurse (can be array or single ObjectId)
+        if (Array.isArray(slot.nurse)) {
+          slot.nurse.forEach(n => {
+            if (n) affectedNurses.add(n.toString());
+          });
+        } else if (slot.nurse) {
+          affectedNurses.add(slot.nurse.toString());
+        }
+      });
+
+      console.log(`🔄 Invalidating cache for: ${affectedRooms.size} rooms, ${affectedDentists.size} dentists, ${affectedNurses.size} nurses`);
+
+      // Delete ALL room calendar caches (since we removed isActive filter)
+      for (const roomId of affectedRooms) {
+        const pattern = `room_calendar:${roomId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          console.log(`🗑️ Deleted ${keys.length} room calendar cache keys for room ${roomId}`);
+        } else {
+          console.log(`⚠️ No cache keys found for pattern: ${pattern}`);
+        }
+      }
+
+      // Delete dentist calendar caches
+      for (const dentistId of affectedDentists) {
+        const pattern = `dentist_calendar:${dentistId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          console.log(`🗑️ Deleted ${keys.length} dentist calendar cache keys`);
+        }
+      }
+
+      // Delete nurse calendar caches
+      for (const nurseId of affectedNurses) {
+        const pattern = `nurse_calendar:${nurseId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          console.log(`🗑️ Deleted ${keys.length} nurse calendar cache keys`);
+        }
+      }
+
+      console.log(`✅ Invalidated cache for ${affectedRooms.size} rooms, ${affectedDentists.size} dentists, ${affectedNurses.size} nurses`);
+    } catch (redisError) {
+      console.error('❌ Redis cache invalidation error (data still updated):', redisError.message);
+    }
+
+    return {
+      success: true,
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+      isActive,
+      reason,
+      affectedSlots: slotIds.length,
+      slots: slotDetails,
+      message: `${isActive ? 'Enabled' : 'Disabled'} ${result.modifiedCount} slots`
+    };
+  } catch (error) {
+    console.error('❌ Error toggling slots isActive:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   assignStaffToSlots,              // ⭐ NEW: Phân công theo slotIds
   assignStaffToSpecificSlots,      // Phân công cho specific slots
   reassignStaffToSlots,            // ⭐ NEW: Thay thế nhân sự theo slotIds (replace old staff with new)
   reassignStaffToSpecificSlots,    // Thay thế nhân sự cho specific slots
   removeStaffFromSlots,            // 🆕 Xóa nhân sự khỏi slots
+  toggleSlotsIsActive,             // 🆕 Toggle isActive status of slots
   updateSlotStaff,                 // Cập nhật nhân sự cho slots
   getSlotsByShiftAndDate,          // Lấy slots theo ca và ngày
   getRoomCalendar,                 // Lịch phòng
@@ -3135,4 +3309,5 @@ module.exports = {
   getAvailableShifts,              // Lấy danh sách ca làm việc
   checkStaffHasSchedule            // Kiểm tra nhân sự có lịch hay không
 };
+
 
