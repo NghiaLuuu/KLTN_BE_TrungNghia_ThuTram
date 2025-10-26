@@ -45,7 +45,13 @@ function computeDaysOff(startDate, endDate, recurringHolidays = [], nonRecurring
       if (!daysOffMap.has(dateStr)) {
         daysOffMap.set(dateStr, {
           date: dateStr,
-          reason: matchingRecurring.name
+          reason: matchingRecurring.name,
+          // 🆕 Track theo ca - mặc định chưa override
+          shifts: {
+            morning: { isOverridden: false, overriddenAt: null },
+            afternoon: { isOverridden: false, overriddenAt: null },
+            evening: { isOverridden: false, overriddenAt: null }
+          }
         });
       }
     }
@@ -70,7 +76,13 @@ function computeDaysOff(startDate, endDate, recurringHolidays = [], nonRecurring
         if (!daysOffMap.has(dateStr)) {
           daysOffMap.set(dateStr, {
             date: dateStr,
-            reason: holiday.name
+            reason: holiday.name,
+            // 🆕 Track theo ca - mặc định chưa override
+            shifts: {
+              morning: { isOverridden: false, overriddenAt: null },
+              afternoon: { isOverridden: false, overriddenAt: null },
+              evening: { isOverridden: false, overriddenAt: null }
+            }
           });
         }
         hDate = hDate.add(1, 'day');
@@ -609,7 +621,8 @@ function isHolidayFromSnapshot(date, holidaySnapshot) {
   if (!holidaySnapshot) return false;
   
   const checkDate = new Date(date);
-  checkDate.setHours(0, 0, 0, 0);
+  // ✅ FIX: Sử dụng UTC methods để tránh timezone issue
+  checkDate.setUTCHours(0, 0, 0, 0);
   const dateStr = checkDate.toISOString().split('T')[0]; // YYYY-MM-DD
   
   // 🆕 PRIORITY 1: Kiểm tra computedDaysOff trước (nếu có)
@@ -618,7 +631,9 @@ function isHolidayFromSnapshot(date, holidaySnapshot) {
   }
   
   // FALLBACK: Kiểm tra recurring và non-recurring (cho backward compatibility)
-  const dayOfWeek = checkDate.getDay() === 0 ? 7 : checkDate.getDay(); // 1=CN, 2=T2, ..., 7=T7
+  // Convention: 1=Chủ nhật, 2=Thứ 2, 3=Thứ 3, ..., 7=Thứ 7
+  // checkDate.getUTCDay(): 0=Chủ nhật, 1=Thứ 2, 2=Thứ 3, ..., 6=Thứ 7
+  const dayOfWeek = checkDate.getUTCDay() + 1; // Convert: 0->1 (CN), 1->2 (T2), ..., 6->7 (T7)
   
   // Kiểm tra ngày nghỉ cố định
   const recurringHolidays = holidaySnapshot.recurringHolidays || [];
@@ -631,8 +646,9 @@ function isHolidayFromSnapshot(date, holidaySnapshot) {
   const isNonRecurringHoliday = nonRecurringHolidays.some(h => {
     const holidayStart = new Date(h.startDate);
     const holidayEnd = new Date(h.endDate);
-    holidayStart.setHours(0, 0, 0, 0);
-    holidayEnd.setHours(23, 59, 59, 999);
+    // ✅ FIX: Sử dụng UTC methods
+    holidayStart.setUTCHours(0, 0, 0, 0);
+    holidayEnd.setUTCHours(23, 59, 59, 999);
     
     return checkDate >= holidayStart && checkDate <= holidayEnd;
   });
@@ -2015,6 +2031,406 @@ async function generateBulkRoomSchedules ({
     throw error;
   }
 };
+
+// 🆕 Nhiệm vụ 2.3: Tạo lịch override trong ngày nghỉ
+exports.createScheduleOverrideHoliday = async (data) => {
+  const {
+    roomId,
+    subRoomId,
+    month,          // Tháng của schedule
+    year,           // Năm của schedule
+    date,           // Ngày cần tạo lịch (YYYY-MM-DD)
+    shifts,         // Mảng shift keys: ['morning', 'afternoon', 'evening']
+    note            // Ghi chú lý do override
+  } = data;
+
+  try {
+    // Validate input
+    if (!roomId || !month || !year || !date || !shifts || !Array.isArray(shifts) || shifts.length === 0) {
+      throw new Error('Thiếu thông tin: roomId, month, year, date, và shifts (array) là bắt buộc');
+    }
+
+    // Tìm schedule hiện tại
+    const query = {
+      roomId: new mongoose.Types.ObjectId(roomId),
+      month: parseInt(month),
+      year: parseInt(year)
+    };
+    
+    if (subRoomId && subRoomId !== 'null' && subRoomId !== 'undefined') {
+      query.subRoomId = new mongoose.Types.ObjectId(subRoomId);
+    } else {
+      query.subRoomId = null;
+    }
+    
+    const schedule = await Schedule.findOne(query);
+    
+    if (!schedule) {
+      throw new Error('Không tìm thấy lịch phòng khám cho tháng này');
+    }
+
+    // Parse target date
+    const targetDate = new Date(date);
+    targetDate.setUTCHours(0, 0, 0, 0); // ✅ Dùng UTC
+    
+    // Kiểm tra ngày có phải holiday không (từ holidaySnapshot)
+    // ✅ Convention: dayOfWeek 1=Sunday, 2=Monday, ..., 7=Saturday (dayjs format)
+    const jsDay = targetDate.getUTCDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
+    const dayOfWeek = jsDay === 0 ? 1 : jsDay + 1; // Convert: 0→1, 1→2, ..., 6→7
+    const holidaySnapshot = schedule.holidaySnapshot || {};
+    const recurringHolidays = holidaySnapshot.recurringHolidays || [];
+    const nonRecurringHolidays = holidaySnapshot.nonRecurringHolidays || [];
+    
+    console.log('🔍 Checking holiday for date:', {
+      inputDate: date,
+      targetDate: targetDate.toISOString(),
+      jsDay,
+      dayOfWeek,
+      recurringHolidays: recurringHolidays.map(h => ({ name: h.name, dayOfWeek: h.dayOfWeek }))
+    });
+    
+    let isHoliday = false;
+    let originalHolidayName = '';
+    
+    // Check recurring holidays
+    const matchingRecurring = recurringHolidays.find(h => h.dayOfWeek === dayOfWeek);
+    if (matchingRecurring) {
+      isHoliday = true;
+      originalHolidayName = matchingRecurring.name;
+      console.log('✅ Found recurring holiday:', matchingRecurring.name);
+    }
+    
+    // Check non-recurring holidays
+    if (!isHoliday) {
+      for (const holiday of nonRecurringHolidays) {
+        const startDate = new Date(holiday.startDate);
+        const endDate = new Date(holiday.endDate);
+        startDate.setUTCHours(0, 0, 0, 0); // ✅ Dùng UTC
+        endDate.setUTCHours(23, 59, 59, 999); // ✅ Dùng UTC
+        
+        if (targetDate >= startDate && targetDate <= endDate) {
+          isHoliday = true;
+          originalHolidayName = holiday.name;
+          console.log('✅ Found non-recurring holiday:', holiday.name);
+          break;
+        }
+      }
+    }
+    
+    if (!isHoliday) {
+      throw new Error('Ngày này không phải ngày nghỉ trong holidaySnapshot của lịch');
+    }
+
+    // ✅ Kiểm tra shift nào đã có slots (theo từng ca)
+    const Slot = require('../models/slot.model');
+    
+    const existingSlots = await Slot.find({
+      scheduleId: schedule._id,
+      date: targetDate // ✅ Field name is 'date' not 'slotDate'
+    });
+
+    // Group existing slots by shift
+    const shiftMapping = {
+      morning: 'Ca Sáng',
+      afternoon: 'Ca Chiều',
+      evening: 'Ca Tối'
+    };
+    
+    const existingShifts = new Set(
+      existingSlots.map(slot => {
+        // Map shiftName back to shift key
+        if (slot.shiftName === 'Ca Sáng' || slot.shiftName.includes('Sáng')) return 'morning';
+        if (slot.shiftName === 'Ca Chiều' || slot.shiftName.includes('Chiều')) return 'afternoon';
+        if (slot.shiftName === 'Ca Tối' || slot.shiftName.includes('Tối')) return 'evening';
+        return null;
+      }).filter(Boolean)
+    );
+    
+    // Kiểm tra xem có shift nào user muốn tạo mà đã tồn tại không
+    const conflictingShifts = shifts.filter(shiftKey => existingShifts.has(shiftKey));
+    
+    if (conflictingShifts.length > 0) {
+      const conflictNames = conflictingShifts.map(key => shiftMapping[key]).join(', ');
+      throw new Error(
+        `Đã có slots cho ${conflictNames} trong ngày này. ` +
+        `Vui lòng chọn các ca khác hoặc xóa slots cũ trước.`
+      );
+    }
+    
+    console.log(`✅ Existing shifts: ${Array.from(existingShifts).join(', ') || 'none'}`);
+    console.log(`✅ Creating new shifts: ${shifts.join(', ')}`);
+
+    // Lấy config để biết slot duration
+    const config = await cfgService.getConfig();
+    if (!config) {
+      throw new Error('Schedule config chưa được khởi tạo');
+    }
+
+    // Generate slots cho các ca được chọn
+    const createdSlots = [];
+    const shiftInfoMap = {
+      morning: { key: 'morning', name: 'Ca Sáng', config: schedule.shiftConfig.morning },
+      afternoon: { key: 'afternoon', name: 'Ca Chiều', config: schedule.shiftConfig.afternoon },
+      evening: { key: 'evening', name: 'Ca Tối', config: schedule.shiftConfig.evening }
+    };
+    
+    for (const shiftKey of shifts) {
+      const shiftInfo = shiftInfoMap[shiftKey];
+      if (!shiftInfo || !shiftInfo.config) {
+        console.log(`⚠️ Bỏ qua shift ${shiftKey} - không có config`);
+        continue;
+      }
+      
+      const shiftConfig = shiftInfo.config;
+      
+      if (!shiftConfig.isActive) {
+        console.log(`⚠️ Bỏ qua ${shiftInfo.name} vì không active trong schedule`);
+        continue;
+      }
+
+      // Generate slots for this shift (1 ngày duy nhất)
+      const shiftSlots = [];
+      // ✅ Lấy year, month, day từ UTC
+      const year = targetDate.getUTCFullYear();
+      const month = targetDate.getUTCMonth() + 1;
+      const day = targetDate.getUTCDate();
+      
+      // Parse shift times (format: "HH:mm")
+      const [startHour, startMin] = shiftConfig.startTime.split(':').map(Number);
+      const [endHour, endMin] = shiftConfig.endTime.split(':').map(Number);
+      
+      // Create UTC times (VN is UTC+7)
+      let slotStartTime = new Date(Date.UTC(year, month - 1, day, startHour - 7, startMin, 0, 0));
+      const shiftEndTime = new Date(Date.UTC(year, month - 1, day, endHour - 7, endMin, 0, 0));
+      
+      // Generate slots within the shift
+      while (slotStartTime < shiftEndTime) {
+        const slotEndTime = new Date(slotStartTime.getTime() + shiftConfig.slotDuration * 60 * 1000);
+        
+        if (slotEndTime > shiftEndTime) break; // Don't exceed shift end time
+        
+        shiftSlots.push({
+          scheduleId: schedule._id,
+          roomId: schedule.roomId,
+          subRoomId: schedule.subRoomId || null,
+          shiftName: shiftInfo.name,
+          startTime: new Date(slotStartTime),
+          endTime: new Date(slotEndTime),
+          date: new Date(targetDate), // ✅ Field name is 'date' not 'slotDate'
+          duration: shiftConfig.slotDuration,
+          status: 'available',
+          isActive: true,
+          isHolidayOverride: true // 🔥 Đánh dấu là override holiday
+        });
+        
+        slotStartTime = slotEndTime;
+      }
+      
+      // Bulk insert slots
+      if (shiftSlots.length > 0) {
+        const insertedSlots = await Slot.insertMany(shiftSlots); // ✅ Lấy kết quả
+        createdSlots.push(...insertedSlots); // ✅ Push slots đã có _id
+        console.log(`✅ Tạo ${insertedSlots.length} slots override cho ${shiftInfo.name} ngày ${date}`);
+      }
+    }
+    
+    // 🆕 MARK CA ĐÃ OVERRIDE thay vì xóa ngày
+    if (schedule.holidaySnapshot && schedule.holidaySnapshot.computedDaysOff) {
+      const dateStr = targetDate.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+      const dayOffEntry = schedule.holidaySnapshot.computedDaysOff.find(d => d.date === dateStr);
+      
+      if (dayOffEntry) {
+        // Mark các ca đã tạo
+        const shiftKeyMap = {
+          'morning': 'morning',
+          'afternoon': 'afternoon',
+          'evening': 'evening'
+        };
+        
+        shifts.forEach(shiftKey => {
+          const mappedKey = shiftKeyMap[shiftKey];
+          if (mappedKey && dayOffEntry.shifts && dayOffEntry.shifts[mappedKey]) {
+            dayOffEntry.shifts[mappedKey].isOverridden = true;
+            dayOffEntry.shifts[mappedKey].overriddenAt = new Date();
+            console.log(`✅ Marked ${mappedKey} as overridden for date ${dateStr}`);
+          }
+        });
+        
+        // 🔍 Kiểm tra nếu CẢ 3 CA đều overridden → XÓA ngày khỏi array
+        const allShiftsOverridden = dayOffEntry.shifts &&
+          dayOffEntry.shifts.morning?.isOverridden &&
+          dayOffEntry.shifts.afternoon?.isOverridden &&
+          dayOffEntry.shifts.evening?.isOverridden;
+        
+        if (allShiftsOverridden) {
+          schedule.holidaySnapshot.computedDaysOff = schedule.holidaySnapshot.computedDaysOff.filter(
+            d => d.date !== dateStr
+          );
+          console.log(`🗑️ Removed ${dateStr} from computedDaysOff (all 3 shifts overridden)`);
+        } else {
+          console.log(`ℹ️ Kept ${dateStr} in computedDaysOff (some shifts still not overridden)`);
+        }
+      }
+    }
+    
+    await schedule.save();
+
+    console.log(`✅ Tạo lịch override holiday thành công: ${createdSlots.length} slots cho ngày ${date}`);
+    
+    // 🆕 Log chi tiết từng slot để debug
+    console.log('📋 Chi tiết các slots đã tạo:');
+    createdSlots.forEach((slot, index) => {
+      console.log(`  Slot ${index + 1}:`, {
+        _id: slot._id,
+        shiftName: slot.shiftName,
+        date: slot.date, // ✅ Field name is 'date'
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        duration: slot.duration,
+        status: slot.status,
+        isHolidayOverride: slot.isHolidayOverride,
+        roomId: slot.roomId,
+        scheduleId: slot.scheduleId
+      });
+    });
+
+    return {
+      success: true,
+      message: `Đã tạo ${createdSlots.length} slots override trong ngày nghỉ ${date}`,
+      scheduleId: schedule._id,
+      slotsCreated: createdSlots.length,
+      slots: createdSlots.map(s => ({
+        _id: s._id,
+        shiftName: s.shiftName,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        date: s.date, // ✅ Field name is 'date'
+        duration: s.duration,
+        status: s.status,
+        isHolidayOverride: s.isHolidayOverride
+      })),
+      shifts,
+      isHolidayOverride: true,
+      originalHolidayName,
+      note
+    };
+
+  } catch (error) {
+    console.error('❌ Error creating schedule override holiday:', error);
+    throw error;
+  }
+};
+
+/**
+ * 🆕 API: Get available shifts for override holiday
+ * POST /api/schedule/get-available-override-shifts
+ * Body: { roomId, month, year, date, scheduleIds: [id1, id2, ...] }
+ * 
+ * Trả về danh sách ca chưa override cho các schedule được chọn
+ * Nếu chọn nhiều schedule (subrooms), merge results
+ */
+exports.getAvailableOverrideShifts = async ({ roomId, month, year, date, scheduleIds }) => {
+  try {
+    const targetDate = new Date(date);
+    const dateStr = targetDate.toISOString().split('T')[0];
+    
+    // Fetch all selected schedules
+    const schedules = await Schedule.find({
+      _id: { $in: scheduleIds.map(id => new mongoose.Types.ObjectId(id)) },
+      month: parseInt(month),
+      year: parseInt(year)
+    });
+    
+    if (schedules.length === 0) {
+      return {
+        success: false,
+        message: 'Không tìm thấy schedule nào',
+        availableShifts: []
+      };
+    }
+    
+    // Aggregate shifts status from all schedules
+    const shiftsStatus = {
+      morning: { available: [], overridden: [] },
+      afternoon: { available: [], overridden: [] },
+      evening: { available: [], overridden: [] }
+    };
+    
+    schedules.forEach(schedule => {
+      const dayOffEntry = schedule.holidaySnapshot?.computedDaysOff?.find(d => d.date === dateStr);
+      
+      if (dayOffEntry && dayOffEntry.shifts) {
+        // Check each shift
+        ['morning', 'afternoon', 'evening'].forEach(shiftKey => {
+          const shiftData = dayOffEntry.shifts[shiftKey];
+          
+          if (shiftData?.isOverridden) {
+            shiftsStatus[shiftKey].overridden.push({
+              scheduleId: schedule._id,
+              subRoomName: schedule.subRoomId ? schedule.subRoom?.name : 'Phòng chính',
+              overriddenAt: shiftData.overriddenAt
+            });
+          } else {
+            shiftsStatus[shiftKey].available.push({
+              scheduleId: schedule._id,
+              subRoomName: schedule.subRoomId ? schedule.subRoom?.name : 'Phòng chính'
+            });
+          }
+        });
+      } else {
+        // Ngày không phải holiday hoặc chưa có shifts tracking → tất cả available
+        ['morning', 'afternoon', 'evening'].forEach(shiftKey => {
+          shiftsStatus[shiftKey].available.push({
+            scheduleId: schedule._id,
+            subRoomName: schedule.subRoomId ? schedule.subRoom?.name : 'Phòng chính'
+          });
+        });
+      }
+    });
+    
+    // Format response
+    const availableShifts = [];
+    const overriddenShifts = [];
+    
+    ['morning', 'afternoon', 'evening'].forEach(shiftKey => {
+      const status = shiftsStatus[shiftKey];
+      
+      if (status.available.length > 0) {
+        availableShifts.push({
+          shiftKey,
+          name: shiftKey === 'morning' ? 'Ca Sáng' : shiftKey === 'afternoon' ? 'Ca Chiều' : 'Ca Tối',
+          availableFor: status.available,
+          canSelect: true
+        });
+      }
+      
+      if (status.overridden.length > 0) {
+        overriddenShifts.push({
+          shiftKey,
+          name: shiftKey === 'morning' ? 'Ca Sáng' : shiftKey === 'afternoon' ? 'Ca Chiều' : 'Ca Tối',
+          overriddenFor: status.overridden,
+          canSelect: false
+        });
+      }
+    });
+    
+    return {
+      success: true,
+      date: dateStr,
+      availableShifts,
+      overriddenShifts,
+      summary: {
+        totalAvailable: availableShifts.length,
+        totalOverridden: overriddenShifts.length
+      }
+    };
+    
+  } catch (error) {
+    console.error('❌ Error getting available override shifts:', error);
+    throw error;
+  }
+};
+
 module.exports = {
   generateQuarterSchedule,
   generateQuarterScheduleForSingleRoom,
@@ -2042,6 +2458,7 @@ module.exports = {
 module.exports.disableSlotsFlexible = exports.disableSlotsFlexible;
 module.exports.enableSlotsFlexible = exports.enableSlotsFlexible;
 module.exports.createScheduleOverrideHoliday = exports.createScheduleOverrideHoliday;
+module.exports.getAvailableOverrideShifts = exports.getAvailableOverrideShifts;
 
 /**
  * 🆕 API: Validate ngày nghỉ từ holidaySnapshot của schedule cụ thể
@@ -4376,7 +4793,7 @@ exports.generateRoomSchedule = async ({
       results,
       stats: {
         totalSlots,
-        monthRange: `${fromMonth}/${year} - ${toMonth}/${year}`,
+        monthRange: `${fromMonth}/${effectiveFromYear} - ${toMonth}/${effectiveToYear}`,
         shiftsGenerated: shifts,
         shiftsNotGenerated: ['morning', 'afternoon', 'evening'].filter(s => !shifts.includes(s))
       }
@@ -5488,8 +5905,12 @@ async function generateSlotsForShift({
   console.log(`📅 Holiday snapshot:`, holidaySnapshot);
 
   const slots = [];
+  // ✅ FIX: Sử dụng UTC để tránh timezone issue
   const currentDate = new Date(scheduleStartDate);
+  currentDate.setUTCHours(0, 0, 0, 0); // Normalize to UTC midnight
+  
   const endDate = new Date(scheduleEndDate);
+  endDate.setUTCHours(23, 59, 59, 999); // End of day in UTC
   
   let skippedDays = 0;
   let processedDays = 0;
@@ -5504,19 +5925,24 @@ async function generateSlotsForShift({
     
     if (isHolidayDay) {
       skippedDays++;
-      console.log(`⏭️  Skipping holiday: ${currentDate.toISOString().split('T')[0]}`);
-      currentDate.setDate(currentDate.getDate() + 1);
+      const dateStr = currentDate.toISOString().split('T')[0];
+      console.log(`⏭️  Skipping holiday: ${dateStr}`);
+      // ✅ FIX: Sử dụng setUTCDate để tăng ngày trong UTC
+      currentDate.setUTCDate(currentDate.getUTCDate() + 1);
       continue; // Bỏ qua ngày nghỉ, không tạo slot
     }
     
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth() + 1;
-    const day = currentDate.getDate();
+    // ✅ FIX: Lấy year, month, day từ UTC
+    const year = currentDate.getUTCFullYear();
+    const month = currentDate.getUTCMonth() + 1;
+    const day = currentDate.getUTCDate();
     
     // Parse shift times (format: "HH:mm")
     const [startHour, startMin] = shiftStart.split(':').map(Number);
     const [endHour, endMin] = shiftEnd.split(':').map(Number);
     
+    // ✅ FIX: Convert VN time (UTC+7) to UTC
+    // VN 08:00 = UTC 01:00 (08 - 7 = 1)
     let slotStartTime = new Date(Date.UTC(year, month - 1, day, startHour - 7, startMin, 0, 0));
     const shiftEndTime = new Date(Date.UTC(year, month - 1, day, endHour - 7, endMin, 0, 0));
     
@@ -5528,6 +5954,10 @@ async function generateSlotsForShift({
       
       if (slotEndTime > shiftEndTime) break; // Don't exceed shift end time
       
+      // ✅ FIX: Store date as midnight UTC (not VN midnight)
+      // This ensures date field represents the calendar date consistently
+      const slotDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+      
       slots.push({
         scheduleId,
         roomId,
@@ -5535,7 +5965,7 @@ async function generateSlotsForShift({
         shiftName,
         startTime: new Date(slotStartTime),
         endTime: new Date(slotEndTime),
-        date: new Date(Date.UTC(year, month - 1, day, -7, 0, 0, 0)), // Midnight VN time
+        date: slotDate,
         duration: slotDuration,
         status: 'available'
       });
@@ -5545,11 +5975,12 @@ async function generateSlotsForShift({
     }
     
     if (processedDays === 1) {
-      console.log(`📊 First day (${currentDate.toISOString().split('T')[0]}): Generated ${slotCount} slots`);
+      const dateStr = currentDate.toISOString().split('T')[0];
+      console.log(`📊 First day (${dateStr}): Generated ${slotCount} slots`);
     }
     
-    // Move to next day
-    currentDate.setDate(currentDate.getDate() + 1);
+    // ✅ FIX: Move to next day using UTC
+    currentDate.setUTCDate(currentDate.getUTCDate() + 1);
   }
   
   // Log thông tin skip
@@ -6670,207 +7101,7 @@ exports.enableSlotsFlexible = async (criteria) => {
 };
 
 // 🆕 Nhiệm vụ 2.3: Tạo lịch override trong ngày nghỉ
-exports.createScheduleOverrideHoliday = async (data) => {
-  const {
-    roomId,
-    subRoomId,
-    month,          // Tháng của schedule
-    year,           // Năm của schedule
-    date,           // Ngày cần tạo lịch (YYYY-MM-DD)
-    shifts,         // Mảng shift keys: ['morning', 'afternoon', 'evening']
-    note            // Ghi chú lý do override
-  } = data;
 
-  try {
-    // Validate input
-    if (!roomId || !month || !year || !date || !shifts || !Array.isArray(shifts) || shifts.length === 0) {
-      throw new Error('Thiếu thông tin: roomId, month, year, date, và shifts (array) là bắt buộc');
-    }
-
-    // Tìm schedule hiện tại
-    const query = {
-      roomId: new mongoose.Types.ObjectId(roomId),
-      month: parseInt(month),
-      year: parseInt(year)
-    };
-    
-    if (subRoomId && subRoomId !== 'null' && subRoomId !== 'undefined') {
-      query.subRoomId = new mongoose.Types.ObjectId(subRoomId);
-    } else {
-      query.subRoomId = null;
-    }
-    
-    const schedule = await Schedule.findOne(query);
-    
-    if (!schedule) {
-      throw new Error('Không tìm thấy lịch phòng khám cho tháng này');
-    }
-
-    // Parse target date
-    const targetDate = new Date(date);
-    targetDate.setHours(0, 0, 0, 0);
-    
-    // Kiểm tra ngày có phải holiday không (từ holidaySnapshot)
-    const dayOfWeek = targetDate.getDay() === 0 ? 7 : targetDate.getDay(); // Chuyển 0 (CN) thành 7
-    const holidaySnapshot = schedule.holidaySnapshot || {};
-    const recurringHolidays = holidaySnapshot.recurringHolidays || [];
-    const nonRecurringHolidays = holidaySnapshot.nonRecurringHolidays || [];
-    
-    let isHoliday = false;
-    let originalHolidayName = '';
-    
-    // Check recurring holidays
-    const matchingRecurring = recurringHolidays.find(h => h.dayOfWeek === dayOfWeek);
-    if (matchingRecurring) {
-      isHoliday = true;
-      originalHolidayName = matchingRecurring.name;
-    }
-    
-    // Check non-recurring holidays
-    if (!isHoliday) {
-      for (const holiday of nonRecurringHolidays) {
-        const startDate = new Date(holiday.startDate);
-        const endDate = new Date(holiday.endDate);
-        startDate.setHours(0, 0, 0, 0);
-        endDate.setHours(23, 59, 59, 999);
-        
-        if (targetDate >= startDate && targetDate <= endDate) {
-          isHoliday = true;
-          originalHolidayName = holiday.name;
-          break;
-        }
-      }
-    }
-    
-    if (!isHoliday) {
-      throw new Error('Ngày này không phải ngày nghỉ trong holidaySnapshot của lịch');
-    }
-
-    // Kiểm tra xem đã có slots trong ngày này chưa
-    const Slot = require('../models/slot.model');
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
-    
-    const existingSlots = await Slot.find({
-      scheduleId: schedule._id,
-      slotDate: targetDate
-    });
-
-    if (existingSlots.length > 0) {
-      throw new Error(
-        `Đã có ${existingSlots.length} slots trong ngày này. ` +
-        `Vui lòng xóa slots cũ trước khi tạo override.`
-      );
-    }
-
-    // Lấy config để biết slot duration
-    const config = await cfgService.getConfig();
-    if (!config) {
-      throw new Error('Schedule config chưa được khởi tạo');
-    }
-
-    // Generate slots cho các ca được chọn
-    const createdSlots = [];
-    const shiftMapping = {
-      morning: { key: 'morning', name: 'Ca Sáng', config: schedule.shiftConfig.morning },
-      afternoon: { key: 'afternoon', name: 'Ca Chiều', config: schedule.shiftConfig.afternoon },
-      evening: { key: 'evening', name: 'Ca Tối', config: schedule.shiftConfig.evening }
-    };
-    
-    for (const shiftKey of shifts) {
-      const shiftInfo = shiftMapping[shiftKey];
-      if (!shiftInfo || !shiftInfo.config) {
-        console.log(`⚠️ Bỏ qua shift ${shiftKey} - không có config`);
-        continue;
-      }
-      
-      const shiftConfig = shiftInfo.config;
-      
-      if (!shiftConfig.isActive) {
-        console.log(`⚠️ Bỏ qua ${shiftInfo.name} vì không active trong schedule`);
-        continue;
-      }
-
-      // Generate slots for this shift (1 ngày duy nhất)
-      const shiftSlots = [];
-      const year = targetDate.getFullYear();
-      const month = targetDate.getMonth() + 1;
-      const day = targetDate.getDate();
-      
-      // Parse shift times (format: "HH:mm")
-      const [startHour, startMin] = shiftConfig.startTime.split(':').map(Number);
-      const [endHour, endMin] = shiftConfig.endTime.split(':').map(Number);
-      
-      // Create UTC times (VN is UTC+7)
-      let slotStartTime = new Date(Date.UTC(year, month - 1, day, startHour - 7, startMin, 0, 0));
-      const shiftEndTime = new Date(Date.UTC(year, month - 1, day, endHour - 7, endMin, 0, 0));
-      
-      // Generate slots within the shift
-      while (slotStartTime < shiftEndTime) {
-        const slotEndTime = new Date(slotStartTime.getTime() + shiftConfig.slotDuration * 60 * 1000);
-        
-        if (slotEndTime > shiftEndTime) break; // Don't exceed shift end time
-        
-        shiftSlots.push({
-          scheduleId: schedule._id,
-          roomId: schedule.roomId,
-          subRoomId: schedule.subRoomId || null,
-          shiftName: shiftInfo.name,
-          startTime: new Date(slotStartTime),
-          endTime: new Date(slotEndTime),
-          slotDate: new Date(targetDate),
-          duration: shiftConfig.slotDuration,
-          status: 'available',
-          isActive: true,
-          isHolidayOverride: true // 🔥 Đánh dấu là override holiday
-        });
-        
-        slotStartTime = slotEndTime;
-      }
-      
-      // Bulk insert slots
-      if (shiftSlots.length > 0) {
-        await Slot.insertMany(shiftSlots);
-        createdSlots.push(...shiftSlots);
-        console.log(`✅ Tạo ${shiftSlots.length} slots override cho ${shiftInfo.name} ngày ${date}`);
-      }
-    }
-    
-    // ✅ XÓA ngày này khỏi computedDaysOff (thay vì thêm vào overriddenHolidays)
-    if (schedule.holidaySnapshot && schedule.holidaySnapshot.computedDaysOff) {
-      const dateStr = targetDate.toISOString().split('T')[0]; // Format: YYYY-MM-DD
-      const initialLength = schedule.holidaySnapshot.computedDaysOff.length;
-      
-      schedule.holidaySnapshot.computedDaysOff = schedule.holidaySnapshot.computedDaysOff.filter(
-        dayOff => dayOff.date !== dateStr
-      );
-      
-      const removedCount = initialLength - schedule.holidaySnapshot.computedDaysOff.length;
-      if (removedCount > 0) {
-        console.log(`🗑️ Đã xóa ${removedCount} ngày khỏi computedDaysOff: ${dateStr}`);
-      }
-    }
-    
-    await schedule.save();
-
-    console.log(`✅ Tạo lịch override holiday thành công: ${createdSlots.length} slots cho ngày ${date}`);
-
-    return {
-      success: true,
-      message: `Đã tạo ${createdSlots.length} slots override trong ngày nghỉ ${date}`,
-      scheduleId: schedule._id,
-      slotsCreated: createdSlots.length,
-      shifts,
-      isHolidayOverride: true,
-      originalHolidayName,
-      note
-    };
-
-  } catch (error) {
-    console.error('❌ Error creating schedule override holiday:', error);
-    throw error;
-  }
-};
 
 // 🆕 Nhiệm vụ 2.4: Kiểm tra lịch chưa đủ (Incomplete Schedule Validation)
 exports.validateIncompleteSchedule = async (data) => {

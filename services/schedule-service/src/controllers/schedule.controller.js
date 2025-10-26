@@ -1177,6 +1177,39 @@ exports.validateIncompleteSchedule = async (req, res) => {
 };
 
 /**
+ * 🆕 Get available shifts for override holiday
+ * POST /api/schedule/get-available-override-shifts
+ */
+exports.getAvailableOverrideShifts = async (req, res) => {
+  try {
+    const { roomId, month, year, date, scheduleIds } = req.body;
+    
+    if (!roomId || !month || !year || !date || !scheduleIds || !Array.isArray(scheduleIds)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Thiếu thông tin: roomId, month, year, date, và scheduleIds (array) là bắt buộc'
+      });
+    }
+    
+    const result = await scheduleService.getAvailableOverrideShifts({
+      roomId,
+      month: parseInt(month),
+      year: parseInt(year),
+      date,
+      scheduleIds
+    });
+    
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('❌ Error getAvailableOverrideShifts:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
  * 🆕 Validate holiday từ holidaySnapshot của schedule
  */
 exports.validateHolidayFromSchedule = async (req, res) => {
@@ -1306,6 +1339,7 @@ module.exports = {
   getBulkRoomSchedulesInfo: exports.getBulkRoomSchedulesInfo,
   generateBulkRoomSchedules: exports.generateBulkRoomSchedules,
   createScheduleOverrideHoliday: exports.createScheduleOverrideHoliday, // 🆕 Nhiệm vụ 2.3
+  getAvailableOverrideShifts: exports.getAvailableOverrideShifts,       // 🆕 Get shift status for override
   validateIncompleteSchedule: exports.validateIncompleteSchedule,       // 🆕 Nhiệm vụ 2.4
   validateHolidayFromSchedule: exports.validateHolidayFromSchedule,     // 🆕 Validate holiday từ holidaySnapshot
   bulkDisableSchedule: exports.bulkDisableSchedule,                     // 🆕 Bulk disable

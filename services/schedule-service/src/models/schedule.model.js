@@ -129,7 +129,9 @@ const scheduleSchema = new mongoose.Schema({
     
     // 🆕 Danh sách ngày nghỉ thực tế đã tính toán trong tháng
     // Tự động generate từ recurringHolidays và nonRecurringHolidays
-    // ⚠️ Khi tạo override holiday (làm việc trong ngày nghỉ), XÓA ngày đó khỏi array này
+    // ⚠️ TRACK THEO CA: Mỗi ngày có 3 ca (morning, afternoon, evening)
+    // Khi tạo override holiday cho 1 ca, đánh dấu ca đó isOverridden = true
+    // Chỉ XÓA ngày khỏi array khi CẢ 3 CA đều isOverridden = true
     computedDaysOff: [{
       date: {
         type: String, // Format: YYYY-MM-DD
@@ -138,6 +140,21 @@ const scheduleSchema = new mongoose.Schema({
       reason: {
         type: String, // Tên ngày nghỉ (vd: "Nghỉ Chủ nhật", "Nghỉ tháng 11")
         required: true
+      },
+      // 🆕 Track theo ca
+      shifts: {
+        morning: {
+          isOverridden: { type: Boolean, default: false },
+          overriddenAt: { type: Date, default: null }
+        },
+        afternoon: {
+          isOverridden: { type: Boolean, default: false },
+          overriddenAt: { type: Date, default: null }
+        },
+        evening: {
+          isOverridden: { type: Boolean, default: false },
+          overriddenAt: { type: Date, default: null }
+        }
       }
     }]
   }
