@@ -6,6 +6,7 @@ const connectDB = require('./config/db');
 const authRoutes = require('./routes/auth.route');
 const userRoutes = require('./routes/user.route');
 const startRPCServer = require('./utils/user.rpc'); 
+const { startEmailConsumer } = require('./services/email.consumer'); // 🆕 Email consumer
 const cors = require('cors');
 
 connectDB();
@@ -24,6 +25,11 @@ app.use('/api/user', userRoutes);
 startRPCServer()
   .then(() => console.log('✅ User RPC server started'))
   .catch(err => console.error('❌ Failed to start User RPC server:', err));
+
+// 🆕 Khởi chạy Email Consumer
+startEmailConsumer()
+  .then(() => console.log('✅ Email consumer started'))
+  .catch(err => console.error('❌ Failed to start Email consumer:', err));
 
 // Server
 const PORT = process.env.PORT || 3001;

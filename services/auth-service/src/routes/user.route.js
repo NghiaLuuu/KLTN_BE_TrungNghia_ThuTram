@@ -25,6 +25,9 @@ router.post('/create-staff', authMiddleware, userController.createStaff); // �
 router.get('/all-staff', userController.getAllStaff); // Supports search via query params
 router.get('/all-patient', authMiddleware, canViewPatients, userController.getAllPatients); // Supports search via query params
 
+// 🆕 Get all users cache (for schedule-service to get emails)
+router.get('/cache/all', userController.getAllUsersCache);
+
 // 🆕 Reset password về mặc định
 router.post('/:id/reset-password', authMiddleware, userController.resetUserPasswordToDefault);
 

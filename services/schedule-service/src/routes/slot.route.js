@@ -58,6 +58,12 @@ router.put('/bulk-update', slotController.bulkUpdateSlots);
 // 🆕 Toggle isActive status of multiple slots (for calendar slot selection)
 router.post('/toggle-active', authMiddleware, slotController.toggleSlotsIsActive);
 
+// 🆕 Disable all slots in a day (emergency closure - admin only)
+router.post('/disable-all-day', authMiddleware, slotController.disableAllDaySlots);
+
+// 🆕 Enable all slots in a day (reactivate - admin only)
+router.post('/enable-all-day', authMiddleware, slotController.enableAllDaySlots);
+
 // 🆕 Nhiệm vụ 2.2: Tắt/bật lịch linh hoạt
 router.post('/disable', authMiddleware, slotController.disableSlots);
 router.post('/enable', authMiddleware, slotController.enableSlots);

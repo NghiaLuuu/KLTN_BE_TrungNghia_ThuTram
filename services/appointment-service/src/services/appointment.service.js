@@ -1057,6 +1057,30 @@ class AppointmentService {
       throw error;
     }
   }
+
+  // 🆕 GET APPOINTMENTS BY IDS (for schedule-service to get patient info for email)
+  async getAppointmentsByIds(appointmentIds) {
+    try {
+      if (!Array.isArray(appointmentIds) || appointmentIds.length === 0) {
+        return [];
+      }
+
+      const appointments = await Appointment.find({
+        _id: { $in: appointmentIds }
+      }).select('_id patientId patientInfo appointmentCode status');
+
+      return appointments.map(apt => ({
+        _id: apt._id,
+        appointmentCode: apt.appointmentCode,
+        patientId: apt.patientId,
+        patientInfo: apt.patientInfo,
+        status: apt.status
+      }));
+    } catch (error) {
+      console.error('❌ Error getting appointments by IDs:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = new AppointmentService();

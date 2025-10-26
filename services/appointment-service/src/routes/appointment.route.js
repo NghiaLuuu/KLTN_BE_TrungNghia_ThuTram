@@ -23,6 +23,11 @@ router.get('/',
   appointmentController.getAllAppointments
 );
 
+// 🆕 Get appointments by IDs (for schedule-service - internal use)
+router.get('/by-ids',
+  appointmentController.getByIds
+);
+
 // Get available slot groups
 router.get('/available-slots', 
   authenticate, 

@@ -87,10 +87,10 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
       })));
     }
     
-    const activeDentists = allUsers.filter(u => 
-      u.role === 'dentist' && 
-      u.isActive === true
-    );
+    const activeDentists = allUsers.filter(u => {
+      const roles = Array.isArray(u.roles) ? u.roles : [u.role];
+      return roles.includes('dentist') && u.isActive === true;
+    });
     
     console.log('👨‍⚕️ Found', activeDentists.length, 'active dentists');
     

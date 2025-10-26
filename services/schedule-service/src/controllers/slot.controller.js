@@ -925,12 +925,87 @@ exports.toggleSlotsIsActive = async (req, res) => {
   }
 };
 
+// 🆕 Disable all slots in a day (emergency closure)
+exports.disableAllDaySlots = async (req, res) => {
+  try {
+    // Only admin can disable all day slots
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Chỉ admin mới có quyền tắt toàn bộ lịch trong ngày'
+      });
+    }
+    
+    const { date, reason } = req.body;
+    
+    if (!date || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'date và reason là bắt buộc'
+      });
+    }
+    
+    if (reason.length < 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Lý do phải có ít nhất 10 ký tự'
+      });
+    }
+    
+    const slotService = require('../services/slot.service');
+    const result = await slotService.disableAllDaySlots(date, reason, req.user);
+    
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('[slotController] disableAllDaySlots error:', error);
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// 🆕 Enable all slots in a day (reactivate after emergency closure)
+exports.enableAllDaySlots = async (req, res) => {
+  try {
+    // Only admin can enable all day slots
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Chỉ admin mới có quyền bật toàn bộ lịch trong ngày'
+      });
+    }
+    
+    const { date, reason } = req.body;
+    
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: 'date là bắt buộc'
+      });
+    }
+    
+    const slotService = require('../services/slot.service');
+    const result = await slotService.enableAllDaySlots(date, reason, req.user);
+    
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('[slotController] enableAllDaySlots error:', error);
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getSlotById: exports.getSlotById,                                // 🆕 NEW
   assignStaffToSlots: exports.assignStaffToSlots,
   reassignStaffToSlots: exports.reassignStaffToSlots,
   removeStaffFromSlots: exports.removeStaffFromSlots,              // 🆕 NEW - Remove staff
   toggleSlotsIsActive: exports.toggleSlotsIsActive,                // 🆕 NEW - Toggle isActive
+  disableAllDaySlots: exports.disableAllDaySlots,                  // 🆕 NEW - Emergency closure
+  enableAllDaySlots: exports.enableAllDaySlots,                    // 🆕 NEW - Reactivate slots
   updateSlotStaff: exports.updateSlotStaff,
   getSlotsByShiftAndDate: exports.getSlotsByShiftAndDate,
   getRoomCalendar: exports.getRoomCalendar,

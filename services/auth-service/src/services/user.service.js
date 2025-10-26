@@ -26,7 +26,10 @@ async function refreshUserCache() {
     const getDentists = userRepo.getDentistsWithDescription
       || userRepo.getDentistsWithCertificates
       || userRepo.getDentistsForPatients
-      || (async () => users.filter(u => u.role === 'dentist'));
+      || (async () => users.filter(u => {
+        const roles = Array.isArray(u.roles) ? u.roles : [u.role];
+        return roles.includes('dentist');
+      }));
 
     const dentists = await getDentists();
     await redis.set(DENTIST_CACHE_KEY, JSON.stringify(dentists));
@@ -64,6 +67,48 @@ exports.getProfile = async (userId) => {
   const userFromDb = await userRepo.findById(userId);
   if (!userFromDb) throw new Error('Không tìm thấy người dùng');
   return userFromDb;
+};
+
+// 🆕 GET ALL USERS FROM CACHE (for schedule-service to get emails)
+exports.getAllUsersCache = async () => {
+  try {
+    let users = await redis.get(USER_CACHE_KEY);
+    if (users) {
+      users = JSON.parse(users);
+      // Return essential fields only: _id, email, fullName, role/roles, phoneNumber
+      return users.map(u => ({
+        _id: u._id,
+        email: u.email,
+        fullName: u.fullName,
+        name: u.fullName, // Alias for compatibility
+        role: u.role,
+        roles: u.roles || [u.role],
+        phoneNumber: u.phoneNumber || u.phone || null
+      }));
+    }
+
+    // If cache empty, load from DB and refresh cache
+    console.warn('⚠️ Users cache empty, loading from DB...');
+    await initUserCache();
+    users = await redis.get(USER_CACHE_KEY);
+    if (users) {
+      users = JSON.parse(users);
+      return users.map(u => ({
+        _id: u._id,
+        email: u.email,
+        fullName: u.fullName,
+        name: u.fullName, // Alias for compatibility
+        role: u.role,
+        roles: u.roles || [u.role],
+        phoneNumber: u.phoneNumber || u.phone || null
+      }));
+    }
+
+    return [];
+  } catch (err) {
+    console.error('❌ Error getting users cache:', err);
+    throw new Error('Không thể lấy danh sách người dùng từ cache');
+  }
 };
 
 // 🔹 LIST & SEARCH OPERATIONS
@@ -191,20 +236,24 @@ exports.updateUserWithPermissions = async (currentUser, targetUserId, updateData
   
   // 🔒 ADMIN RULES
   if (currentRole === 'admin') {
-    // 🆕 Admin có thể update tất cả user trừ admin/manager khác (không phải chính mình)
-    if (!isUpdatingSelf && (targetUser.role === 'admin' || targetUser.role === 'manager')) {
-      throw new Error('Admin không thể cập nhật admin hoặc manager khác');
+    // ✅ Admin KHÔNG thể cập nhật chính mình (tránh tự thay đổi role)
+    if (isUpdatingSelf) {
+      throw new Error('Admin không thể cập nhật chính mình để tránh thay đổi role/quyền');
     }
-    // Admin có thể cập nhật chính mình và tất cả role khác
+    // ✅ Admin có thể cập nhật TẤT CẢ user khác (bao gồm cả admin và manager khác)
   }
   
   // 🔒 MANAGER RULES  
   else if (currentRole === 'manager') {
-    // Manager không thể cập nhật admin và manager khác (không phải chính mình)
-    if (!isUpdatingSelf && (targetUser.role === 'admin' || targetUser.role === 'manager')) {
-      throw new Error('Manager không thể cập nhật admin hoặc manager khác');
+    // ❌ Manager KHÔNG thể cập nhật admin
+    if (targetUser.role === 'admin') {
+      throw new Error('Manager không thể cập nhật admin');
     }
-    // Manager có thể cập nhật chính mình và tất cả role khác
+    // ❌ Manager KHÔNG thể cập nhật manager khác (trừ chính mình)
+    if (!isUpdatingSelf && targetUser.role === 'manager') {
+      throw new Error('Manager không thể cập nhật manager khác');
+    }
+    // ✅ Manager có thể cập nhật chính mình và tất cả role khác (dentist, nurse, receptionist, patient)
   }
   
   // 🔒 PATIENT RULES

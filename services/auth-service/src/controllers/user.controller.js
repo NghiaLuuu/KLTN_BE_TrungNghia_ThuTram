@@ -381,6 +381,25 @@ exports.getAllStaff = async (req, res) => {
   }
 };
 
+// 🆕 GET ALL USERS FROM CACHE (for schedule-service)
+exports.getAllUsersCache = async (req, res) => {
+  try {
+    const users = await userService.getAllUsersCache();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Lấy cache người dùng thành công',
+      data: users,
+      count: users.length
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 // 🆕 New getAllPatients method
 exports.getAllPatients = async (req, res) => {
   try {

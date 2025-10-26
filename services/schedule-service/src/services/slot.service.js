@@ -286,21 +286,27 @@ async function validateStaffIds(dentistIds, nurseIds) {
     if (!cached) throw new Error('users_cache không tồn tại');
     const users = JSON.parse(cached);
     
-    // Validate dentist IDs
+    // Validate dentist IDs - 🔥 Support multi-role system
     for (const dentistId of dentistIds) {
       if (!dentistId) continue;
-      const dentist = users.find(u => u._id === dentistId && u.role === 'dentist' && u.isActive);
+      const dentist = users.find(u => {
+        const roles = Array.isArray(u.roles) ? u.roles : [u.role];
+        return u._id === dentistId && roles.includes('dentist') && u.isActive;
+      });
       if (!dentist) {
-        throw new Error(`dentistId ${dentistId} không hợp lệ hoặc không phải nha sĩ`);
+        throw new Error(`dentistId ${dentistId} không hợp lệ hoặc không có role nha sĩ`);
       }
     }
     
-    // Validate nurse IDs
+    // Validate nurse IDs - 🔥 Support multi-role system
     for (const nurseId of nurseIds) {
       if (!nurseId) continue;
-      const nurse = users.find(u => u._id === nurseId && u.role === 'nurse' && u.isActive);
+      const nurse = users.find(u => {
+        const roles = Array.isArray(u.roles) ? u.roles : [u.role];
+        return u._id === nurseId && roles.includes('nurse') && u.isActive;
+      });
       if (!nurse) {
-        throw new Error(`nurseId ${nurseId} không hợp lệ hoặc không phải y tá`);
+        throw new Error(`nurseId ${nurseId} không hợp lệ hoặc không có role y tá`);
       }
     }
   } catch (error) {
@@ -3126,6 +3132,11 @@ async function removeStaffFromSlots({ slotIds, removeDentists, removeNurses }) {
  */
 async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
   try {
+    const axios = require('axios');
+    const rabbitmqClient = require('../utils/rabbitmq.client');
+    
+    const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+    
     // Validate input
     if (!slotIds || !Array.isArray(slotIds) || slotIds.length === 0) {
       throw new Error('slotIds array is required and must not be empty');
@@ -3171,40 +3182,64 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
     const updatedSlots = await Slot.find({ _id: { $in: objectIds } })
       .populate('roomId', 'name code')
       .populate('subRoomId', 'name code')
-      .populate('dentist', 'fullName employeeCode')
-      .populate('nurse', 'fullName employeeCode')
       .lean();
+    
+    // Get users cache for dentist/nurse info
+    let usersCache = [];
+    try {
+      const usersResponse = await axios.get(`${AUTH_SERVICE_URL}/api/user/cache/all`, { timeout: 5000 });
+      if (usersResponse.data?.success) {
+        usersCache = usersResponse.data.data || [];
+      }
+    } catch (cacheError) {
+      console.warn('⚠️ Could not fetch users cache for display:', cacheError.message);
+    }
 
-    // Format slot details for response
-    const slotDetails = updatedSlots.map(slot => ({
-      _id: slot._id,
-      startTime: slot.startTime,
-      endTime: slot.endTime,
-      startTimeVN: toVNTimeString(slot.startTime),
-      endTimeVN: toVNTimeString(slot.endTime),
-      shiftName: slot.shiftName,
-      isActive: slot.isActive,
-      room: slot.roomId ? {
-        _id: slot.roomId._id,
-        name: slot.roomId.name,
-        code: slot.roomId.code
-      } : null,
-      subRoom: slot.subRoomId ? {
-        _id: slot.subRoomId._id,
-        name: slot.subRoomId.name,
-        code: slot.subRoomId.code
-      } : null,
-      dentist: slot.dentist ? {
-        _id: slot.dentist._id,
-        fullName: slot.dentist.fullName,
-        employeeCode: slot.dentist.employeeCode
-      } : null,
-      nurse: slot.nurse ? {
-        _id: slot.nurse._id,
-        fullName: slot.nurse.fullName,
-        employeeCode: slot.nurse.employeeCode
-      } : null
-    }));
+    console.log('🔍 DEBUG updatedSlots[0]:', JSON.stringify(updatedSlots[0], null, 2));
+    console.log('🔍 DEBUG usersCache.length:', usersCache.length);
+    const slotDetails = updatedSlots.map(slot => {
+      // Get dentist info from cache
+      const dentistIds = Array.isArray(slot.dentist) ? slot.dentist : [];
+      const dentistInfo = dentistIds.length > 0 && usersCache.length > 0
+        ? usersCache.find(u => dentistIds.some(id => u._id.toString() === id.toString()))
+        : null;
+      
+      // Get nurse info from cache
+      const nurseIds = Array.isArray(slot.nurse) ? slot.nurse : [];
+      const nurseInfo = nurseIds.length > 0 && usersCache.length > 0
+        ? usersCache.find(u => nurseIds.some(id => u._id.toString() === id.toString()))
+        : null;
+      
+      return {
+        _id: slot._id,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        startTimeVN: toVNTimeString(slot.startTime),
+        endTimeVN: toVNTimeString(slot.endTime),
+        shiftName: slot.shiftName,
+        isActive: slot.isActive,
+        room: slot.roomId ? {
+          _id: slot.roomId._id,
+          name: slot.roomId.name,
+          code: slot.roomId.code
+        } : null,
+        subRoom: slot.subRoomId ? {
+          _id: slot.subRoomId._id,
+          name: slot.subRoomId.name,
+          code: slot.subRoomId.code
+        } : null,
+        dentist: dentistInfo ? {
+          _id: dentistInfo._id,
+          fullName: dentistInfo.fullName || dentistInfo.name,
+          employeeCode: dentistInfo.employeeCode
+        } : null,
+        nurse: nurseInfo ? {
+          _id: nurseInfo._id,
+          fullName: nurseInfo.fullName || nurseInfo.name,
+          employeeCode: nurseInfo.employeeCode
+        } : null
+      };
+    });
 
     // Invalidate Redis cache for affected rooms and staff
     try {
@@ -3273,6 +3308,300 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
       console.error('❌ Redis cache invalidation error (data still updated):', redisError.message);
     }
 
+    // 🆕 Send email notifications (for both enable and disable)
+    try {
+      const axios = require('axios');
+      const rabbitmqClient = require('../utils/rabbitmq.client');
+      
+      const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3000';
+      const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
+      
+      const emailNotifications = [];
+      
+      // 🔥 PART 1: Handle slots WITH appointments
+      const slotsWithAppointments = updatedSlots.filter(s => s.appointmentId);
+      
+      if (slotsWithAppointments.length > 0) {
+        console.log(`📧 ${slotsWithAppointments.length} slots have appointments, preparing emails...`);
+        
+        // Deduplicate by appointmentId (multiple slots can belong to same appointment)
+        const uniqueAppointmentIds = [...new Set(
+          slotsWithAppointments.map(s => s.appointmentId.toString())
+        )];
+        
+        console.log(`📋 ${uniqueAppointmentIds.length} unique appointments (deduplicated from ${slotsWithAppointments.length} slots)`);
+        
+        // Get appointments
+        let appointments = [];
+        try {
+          const appointmentResponse = await axios.get(
+            `${APPOINTMENT_SERVICE_URL}/api/appointment/by-ids`,
+            { 
+              params: { ids: uniqueAppointmentIds.join(',') },
+              timeout: 5000
+            }
+          );
+          
+          if (appointmentResponse.data?.success) {
+            appointments = appointmentResponse.data.data || [];
+            console.log(`✅ Retrieved ${appointments.length} appointments`);
+          }
+        } catch (appointmentError) {
+          console.error('⚠️ Could not fetch appointments:', appointmentError.message);
+        }
+        
+        // Get users cache
+        let usersCache = [];
+        try {
+          const usersResponse = await axios.get(`${AUTH_SERVICE_URL}/api/user/cache/all`, { timeout: 5000 });
+          if (usersResponse.data?.success) {
+            usersCache = usersResponse.data.data || [];
+            console.log(`✅ Retrieved ${usersCache.length} users from cache`);
+          }
+        } catch (cacheError) {
+          console.error('⚠️ Could not fetch users cache:', cacheError.message);
+        }
+        
+        // Prepare email list (deduplicated by appointmentId)
+        const emailNotifications = [];
+        const processedAppointments = new Set();
+        
+        for (const appointment of appointments) {
+          const appointmentId = appointment._id.toString();
+          
+          // Skip if already processed
+          if (processedAppointments.has(appointmentId)) {
+            continue;
+          }
+          processedAppointments.add(appointmentId);
+          
+          // Find all slots for this appointment
+          const appointmentSlots = slotsWithAppointments.filter(
+            s => s.appointmentId.toString() === appointmentId
+          );
+          
+          // Get slot info (use first slot as representative)
+          const representativeSlot = appointmentSlots[0];
+          
+          // Send to patient
+          if (appointment.patientId) {
+            const patient = usersCache.find(u => u._id.toString() === appointment.patientId.toString());
+            if (patient && patient.email) {
+              emailNotifications.push({
+                email: patient.email,
+                name: patient.name,
+                role: 'patient',
+                slotInfo: {
+                  date: representativeSlot.date,
+                  shiftName: representativeSlot.shiftName,
+                  startTime: representativeSlot.startTime,
+                  endTime: representativeSlot.endTime,
+                  slotCount: appointmentSlots.length
+                },
+                action: isActive ? 'enabled' : 'disabled',
+                reason: reason || (isActive ? 'Lịch đã được kích hoạt lại' : 'Lịch tạm thời không khả dụng')
+              });
+            }
+          }
+          
+          // Send to dentist (collect unique dentists from all slots)
+          const dentistIds = new Set();
+          appointmentSlots.forEach(slot => {
+            if (Array.isArray(slot.dentist)) {
+              slot.dentist.forEach(d => dentistIds.add(d.toString()));
+            } else if (slot.dentist) {
+              dentistIds.add(slot.dentist.toString());
+            }
+          });
+          
+          dentistIds.forEach(dentistId => {
+            const dentist = usersCache.find(u => u._id.toString() === dentistId);
+            if (dentist && dentist.email) {
+              emailNotifications.push({
+                email: dentist.email,
+                name: dentist.name,
+                role: 'dentist',
+                slotInfo: {
+                  date: representativeSlot.date,
+                  shiftName: representativeSlot.shiftName,
+                  startTime: representativeSlot.startTime,
+                  endTime: representativeSlot.endTime,
+                  slotCount: appointmentSlots.length
+                },
+                action: isActive ? 'enabled' : 'disabled',
+                reason: reason || (isActive ? 'Lịch đã được kích hoạt lại' : 'Lịch tạm thời không khả dụng')
+              });
+            }
+          });
+          
+          // Send to nurse (collect unique nurses from all slots)
+          const nurseIds = new Set();
+          appointmentSlots.forEach(slot => {
+            if (Array.isArray(slot.nurse)) {
+              slot.nurse.forEach(n => nurseIds.add(n.toString()));
+            } else if (slot.nurse) {
+              nurseIds.add(slot.nurse.toString());
+            }
+          });
+          
+          nurseIds.forEach(nurseId => {
+            const nurse = usersCache.find(u => u._id.toString() === nurseId);
+            if (nurse && nurse.email) {
+              emailNotifications.push({
+                email: nurse.email,
+                name: nurse.name,
+                role: 'nurse',
+                slotInfo: {
+                  date: representativeSlot.date,
+                  shiftName: representativeSlot.shiftName,
+                  startTime: representativeSlot.startTime,
+                  endTime: representativeSlot.endTime,
+                  slotCount: appointmentSlots.length
+                },
+                action: isActive ? 'enabled' : 'disabled',
+                reason: reason || (isActive ? 'Lịch đã được kích hoạt lại' : 'Lịch tạm thời không khả dụng')
+              });
+            }
+          });
+        }
+        
+        console.log(`📧 Part 1: Prepared ${emailNotifications.length} email notifications for slots with appointments`);
+      }
+      
+      // 🔥 PART 2: Handle slots WITHOUT appointments but WITH assigned staff
+      const slotsWithoutAppointments = updatedSlots.filter(s => !s.appointmentId);
+      const slotsWithStaff = slotsWithoutAppointments.filter(s => 
+        (s.dentist && (Array.isArray(s.dentist) ? s.dentist.length > 0 : true)) ||
+        (s.nurse && (Array.isArray(s.nurse) ? s.nurse.length > 0 : true))
+      );
+      
+      console.log(`🔍 DEBUG slotsWithoutAppointments: ${slotsWithoutAppointments.length}`);
+      console.log(`🔍 DEBUG slotsWithStaff: ${slotsWithStaff.length}`);
+      
+      if (slotsWithStaff.length > 0) { // Send emails for both enable AND disable
+        console.log(`📧 Part 2: ${slotsWithStaff.length} slots without appointments but with assigned staff`);
+        console.log(`📧 Part 2: Using usersCache.length = ${usersCache.length}`);
+        
+        // Send notifications to assigned staff
+        const notifiedStaff = new Set(); // Prevent duplicate emails
+        
+        for (const slot of slotsWithStaff) {
+          console.log('🔍 DEBUG slot:', {
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            startTimeType: typeof slot.startTime,
+            dentist: slot.dentist,
+            nurse: slot.nurse
+          });
+          
+          // Notify dentists
+          const dentistIds = Array.isArray(slot.dentist) 
+            ? slot.dentist.map(d => d.toString())
+            : (slot.dentist ? [slot.dentist.toString()] : []);
+          
+          console.log('🔍 DEBUG dentistIds:', dentistIds);
+          console.log('🔍 DEBUG usersCache[0]:', usersCache[0]);
+          
+          for (const dentistId of dentistIds) {
+            if (!notifiedStaff.has(dentistId)) {
+              const dentist = usersCache.find(u => u._id.toString() === dentistId);
+              console.log('🔍 DEBUG Searching for dentistId:', dentistId);
+              console.log('🔍 DEBUG Found dentist:', dentist);
+              if (dentist && dentist.email) {
+                // Convert to Date if string
+                const startDate = typeof slot.startTime === 'string' ? new Date(slot.startTime) : slot.startTime;
+                const endDate = typeof slot.endTime === 'string' ? new Date(slot.endTime) : slot.endTime;
+                
+                const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+                const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
+                const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+                
+                const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+                const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+                
+                console.log('🔍 DEBUG Email data:', { dateStr, startTimeStr, endTimeStr, name: dentist.fullName });
+                
+                emailNotifications.push({
+                  email: dentist.email,
+                  name: dentist.fullName || dentist.name,
+                  role: 'dentist',
+                  slotInfo: {
+                    date: dateStr,
+                    shiftName: slot.shiftName,
+                    startTime: startTimeStr,
+                    endTime: endTimeStr,
+                    room: slot.roomId?.name || 'N/A'
+                  },
+                  action: isActive ? 'enabled' : 'disabled',
+                  reason: reason || (isActive ? 'Lịch đã được kích hoạt lại' : 'Lịch tạm thời không khả dụng')
+                });
+                notifiedStaff.add(dentistId);
+              }
+            }
+          }
+          
+          // Notify nurses
+          const nurseIds = Array.isArray(slot.nurse)
+            ? slot.nurse.map(n => n.toString())
+            : (slot.nurse ? [slot.nurse.toString()] : []);
+          
+          for (const nurseId of nurseIds) {
+            if (!notifiedStaff.has(nurseId)) {
+              const nurse = usersCache.find(u => u._id.toString() === nurseId);
+              if (nurse && nurse.email) {
+                const vnDate = new Date(slot.startTime.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+                const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
+                const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+                
+                const vnEndDate = new Date(slot.endTime.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+                const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+                
+                emailNotifications.push({
+                  email: nurse.email,
+                  name: nurse.fullName || nurse.name,
+                  role: 'nurse',
+                  slotInfo: {
+                    date: dateStr,
+                    shiftName: slot.shiftName,
+                    startTime: startTimeStr,
+                    endTime: endTimeStr,
+                    room: slot.roomId?.name || 'N/A'
+                  },
+                  action: isActive ? 'enabled' : 'disabled',
+                  reason: reason || (isActive ? 'Lịch đã được kích hoạt lại' : 'Lịch tạm thời không khả dụng')
+                });
+                notifiedStaff.add(nurseId);
+              }
+            }
+          }
+        }
+        
+        console.log(`📧 Part 2: Prepared ${notifiedStaff.size} additional notifications for assigned staff`);
+      }
+      
+      // Queue all emails
+      if (emailNotifications.length > 0) {
+        try {
+          await rabbitmqClient.publishToQueue('email_notifications', {
+            type: 'slot_status_change',
+            notifications: emailNotifications,
+            metadata: {
+              action: isActive ? 'enabled' : 'disabled',
+              reason,
+              affectedSlots: slotIds.length,
+              timestamp: new Date()
+            }
+          });
+          console.log('✅ Email notifications queued successfully');
+        } catch (emailError) {
+          console.error('⚠️ Could not queue emails:', emailError.message);
+        }
+      }
+    } catch (emailError) {
+      console.error('❌ Error preparing email notifications:', emailError.message);
+      // Don't throw - emails are optional, slot update is primary action
+    }
+
     return {
       success: true,
       matchedCount: result.matchedCount,
@@ -3289,6 +3618,776 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
   }
 }
 
+// 🆕 DISABLE ALL SLOTS IN A DAY (Emergency closure - ALL ROOMS)
+async function disableAllDaySlots(date, reason, currentUser) {
+  try {
+    const axios = require('axios');
+    const rabbitmqClient = require('../utils/rabbitmq.client');
+    
+    const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+    const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
+    
+    console.log(`🚨 Disabling ALL slots for date ${date}`);
+    
+    // Validate date is in future or today
+    const targetDate = new Date(date);
+    const vietnamNow = getVietnamDate();
+    vietnamNow.setHours(0, 0, 0, 0); // Start of today
+    
+    if (targetDate < vietnamNow) {
+      throw new Error('Không thể tắt lịch ngày trong quá khứ');
+    }
+    
+    // Find ALL slots for this date (all rooms)
+    const startOfDay = new Date(targetDate);
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(targetDate);
+    endOfDay.setUTCHours(23, 59, 59, 999);
+    
+    const slots = await Slot.find({
+      date: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    });
+    
+    if (slots.length === 0) {
+      throw new Error('Không tìm thấy slot nào trong ngày này');
+    }
+    
+    console.log(`📊 Found ${slots.length} slots across all rooms to disable`);
+    
+    // Get unique room IDs for cache invalidation
+    const affectedRoomIds = [...new Set(slots.map(s => s.roomId?.toString()).filter(Boolean))];
+    console.log(`🏥 Affected rooms: ${affectedRoomIds.length} rooms`);
+    
+    // Step 1: Get appointments info for slots with appointmentId
+    const slotsWithAppointments = slots.filter(s => s.appointmentId);
+    console.log(`📋 ${slotsWithAppointments.length} slots have appointments`);
+    
+    let appointments = [];
+    if (slotsWithAppointments.length > 0) {
+      try {
+        const appointmentIds = slotsWithAppointments.map(s => s.appointmentId.toString());
+        const appointmentResponse = await axios.get(
+          `${APPOINTMENT_SERVICE_URL}/api/appointment/by-ids`,
+          { 
+            params: { ids: appointmentIds.join(',') },
+            timeout: 5000
+          }
+        );
+        
+        if (appointmentResponse.data?.success) {
+          appointments = appointmentResponse.data.data || [];
+          console.log(`✅ Retrieved ${appointments.length} appointments`);
+        }
+      } catch (appointmentError) {
+        console.error('⚠️ Could not fetch appointments (service may be down):', appointmentError.message);
+        // Continue without appointments - we'll still disable slots
+      }
+    }
+    
+    // Step 2: Get users cache (for emails)
+    let usersCache = [];
+    try {
+      const usersResponse = await axios.get(`${AUTH_SERVICE_URL}/api/user/cache/all`, { timeout: 5000 });
+      if (usersResponse.data?.success) {
+        usersCache = usersResponse.data.data || [];
+        console.log(`✅ Retrieved ${usersCache.length} users from cache`);
+      }
+    } catch (cacheError) {
+      console.error('⚠️ Could not fetch users cache:', cacheError.message);
+    }
+    
+    // Step 3: Prepare email list (deduplicate by appointmentId)
+    const emailNotifications = [];
+    const processedAppointments = new Set();
+    
+    // Deduplicate slots by appointmentId
+    const uniqueAppointmentIds = [...new Set(
+      slotsWithAppointments.map(s => s.appointmentId.toString())
+    )];
+    
+    console.log(`📋 ${uniqueAppointmentIds.length} unique appointments (deduplicated from ${slotsWithAppointments.length} slots with appointments)`);
+    
+    // For each unique appointment, send ONE email per person
+    for (const appointmentId of uniqueAppointmentIds) {
+      if (processedAppointments.has(appointmentId)) {
+        continue;
+      }
+      processedAppointments.add(appointmentId);
+      
+      const appointment = appointments.find(a => a._id.toString() === appointmentId);
+      if (!appointment) continue;
+      
+      // Find all slots for this appointment
+      const appointmentSlots = slotsWithAppointments.filter(
+        s => s.appointmentId.toString() === appointmentId
+      );
+      
+      // Use first slot as representative
+      const representativeSlot = appointmentSlots[0];
+      
+      // Send to patient (one email per appointment)
+      if (appointment.patientId) {
+        const patient = usersCache.find(u => u._id.toString() === appointment.patientId.toString());
+        
+        if (patient && patient.email) {
+          // Format date/time for email
+          const startDate = typeof representativeSlot.startTime === 'string' ? new Date(representativeSlot.startTime) : representativeSlot.startTime;
+          const endDate = typeof representativeSlot.endTime === 'string' ? new Date(representativeSlot.endTime) : representativeSlot.endTime;
+          
+          const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+          const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
+          const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+          
+          const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+          const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+          
+          emailNotifications.push({
+            email: patient.email,
+            name: patient.fullName || patient.name,
+            role: 'patient',
+            slotInfo: {
+              date: dateStr,
+              shiftName: representativeSlot.shiftName,
+              startTime: startTimeStr,
+              endTime: endTimeStr,
+              slotCount: appointmentSlots.length
+            },
+            reason
+          });
+        }
+      }
+      
+      // Collect unique dentists from all slots of this appointment
+      const dentistIds = new Set();
+      appointmentSlots.forEach(slot => {
+        if (Array.isArray(slot.dentist)) {
+          slot.dentist.forEach(d => dentistIds.add(d.toString()));
+        } else if (slot.dentist) {
+          dentistIds.add(slot.dentist.toString());
+        }
+      });
+      
+      dentistIds.forEach(dentistId => {
+        const dentist = usersCache.find(u => u._id.toString() === dentistId);
+        if (dentist && dentist.email) {
+          // Format date/time for email
+          const startDate = typeof representativeSlot.startTime === 'string' ? new Date(representativeSlot.startTime) : representativeSlot.startTime;
+          const endDate = typeof representativeSlot.endTime === 'string' ? new Date(representativeSlot.endTime) : representativeSlot.endTime;
+          
+          const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+          const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
+          const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+          
+          const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+          const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+          
+          emailNotifications.push({
+            email: dentist.email,
+            name: dentist.fullName || dentist.name,
+            role: 'dentist',
+            slotInfo: {
+              date: dateStr,
+              shiftName: representativeSlot.shiftName,
+              startTime: startTimeStr,
+              endTime: endTimeStr,
+              slotCount: appointmentSlots.length
+            },
+            reason
+          });
+        }
+      });
+      
+      // Collect unique nurses from all slots of this appointment
+      const nurseIds = new Set();
+      appointmentSlots.forEach(slot => {
+        if (Array.isArray(slot.nurse)) {
+          slot.nurse.forEach(n => nurseIds.add(n.toString()));
+        } else if (slot.nurse) {
+          nurseIds.add(slot.nurse.toString());
+        }
+      });
+      
+      nurseIds.forEach(nurseId => {
+        const nurse = usersCache.find(u => u._id.toString() === nurseId);
+        if (nurse && nurse.email) {
+          // Format date/time for email
+          const startDate = typeof representativeSlot.startTime === 'string' ? new Date(representativeSlot.startTime) : representativeSlot.startTime;
+          const endDate = typeof representativeSlot.endTime === 'string' ? new Date(representativeSlot.endTime) : representativeSlot.endTime;
+          
+          const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+          const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
+          const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+          
+          const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+          const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+          
+          emailNotifications.push({
+            email: nurse.email,
+            name: nurse.fullName || nurse.name,
+            role: 'nurse',
+            slotInfo: {
+              date: dateStr,
+              shiftName: representativeSlot.shiftName,
+              startTime: startTimeStr,
+              endTime: endTimeStr,
+              slotCount: appointmentSlots.length
+            },
+            reason
+          });
+        }
+      });
+    }
+    
+    console.log(`📧 Part 1: Prepared ${emailNotifications.length} email notifications for slots with appointments`);
+    
+    // 🔥 PART 2: Handle slots WITHOUT appointments but WITH assigned staff
+    const slotsWithoutAppointments = slots.filter(s => !s.appointmentId);
+    const slotsWithStaff = slotsWithoutAppointments.filter(s => 
+      (s.dentist && (Array.isArray(s.dentist) ? s.dentist.length > 0 : true)) ||
+      (s.nurse && (Array.isArray(s.nurse) ? s.nurse.length > 0 : true))
+    );
+    
+    console.log(`📧 Part 2: ${slotsWithStaff.length} slots without appointments but with assigned staff`);
+    
+    if (slotsWithStaff.length > 0) {
+      const notifiedStaff = new Set(); // Prevent duplicate emails
+      
+      for (const slot of slotsWithStaff) {
+        // Notify dentists
+        const dentistIds = Array.isArray(slot.dentist) 
+          ? slot.dentist.map(d => d.toString())
+          : (slot.dentist ? [slot.dentist.toString()] : []);
+        
+        for (const dentistId of dentistIds) {
+          if (!notifiedStaff.has(dentistId)) {
+            const dentist = usersCache.find(u => u._id.toString() === dentistId);
+            if (dentist && dentist.email) {
+              const startDate = typeof slot.startTime === 'string' ? new Date(slot.startTime) : slot.startTime;
+              const endDate = typeof slot.endTime === 'string' ? new Date(slot.endTime) : slot.endTime;
+              
+              const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+              const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
+              const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+              
+              const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+              const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+              
+              emailNotifications.push({
+                email: dentist.email,
+                name: dentist.fullName || dentist.name,
+                role: 'dentist',
+                slotInfo: {
+                  date: dateStr,
+                  shiftName: slot.shiftName,
+                  startTime: startTimeStr,
+                  endTime: endTimeStr
+                },
+                reason
+              });
+              notifiedStaff.add(dentistId);
+            }
+          }
+        }
+        
+        // Notify nurses
+        const nurseIds = Array.isArray(slot.nurse)
+          ? slot.nurse.map(n => n.toString())
+          : (slot.nurse ? [slot.nurse.toString()] : []);
+        
+        for (const nurseId of nurseIds) {
+          if (!notifiedStaff.has(nurseId)) {
+            const nurse = usersCache.find(u => u._id.toString() === nurseId);
+            if (nurse && nurse.email) {
+              const startDate = typeof slot.startTime === 'string' ? new Date(slot.startTime) : slot.startTime;
+              const endDate = typeof slot.endTime === 'string' ? new Date(slot.endTime) : slot.endTime;
+              
+              const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+              const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
+              const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+              
+              const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+              const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+              
+              emailNotifications.push({
+                email: nurse.email,
+                name: nurse.fullName || nurse.name,
+                role: 'nurse',
+                slotInfo: {
+                  date: dateStr,
+                  shiftName: slot.shiftName,
+                  startTime: startTimeStr,
+                  endTime: endTimeStr
+                },
+                reason
+              });
+              notifiedStaff.add(nurseId);
+            }
+          }
+        }
+      }
+      
+      console.log(`📧 Part 2: Prepared ${notifiedStaff.size} additional notifications for assigned staff`);
+    }
+    
+    console.log(`📧 Total: Prepared ${emailNotifications.length} email notifications`);
+    
+    // Step 4: Send emails via RabbitMQ
+    if (emailNotifications.length > 0) {
+      try {
+        await rabbitmqClient.publishToQueue('email_notifications', {
+          type: 'slot_cancellation_batch',
+          notifications: emailNotifications,
+          metadata: {
+            date,
+            reason,
+            disabledBy: currentUser?.userId || 'system',
+            timestamp: new Date()
+          }
+        });
+        console.log('✅ Email notifications queued successfully');
+      } catch (emailError) {
+        console.error('⚠️ Could not queue emails (will still disable slots):', emailError.message);
+      }
+    }
+    
+    // Step 5: Disable all slots
+    const slotIds = slots.map(s => s._id.toString());
+    const updateResult = await Slot.updateMany(
+      { _id: { $in: slotIds } },
+      { 
+        $set: { 
+          isActive: false,
+          disabledReason: reason,
+          disabledAt: new Date(),
+          disabledBy: currentUser?.userId || null
+        } 
+      }
+    );
+    
+    console.log(`✅ Disabled ${updateResult.modifiedCount} slots`);
+    
+    // Step 6: Invalidate Redis cache for ALL affected rooms
+    try {
+      let totalKeysDeleted = 0;
+      
+      for (const roomId of affectedRoomIds) {
+        const pattern = `room_calendar:${roomId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          totalKeysDeleted += keys.length;
+        }
+      }
+      
+      console.log(`🗑️ Deleted ${totalKeysDeleted} cache keys for ${affectedRoomIds.length} rooms`);
+    } catch (redisError) {
+      console.error('❌ Redis cache invalidation error:', redisError.message);
+    }
+    
+    return {
+      success: true,
+      disabledCount: updateResult.modifiedCount,
+      totalSlots: slots.length,
+      affectedRooms: affectedRoomIds.length,
+      appointmentsCancelled: slotsWithAppointments.length,
+      emailsQueued: emailNotifications.length,
+      message: `Đã tắt ${updateResult.modifiedCount} slots của ${affectedRoomIds.length} phòng và gửi ${emailNotifications.length} email thông báo`
+    };
+  } catch (error) {
+    console.error('❌ Error disabling all day slots:', error);
+    throw error;
+  }
+}
+
+// 🆕 ENABLE ALL SLOTS IN A DAY (Reactivate after emergency closure - ALL ROOMS)
+async function enableAllDaySlots(date, reason, currentUser) {
+  try {
+    const axios = require('axios');
+    const rabbitmqClient = require('../utils/rabbitmq.client');
+    
+    const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+    const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
+    
+    console.log(`✅ Enabling ALL slots for date ${date}`);
+    
+    // Validate date
+    const targetDate = new Date(date);
+    
+    // Find ALL slots for this date (all rooms) that are currently disabled
+    const startOfDay = new Date(targetDate);
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(targetDate);
+    endOfDay.setUTCHours(23, 59, 59, 999);
+    
+    const slots = await Slot.find({
+      date: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      },
+      isActive: false  // Only get disabled slots
+    });
+    
+    if (slots.length === 0) {
+      throw new Error('Không tìm thấy slot nào đã tắt trong ngày này');
+    }
+    
+    console.log(`📊 Found ${slots.length} disabled slots across all rooms to enable`);
+    
+    // Get unique room IDs for cache invalidation
+    const affectedRoomIds = [...new Set(slots.map(s => s.roomId?.toString()).filter(Boolean))];
+    console.log(`🏥 Affected rooms: ${affectedRoomIds.length} rooms`);
+    
+    // Step 1: Get appointments info for slots with appointmentId
+    const slotsWithAppointments = slots.filter(s => s.appointmentId);
+    console.log(`📋 ${slotsWithAppointments.length} slots have appointments`);
+    
+    let appointments = [];
+    if (slotsWithAppointments.length > 0) {
+      try {
+        const appointmentIds = slotsWithAppointments.map(s => s.appointmentId.toString());
+        const appointmentResponse = await axios.get(
+          `${APPOINTMENT_SERVICE_URL}/api/appointment/by-ids`,
+          { 
+            params: { ids: appointmentIds.join(',') },
+            timeout: 5000
+          }
+        );
+        
+        if (appointmentResponse.data?.success) {
+          appointments = appointmentResponse.data.data || [];
+          console.log(`✅ Retrieved ${appointments.length} appointments`);
+        }
+      } catch (appointmentError) {
+        console.error('⚠️ Could not fetch appointments (service may be down):', appointmentError.message);
+        // Continue without appointments - we'll still enable slots
+      }
+    }
+    
+    // Step 2: Get users cache (for emails)
+    let usersCache = [];
+    try {
+      const usersResponse = await axios.get(`${AUTH_SERVICE_URL}/api/user/cache/all`, { timeout: 5000 });
+      if (usersResponse.data?.success) {
+        usersCache = usersResponse.data.data || [];
+        console.log(`✅ User cache loaded: ${usersCache.length} users`);
+      }
+    } catch (userError) {
+      console.error('⚠️ Could not load user cache:', userError.message);
+    }
+    
+    // Step 3: Prepare email list (deduplicate by appointmentId)
+    const emailNotifications = [];
+    const processedAppointments = new Set();
+    
+    // Deduplicate slots by appointmentId
+    const uniqueAppointmentIds = [...new Set(
+      slotsWithAppointments.map(s => s.appointmentId.toString())
+    )];
+    
+    console.log(`📋 ${uniqueAppointmentIds.length} unique appointments (deduplicated from ${slotsWithAppointments.length} slots with appointments)`);
+    
+    // For each unique appointment, send ONE email per person
+    for (const appointmentId of uniqueAppointmentIds) {
+      if (processedAppointments.has(appointmentId)) {
+        continue;
+      }
+      processedAppointments.add(appointmentId);
+      
+      const appointment = appointments.find(a => a._id.toString() === appointmentId);
+      if (!appointment) continue;
+      
+      // Find all slots for this appointment
+      const appointmentSlots = slotsWithAppointments.filter(
+        s => s.appointmentId.toString() === appointmentId
+      );
+      
+      // Use first slot as representative
+      const representativeSlot = appointmentSlots[0];
+      
+      // Send to patient (one email per appointment)
+      if (appointment.patientId) {
+        const patient = usersCache.find(u => u._id.toString() === appointment.patientId.toString());
+        
+        if (patient && patient.email) {
+          const startDate = typeof representativeSlot.startTime === 'string' ? new Date(representativeSlot.startTime) : representativeSlot.startTime;
+          const endDate = typeof representativeSlot.endTime === 'string' ? new Date(representativeSlot.endTime) : representativeSlot.endTime;
+          
+          const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+          const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
+          const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+          
+          const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+          const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+          
+          emailNotifications.push({
+            email: patient.email,
+            name: patient.fullName || patient.name,
+            role: 'patient',
+            slotInfo: {
+              date: dateStr,
+              shiftName: representativeSlot.shiftName,
+              startTime: startTimeStr,
+              endTime: endTimeStr,
+              slotCount: appointmentSlots.length
+            },
+            action: 'enabled',
+            reason: reason || 'Lịch khám đã được kích hoạt lại'
+          });
+        }
+      }
+      
+      // Collect unique dentists from all slots of this appointment
+      const dentistIds = new Set();
+      appointmentSlots.forEach(slot => {
+        if (Array.isArray(slot.dentist)) {
+          slot.dentist.forEach(d => dentistIds.add(d.toString()));
+        } else if (slot.dentist) {
+          dentistIds.add(slot.dentist.toString());
+        }
+      });
+      
+      dentistIds.forEach(dentistId => {
+        const dentist = usersCache.find(u => u._id.toString() === dentistId);
+        if (dentist && dentist.email) {
+          const startDate = typeof representativeSlot.startTime === 'string' ? new Date(representativeSlot.startTime) : representativeSlot.startTime;
+          const endDate = typeof representativeSlot.endTime === 'string' ? new Date(representativeSlot.endTime) : representativeSlot.endTime;
+          
+          const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+          const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
+          const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+          
+          const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+          const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+          
+          emailNotifications.push({
+            email: dentist.email,
+            name: dentist.fullName || dentist.name,
+            role: 'dentist',
+            slotInfo: {
+              date: dateStr,
+              shiftName: representativeSlot.shiftName,
+              startTime: startTimeStr,
+              endTime: endTimeStr,
+              slotCount: appointmentSlots.length
+            },
+            action: 'enabled',
+            reason: reason || 'Lịch khám đã được kích hoạt lại'
+          });
+        }
+      });
+      
+      // Collect unique nurses from all slots of this appointment
+      const nurseIds = new Set();
+      appointmentSlots.forEach(slot => {
+        if (Array.isArray(slot.nurse)) {
+          slot.nurse.forEach(n => nurseIds.add(n.toString()));
+        } else if (slot.nurse) {
+          nurseIds.add(slot.nurse.toString());
+        }
+      });
+      
+      nurseIds.forEach(nurseId => {
+        const nurse = usersCache.find(u => u._id.toString() === nurseId);
+        if (nurse && nurse.email) {
+          const startDate = typeof representativeSlot.startTime === 'string' ? new Date(representativeSlot.startTime) : representativeSlot.startTime;
+          const endDate = typeof representativeSlot.endTime === 'string' ? new Date(representativeSlot.endTime) : representativeSlot.endTime;
+          
+          const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+          const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
+          const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+          
+          const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+          const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+          
+          emailNotifications.push({
+            email: nurse.email,
+            name: nurse.fullName || nurse.name,
+            role: 'nurse',
+            slotInfo: {
+              date: dateStr,
+              shiftName: representativeSlot.shiftName,
+              startTime: startTimeStr,
+              endTime: endTimeStr,
+              slotCount: appointmentSlots.length
+            },
+            action: 'enabled',
+            reason: reason || 'Lịch khám đã được kích hoạt lại'
+          });
+        }
+      });
+    }
+    
+    console.log(`📧 Part 1: Prepared ${emailNotifications.length} email notifications for slots with appointments`);
+    
+    // 🔥 PART 2: Handle slots WITHOUT appointments but WITH assigned staff
+    const slotsWithoutAppointments = slots.filter(s => !s.appointmentId);
+    const slotsWithStaff = slotsWithoutAppointments.filter(s => 
+      (s.dentist && (Array.isArray(s.dentist) ? s.dentist.length > 0 : true)) ||
+      (s.nurse && (Array.isArray(s.nurse) ? s.nurse.length > 0 : true))
+    );
+    
+    console.log(`📧 Part 2: ${slotsWithStaff.length} slots without appointments but with assigned staff`);
+    
+    if (slotsWithStaff.length > 0) {
+      const notifiedStaff = new Set();
+      
+      for (const slot of slotsWithStaff) {
+        const dentistIds = Array.isArray(slot.dentist) 
+          ? slot.dentist.map(d => d.toString())
+          : (slot.dentist ? [slot.dentist.toString()] : []);
+        
+        for (const dentistId of dentistIds) {
+          if (!notifiedStaff.has(dentistId)) {
+            const dentist = usersCache.find(u => u._id.toString() === dentistId);
+            if (dentist && dentist.email) {
+              const startDate = typeof slot.startTime === 'string' ? new Date(slot.startTime) : slot.startTime;
+              const endDate = typeof slot.endTime === 'string' ? new Date(slot.endTime) : slot.endTime;
+              
+              const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+              const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
+              const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+              
+              const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+              const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+              
+              emailNotifications.push({
+                email: dentist.email,
+                name: dentist.fullName || dentist.name,
+                role: 'dentist',
+                slotInfo: {
+                  date: dateStr,
+                  shiftName: slot.shiftName,
+                  startTime: startTimeStr,
+                  endTime: endTimeStr
+                },
+                action: 'enabled',
+                reason: reason || 'Lịch đã được kích hoạt lại'
+              });
+              notifiedStaff.add(dentistId);
+            }
+          }
+        }
+        
+        const nurseIds = Array.isArray(slot.nurse)
+          ? slot.nurse.map(n => n.toString())
+          : (slot.nurse ? [slot.nurse.toString()] : []);
+        
+        for (const nurseId of nurseIds) {
+          if (!notifiedStaff.has(nurseId)) {
+            const nurse = usersCache.find(u => u._id.toString() === nurseId);
+            if (nurse && nurse.email) {
+              const startDate = typeof slot.startTime === 'string' ? new Date(slot.startTime) : slot.startTime;
+              const endDate = typeof slot.endTime === 'string' ? new Date(slot.endTime) : slot.endTime;
+              
+              const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+              const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
+              const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+              
+              const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+              const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+              
+              emailNotifications.push({
+                email: nurse.email,
+                name: nurse.fullName || nurse.name,
+                role: 'nurse',
+                slotInfo: {
+                  date: dateStr,
+                  shiftName: slot.shiftName,
+                  startTime: startTimeStr,
+                  endTime: endTimeStr
+                },
+                action: 'enabled',
+                reason: reason || 'Lịch đã được kích hoạt lại'
+              });
+              notifiedStaff.add(nurseId);
+            }
+          }
+        }
+      }
+      
+      console.log(`📧 Part 2: Prepared ${notifiedStaff.size} additional notifications for assigned staff`);
+    }
+    
+    console.log(`📧 Total: Prepared ${emailNotifications.length} email notifications`);
+    
+    // Step 4: Send emails via RabbitMQ
+    if (emailNotifications.length > 0) {
+      try {
+        await rabbitmqClient.publishToQueue('email_notifications', {
+          type: 'slot_status_change',
+          notifications: emailNotifications,
+          metadata: {
+            date,
+            action: 'enabled',
+            reason,
+            enabledBy: currentUser?.userId || 'system',
+            affectedSlots: slots.length,
+            uniqueAppointments: uniqueAppointmentIds.length,
+            timestamp: new Date()
+          }
+        });
+        console.log('✅ Email notifications queued successfully');
+      } catch (emailError) {
+        console.error('⚠️ Could not queue emails (will still enable slots):', emailError.message);
+      }
+    }
+    
+    // Step 5: Enable all slots
+    const slotIds = slots.map(s => s._id.toString());
+    const updateResult = await Slot.updateMany(
+      { _id: { $in: slotIds } },
+      { 
+        $set: { 
+          isActive: true
+        },
+        $unset: {
+          disabledReason: 1,
+          disabledAt: 1,
+          disabledBy: 1
+        }
+      }
+    );
+    
+    console.log(`✅ Enabled ${updateResult.modifiedCount} slots`);
+    
+    // Step 6: Invalidate Redis cache for ALL affected rooms
+    try {
+      let totalKeysDeleted = 0;
+      
+      for (const roomId of affectedRoomIds) {
+        const pattern = `room_calendar:${roomId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          totalKeysDeleted += keys.length;
+        }
+      }
+      
+      console.log(`🗑️ Deleted ${totalKeysDeleted} cache keys for ${affectedRoomIds.length} rooms`);
+    } catch (redisError) {
+      console.error('❌ Redis cache invalidation error:', redisError.message);
+    }
+    
+    return {
+      success: true,
+      enabledCount: updateResult.modifiedCount,
+      totalSlots: slots.length,
+      affectedRooms: affectedRoomIds.length,
+      appointmentsReactivated: slotsWithAppointments.length,
+      emailsQueued: emailNotifications.length,
+      message: `Đã bật ${updateResult.modifiedCount} slots của ${affectedRoomIds.length} phòng và gửi ${emailNotifications.length} email thông báo`
+    };
+  } catch (error) {
+    console.error('❌ Error enabling all day slots:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   assignStaffToSlots,              // ⭐ NEW: Phân công theo slotIds
   assignStaffToSpecificSlots,      // Phân công cho specific slots
@@ -3296,6 +4395,8 @@ module.exports = {
   reassignStaffToSpecificSlots,    // Thay thế nhân sự cho specific slots
   removeStaffFromSlots,            // 🆕 Xóa nhân sự khỏi slots
   toggleSlotsIsActive,             // 🆕 Toggle isActive status of slots
+  disableAllDaySlots,              // 🆕 Disable all slots in a day (emergency)
+  enableAllDaySlots,               // 🆕 Enable all slots in a day (reactivate)
   updateSlotStaff,                 // Cập nhật nhân sự cho slots
   getSlotsByShiftAndDate,          // Lấy slots theo ca và ngày
   getRoomCalendar,                 // Lịch phòng

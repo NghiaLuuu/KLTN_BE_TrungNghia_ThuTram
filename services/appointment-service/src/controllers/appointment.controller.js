@@ -237,6 +237,37 @@ class AppointmentController {
       res.status(500).json({ success: false, message: error.message });
     }
   }
+
+  // 🆕 GET APPOINTMENTS BY IDS (for schedule-service)
+  async getByIds(req, res) {
+    try {
+      const { ids } = req.query;
+      
+      if (!ids) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'ids parameter is required (comma-separated)' 
+        });
+      }
+      
+      const appointmentIds = ids.split(',').map(id => id.trim()).filter(Boolean);
+      
+      if (appointmentIds.length === 0) {
+        return res.json({ success: true, data: [] });
+      }
+      
+      const appointments = await appointmentService.getAppointmentsByIds(appointmentIds);
+      res.json({ 
+        success: true, 
+        data: appointments,
+        count: appointments.length
+      });
+      
+    } catch (error) {
+      console.error('getByIds error:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
 }
 
 module.exports = new AppointmentController();
