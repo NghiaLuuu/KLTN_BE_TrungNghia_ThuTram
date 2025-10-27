@@ -1210,6 +1210,54 @@ exports.getAvailableOverrideShifts = async (req, res) => {
 };
 
 /**
+ * 🆕 Batch create schedule override holiday for multiple schedules
+ * POST /api/schedule/batch-override-holiday
+ * Body: { scheduleIds: [id1, id2], date, shifts: ['morning', 'afternoon'], note }
+ */
+exports.createBatchScheduleOverrideHoliday = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ 
+      success: false,
+      message: 'Chỉ manager/admin mới có quyền tạo lịch override ngày nghỉ'
+    });
+  }
+
+  try {
+    const { scheduleIds, date, shifts, note } = req.body;
+    
+    if (!scheduleIds || !Array.isArray(scheduleIds) || scheduleIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'scheduleIds (array) là bắt buộc và không được rỗng'
+      });
+    }
+    
+    if (!date || !shifts || !Array.isArray(shifts) || shifts.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'date và shifts (array) là bắt buộc và không được rỗng'
+      });
+    }
+    
+    const result = await scheduleService.createBatchScheduleOverrideHoliday({
+      scheduleIds,
+      date,
+      shifts,
+      note,
+      createdBy: req.user.userId
+    });
+    
+    res.status(201).json(result);
+  } catch (error) {
+    console.error('❌ Error createBatchScheduleOverrideHoliday:', error);
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
  * 🆕 Validate holiday từ holidaySnapshot của schedule
  */
 exports.validateHolidayFromSchedule = async (req, res) => {
@@ -1308,6 +1356,36 @@ exports.createOverrideHolidayForAllRooms = async (req, res) => {
   }
 };
 
+/**
+ * 🆕 Enable các ca và buồng bị tắt trong schedule
+ */
+exports.enableShiftsAndSubRooms = async (req, res) => {
+  try {
+    const { scheduleId, shifts, subRoomIds } = req.body;
+    
+    if (!scheduleId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'scheduleId is required' 
+      });
+    }
+    
+    const result = await scheduleService.enableShiftsAndSubRooms(
+      scheduleId,
+      shifts || [],
+      subRoomIds || []
+    );
+    
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('❌ Error enableShiftsAndSubRooms:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
+  }
+};
+
 module.exports = {
   generateQuarterSchedule: exports.generateQuarterSchedule,
   getAvailableQuarters: exports.getAvailableQuarters,
@@ -1340,9 +1418,11 @@ module.exports = {
   generateBulkRoomSchedules: exports.generateBulkRoomSchedules,
   createScheduleOverrideHoliday: exports.createScheduleOverrideHoliday, // 🆕 Nhiệm vụ 2.3
   getAvailableOverrideShifts: exports.getAvailableOverrideShifts,       // 🆕 Get shift status for override
+  createBatchScheduleOverrideHoliday: exports.createBatchScheduleOverrideHoliday, // 🆕 Batch override for multiple schedules
   validateIncompleteSchedule: exports.validateIncompleteSchedule,       // 🆕 Nhiệm vụ 2.4
   validateHolidayFromSchedule: exports.validateHolidayFromSchedule,     // 🆕 Validate holiday từ holidaySnapshot
   bulkDisableSchedule: exports.bulkDisableSchedule,                     // 🆕 Bulk disable
   bulkToggleScheduleDates: exports.bulkToggleScheduleDates,             // 🆕 Bulk toggle dates
-  createOverrideHolidayForAllRooms: exports.createOverrideHolidayForAllRooms // 🆕 Override holiday for all rooms
+  createOverrideHolidayForAllRooms: exports.createOverrideHolidayForAllRooms, // 🆕 Override holiday for all rooms
+  enableShiftsAndSubRooms: exports.enableShiftsAndSubRooms              // 🆕 Enable disabled shifts/subrooms
 };

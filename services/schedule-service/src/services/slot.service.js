@@ -106,7 +106,8 @@ function pickLaterTime(existing, candidate) {
 
 function buildShiftOverviewFromSchedules(schedules, scheduleConfig) {
   if (!Array.isArray(schedules) || schedules.length === 0) {
-    return {};
+    // If no schedules, return overview from config (all 3 shifts)
+    return buildShiftOverviewFromConfig(scheduleConfig);
   }
 
   const defaultsByKey = {
@@ -122,21 +123,48 @@ function buildShiftOverviewFromSchedules(schedules, scheduleConfig) {
   };
 
   const overview = {};
+  const timeVariants = {}; // 🆕 Track time variants by month
 
   schedules.forEach(schedule => {
     if (!schedule || schedule.isActive === false) return;
     const shiftConfig = schedule.shiftConfig || {};
+    const month = schedule.month;
+    const year = schedule.year;
 
     ['morning', 'afternoon', 'evening'].forEach(key => {
       const cfg = shiftConfig[key];
-      if (!cfg || cfg.isGenerated !== true) return;
+      // 🆕 CHANGED: Don't check isGenerated - include all shifts from config
+      if (!cfg) return;
 
       const displayName = cfg.name || defaultNameByKey[key];
       if (!displayName) return;
 
       const startTime = cfg.startTime || defaultsByKey[key]?.startTime || '--:--';
       const endTime = cfg.endTime || defaultsByKey[key]?.endTime || '--:--';
-      const isActive = cfg.isActive !== false;
+      // 🆕 CHANGED: Always set isActive to true to show all shifts
+      const isActive = true;
+
+      // 🆕 Track time variants by month/year
+      if (!timeVariants[displayName]) {
+        timeVariants[displayName] = [];
+      }
+      
+      const variantKey = `${startTime}-${endTime}`;
+      const existingVariant = timeVariants[displayName].find(v => v.key === variantKey);
+      
+      if (!existingVariant) {
+        timeVariants[displayName].push({
+          key: variantKey,
+          startTime,
+          endTime,
+          months: [`Tháng ${month}/${year}`]
+        });
+      } else {
+        const monthLabel = `Tháng ${month}/${year}`;
+        if (!existingVariant.months.includes(monthLabel)) {
+          existingVariant.months.push(monthLabel);
+        }
+      }
 
       const existing = overview[displayName];
       if (!existing) {
@@ -151,10 +179,31 @@ function buildShiftOverviewFromSchedules(schedules, scheduleConfig) {
           name: displayName,
           startTime: pickEarlierTime(existing.startTime, startTime) || existing.startTime || startTime,
           endTime: pickLaterTime(existing.endTime, endTime) || existing.endTime || endTime,
-          isActive: existing.isActive || isActive
+          isActive: true // Always true
         };
       }
     });
+  });
+
+  // 🆕 NEW: If overview is still missing shifts, add them from config
+  ['morning', 'afternoon', 'evening'].forEach(key => {
+    const displayName = defaultNameByKey[key];
+    if (!overview[displayName]) {
+      overview[displayName] = {
+        name: displayName,
+        startTime: defaultsByKey[key]?.startTime || '--:--',
+        endTime: defaultsByKey[key]?.endTime || '--:--',
+        isActive: true
+      };
+    }
+  });
+
+  // 🆕 Add timeVariants to each shift if there are multiple variants
+  Object.keys(overview).forEach(shiftName => {
+    const variants = timeVariants[shiftName];
+    if (variants && variants.length > 1) {
+      overview[shiftName].timeVariants = variants;
+    }
   });
 
   return overview;

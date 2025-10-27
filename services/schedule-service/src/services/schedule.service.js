@@ -2294,6 +2294,21 @@ exports.createScheduleOverrideHoliday = async (data) => {
       });
     });
 
+    // 🆕 Clear calendar cache for this room
+    if (createdSlots.length > 0) {
+      try {
+        const redisClient = require('../config/redis');
+        const pattern = `room_calendar:${schedule.roomId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          console.log(`🗑️ [Cache Cleared] Deleted ${keys.length} calendar cache keys for room ${schedule.roomId}`);
+        }
+      } catch (cacheError) {
+        console.error('⚠️ Cache clear error (data still saved):', cacheError.message);
+      }
+    }
+
     return {
       success: true,
       message: `Đã tạo ${createdSlots.length} slots override trong ngày nghỉ ${date}`,
@@ -2454,11 +2469,285 @@ module.exports = {
   generateBulkRoomSchedules
 };
 
+/**
+ * 🆕 API: Batch create schedule override holiday for multiple schedules/subrooms
+ * POST /api/schedule/batch-override-holiday
+ * Body: { scheduleIds: [id1, id2], date, shifts, note }
+ * 
+ * Tạo override holiday cho NHIỀU schedules cùng lúc
+ * Tự động BỎ QUA nếu schedule/ca đã tồn tại (không throw error)
+ * 
+ * @param {Array<string>} scheduleIds - Array of schedule IDs to process
+ * @param {string} date - Date to override (YYYY-MM-DD)
+ * @param {Array<string>} shifts - Array of shift keys ['morning', 'afternoon', 'evening']
+ * @param {string} note - Optional note
+ * @returns {Object} { success, results: [...], summary }
+ */
+exports.createBatchScheduleOverrideHoliday = async ({ scheduleIds, date, shifts, note }) => {
+  const Slot = require('../models/slot.model');
+  const cfgService = require('./config.service');
+  
+  try {
+    // Validate input
+    if (!scheduleIds || !Array.isArray(scheduleIds) || scheduleIds.length === 0) {
+      throw new Error('scheduleIds (array) là bắt buộc');
+    }
+    if (!date || !shifts || !Array.isArray(shifts) || shifts.length === 0) {
+      throw new Error('date và shifts (array) là bắt buộc');
+    }
+
+    console.log(`🚀 Batch override holiday for ${scheduleIds.length} schedules, date: ${date}, shifts: ${shifts.join(', ')}`);
+
+    // Parse target date
+    const targetDate = new Date(date);
+    targetDate.setUTCHours(0, 0, 0, 0);
+    const dateStr = targetDate.toISOString().split('T')[0];
+
+    // Fetch all schedules
+    const schedules = await Schedule.find({
+      _id: { $in: scheduleIds.map(id => new mongoose.Types.ObjectId(id)) }
+    });
+
+    if (schedules.length === 0) {
+      throw new Error('Không tìm thấy schedule nào');
+    }
+
+    console.log(`📋 Found ${schedules.length} schedules to process`);
+
+    // Get config for slot duration
+    const config = await cfgService.getConfig();
+    if (!config) {
+      throw new Error('Schedule config chưa được khởi tạo');
+    }
+
+    const shiftMapping = {
+      morning: 'Ca Sáng',
+      afternoon: 'Ca Chiều',
+      evening: 'Ca Tối'
+    };
+
+    const results = [];
+    let totalSlotsCreated = 0;
+    let totalSchedulesProcessed = 0;
+    let totalSchedulesSkipped = 0;
+
+    // Process each schedule
+    for (const schedule of schedules) {
+      try {
+        const scheduleResult = {
+          scheduleId: schedule._id,
+          subRoomName: schedule.subRoomId ? schedule.subRoom?.name || 'Buồng phụ' : 'Phòng chính',
+          shiftsProcessed: [],
+          shiftsSkipped: [],
+          slotsCreated: 0,
+          error: null
+        };
+
+        // Check if date is holiday in this schedule
+        const dayOffEntry = schedule.holidaySnapshot?.computedDaysOff?.find(d => d.date === dateStr);
+        
+        if (!dayOffEntry) {
+          scheduleResult.error = 'Ngày này không phải ngày nghỉ trong schedule này';
+          scheduleResult.skipped = true;
+          totalSchedulesSkipped++;
+          results.push(scheduleResult);
+          console.log(`⏭️ Skip schedule ${schedule._id}: Không phải ngày nghỉ`);
+          continue;
+        }
+
+        // Check existing slots for this schedule/date
+        const existingSlots = await Slot.find({
+          scheduleId: schedule._id,
+          date: targetDate
+        });
+
+        const existingShiftKeys = new Set(
+          existingSlots.map(slot => {
+            if (slot.shiftName === 'Ca Sáng' || slot.shiftName.includes('Sáng')) return 'morning';
+            if (slot.shiftName === 'Ca Chiều' || slot.shiftName.includes('Chiều')) return 'afternoon';
+            if (slot.shiftName === 'Ca Tối' || slot.shiftName.includes('Tối')) return 'evening';
+            return null;
+          }).filter(Boolean)
+        );
+
+        console.log(`📅 Schedule ${schedule._id} existing shifts:`, Array.from(existingShiftKeys));
+
+        // Process each shift
+        for (const shiftKey of shifts) {
+          // Skip if already has slots for this shift
+          if (existingShiftKeys.has(shiftKey)) {
+            scheduleResult.shiftsSkipped.push({
+              shiftKey,
+              shiftName: shiftMapping[shiftKey],
+              reason: 'Đã có slots'
+            });
+            console.log(`⏭️ Skip ${shiftMapping[shiftKey]} for schedule ${schedule._id}: Đã tồn tại`);
+            continue;
+          }
+
+          // Skip if shift not active in schedule config
+          const shiftConfig = schedule.shiftConfig?.[shiftKey];
+          if (!shiftConfig || !shiftConfig.isActive) {
+            scheduleResult.shiftsSkipped.push({
+              shiftKey,
+              shiftName: shiftMapping[shiftKey],
+              reason: 'Ca không active'
+            });
+            console.log(`⏭️ Skip ${shiftMapping[shiftKey]} for schedule ${schedule._id}: Ca không active`);
+            continue;
+          }
+
+          // Skip if shift already overridden in computedDaysOff
+          if (dayOffEntry.shifts?.[shiftKey]?.isOverridden) {
+            scheduleResult.shiftsSkipped.push({
+              shiftKey,
+              shiftName: shiftMapping[shiftKey],
+              reason: 'Đã override trước đó'
+            });
+            console.log(`⏭️ Skip ${shiftMapping[shiftKey]} for schedule ${schedule._id}: Đã override`);
+            continue;
+          }
+
+          // Generate slots for this shift
+          const year = targetDate.getUTCFullYear();
+          const month = targetDate.getUTCMonth() + 1;
+          const day = targetDate.getUTCDate();
+
+          const [startHour, startMin] = shiftConfig.startTime.split(':').map(Number);
+          const [endHour, endMin] = shiftConfig.endTime.split(':').map(Number);
+
+          let slotStartTime = new Date(Date.UTC(year, month - 1, day, startHour - 7, startMin, 0, 0));
+          const shiftEndTime = new Date(Date.UTC(year, month - 1, day, endHour - 7, endMin, 0, 0));
+
+          const shiftSlots = [];
+          while (slotStartTime < shiftEndTime) {
+            const slotEndTime = new Date(slotStartTime.getTime() + shiftConfig.slotDuration * 60 * 1000);
+            if (slotEndTime > shiftEndTime) break;
+
+            shiftSlots.push({
+              scheduleId: schedule._id,
+              roomId: schedule.roomId,
+              subRoomId: schedule.subRoomId || null,
+              shiftName: shiftMapping[shiftKey],
+              startTime: new Date(slotStartTime),
+              endTime: new Date(slotEndTime),
+              date: new Date(targetDate),
+              duration: shiftConfig.slotDuration,
+              status: 'available',
+              isActive: true,
+              isHolidayOverride: true
+            });
+
+            slotStartTime = slotEndTime;
+          }
+
+          if (shiftSlots.length > 0) {
+            const insertedSlots = await Slot.insertMany(shiftSlots);
+            scheduleResult.slotsCreated += insertedSlots.length;
+            scheduleResult.shiftsProcessed.push({
+              shiftKey,
+              shiftName: shiftMapping[shiftKey],
+              slotsCount: insertedSlots.length
+            });
+            totalSlotsCreated += insertedSlots.length;
+            console.log(`✅ Created ${insertedSlots.length} slots for ${shiftMapping[shiftKey]} in schedule ${schedule._id}`);
+
+            // Mark shift as overridden in computedDaysOff
+            if (dayOffEntry.shifts?.[shiftKey]) {
+              dayOffEntry.shifts[shiftKey].isOverridden = true;
+              dayOffEntry.shifts[shiftKey].overriddenAt = new Date();
+            }
+          }
+        }
+
+        // Check if all 3 shifts are now overridden → Remove date from computedDaysOff
+        if (dayOffEntry.shifts) {
+          const allShiftsOverridden =
+            dayOffEntry.shifts.morning?.isOverridden &&
+            dayOffEntry.shifts.afternoon?.isOverridden &&
+            dayOffEntry.shifts.evening?.isOverridden;
+
+          if (allShiftsOverridden) {
+            schedule.holidaySnapshot.computedDaysOff = schedule.holidaySnapshot.computedDaysOff.filter(
+              d => d.date !== dateStr
+            );
+            console.log(`🗑️ Removed ${dateStr} from computedDaysOff for schedule ${schedule._id} (all shifts overridden)`);
+          }
+        }
+
+        await schedule.save();
+
+        if (scheduleResult.shiftsProcessed.length > 0) {
+          totalSchedulesProcessed++;
+        } else {
+          totalSchedulesSkipped++;
+        }
+
+        results.push(scheduleResult);
+
+      } catch (error) {
+        console.error(`❌ Error processing schedule ${schedule._id}:`, error);
+        results.push({
+          scheduleId: schedule._id,
+          error: error.message,
+          shiftsProcessed: [],
+          shiftsSkipped: [],
+          slotsCreated: 0
+        });
+        totalSchedulesSkipped++;
+      }
+    }
+
+    console.log(`✅ Batch override completed: ${totalSchedulesProcessed} processed, ${totalSchedulesSkipped} skipped, ${totalSlotsCreated} slots created`);
+
+    // 🆕 Clear calendar cache for affected rooms
+    if (totalSlotsCreated > 0) {
+      try {
+        const affectedRooms = new Set();
+        schedules.forEach(schedule => {
+          if (schedule.roomId) affectedRooms.add(schedule.roomId.toString());
+        });
+
+        const redisClient = require('../config/redis');
+        for (const roomId of affectedRooms) {
+          const pattern = `room_calendar:${roomId}:*`;
+          const keys = await redisClient.keys(pattern);
+          if (keys.length > 0) {
+            await redisClient.del(keys);
+            console.log(`🗑️ [Cache Cleared] Deleted ${keys.length} calendar cache keys for room ${roomId}`);
+          }
+        }
+        console.log(`✅ Calendar cache cleared for ${affectedRooms.size} room(s)`);
+      } catch (cacheError) {
+        console.error('⚠️ Cache clear error (data still saved):', cacheError.message);
+      }
+    }
+
+    return {
+      success: true,
+      date: dateStr,
+      shifts,
+      results,
+      summary: {
+        totalSchedules: schedules.length,
+        schedulesProcessed: totalSchedulesProcessed,
+        schedulesSkipped: totalSchedulesSkipped,
+        totalSlotsCreated
+      }
+    };
+
+  } catch (error) {
+    console.error('❌ Error in batch override holiday:', error);
+    throw error;
+  }
+};
+
 // 🆕 Export thêm các functions mới (sau module.exports chính)
 module.exports.disableSlotsFlexible = exports.disableSlotsFlexible;
 module.exports.enableSlotsFlexible = exports.enableSlotsFlexible;
 module.exports.createScheduleOverrideHoliday = exports.createScheduleOverrideHoliday;
 module.exports.getAvailableOverrideShifts = exports.getAvailableOverrideShifts;
+module.exports.createBatchScheduleOverrideHoliday = exports.createBatchScheduleOverrideHoliday;
 
 /**
  * 🆕 API: Validate ngày nghỉ từ holidaySnapshot của schedule cụ thể
@@ -5777,6 +6066,21 @@ exports.addMissingShifts = async ({
 
     console.log(`\n✅ [addMissingShifts] Completed: ${totalAddedSlots} total slots added`);
 
+    // 🆕 Clear calendar cache for this room
+    if (totalAddedSlots > 0) {
+      try {
+        const redisClient = require('../config/redis');
+        const pattern = `room_calendar:${roomId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          console.log(`🗑️ [Cache Cleared] Deleted ${keys.length} calendar cache keys for room ${roomId}`);
+        }
+      } catch (cacheError) {
+        console.error('⚠️ Cache clear error (data still saved):', cacheError.message);
+      }
+    }
+
     return {
       success: true,
       message: `Đã thêm ${totalAddedSlots} slots cho ${selectedShifts.length} ca`,
@@ -7528,6 +7832,108 @@ exports.createOverrideHolidayForAllRooms = async (roomId, month, year, date, shi
     throw error;
   }
 };
+
+/**
+ * 🆕 API: Enable các ca và buồng bị tắt trong schedule
+ * Nếu room có subroom, sẽ cập nhật TẤT CẢ schedules trong cùng tháng/năm
+ * @param {String} scheduleId - ID của schedule (dùng để lấy roomId, month, year)
+ * @param {Array<String>} shifts - Mảng các ca cần bật: ['morning', 'afternoon', 'evening']
+ * @param {Array<String>} subRoomIds - Mảng các ID buồng cần bật
+ * @returns {Object} - Kết quả cập nhật
+ */
+const enableShiftsAndSubRooms = async (scheduleId, shifts = [], subRoomIds = []) => {
+  try {
+    console.log(`🔄 enableShiftsAndSubRooms called with scheduleId=${scheduleId}, shifts=${JSON.stringify(shifts)}, subRoomIds=${JSON.stringify(subRoomIds)}`);
+
+    // Validate input
+    if (!scheduleId || !mongoose.Types.ObjectId.isValid(scheduleId)) {
+      throw new Error('Invalid schedule ID');
+    }
+
+    // Tìm schedule đầu tiên để lấy roomId, month, year
+    const firstSchedule = await Schedule.findById(scheduleId);
+    if (!firstSchedule) {
+      throw new Error('Schedule not found');
+    }
+
+    const { roomId, month, year } = firstSchedule;
+    console.log(`📋 Found schedule for room=${roomId}, month=${month}, year=${year}`);
+
+    // Lấy TẤT CẢ schedules của room trong cùng tháng/năm
+    const allSchedules = await Schedule.find({
+      roomId,
+      month,
+      year
+    });
+
+    console.log(`📊 Found ${allSchedules.length} schedules for this room in ${month}/${year}`);
+
+    let totalUpdatedShifts = 0;
+    let totalUpdatedSubRooms = 0;
+    const updatedScheduleIds = [];
+
+    // Loop qua từng schedule và cập nhật
+    for (const schedule of allSchedules) {
+      let scheduleModified = false;
+
+      // 1. Enable các ca trong schedule này
+      if (shifts && shifts.length > 0) {
+        shifts.forEach(shiftKey => {
+          if (schedule.shiftConfig && schedule.shiftConfig[shiftKey]) {
+            if (schedule.shiftConfig[shiftKey].isActive === false) {
+              schedule.shiftConfig[shiftKey].isActive = true;
+              totalUpdatedShifts++;
+              scheduleModified = true;
+              console.log(`✅ Enabled shift ${shiftKey} in schedule ${schedule._id}`);
+            }
+          }
+        });
+      }
+
+      // 2. Enable buồng nếu schedule này thuộc buồng cần enable
+      if (subRoomIds && subRoomIds.length > 0 && schedule.subRoomId) {
+        const subRoomIdStr = schedule.subRoomId.toString();
+        if (subRoomIds.includes(subRoomIdStr)) {
+          // Cập nhật isActiveSubRoom của schedule này
+          if (schedule.isActiveSubRoom === false) {
+            schedule.isActiveSubRoom = true;
+            totalUpdatedSubRooms++;
+            scheduleModified = true;
+            console.log(`✅ Enabled subroom ${subRoomIdStr} in schedule ${schedule._id}`);
+          }
+        }
+      }
+
+      // Lưu schedule nếu có thay đổi
+      if (scheduleModified) {
+        await schedule.save();
+        updatedScheduleIds.push(schedule._id);
+      }
+    }
+
+    console.log(`✅ enableShiftsAndSubRooms completed: ${totalUpdatedShifts} shifts enabled, ${totalUpdatedSubRooms} subrooms enabled across ${updatedScheduleIds.length} schedules`);
+
+    return {
+      success: true,
+      roomId,
+      month,
+      year,
+      totalSchedules: allSchedules.length,
+      updatedSchedules: updatedScheduleIds.length,
+      updatedShifts: totalUpdatedShifts,
+      updatedSubRooms: totalUpdatedSubRooms,
+      updatedScheduleIds
+    };
+
+  } catch (error) {
+    console.error('❌ Error in enableShiftsAndSubRooms:', error);
+    throw error;
+  }
+};
+
+// Export function
+module.exports.enableShiftsAndSubRooms = enableShiftsAndSubRooms;
+exports.enableShiftsAndSubRooms = enableShiftsAndSubRooms;
 
 
 

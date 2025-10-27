@@ -84,6 +84,9 @@ router.post('/replace-staff', authMiddleware, scheduleController.replaceStaff);
 // 🆕 Nhiệm vụ 2.3: Tạo lịch override trong ngày nghỉ
 router.post('/override-holiday', authMiddleware, scheduleController.createScheduleOverrideHoliday);
 
+// 🆕 Batch create override holiday for multiple schedules (room with subrooms)
+router.post('/batch-override-holiday', authMiddleware, scheduleController.createBatchScheduleOverrideHoliday);
+
 // 🆕 Get available shifts for override holiday (check which shifts can be created)
 router.post('/get-available-override-shifts', scheduleController.getAvailableOverrideShifts);
 
@@ -101,5 +104,8 @@ router.post('/bulk-toggle-dates', authMiddleware, scheduleController.bulkToggleS
 
 // 🆕 Tạo lịch cho ngày nghỉ - toàn bộ room và subroom
 router.post('/override-holiday-all-rooms', authMiddleware, scheduleController.createOverrideHolidayForAllRooms);
+
+// 🆕 Enable các ca và buồng bị tắt
+router.post('/enable-shifts-subrooms', authMiddleware, scheduleController.enableShiftsAndSubRooms);
 
 module.exports = router;
