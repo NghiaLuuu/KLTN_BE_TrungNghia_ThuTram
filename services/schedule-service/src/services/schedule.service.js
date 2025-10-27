@@ -2345,6 +2345,8 @@ exports.createScheduleOverrideHoliday = async (data) => {
  * Nếu chọn nhiều schedule (subrooms), merge results
  */
 exports.getAvailableOverrideShifts = async ({ roomId, month, year, date, scheduleIds }) => {
+  const Slot = require('../models/slot.model');
+  
   try {
     const targetDate = new Date(date);
     const dateStr = targetDate.toISOString().split('T')[0];
@@ -2371,19 +2373,41 @@ exports.getAvailableOverrideShifts = async ({ roomId, month, year, date, schedul
       evening: { available: [], overridden: [] }
     };
     
-    schedules.forEach(schedule => {
+    // 🔧 FIX: Check both computedDaysOff AND actual slots in DB
+    for (const schedule of schedules) {
       const dayOffEntry = schedule.holidaySnapshot?.computedDaysOff?.find(d => d.date === dateStr);
+      
+      // Check existing slots for this schedule/date
+      const existingSlots = await Slot.find({
+        scheduleId: schedule._id,
+        date: targetDate
+      });
+      
+      const existingShiftKeys = new Set(
+        existingSlots.map(slot => {
+          if (slot.shiftName === 'Ca Sáng' || slot.shiftName.includes('Sáng')) return 'morning';
+          if (slot.shiftName === 'Ca Chiều' || slot.shiftName.includes('Chiều')) return 'afternoon';
+          if (slot.shiftName === 'Ca Tối' || slot.shiftName.includes('Tối')) return 'evening';
+          return null;
+        }).filter(Boolean)
+      );
+      
+      console.log(`🔍 Schedule ${schedule._id} - Existing slots for ${dateStr}:`, Array.from(existingShiftKeys));
       
       if (dayOffEntry && dayOffEntry.shifts) {
         // Check each shift
         ['morning', 'afternoon', 'evening'].forEach(shiftKey => {
           const shiftData = dayOffEntry.shifts[shiftKey];
           
-          if (shiftData?.isOverridden) {
+          // ✅ Consider overridden if EITHER isOverridden=true OR slots exist in DB
+          const isOverridden = shiftData?.isOverridden || existingShiftKeys.has(shiftKey);
+          
+          if (isOverridden) {
             shiftsStatus[shiftKey].overridden.push({
               scheduleId: schedule._id,
               subRoomName: schedule.subRoomId ? schedule.subRoom?.name : 'Phòng chính',
-              overriddenAt: shiftData.overriddenAt
+              overriddenAt: shiftData?.overriddenAt || null,
+              source: shiftData?.isOverridden ? 'computedDaysOff' : 'existingSlots'
             });
           } else {
             shiftsStatus[shiftKey].available.push({
@@ -2393,15 +2417,25 @@ exports.getAvailableOverrideShifts = async ({ roomId, month, year, date, schedul
           }
         });
       } else {
-        // Ngày không phải holiday hoặc chưa có shifts tracking → tất cả available
+        // Ngày không phải holiday hoặc chưa có shifts tracking
+        // Still check existing slots
         ['morning', 'afternoon', 'evening'].forEach(shiftKey => {
-          shiftsStatus[shiftKey].available.push({
-            scheduleId: schedule._id,
-            subRoomName: schedule.subRoomId ? schedule.subRoom?.name : 'Phòng chính'
-          });
+          if (existingShiftKeys.has(shiftKey)) {
+            shiftsStatus[shiftKey].overridden.push({
+              scheduleId: schedule._id,
+              subRoomName: schedule.subRoomId ? schedule.subRoom?.name : 'Phòng chính',
+              overriddenAt: null,
+              source: 'existingSlots'
+            });
+          } else {
+            shiftsStatus[shiftKey].available.push({
+              scheduleId: schedule._id,
+              subRoomName: schedule.subRoomId ? schedule.subRoom?.name : 'Phòng chính'
+            });
+          }
         });
       }
-    });
+    }
     
     // Format response
     const availableShifts = [];
@@ -2427,6 +2461,11 @@ exports.getAvailableOverrideShifts = async ({ roomId, month, year, date, schedul
           canSelect: false
         });
       }
+    });
+    
+    console.log(`✅ getAvailableOverrideShifts result for ${dateStr}:`, {
+      availableShifts: availableShifts.map(s => ({ shift: s.name, count: s.availableFor.length })),
+      overriddenShifts: overriddenShifts.map(s => ({ shift: s.name, count: s.overriddenFor.length }))
     });
     
     return {
@@ -2485,7 +2524,7 @@ module.exports = {
  */
 exports.createBatchScheduleOverrideHoliday = async ({ scheduleIds, date, shifts, note }) => {
   const Slot = require('../models/slot.model');
-  const cfgService = require('./config.service');
+  const cfgService = require('./scheduleConfig.service');
   
   try {
     // Validate input
