@@ -56,18 +56,14 @@ const userSchema = new Schema({
   roles: {
     type: [String],
     enum: ['admin', 'manager', 'dentist', 'nurse', 'receptionist', 'patient'],
-    required: false, // ✅ Not required for backward compatibility
-    default: function() {
-      // Auto-generate from role if not provided
-      return this.role ? [this.role] : [];
-    }
-  },
-  
-  // 🔄 Keep backward compatibility - role là primary role (role đầu tiên)
-  role: {
-    type: String,
-    enum: ['admin', 'manager', 'dentist', 'nurse', 'receptionist', 'patient'],
     required: true,
+    default: ['patient'],
+    validate: {
+      validator: function(roles) {
+        return roles && roles.length > 0;
+      },
+      message: 'User phải có ít nhất 1 role'
+    }
   },
   
   email: {
@@ -117,7 +113,7 @@ const userSchema = new Schema({
       {
         validator: function(certificates) {
           // Chỉ dentist mới được có certificates
-          if (this.role !== 'dentist') return certificates.length === 0;
+          if (!this.roles.includes('dentist')) return certificates.length === 0;
           return true;
         },
         message: 'Chỉ nha sĩ mới được có danh sách chứng chỉ'
@@ -179,29 +175,21 @@ const userSchema = new Schema({
   timestamps: true
 });
 
-// 🔹 Hook pre-save tự sinh employeeCode và sync roles
+// 🔹 Hook pre-save tự sinh employeeCode
 userSchema.pre('save', async function(next) {
   const user = this;
 
-  // 🆕 SYNC roles và role (role là primary role = roles[0])
-  if (user.isModified('roles')) {
-    if (user.roles && user.roles.length > 0) {
-      user.role = user.roles[0]; // Primary role
-    }
-  }
-  
-  // 🆕 Nếu set role nhưng chưa có roles, tự động tạo roles
-  if (user.isModified('role') && (!user.roles || user.roles.length === 0)) {
-    user.roles = [user.role];
-  }
-  
-  // ✅ Nếu không có roles (old data), tạo từ role
+  // ✅ Validate roles
   if (!user.roles || user.roles.length === 0) {
-    user.roles = user.role ? [user.role] : [];
+    user.roles = ['patient']; // Default to patient
   }
 
   // Bỏ qua patient hoặc đã có mã nhân viên
-  if (user.role === 'patient' || user.employeeCode) return next();
+  if (user.roles.includes('patient') && user.roles.length === 1) {
+    return next();
+  }
+  
+  if (user.employeeCode) return next();
 
   // 🆕 Format mới: NV + 8 chữ số (NV00000001)
   const prefix = 'NV';
@@ -210,7 +198,7 @@ userSchema.pre('save', async function(next) {
   // Tìm user có mã nhân viên lớn nhất (tất cả role staff)
   const lastUser = await User.findOne({ 
     employeeCode: { $exists: true, $ne: null },
-    role: { $ne: 'patient' } // Loại trừ patient
+    roles: { $nin: ['patient'] } // Loại trừ patient-only
   }).sort({ employeeCode: -1 }).exec();
 
   let nextNumber = 1;
@@ -221,19 +209,6 @@ userSchema.pre('save', async function(next) {
 
   user.employeeCode = `${prefix}${String(nextNumber).padStart(8, '0')}`;
   next();
-});
-
-// ✅ Hook post-find để auto-populate roles từ role (backward compatibility)
-userSchema.post(['find', 'findOne'], function(docs) {
-  if (!docs) return;
-  
-  const processDocs = Array.isArray(docs) ? docs : [docs];
-  
-  processDocs.forEach(doc => {
-    if (doc && (!doc.roles || doc.roles.length === 0) && doc.role) {
-      doc.roles = [doc.role];
-    }
-  });
 });
 
 // 🆕 Method để lấy thống kê chứng chỉ

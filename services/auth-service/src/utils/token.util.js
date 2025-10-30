@@ -1,10 +1,15 @@
 const jwt = require('jsonwebtoken');
 
-exports.generateAccessToken = (user) => {
+exports.generateAccessToken = (user, selectedRole = null) => {
+  // selectedRole: Role user selected at login/selectRole
+  // If not provided, use first role in array as default
+  const activeRole = selectedRole || user.roles?.[0];
+  
   return jwt.sign(
     {
       userId: user._id,
-      role: user.role, 
+      roles: user.roles,                  // ✅ All available roles
+      activeRole: activeRole,             // ✅ Currently selected/active role
     },
     process.env.ACCESS_TOKEN_SECRET,
     {
@@ -14,11 +19,16 @@ exports.generateAccessToken = (user) => {
 };
 
 
-exports.generateRefreshToken = (user) => {
+exports.generateRefreshToken = (user, selectedRole = null) => {
+  // selectedRole: Role user selected at login/selectRole
+  // If not provided, use first role in array as default
+  const activeRole = selectedRole || user.roles?.[0];
+  
   return jwt.sign(
     {
       userId: user._id,
-      role: user.role, // ✅ Thêm role nếu cần dùng cho refresh token
+      roles: user.roles,                  // ✅ All available roles
+      activeRole: activeRole,             // ✅ Currently selected/active role
     },
     process.env.REFRESH_TOKEN_SECRET,
     {

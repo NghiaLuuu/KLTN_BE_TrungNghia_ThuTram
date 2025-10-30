@@ -11,7 +11,7 @@ async function initUserCache() {
   try {
     const users = await userRepo.listUsers();
     await redis.set(USER_CACHE_KEY, JSON.stringify(users));
-    console.log(`✅ Cache nhân viên đã được tải: ${users.length} nhân viên`);
+    console.log(`✅ Cache người dùng đã được tải: ${users.length} người dùng`);
   } catch (err) {
     console.error('❌ Lỗi khi tải cache người dùng:', err);
   }

@@ -466,6 +466,48 @@ class RecordService {
 
     return Array.from(servicesMap.values());
   }
+
+  // 🆕 Get treatment indications for a patient and service (with serviceAddOn details)
+  async getTreatmentIndications(patientId, serviceId) {
+    if (!patientId || !serviceId) {
+      throw new Error('Patient ID and Service ID are required');
+    }
+
+    // Find exam records with treatment indications for the specified service
+    const records = await recordRepo.findAll({
+      patientId,
+      type: 'exam'
+    });
+
+    const indications = [];
+    
+    records.forEach(record => {
+      if (record.treatmentIndications && record.treatmentIndications.length > 0) {
+        record.treatmentIndications.forEach(indication => {
+          // Match by serviceId and not used yet
+          if (indication.serviceId && 
+              indication.serviceId.toString() === serviceId && 
+              !indication.used) {
+            indications.push({
+              indicationId: indication._id,
+              serviceId: indication.serviceId,
+              serviceName: indication.serviceName,
+              serviceAddOnId: indication.serviceAddOnId || null,
+              serviceAddOnName: indication.serviceAddOnName || null,
+              notes: indication.notes || '',
+              recordId: record._id,
+              recordCode: record.recordCode,
+              dentistName: record.dentistName,
+              examDate: record.date,
+              createdAt: record.createdAt
+            });
+          }
+        });
+      }
+    });
+
+    return indications;
+  }
 }
 
 module.exports = new RecordService();

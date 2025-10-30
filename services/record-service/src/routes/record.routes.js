@@ -111,6 +111,14 @@ router.get('/patient/:patientId/unused-services',
   recordController.getUnusedServices
 );
 
+// 🆕 Get treatment indications for a patient and service
+router.get('/patient/:patientId/treatment-indications',
+  authenticate,
+  patientIdValidation,
+  validate,
+  recordController.getTreatmentIndications
+);
+
 // Get records by dentist
 router.get('/dentist/:dentistId',
   authenticate,

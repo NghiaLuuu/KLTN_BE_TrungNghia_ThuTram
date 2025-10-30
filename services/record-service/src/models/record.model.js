@@ -63,6 +63,14 @@ const treatmentIndicationSchema = new mongoose.Schema({
     type: String,
     required: true // Store service name for historical record
   },
+  serviceAddOnId: {
+    type: String, // Stored as string because it's from serviceAddOns array
+    required: false
+  },
+  serviceAddOnName: {
+    type: String,
+    required: false
+  },
   used: { 
     type: Boolean, 
     default: false

@@ -927,6 +927,7 @@ class AppointmentService {
       const {
         status,
         dentistId,
+        nurseId,
         startDate,
         endDate,
         page = 1,
@@ -942,6 +943,10 @@ class AppointmentService {
 
       if (dentistId) {
         query.dentistId = dentistId;
+      }
+
+      if (nurseId) {
+        query.nurseId = nurseId;
       }
 
       if (startDate || endDate) {

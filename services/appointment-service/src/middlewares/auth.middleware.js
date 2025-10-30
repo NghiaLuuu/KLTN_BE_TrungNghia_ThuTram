@@ -25,11 +25,17 @@ const authorize = (roles = []) => {
       });
     }
 
-    if (roles.length > 0 && !roles.includes(req.user.role)) {
-      return res.status(403).json({ 
-        success: false,
-        message: 'Từ chối quyền: bạn không có đủ quyền để thực hiện thao tác này' 
-      });
+    // ✅ Check if user has ANY of the required roles (support multiple roles)
+    if (roles.length > 0) {
+      const userRoles = req.user.roles || [req.user.role]; // Support both roles array and legacy role string
+      const hasPermission = roles.some(role => userRoles.includes(role));
+      
+      if (!hasPermission) {
+        return res.status(403).json({ 
+          success: false,
+          message: 'Từ chối quyền: bạn không có đủ quyền để thực hiện thao tác này' 
+        });
+      }
     }
 
     next();

@@ -47,7 +47,7 @@ router.post('/reserve',
 // Create appointment directly (offline booking) - For staff/admin only
 router.post('/create-offline', 
   authenticate, 
-  authorize(['staff', 'admin', 'dentist']),
+  authorize(['staff', 'admin', 'manager', 'dentist', 'receptionist']),
   createOfflineAppointmentValidation, // ⭐ Use dedicated validation for offline booking
   validate,
   appointmentController.createOffline
@@ -92,7 +92,7 @@ router.get('/by-staff/:staffId',
 // Check-in appointment
 router.post('/:id/check-in', 
   authenticate, 
-  authorize(['dentist', 'admin', 'staff', 'receptionist']),
+  authorize(['dentist', 'admin', 'manager', 'staff', 'receptionist']),
   checkInAppointmentValidation,
   validate,
   appointmentController.checkIn
@@ -101,7 +101,7 @@ router.post('/:id/check-in',
 // Complete appointment
 router.post('/:id/complete', 
   authenticate, 
-  authorize(['dentist', 'admin']),
+  authorize(['dentist', 'admin', 'manager']),
   completeAppointmentValidation,
   validate,
   appointmentController.complete
@@ -128,7 +128,7 @@ router.get('/queue',
 // Get queue statistics
 router.get('/queue/stats',
   authenticate,
-  authorize(['admin', 'manager', 'dentist', 'staff', 'receptionist']),
+  authorize(['admin', 'manager', 'dentist', 'staff', 'receptionist', 'nurse']),
   queueController.getQueueStats
 );
 

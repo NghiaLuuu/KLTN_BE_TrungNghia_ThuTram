@@ -208,7 +208,9 @@ exports.refresh = async (refreshToken) => {
     throw new Error('Refresh token không tồn tại hoặc đã bị thu hồi');
   }
 
-  const newAccessToken = generateAccessToken(user._id);
+  // ✅ Preserve activeRole from refresh token payload
+  const activeRole = payload.activeRole || user.roles?.[0];
+  const newAccessToken = generateAccessToken(user, activeRole);
   const updatedTokens = user.refreshTokens.filter((t) => t !== refreshToken);
   await userRepo.updateRefreshTokens(user, updatedTokens);
 
@@ -298,13 +300,9 @@ exports.selectRole = async (tempToken, selectedRole) => {
     throw new Error('Vai trò không hợp lệ');
   }
 
-  // Update user's primary role to selected role
-  user.role = selectedRole;
-  await userRepo.saveUser(user);
-
-  // Generate real tokens
-  const refreshToken = generateRefreshToken(user);
-  const accessToken = generateAccessToken(user);
+  // ✅ Generate tokens with selected role as activeRole
+  const refreshToken = generateRefreshToken(user, selectedRole);
+  const accessToken = generateAccessToken(user, selectedRole);
 
   await userRepo.updateRefreshTokens(user, [refreshToken]);
 

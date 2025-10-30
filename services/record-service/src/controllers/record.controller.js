@@ -50,18 +50,50 @@ class RecordController {
         search: req.query.search
       };
 
+      // 🔒 Filter by activeRole (selected role at login)
+      const activeRole = req.user?.activeRole || req.user?.role; // Use activeRole if available
+      const userRoles = req.user?.roles || [req.user?.role]; // All roles for checking admin/manager
+      const userId = req.user?.userId || req.user?._id;
+
+      console.log('🔍 [DEBUG] req.user:', JSON.stringify(req.user, null, 2));
+      console.log('🔍 [DEBUG] activeRole:', activeRole);
+      console.log('🔍 [DEBUG] userRoles:', userRoles);
+      console.log('🔍 [DEBUG] userId:', userId);
+
+      // ✅ Filter based on ACTIVE ROLE (role selected at login)
+      if (activeRole === 'dentist') {
+        // Logged in as dentist - only see their records
+        filters.dentistId = userId;
+        console.log('🔒 [DENTIST FILTER] Applied - dentistId:', userId);
+      } else if (activeRole === 'nurse') {
+        // Logged in as nurse - see records from their appointments
+        filters.nurseId = userId;
+        console.log('🔒 [NURSE FILTER] Applied - nurseId:', userId);
+      } else if (activeRole === 'admin' || activeRole === 'manager') {
+        // Logged in as admin/manager - see all records
+        console.log('🔓 [NO FILTER] User logged in as admin/manager');
+      } else {
+        console.log('🔓 [NO FILTER] Role:', activeRole);
+      }
+
       // Remove undefined values
       Object.keys(filters).forEach(key => 
         filters[key] === undefined && delete filters[key]
       );
 
+      console.log('🔍 [DEBUG] Final filters:', JSON.stringify(filters, null, 2));
+
       const records = await recordService.getAllRecords(filters);
+      
+      console.log('📊 [DEBUG] Records found:', records.length);
+      
       res.json({
         success: true,
         data: records,
         total: records.length
       });
     } catch (error) {
+      console.error('❌ [ERROR] getAll:', error);
       res.status(500).json({ 
         success: false,
         message: error.message 
@@ -350,6 +382,33 @@ class RecordController {
         success: true,
         data: services,
         total: services.length
+      });
+    } catch (error) {
+      res.status(500).json({ 
+        success: false,
+        message: error.message 
+      });
+    }
+  }
+
+  // 🆕 Get treatment indications for a patient and service
+  async getTreatmentIndications(req, res) {
+    try {
+      const { patientId } = req.params;
+      const { serviceId } = req.query;
+      
+      if (!serviceId) {
+        return res.status(400).json({
+          success: false,
+          message: 'serviceId is required'
+        });
+      }
+
+      const indications = await recordService.getTreatmentIndications(patientId, serviceId);
+      res.json({
+        success: true,
+        data: indications,
+        total: indications.length
       });
     } catch (error) {
       res.status(500).json({ 

@@ -5751,8 +5751,13 @@ exports.addMissingShifts = async ({
 
     const results = [];
     let totalAddedSlots = 0;
-    const today = dayjs().startOf('day');
+    // 🔧 FIX: Dùng Asia/Ho_Chi_Minh timezone để tính today/tomorrow chính xác
+    const today = dayjs().tz('Asia/Ho_Chi_Minh').startOf('day');
     const tomorrow = today.add(1, 'day');
+    
+    console.log(`🕐 [Timezone Debug] Server time: ${dayjs().format()}`);
+    console.log(`🕐 [Timezone Debug] VN today: ${today.format('YYYY-MM-DD HH:mm:ss Z')}`);
+    console.log(`🕐 [Timezone Debug] VN tomorrow: ${tomorrow.format('YYYY-MM-DD HH:mm:ss Z')}`);
 
     // 3. Determine which subrooms to process
     let targetSubRoomIds = [];

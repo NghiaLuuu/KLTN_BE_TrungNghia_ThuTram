@@ -201,6 +201,31 @@ class AppointmentController {
         page: parseInt(req.query.page) || 1,
         limit: parseInt(req.query.limit) || 50
       };
+
+      // 🔒 Filter by activeRole (selected role at login)
+      const activeRole = req.user?.activeRole || req.user?.role; // Use activeRole if available
+      const userRoles = req.user?.roles || [req.user?.role]; // All roles for checking admin/manager
+      const userId = req.user?.userId || req.user?._id;
+
+      console.log('🔍 [APPOINTMENT DEBUG] activeRole:', activeRole);
+      console.log('🔍 [APPOINTMENT DEBUG] userRoles:', userRoles);
+
+      // ✅ Filter based on ACTIVE ROLE (role selected at login)
+      if (activeRole === 'dentist') {
+        // Logged in as dentist - only see their appointments
+        filters.dentistId = userId;
+        console.log('🔒 [DENTIST FILTER] dentistId:', userId);
+      } else if (activeRole === 'nurse') {
+        // Logged in as nurse - only see their appointments
+        filters.nurseId = userId;
+        console.log('🔒 [NURSE FILTER] nurseId:', userId);
+      } else if (activeRole === 'admin' || activeRole === 'manager') {
+        // Logged in as admin/manager - see all appointments
+        console.log('🔓 [NO FILTER] User logged in as admin/manager');
+      } else {
+        console.log('🔓 [NO FILTER] Role:', activeRole);
+      }
+      // Receptionist sees all
       
       const result = await appointmentService.getAllAppointments(filters);
       res.json({ 

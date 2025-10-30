@@ -19,7 +19,41 @@ class RecordRepository {
     }
     
     if (filters.dentistId) {
-      query.dentistId = filters.dentistId;
+      // ✅ Convert to ObjectId if it's a string
+      const mongoose = require('mongoose');
+      query.dentistId = mongoose.Types.ObjectId.isValid(filters.dentistId) 
+        ? new mongoose.Types.ObjectId(filters.dentistId)
+        : filters.dentistId;
+      console.log('🔍 [REPO] dentistId filter:', query.dentistId);
+    }
+
+    // 🔒 Nurse filter: Need to find appointments with this nurseId first
+    if (filters.nurseId) {
+      try {
+        const axios = require('axios');
+        const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3008';
+        
+        // Get appointments where nurse is assigned
+        const response = await axios.get(`${APPOINTMENT_SERVICE_URL}/api/appointment`, {
+          params: { nurseId: filters.nurseId }
+        });
+
+        if (response.data.success && response.data.data.appointments) {
+          const appointmentIds = response.data.data.appointments.map(apt => apt._id);
+          
+          if (appointmentIds.length > 0) {
+            query.appointmentId = { $in: appointmentIds };
+          } else {
+            // No appointments found for this nurse, return empty
+            return [];
+          }
+        } else {
+          return [];
+        }
+      } catch (error) {
+        console.error('Failed to fetch nurse appointments:', error.message);
+        return [];
+      }
     }
     
     if (filters.status) {
@@ -46,8 +80,14 @@ class RecordRepository {
       ];
     }
 
-    return await Record.find(query)
+    console.log('🔍 [REPO] Final MongoDB query:', JSON.stringify(query, null, 2));
+
+    const results = await Record.find(query)
       .sort({ createdAt: -1 });
+    
+    console.log('📊 [REPO] Found records:', results.length);
+    
+    return results;
   }
 
   async update(id, data) {
