@@ -1072,8 +1072,8 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
         $gte: effectiveStartTime,  // >= max(start of day, now + 5 minutes)
         $lte: endOfDayVN           // <= end of day
       },
-      shiftName,
-      isActive: true
+      shiftName
+      // ✅ Removed isActive filter to show both enabled and disabled slots
     };
     
     if (subRoomId) {
@@ -1103,6 +1103,8 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
     const usersCache = await redisClient.get('users_cache');
     const users = usersCache ? JSON.parse(usersCache) : [];
     
+    console.log('🔍 Users cache loaded:', users.length, 'users');
+    
     const slotsWithStaffInfo = slots.map(slot => {
       // Handle dentist/nurse as array or single ObjectId
       let dentist = null;
@@ -1110,18 +1112,22 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
       
       if (Array.isArray(slot.dentist) && slot.dentist.length > 0) {
         // Array case: get first dentist for display
-        dentist = users.find(u => u._id === slot.dentist[0].toString());
+        dentist = users.find(u => u._id?.toString() === slot.dentist[0].toString());
+        console.log('🔍 Looking for dentist:', slot.dentist[0].toString(), 'Found:', !!dentist);
       } else if (slot.dentist) {
         // Legacy single ObjectId case
-        dentist = users.find(u => u._id === slot.dentist.toString());
+        dentist = users.find(u => u._id?.toString() === slot.dentist.toString());
+        console.log('🔍 Looking for dentist (single):', slot.dentist.toString(), 'Found:', !!dentist);
       }
       
       if (Array.isArray(slot.nurse) && slot.nurse.length > 0) {
         // Array case: get first nurse for display
-        nurse = users.find(u => u._id === slot.nurse[0].toString());
+        nurse = users.find(u => u._id?.toString() === slot.nurse[0].toString());
+        console.log('🔍 Looking for nurse:', slot.nurse[0].toString(), 'Found:', !!nurse);
       } else if (slot.nurse) {
         // Legacy single ObjectId case
-        nurse = users.find(u => u._id === slot.nurse.toString());
+        nurse = users.find(u => u._id?.toString() === slot.nurse.toString());
+        console.log('🔍 Looking for nurse (single):', slot.nurse.toString(), 'Found:', !!nurse);
       }
       
       // Slot có thể cập nhật nếu đã có ít nhất 1 nhân sự (dentist hoặc nurse)
@@ -1179,6 +1185,7 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
           employeeCode: nurse.employeeCode || nurse.code,
           role: nurse.role
         } : null,
+        isActive: slot.isActive, // ✅ Include isActive field to show slot status
         slotStatus: slot.status,
         appointmentId: slot.appointmentId || null,
         hasStaff: hasStaff,
@@ -3375,14 +3382,15 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
     }
 
     // 🆕 Send email notifications - ONLY for slots that actually changed isActive
+    // 🔧 Declare emailNotifications outside try-catch so it's accessible in return statement
+    let emailNotifications = [];
+    
     try {
       const axios = require('axios');
       const rabbitmqClient = require('../utils/rabbitmq.client');
       
       const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3000';
       const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
-      
-      const emailNotifications = [];
       
       // 🔥 ONLY process slots that actually changed isActive
       const changedSlotIds = slotsToChange.map(s => s._id.toString());
@@ -3435,7 +3443,7 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
         }
         
         // Prepare email list (deduplicated by appointmentId)
-        const emailNotifications = [];
+        // 🔧 FIX: Don't redeclare emailNotifications - use the one declared above
         const processedAppointments = new Set();
         
         for (const appointment of appointments) {
