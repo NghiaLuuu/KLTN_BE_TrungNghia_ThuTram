@@ -155,7 +155,7 @@ async function handleRecordInProgress(data) {
 
 /**
  * Handle record.completed event
- * Update appointment status to 'completed' and create payment
+ * Update appointment status to 'completed' and create payment for treatment indications
  */
 async function handleRecordCompleted(data) {
   try {
@@ -180,51 +180,133 @@ async function handleRecordCompleted(data) {
       console.log(`✅ Appointment ${appointment.appointmentCode} status updated to completed`);
     }
     
-    // 🔥 Create payment request
+    // 🔥 Create payment/invoice request
     try {
       const { publishToQueue } = require('./rabbitmq.client');
+      const serviceClient = require('./serviceClient');
       
-      // Calculate total amount (service price)
-      let totalAmount = data.totalCost || appointment.servicePrice || 0;
+      // Calculate service amounts
+      let services = [];
+      let totalAmount = 0;
       
-      // Check if appointment was created by patient (online booking)
-      // If yes, subtract deposit amount
-      let depositToDeduct = 0;
-      if (appointment.bookingChannel === 'online' && appointment.paymentId) {
-        // Patient already paid deposit during online booking
-        // Need to check payment service for deposit amount
-        // For now, assume standard deposit amount
-        const scheduleConfig = await appointmentService.getScheduleConfig ? appointmentService.getScheduleConfig() : null;
-        const depositPerSlot = scheduleConfig?.depositAmount || 100000;
-        const slotCount = appointment.slotIds ? appointment.slotIds.length : 1;
-        depositToDeduct = depositPerSlot * slotCount;
-        console.log(`💰 Deducting deposit: ${depositToDeduct} VND (${slotCount} slots × ${depositPerSlot})`);
+      // 1. Add main serviceAddOn (dịch vụ phụ được chọn khi đặt lịch)
+      // Note: Service chính (exam/treatment) KHÔNG có giá, chỉ ServiceAddOn mới có giá
+      if (appointment.serviceAddOnId && appointment.serviceAddOnName) {
+        const mainServiceAddOnPrice = appointment.totalAmount || 0; // Giá đã lưu từ lúc booking
+        services.push({
+          serviceId: appointment.serviceId,
+          serviceName: appointment.serviceName,
+          serviceType: appointment.serviceType,
+          serviceAddOnId: appointment.serviceAddOnId,
+          serviceAddOnName: appointment.serviceAddOnName,
+          price: mainServiceAddOnPrice,
+          quantity: 1,
+          type: 'main' // Dịch vụ chính khi đặt lịch
+        });
+        totalAmount += mainServiceAddOnPrice;
+        console.log(`📋 Main ServiceAddOn: ${appointment.serviceAddOnName} - ${mainServiceAddOnPrice} VND`);
+      } else {
+        // Trường hợp không có serviceAddOn (có thể xảy ra với lịch offline)
+        console.warn('⚠️ No serviceAddOn found in appointment - this may be an issue');
       }
       
-      const finalAmount = Math.max(0, totalAmount - depositToDeduct);
+      // 2. Add treatment indications (các serviceAddOn được thêm trong quá trình điều trị)
+      if (data.treatmentIndications && data.treatmentIndications.length > 0) {
+        for (const indication of data.treatmentIndications) {
+          if (indication.used) {
+            // ✅ Fetch giá từ service-service API
+            let indicationPrice = 0;
+            
+            if (indication.serviceAddOnId) {
+              try {
+                const addOnData = await serviceClient.getServiceAddOnPrice(
+                  indication.serviceId,
+                  indication.serviceAddOnId
+                );
+                
+                if (addOnData && addOnData.price !== undefined) {
+                  indicationPrice = addOnData.price;
+                  console.log(`✅ Fetched price for ${indication.serviceAddOnName}: ${indicationPrice} VND`);
+                } else {
+                  console.warn(`⚠️ No price found for ServiceAddOn: ${indication.serviceAddOnName}`);
+                }
+              } catch (fetchError) {
+                console.error(`❌ Failed to fetch price for ${indication.serviceAddOnName}:`, fetchError.message);
+              }
+            }
+            
+            services.push({
+              serviceId: indication.serviceId,
+              serviceName: indication.serviceName,
+              serviceAddOnId: indication.serviceAddOnId,
+              serviceAddOnName: indication.serviceAddOnName,
+              price: indicationPrice,
+              quantity: 1,
+              notes: indication.notes,
+              type: 'treatment' // Dịch vụ được thêm trong điều trị
+            });
+            totalAmount += indicationPrice;
+            console.log(`📋 Treatment indication: ${indication.serviceAddOnName || indication.serviceName} - ${indicationPrice} VND`);
+          }
+        }
+      }
       
-      // Publish payment.create event to payment-service
-      await publishToQueue('payment_queue', {
-        event: 'payment.create',
+      // 3. Check if appointment was online booking (has deposit)
+      let depositPaid = 0;
+      let originalPaymentId = null;
+      
+      if (appointment.bookingChannel === 'online' && appointment.paymentId) {
+        // Patient paid deposit - need to fetch payment details
+        originalPaymentId = appointment.paymentId;
+        
+        // TODO: Query payment-service to get exact deposit amount
+        // For now, calculate from slot count
+        const slotCount = appointment.slotIds ? appointment.slotIds.length : 1;
+        const depositPerSlot = 100000; // Default from schedule config
+        depositPaid = depositPerSlot * slotCount;
+        
+        console.log(`💰 Online booking - Deposit paid: ${depositPaid} VND (${slotCount} slots)`);
+      }
+      
+      // 4. Calculate final amount (total services - deposit)
+      const finalAmount = Math.max(0, totalAmount - depositPaid);
+      
+      console.log(`💵 Payment calculation:
+        - Total services: ${totalAmount} VND
+        - Deposit paid: ${depositPaid} VND
+        - Final amount: ${finalAmount} VND
+      `);
+      
+      // 5. Publish invoice.create event to invoice-service
+      await publishToQueue('invoice_queue', {
+        event: 'invoice.create_from_record',
         data: {
           recordId: data.recordId,
+          recordCode: data.recordCode,
           appointmentId: data.appointmentId,
+          appointmentCode: appointment.appointmentCode,
           patientId: data.patientId,
-          patientInfo: data.patientInfo,
+          patientInfo: data.patientInfo || appointment.patientInfo,
           dentistId: data.dentistId,
-          serviceId: data.serviceId,
-          serviceName: data.serviceName,
-          originalAmount: totalAmount,
-          depositDeducted: depositToDeduct,
+          dentistName: appointment.dentistName,
+          roomId: appointment.roomId,
+          roomName: appointment.roomName,
+          subroomId: appointment.subroomId,
+          subroomName: appointment.subroomName,
+          services: services,
+          totalAmount: totalAmount,
+          depositPaid: depositPaid,
+          originalPaymentId: originalPaymentId,
           finalAmount: finalAmount,
+          bookingChannel: appointment.bookingChannel,
           createdBy: data.modifiedBy,
           completedAt: data.completedAt
         }
       });
-      console.log(`✅ Published payment.create event for record ${data.recordCode}`);
+      console.log(`✅ Published invoice.create_from_record event for record ${data.recordCode}`);
       
     } catch (paymentError) {
-      console.error('❌ Failed to create payment:', paymentError);
+      console.error('❌ Failed to create invoice:', paymentError);
       // Don't throw - appointment completion already successful
     }
     

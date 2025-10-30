@@ -132,6 +132,15 @@ const appointmentSchema = new Schema({
     type: String,
     trim: true
   },
+  subroomId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null // null for rooms without subrooms
+  },
+  subroomName: {
+    type: String,
+    trim: true,
+    default: null
+  },
   
   // Payment & Invoice
   paymentId: {

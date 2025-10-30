@@ -1,6 +1,10 @@
 const cfgService = require('../services/scheduleConfig.service');
 
-const isManagerOrAdmin = (user) => user && (user.role === 'manager' || user.role === 'admin');
+const isManagerOrAdmin = (user) => {
+  if (!user) return false;
+  const userRoles = user.roles || (user.role ? [user.role] : []); // Support both roles array and legacy role
+  return userRoles.includes('manager') || userRoles.includes('admin');
+};
 
 // Main Configuration Controllers
 exports.getConfig = async (req, res) => {

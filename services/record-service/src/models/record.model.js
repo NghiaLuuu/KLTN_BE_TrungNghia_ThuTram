@@ -174,6 +174,14 @@ const recordSchema = new mongoose.Schema({
   roomName: {
     type: String
   },
+  subroomId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null // null for rooms without subrooms
+  },
+  subroomName: {
+    type: String,
+    default: null
+  },
 
   diagnosisServiceId: { 
     type: mongoose.Schema.Types.ObjectId,

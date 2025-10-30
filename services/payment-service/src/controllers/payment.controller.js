@@ -655,7 +655,10 @@ class PaymentController {
       const user = req.user;
 
       const allowedRoles = ["admin", "manager", "receptionist"];
-      if (!user || !allowedRoles.includes(user.role)) {
+      const userRoles = user?.roles || (user?.role ? [user.role] : []); // Support both roles array and legacy role
+      const hasPermission = allowedRoles.some(role => userRoles.includes(role));
+      
+      if (!user || !hasPermission) {
         return res.status(403).json({
           success: false,
           message: "Chỉ admin, manager hoặc receptionist mới được confirm thanh toán thủ công"

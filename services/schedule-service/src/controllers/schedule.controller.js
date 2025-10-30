@@ -1,7 +1,9 @@
 const scheduleService = require('../services/schedule.service');
 
 const isManagerOrAdmin = (user) => {
-  return user && (user.role === 'manager' || user.role === 'admin');
+  if (!user) return false;
+  const userRoles = user.roles || (user.role ? [user.role] : []); // Support both roles array and legacy role
+  return userRoles.includes('manager') || userRoles.includes('admin');
 };
 
 // Generate quarter schedule (all rooms)

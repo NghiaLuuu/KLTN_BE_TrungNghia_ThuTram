@@ -33,6 +33,8 @@ async function handleAppointmentCheckedIn(eventData) {
       dentistName: data.dentistName,
       roomId: data.roomId || null,
       roomName: data.roomName || null,
+      subroomId: data.subroomId || null,
+      subroomName: data.subroomName || null,
       status: 'pending', // Initial status when created from check-in
       priority: 'normal',
       createdBy: data.createdBy || data.dentistId // Use createdBy from appointment or fallback to dentistId

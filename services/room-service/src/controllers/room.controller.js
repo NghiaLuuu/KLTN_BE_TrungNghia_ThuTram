@@ -3,7 +3,9 @@ const Room = require('../models/room.model');
 
 // Chỉ cho phép admin hoặc manager
 const isManagerOrAdmin = (user) => {
-  return user && (user.role === 'manager' || user.role === 'admin');
+  if (!user) return false;
+  const userRoles = user.roles || (user.role ? [user.role] : []); // Support both roles array and legacy role
+  return userRoles.includes('manager') || userRoles.includes('admin');
 };
 
 exports.createRoom = async (req, res) => {

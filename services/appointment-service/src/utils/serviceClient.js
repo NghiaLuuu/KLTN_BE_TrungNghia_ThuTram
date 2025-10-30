@@ -112,6 +112,23 @@ class ServiceClient {
   }
 
   /**
+   * Get ServiceAddOn details including price
+   * @param {String} serviceId - Service ID
+   * @param {String} addOnId - ServiceAddOn ID
+   * @returns {Object} ServiceAddOn data with price
+   */
+  async getServiceAddOnPrice(serviceId, addOnId) {
+    try {
+      const response = await this.get('service-service', `/api/services/${serviceId}/addons/${addOnId}`);
+      // Response format: { service: "Service name", addOn: { _id, name, price, ... } }
+      return response.addOn || response.data?.addOn;
+    } catch (error) {
+      console.error(`[ServiceClient] Failed to fetch ServiceAddOn price for ${serviceId}/${addOnId}:`, error.message);
+      return null;
+    }
+  }
+
+  /**
    * Create temporary payment for appointment reservation
    * @param {String} appointmentHoldKey - Redis key for held appointment
    * @param {Number} amount - Payment amount

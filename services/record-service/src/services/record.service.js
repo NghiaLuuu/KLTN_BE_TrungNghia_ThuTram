@@ -230,6 +230,9 @@ class RecordService {
             dentistId: record.dentistId.toString(),
             serviceId: record.serviceId.toString(),
             serviceName: record.serviceName,
+            type: record.type, // 'exam' or 'treatment'
+            treatmentIndications: record.treatmentIndications || [], // Service addons used
+            prescription: record.prescription || null,
             totalCost: record.totalCost || 0,
             completedAt: record.completedAt,
             modifiedBy: modifiedBy ? modifiedBy.toString() : null
