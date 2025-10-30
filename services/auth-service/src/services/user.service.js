@@ -167,8 +167,9 @@ exports.getAllPatients = async (options = {}) => {
   
   const skip = (page - 1) * limit;
   
-  // Build filter criteria for patients only
-  const criteria = { role: 'patient' };
+  // ✅ Build filter criteria for patients only - DON'T set role/roles here
+  // Repository will handle the roles filter
+  const criteria = {};
   if (search) {
     criteria.$or = [
       { fullName: { $regex: search, $options: 'i' } },

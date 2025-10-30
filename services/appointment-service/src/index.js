@@ -28,7 +28,7 @@ app.use(cors({
 }));
 app.use(express.urlencoded({ extended: true }));
 
-app.use('/api/appointment', appointmentRoutes);
+app.use('/api/appointments', appointmentRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'appointment-service' });

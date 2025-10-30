@@ -13,7 +13,8 @@ const authorize = (allowedRoles = []) => {
       });
     }
 
-    const userRole = req.user.role;
+    // ✅ Support both activeRole (new token structure) and role (old structure)
+    const userRole = req.user.activeRole || req.user.role;
     
     // Nếu không có giới hạn role hoặc user role được cho phép
     if (allowedRoles.length === 0 || allowedRoles.includes(userRole)) {
@@ -36,8 +37,8 @@ const adminOnly = authorize(['admin']);
 // ✅ Middleware chỉ cho admin và manager xem staff
 const canViewStaff = authorize(['admin', 'manager']);
 
-// ✅ Middleware chỉ cho admin và manager xem patients
-const canViewPatients = authorize(['admin', 'manager']);
+// ✅ Middleware cho admin, manager, và receptionist xem patients
+const canViewPatients = authorize(['admin', 'manager', 'receptionist']);
 
 // ✅ Middleware cho update user permissions (sẽ check logic phức tạp hơn ở controller)
 const canUpdateUser = (req, res, next) => {
@@ -48,7 +49,8 @@ const canUpdateUser = (req, res, next) => {
     });
   }
 
-  const userRole = req.user.role;
+  // ✅ Support both activeRole (new token structure) and role (old structure)
+  const userRole = req.user.activeRole || req.user.role;
   const allowedRoles = ['admin', 'manager', 'patient']; // ✅ Chỉ admin, manager, patient được phép
   
   // Chỉ admin, manager, patient có thể gọi endpoint này 

@@ -172,6 +172,42 @@ class RecordService {
       console.warn('Failed to clear record cache:', error.message);
     }
 
+    // 🔥 If record is already completed, republish event to update invoice
+    if (updatedRecord.status === 'completed') {
+      try {
+        await publishToQueue('appointment_queue', {
+          event: 'record.completed',
+          data: {
+            recordId: updatedRecord._id.toString(),
+            recordCode: updatedRecord.recordCode,
+            appointmentId: updatedRecord.appointmentId ? updatedRecord.appointmentId.toString() : null,
+            patientId: updatedRecord.patientId ? updatedRecord.patientId.toString() : null,
+            patientInfo: updatedRecord.patientInfo,
+            dentistId: updatedRecord.dentistId.toString(),
+            dentistName: updatedRecord.dentistName,
+            roomId: updatedRecord.roomId ? updatedRecord.roomId.toString() : null,
+            roomName: updatedRecord.roomName,
+            subroomId: updatedRecord.subroomId ? updatedRecord.subroomId.toString() : null,
+            subroomName: updatedRecord.subroomName,
+            serviceId: updatedRecord.serviceId.toString(),
+            serviceName: updatedRecord.serviceName,
+            serviceType: updatedRecord.type, // 'exam' or 'treatment'
+            bookingChannel: 'offline', // Default for records
+            type: updatedRecord.type,
+            treatmentIndications: updatedRecord.treatmentIndications || [],
+            prescription: updatedRecord.prescription || null,
+            totalCost: updatedRecord.totalCost || 0,
+            completedAt: updatedRecord.completedAt,
+            modifiedBy: modifiedBy ? modifiedBy.toString() : null
+          }
+        });
+        console.log(`✅ Republished record.completed event after update for record ${updatedRecord.recordCode}`);
+      } catch (publishError) {
+        console.error('❌ Failed to republish record.completed event:', publishError);
+        // Don't throw - update already successful
+      }
+    }
+
     return updatedRecord;
   }
 

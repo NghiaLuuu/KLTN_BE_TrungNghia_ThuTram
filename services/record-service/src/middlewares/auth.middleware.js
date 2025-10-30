@@ -27,8 +27,10 @@ const authorize = (roles = []) => {
 
     // ✅ Check if user has ANY of the required roles (support multiple roles)
     if (roles.length > 0) {
-      const userRoles = req.user.roles || [req.user.role]; // Support both roles array and legacy role string
-      const hasPermission = roles.some(role => userRoles.includes(role));
+      // ✅ Support new token structure with activeRole (single role per session)
+      const userRole = req.user.activeRole || req.user.role;
+      const userRoles = req.user.roles || [userRole]; // Fallback to roles array or single role
+      const hasPermission = roles.some(role => userRoles.includes(role)) || roles.includes(userRole);
       
       if (!hasPermission) {
         return res.status(403).json({ 

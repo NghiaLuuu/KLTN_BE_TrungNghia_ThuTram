@@ -10,7 +10,10 @@ const roleMiddleware = (allowedRoles) => {
         });
       }
 
-      if (!user.role || !allowedRoles.includes(user.role)) {
+      // ✅ Support both activeRole (new token structure) and role (old structure)
+      const userRole = user.activeRole || user.role;
+
+      if (!userRole || !allowedRoles.includes(userRole)) {
         return res.status(403).json({
           success: false,
           message: `Không có quyền truy cập. Yêu cầu vai trò: ${allowedRoles.join(', ')}`
@@ -18,7 +21,7 @@ const roleMiddleware = (allowedRoles) => {
       }
 
       // Check if user is accessing their own patient data
-      if (user.role === 'patient' && req.params.patientId) {
+      if (userRole === 'patient' && req.params.patientId) {
         if (req.params.patientId !== user.userId) {
           return res.status(403).json({
             success: false,

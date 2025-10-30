@@ -16,9 +16,9 @@ class AuthMiddleware {
       const token = authHeader.split(" ")[1];
 
       const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-      req.user = decoded; // Contains id, email, role, etc.
+      req.user = decoded; // Contains id, email, role/activeRole, etc.
       
-      console.log(`🔐 User authenticated: ${decoded.email || decoded.id} (${decoded.role})`);
+      console.log(`🔐 User authenticated: ${decoded.email || decoded.userId} (${decoded.activeRole || decoded.role})`);
       next();
     } catch (error) {
       console.error('❌ Authentication error:', error.message);
@@ -55,7 +55,8 @@ class AuthMiddleware {
           });
         }
 
-        const userRole = req.user.role;
+        // ✅ Support both activeRole (new token structure) and role (old structure)
+        const userRole = req.user.activeRole || req.user.role;
 
         if (!allowedRoles.includes(userRole)) {
           console.warn(`⚠️ Access denied for role: ${userRole}, allowed: ${allowedRoles.join(', ')}`);
@@ -88,7 +89,8 @@ class AuthMiddleware {
       }
 
       const userId = req.user.id;
-      const userRole = req.user.role;
+      // ✅ Support both activeRole (new token structure) and role (old structure)
+      const userRole = req.user.activeRole || req.user.role;
       const resourceUserId = req.params.userId || req.body.userId || req.query.userId;
 
       // Admin and manager can access any resource
@@ -128,7 +130,7 @@ class AuthMiddleware {
       const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
       req.user = decoded;
       
-      console.log(`🔐 Optional auth: ${decoded.email || decoded.id} (${decoded.role})`);
+      console.log(`🔐 Optional auth: ${decoded.email || decoded.userId} (${decoded.activeRole || decoded.role})`);
       next();
     } catch (error) {
       // Continue without authentication if token is invalid
@@ -149,7 +151,8 @@ class AuthMiddleware {
           });
         }
 
-        const userRole = req.user.role;
+        // ✅ Support both activeRole (new token structure) and role (old structure)
+        const userRole = req.user.activeRole || req.user.role;
         const permissions = {
           create: ['admin', 'manager', 'dentist', 'receptionist'],
           read: ['admin', 'manager', 'dentist', 'receptionist', 'patient'],

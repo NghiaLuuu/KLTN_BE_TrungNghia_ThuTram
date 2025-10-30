@@ -7,9 +7,14 @@ const authRoutes = require('./routes/auth.route');
 const userRoutes = require('./routes/user.route');
 const startRPCServer = require('./utils/user.rpc'); 
 const { startEmailConsumer } = require('./services/email.consumer'); // 🆕 Email consumer
+const initAdminUser = require('./utils/initAdmin'); // 🆕 Admin initialization
 const cors = require('cors');
 
-connectDB();
+// Connect to database and initialize admin user
+connectDB().then(async () => {
+  // Initialize default admin user after DB connection
+  await initAdminUser();
+});
 
 const app = express();
 app.use(express.json());

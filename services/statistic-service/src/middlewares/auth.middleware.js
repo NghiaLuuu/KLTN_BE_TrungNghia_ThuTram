@@ -33,7 +33,10 @@ const authorize = (roles = []) => {
       });
     }
 
-    if (roles.length > 0 && !roles.includes(req.user.role)) {
+    // ✅ Support both activeRole (new token structure) and role (old structure)
+    const userRole = req.user.activeRole || req.user.role;
+
+    if (roles.length > 0 && !roles.includes(userRole)) {
       return res.status(403).json({
         success: false,
         message: 'Không có quyền truy cập'

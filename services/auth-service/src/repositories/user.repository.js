@@ -37,8 +37,9 @@ exports.createUser = async (data) => {
   // Tạo user tạm để trigger pre-save hook (generate employeeCode)
   const tempUser = new User(data);
   
+  // ✅ Fix: check roles array instead of role string
   // Nếu là patient → không cần logic mật khẩu mặc định
-  if (tempUser.role === 'patient') {
+  if (tempUser.roles && tempUser.roles.includes('patient') && tempUser.roles.length === 1) {
     // Patient tự đăng ký sẽ có password từ form
     if (data.password) {
       tempUser.password = await bcrypt.hash(data.password, 10);
@@ -83,7 +84,7 @@ exports.updateRefreshTokens = async (user, refreshTokens) => {
 // 🔹 LIST OPERATIONS
 exports.listUsers = async () => {
   return await User.find({ 
-    role: { $ne: 'patient' }, 
+    roles: { $nin: ['patient'] }, // ✅ Fix: roles is array, $nin for "not in"
     deletedAt: null 
   }).select('-password');
 };
@@ -91,12 +92,15 @@ exports.listUsers = async () => {
 
 
 exports.countByRole = async (role) => {
-  return await User.countDocuments({ role, deletedAt: null });
+  return await User.countDocuments({ 
+    roles: { $in: [role] }, // ✅ Fix: roles is array
+    deletedAt: null 
+  });
 };
 
 exports.getAllStaff = async (skip = 0, limit = 10) => {
   return await User.find({ 
-    role: { $ne: 'patient' }, 
+    roles: { $nin: ['patient'] }, // ✅ Fix: roles is array, $nin for "not in"
     deletedAt: null 
   })
     .select('-password')
@@ -107,7 +111,7 @@ exports.getAllStaff = async (skip = 0, limit = 10) => {
 
 exports.countAllStaff = async () => {
   return await User.countDocuments({ 
-    role: { $ne: 'patient' }, 
+    roles: { $nin: ['patient'] }, // ✅ Fix: roles is array
     deletedAt: null 
   });
 };
@@ -115,7 +119,7 @@ exports.countAllStaff = async () => {
 // 🆕 Enhanced staff queries with criteria and sorting
 exports.getAllStaffWithCriteria = async (criteria = {}, skip = 0, limit = 10, sortBy = 'name', sortOrder = 'asc') => {
   const query = { 
-    role: { $ne: 'patient' }, 
+    roles: { $nin: ['patient'] }, // ✅ Fix: roles is array
     deletedAt: null,
     ...criteria
   };
@@ -132,7 +136,7 @@ exports.getAllStaffWithCriteria = async (criteria = {}, skip = 0, limit = 10, so
 
 exports.countStaffWithCriteria = async (criteria = {}) => {
   const query = { 
-    role: { $ne: 'patient' }, 
+    roles: { $nin: ['patient'] }, // ✅ Fix: roles is array
     deletedAt: null,
     ...criteria
   };
@@ -143,7 +147,7 @@ exports.countStaffWithCriteria = async (criteria = {}) => {
 // 🆕 Patient-specific queries
 exports.getAllPatientsWithCriteria = async (criteria = {}, skip = 0, limit = 10, sortBy = 'name', sortOrder = 'asc') => {
   const query = { 
-    role: 'patient', 
+    roles: { $in: ['patient'] }, // ✅ Fix: roles is array, not string
     deletedAt: null,
     ...criteria
   };
@@ -160,7 +164,7 @@ exports.getAllPatientsWithCriteria = async (criteria = {}, skip = 0, limit = 10,
 
 exports.countPatientsWithCriteria = async (criteria = {}) => {
   const query = { 
-    role: 'patient', 
+    roles: { $in: ['patient'] }, // ✅ Fix: roles is array, not string
     deletedAt: null,
     ...criteria
   };
@@ -171,14 +175,14 @@ exports.countPatientsWithCriteria = async (criteria = {}) => {
 // 🔹 SEARCH OPERATIONS
 exports.searchStaff = async (criteria, skip = 0, limit = 10) => {
   const query = { 
-    role: { $ne: 'patient' }, 
+    roles: { $nin: ['patient'] }, // ✅ Fix: roles is array
     deletedAt: null 
   };
 
   if (criteria.fullName) query.fullName = { $regex: criteria.fullName, $options: 'i' };
   if (criteria.email) query.email = { $regex: criteria.email, $options: 'i' };
   if (criteria.phone) query.phone = { $regex: criteria.phone, $options: 'i' };
-  if (criteria.role) query.role = criteria.role;
+  if (criteria.role) query.roles = { $in: [criteria.role] }; // ✅ Fix: check if role in roles array
   if (criteria.gender) query.gender = criteria.gender;
   if (criteria.specialization) query.specializations = { $in: [criteria.specialization] };
 
@@ -191,14 +195,14 @@ exports.searchStaff = async (criteria, skip = 0, limit = 10) => {
 
 exports.countStaff = async (criteria) => {
   const query = { 
-    role: { $ne: 'patient' }, 
+    roles: { $nin: ['patient'] }, // ✅ Fix: roles is array
     deletedAt: null 
   };
 
   if (criteria.fullName) query.fullName = { $regex: criteria.fullName, $options: 'i' };
   if (criteria.email) query.email = { $regex: criteria.email, $options: 'i' };
   if (criteria.phone) query.phone = { $regex: criteria.phone, $options: 'i' };
-  if (criteria.role) query.role = criteria.role;
+  if (criteria.role) query.roles = { $in: [criteria.role] }; // ✅ Fix: check if role in roles array
   if (criteria.gender) query.gender = criteria.gender;
   if (criteria.specialization) query.specializations = { $in: [criteria.specialization] };
 
@@ -260,7 +264,11 @@ exports.checkUserUsageInSystem = async (userId) => {
 
 // 🆕 CERTIFICATE OPERATIONS với data đầy đủ
 exports.addCertificateImage = async (userId, certificateData) => {
-  const user = await User.findOne({ _id: userId, role: 'dentist', deletedAt: null });
+  const user = await User.findOne({ 
+    _id: userId, 
+    roles: { $in: ['dentist'] }, // ✅ Fix: roles is array
+    deletedAt: null 
+  });
   if (!user) throw new Error('Không tìm thấy nha sĩ để thêm chứng chỉ');
 
   user.certificates.push(certificateData);
@@ -269,7 +277,7 @@ exports.addCertificateImage = async (userId, certificateData) => {
 
 exports.deleteCertificate = async (userId, certificateId) => {
   return await User.findOneAndUpdate(
-    { _id: userId, role: 'dentist' },
+    { _id: userId, roles: { $in: ['dentist'] } }, // ✅ Fix: roles is array
     { $pull: { certificates: { certificateId: certificateId } } },
     { new: true }
   ).select('-password');
@@ -292,7 +300,7 @@ exports.verifyCertificate = async (userId, certificateId, isVerified = true, ver
   return await User.findOneAndUpdate(
     { 
       _id: userId, 
-      role: 'dentist',
+      roles: { $in: ['dentist'] }, // ✅ Fix: roles is array
       'certificates._id': certificateId
     },
     { $set: updateData },
@@ -304,7 +312,7 @@ exports.updateCertificateNotes = async (userId, certificateId, notes) => {
   return await User.findOneAndUpdate(
     { 
       _id: userId, 
-      role: 'dentist',
+      roles: { $in: ['dentist'] }, // ✅ Fix: roles is array
       'certificates._id': certificateId
     },
     { 
@@ -382,7 +390,7 @@ exports.addCertificate = exports.addCertificateImage;
 // 🆕 GET DENTISTS WITH CERTIFICATES (for patient booking)
 exports.getDentistsWithCertificates = async () => {
   return await User.find({
-    role: 'dentist',
+    roles: { $in: ['dentist'] }, // ✅ Fix: roles is array
     isActive: true,
     deletedAt: null
   })

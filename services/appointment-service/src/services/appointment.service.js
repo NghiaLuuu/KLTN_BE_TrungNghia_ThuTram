@@ -1051,7 +1051,7 @@ class AppointmentService {
         },
         room: {
           roomId: apt.roomId,
-          roomName: apt.roomName || null
+          roomName: apt.roomName || apt.subroomName || `Phòng ${apt.roomId?.toString().slice(-4)}`
         },
         dentist: {
           dentistId: apt.dentistId,

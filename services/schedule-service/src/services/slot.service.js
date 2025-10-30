@@ -1345,6 +1345,38 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
       getCachedRooms()
     ]);
     
+    // 🆕 Fetch appointments for slots with appointmentId
+    const axios = require('axios');
+    const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
+    const appointmentsMap = {}; // Map appointmentId -> appointment data
+    
+    const slotsWithAppointments = slots.filter(s => s.appointmentId);
+    if (slotsWithAppointments.length > 0) {
+      const uniqueAppointmentIds = [...new Set(slotsWithAppointments.map(s => s.appointmentId.toString()))];
+      console.log(`📋 Fetching ${uniqueAppointmentIds.length} unique appointments for calendar...`);
+      
+      try {
+        const appointmentResponse = await axios.get(
+          `${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids`,
+          { 
+            params: { ids: uniqueAppointmentIds.join(',') },
+            timeout: 5000
+          }
+        );
+        
+        if (appointmentResponse.data?.success) {
+          const appointments = appointmentResponse.data.data || [];
+          console.log(`✅ Retrieved ${appointments.length} appointments for calendar`);
+          // Create map for quick lookup
+          appointments.forEach(apt => {
+            appointmentsMap[apt._id.toString()] = apt;
+          });
+        }
+      } catch (appointmentError) {
+        console.error('⚠️ Could not fetch appointments for calendar:', appointmentError.message);
+      }
+    }
+    
     // Group slots by date and shift
     const calendar = {};
     const appointmentCounts = {}; // Track unique appointments
@@ -1433,8 +1465,20 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
           dentist: [],
           nurse: [],
           slotStatus: slot.status,
-          appointmentId: slot.appointmentId || null
+          appointmentId: slot.appointmentId || null,
+          // 🆕 Add patient info if appointment exists
+          patientInfo: null
         };
+        
+        // 🆕 Populate patient info from appointment
+        if (slot.appointmentId && appointmentsMap[slot.appointmentId.toString()]) {
+          const appointment = appointmentsMap[slot.appointmentId.toString()];
+          slotDetail.patientInfo = {
+            name: appointment.patientInfo?.name || 'N/A',
+            phone: appointment.patientInfo?.phone || '',
+            patientId: appointment.patientId || null
+          };
+        }
 
         // Populate dentist info
         if (Array.isArray(slot.dentist) && slot.dentist.length > 0) {
