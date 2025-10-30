@@ -3204,13 +3204,30 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
     // Convert string IDs to ObjectIds
     const objectIds = slotIds.map(id => new mongoose.Types.ObjectId(id));
 
-    // Get slots before update (for cache invalidation)
+    // 🆕 Get slots before update to check which ones actually changed isActive
     const slotsBeforeUpdate = await Slot.find({ _id: { $in: objectIds } })
-      .select('roomId subRoomId dentist nurse startTime endTime shiftName')
+      .select('roomId subRoomId dentist nurse startTime endTime shiftName isActive appointmentId date')
       .lean();
 
     if (slotsBeforeUpdate.length === 0) {
       throw new Error('No slots found with provided IDs');
+    }
+
+    // 🆕 Filter only slots that will actually change isActive
+    const slotsToChange = slotsBeforeUpdate.filter(slot => slot.isActive !== isActive);
+    const slotsAlreadyInState = slotsBeforeUpdate.filter(slot => slot.isActive === isActive);
+
+    console.log(`📊 ${slotsToChange.length} slots will change isActive, ${slotsAlreadyInState.length} already in state`);
+
+    if (slotsToChange.length === 0) {
+      console.log(`⚠️ All slots already have isActive=${isActive}, no changes needed`);
+      return {
+        success: true,
+        modifiedCount: 0,
+        message: `Tất cả ${slotIds.length} slots đã ở trạng thái ${isActive ? 'bật' : 'tắt'}`,
+        slotDetails: [],
+        emailsSent: 0
+      };
     }
 
     // Update slots isActive status
@@ -3357,7 +3374,7 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
       console.error('❌ Redis cache invalidation error (data still updated):', redisError.message);
     }
 
-    // 🆕 Send email notifications (for both enable and disable)
+    // 🆕 Send email notifications - ONLY for slots that actually changed isActive
     try {
       const axios = require('axios');
       const rabbitmqClient = require('../utils/rabbitmq.client');
@@ -3367,11 +3384,17 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
       
       const emailNotifications = [];
       
-      // 🔥 PART 1: Handle slots WITH appointments
-      const slotsWithAppointments = updatedSlots.filter(s => s.appointmentId);
+      // 🔥 ONLY process slots that actually changed isActive
+      const changedSlotIds = slotsToChange.map(s => s._id.toString());
+      const changedUpdatedSlots = updatedSlots.filter(s => changedSlotIds.includes(s._id.toString()));
+      
+      console.log(`📧 Processing emails for ${changedUpdatedSlots.length} slots that changed isActive`);
+      
+      // 🔥 PART 1: Handle slots WITH appointments that changed
+      const slotsWithAppointments = changedUpdatedSlots.filter(s => s.appointmentId);
       
       if (slotsWithAppointments.length > 0) {
-        console.log(`📧 ${slotsWithAppointments.length} slots have appointments, preparing emails...`);
+        console.log(`📧 ${slotsWithAppointments.length} changed slots have appointments, preparing emails...`);
         
         // Deduplicate by appointmentId (multiple slots can belong to same appointment)
         const uniqueAppointmentIds = [...new Set(
@@ -3517,15 +3540,15 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
         console.log(`📧 Part 1: Prepared ${emailNotifications.length} email notifications for slots with appointments`);
       }
       
-      // 🔥 PART 2: Handle slots WITHOUT appointments but WITH assigned staff
-      const slotsWithoutAppointments = updatedSlots.filter(s => !s.appointmentId);
+      // 🔥 PART 2: Handle slots WITHOUT appointments but WITH assigned staff - ONLY changed slots
+      const slotsWithoutAppointments = changedUpdatedSlots.filter(s => !s.appointmentId);
       const slotsWithStaff = slotsWithoutAppointments.filter(s => 
         (s.dentist && (Array.isArray(s.dentist) ? s.dentist.length > 0 : true)) ||
         (s.nurse && (Array.isArray(s.nurse) ? s.nurse.length > 0 : true))
       );
       
-      console.log(`🔍 DEBUG slotsWithoutAppointments: ${slotsWithoutAppointments.length}`);
-      console.log(`🔍 DEBUG slotsWithStaff: ${slotsWithStaff.length}`);
+      console.log(`🔍 DEBUG slotsWithoutAppointments (changed only): ${slotsWithoutAppointments.length}`);
+      console.log(`🔍 DEBUG slotsWithStaff (changed only): ${slotsWithStaff.length}`);
       
       if (slotsWithStaff.length > 0) { // Send emails for both enable AND disable
         console.log(`📧 Part 2: ${slotsWithStaff.length} slots without appointments but with assigned staff`);
@@ -3637,14 +3660,16 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
             metadata: {
               action: isActive ? 'enabled' : 'disabled',
               reason,
-              affectedSlots: slotIds.length,
+              affectedSlots: changedUpdatedSlots.length, // 🆕 Only count changed slots
               timestamp: new Date()
             }
           });
-          console.log('✅ Email notifications queued successfully');
+          console.log(`✅ ${emailNotifications.length} email notifications queued successfully`);
         } catch (emailError) {
           console.error('⚠️ Could not queue emails:', emailError.message);
         }
+      } else {
+        console.log('ℹ️ No email notifications to send (no changed slots with appointments/staff)');
       }
     } catch (emailError) {
       console.error('❌ Error preparing email notifications:', emailError.message);
@@ -3655,11 +3680,16 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
       success: true,
       matchedCount: result.matchedCount,
       modifiedCount: result.modifiedCount,
+      changedCount: slotsToChange.length, // 🆕 Number of slots that actually changed
+      unchangedCount: slotsAlreadyInState.length, // 🆕 Number of slots already in state
       isActive,
       reason,
       affectedSlots: slotIds.length,
       slots: slotDetails,
-      message: `${isActive ? 'Enabled' : 'Disabled'} ${result.modifiedCount} slots`
+      emailsSent: emailNotifications.length, // 🆕 Number of emails queued
+      message: result.modifiedCount > 0 
+        ? `${isActive ? 'Bật' : 'Tắt'} thành công ${result.modifiedCount} slots${slotsAlreadyInState.length > 0 ? ` (${slotsAlreadyInState.length} slot đã ở trạng thái này)` : ''}`
+        : `Tất cả ${slotIds.length} slots đã ở trạng thái ${isActive ? 'bật' : 'tắt'}`
     };
   } catch (error) {
     console.error('❌ Error toggling slots isActive:', error);
