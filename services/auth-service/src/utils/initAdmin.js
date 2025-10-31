@@ -3,6 +3,7 @@
  * This script runs on service startup to ensure admin user exists
  */
 const User = require('../models/user.model');
+const bcrypt = require('bcryptjs');
 
 const initAdminUser = async () => {
   try {
@@ -20,13 +21,15 @@ const initAdminUser = async () => {
 
     console.log('📝 Creating default admin user...');
 
+    // Hash password using bcrypt (same as register function)
+    const hashedPassword = await bcrypt.hash('admin123', 10);
+
     // Create default admin user
     const adminUser = new User({
       avatar: null,
       email: 'adminn@gmail.com',
       phone: '0000000000',
-      // Password is already hashed: "admin123"
-      password: '$2b$10$ajyQAEMU37T735/5JODBeAZLYOlCVnYJTkJ2aw7J74pSbWP5Enju',
+      password: hashedPassword,
       fullName: 'admin',
       description: '<p>admin</p>',
       gender: 'female',
