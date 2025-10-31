@@ -10,7 +10,8 @@ class ServiceClient {
       'schedule-service': process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005',
       'service-service': process.env.SERVICE_SERVICE_URL || 'http://localhost:3009',
       'payment-service': process.env.PAYMENT_SERVICE_URL || 'http://localhost:3007',
-      'auth-service': process.env.AUTH_SERVICE_URL || 'http://localhost:3001'
+      'auth-service': process.env.AUTH_SERVICE_URL || 'http://localhost:3001',
+      'room-service': process.env.ROOM_SERVICE_URL || 'http://localhost:3002'
     };
   }
 
@@ -124,6 +125,37 @@ class ServiceClient {
       return response.addOn || response.data?.addOn;
     } catch (error) {
       console.error(`[ServiceClient] Failed to fetch ServiceAddOn price for ${serviceId}/${addOnId}:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Get room details by ID from room-service (with Redis cache)
+   * @param {String} roomId - Room ID
+   * @returns {Object} Room data { _id, name, description, type, ... }
+   */
+  async getRoomById(roomId) {
+    try {
+      const response = await this.get('room-service', `/api/rooms/${roomId}`);
+      return response.room || response.data || response;
+    } catch (error) {
+      console.error(`[ServiceClient] Failed to fetch room ${roomId}:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Get subroom details by ID from room-service (with Redis cache)
+   * @param {String} roomId - Parent room ID
+   * @param {String} subroomId - Subroom ID
+   * @returns {Object} Subroom data { _id, name, description, ... }
+   */
+  async getSubroomById(roomId, subroomId) {
+    try {
+      const response = await this.get('room-service', `/api/rooms/${roomId}/subrooms/${subroomId}`);
+      return response.subroom || response.data || response;
+    } catch (error) {
+      console.error(`[ServiceClient] Failed to fetch subroom ${subroomId} in room ${roomId}:`, error.message);
       return null;
     }
   }

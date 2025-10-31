@@ -52,8 +52,10 @@ async function startServer() {
     // 🔥 Start queue cron jobs for auto-start
     setupQueueCronJobs();
     
-    // 🔥 Start appointment status cron jobs
-    startAllCronJobs();
+    // ❌ DISABLED: Auto-progress and auto-complete cron jobs
+    // Status will only be updated manually via record/appointment updates
+    // const { startAllCronJobs } = require('./utils/cronJobs');
+    // startAllCronJobs();
     
     server.listen(PORT, () => {
       console.log(`✅ Appointment Service running on port ${PORT}`);

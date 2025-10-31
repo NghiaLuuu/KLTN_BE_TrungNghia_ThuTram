@@ -51,7 +51,6 @@ const TEST_DATA = {
     startTime: '09:00',
     endTime: '10:00',
     slotIds: ['SLOT001', 'SLOT002'],
-    bookingChannel: 'offline', // Walk-in appointment
     notes: 'Test appointment for full flow'
   }
 };
@@ -111,6 +110,7 @@ async function runTest() {
     console.log('✅ Appointment created:', {
       id: appointmentId,
       status: appointmentResponse.data.status,
+      bookedByRole: appointmentResponse.data.bookedByRole,
       bookingChannel: appointmentResponse.data.bookingChannel
     });
     console.log();

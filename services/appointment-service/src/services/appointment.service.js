@@ -6,6 +6,10 @@ const serviceClient = require('../utils/serviceClient');
 const { getIO } = require('../utils/socket');
 const axios = require('axios');
 
+const resolveBookingChannel = (bookedByRole) => (
+  bookedByRole === 'patient' ? 'online' : 'offline'
+);
+
 class AppointmentService {
   
   async getAvailableSlotGroups(dentistId, date, serviceDuration) {
@@ -153,6 +157,12 @@ class AppointmentService {
       // 💰 Calculate total deposit: depositAmount × number of slots
       const totalDepositAmount = depositAmount * slotIds.length;
       
+      // 🏠 Fetch room/subroom names from room-service
+      const roomInfo = await this.getRoomInfo(
+        firstSlot.roomId,
+        firstSlot.subRoomId || null
+      );
+      
       const reservation = {
         reservationId, patientId, patientInfo,
         serviceId, serviceName: serviceInfo.serviceName,
@@ -162,12 +172,12 @@ class AppointmentService {
         servicePrice: serviceInfo.servicePrice,
         dentistId, dentistName: dentistInfo.name,
         slotIds, appointmentDate: date, startTime, endTime,
-        roomId: firstSlot.roomId, roomName: firstSlot.roomName || '',
+        roomId: firstSlot.roomId, 
+        roomName: roomInfo.roomName,
         subroomId: firstSlot.subRoomId || null,
-        subroomName: firstSlot.subRoomName || null,
+        subroomName: roomInfo.subroomName,
         notes: notes || '',
         bookedBy: currentUser._id, bookedByRole: currentUser.role,
-        bookingChannel: currentUser.role === 'patient' ? 'online' : 'offline',
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + 15 * 60 * 1000)
       };
@@ -213,11 +223,21 @@ class AppointmentService {
       
       return {
         reservationId,
+        orderId: reservationId, // For payment
         paymentUrl: paymentResult.paymentUrl,
         amount: totalDepositAmount, // 💰 Return deposit amount
+        servicePrice: totalDepositAmount, // For display
         depositPerSlot: depositAmount, // 🆕 Show deposit per slot
         slotCount: slotIds.length, // 🆕 Show number of slots
-        expiresAt: reservation.expiresAt
+        expiresAt: reservation.expiresAt,
+        // ✅ Add full reservation details for display
+        serviceName: serviceInfo.serviceName,
+        serviceAddOnName: serviceInfo.serviceAddOnName,
+        dentistName: dentistInfo.name,
+        appointmentDate: date,
+        startTime: startTime,
+        endTime: endTime,
+        roomName: firstSlot.roomName || 'Sẽ được thông báo'
       };
       
     } catch (error) {
@@ -325,6 +345,52 @@ class AppointmentService {
       throw new Error('Cannot get dentist info: ' + error.message);
     }
   }
+
+  /**
+   * Get room and subroom names from Redis cache (populated by room-service)
+   * @param {String} roomId - Room ID
+   * @param {String|null} subroomId - Subroom ID (optional)
+   * @returns {Object} { roomName, subroomName }
+   */
+  async getRoomInfo(roomId, subroomId = null) {
+    try {
+      let roomName = 'Phòng khám';
+      let subroomName = null;
+
+      // 🔥 Read from Redis cache (set by room-service)
+      const roomsCacheStr = await redisClient.get('rooms_cache');
+      
+      if (!roomsCacheStr) {
+        console.warn('⚠️ rooms_cache not found in Redis');
+        return { roomName, subroomName };
+      }
+
+      const roomsCache = JSON.parse(roomsCacheStr);
+      
+      // Find room by ID
+      if (roomId) {
+        const room = roomsCache.find(r => r._id.toString() === roomId.toString());
+        if (room) {
+          roomName = room.name || roomName;
+          
+          // Find subroom if exists
+          if (subroomId && room.subRooms && Array.isArray(room.subRooms)) {
+            const subroom = room.subRooms.find(sr => sr._id.toString() === subroomId.toString());
+            if (subroom) {
+              subroomName = subroom.name;
+            }
+          }
+        }
+      }
+
+      console.log(`🏠 [getRoomInfo] roomId=${roomId}, subroomId=${subroomId} → roomName="${roomName}", subroomName="${subroomName}"`);
+      return { roomName, subroomName };
+    } catch (error) {
+      console.warn('⚠️ Could not fetch room info from cache:', error.message);
+      // Return fallback values if Redis is down
+      return { roomName: 'Phòng khám', subroomName: null };
+    }
+  }
   
   /**
    * Get slot info from schedule-service DB (source of truth)
@@ -387,8 +453,7 @@ class AppointmentService {
         status: 'confirmed',
         bookedAt: new Date(),
         bookedBy: reservation.bookedBy,
-        bookedByRole: reservation.bookedByRole,
-        bookingChannel: reservation.bookingChannel,
+  bookedByRole: reservation.bookedByRole,
         notes: reservation.notes
       });
       
@@ -484,9 +549,9 @@ class AppointmentService {
       appointmentCode: appointment.appointmentCode
     });
     
-    // If already checked-in, return success (idempotent)
-    if (appointment.status === 'checked-in') {
-      console.log('⚠️ [CheckIn] Already checked-in, skipping...');
+    // If already checked-in/in-progress/completed, return success (idempotent)
+    if (['checked-in', 'in-progress', 'completed'].includes(appointment.status)) {
+      console.log('⚠️ [CheckIn] Already checked-in/in-progress/completed, skipping...');
       return appointment;
     }
     
@@ -494,9 +559,10 @@ class AppointmentService {
       throw new Error(`Cannot check-in this appointment. Current status: ${appointment.status}`);
     }
     
-    appointment.status = 'checked-in';
-    appointment.checkedInAt = new Date();
-    appointment.checkedInBy = userId;
+  // ✅ Check-in: chuyển trạng thái sang 'checked-in'
+  appointment.status = 'checked-in';
+  appointment.checkedInAt = new Date();
+  appointment.checkedInBy = userId;
     await appointment.save();
     
     // 🔥 Emit realtime queue update
@@ -513,6 +579,8 @@ class AppointmentService {
       console.warn('⚠️ Socket emit failed:', socketError.message);
     }
     
+    const bookingChannel = resolveBookingChannel(appointment.bookedByRole);
+
     // 🔥 Publish event to record-service to auto-create record
     try {
       await publishToQueue('record_queue', {
@@ -524,7 +592,13 @@ class AppointmentService {
           patientInfo: appointment.patientInfo,
           serviceId: appointment.serviceId.toString(),
           serviceName: appointment.serviceName,
+          servicePrice: appointment.servicePrice || 0, // ✅ Giá dịch vụ chính
+          serviceAddOnId: appointment.serviceAddOnId ? appointment.serviceAddOnId.toString() : null,
+          serviceAddOnName: appointment.serviceAddOnName || null,
+          serviceAddOnPrice: appointment.serviceAddOnPrice || 0, // ✅ Giá dịch vụ con
+          totalAmount: appointment.totalAmount || appointment.servicePrice || 0, // ✅ Tổng tiền
           serviceType: appointment.serviceType,
+          bookingChannel,
           dentistId: appointment.dentistId.toString(),
           dentistName: appointment.dentistName,
           roomId: appointment.roomId ? appointment.roomId.toString() : null,
@@ -660,6 +734,12 @@ class AppointmentService {
       const appointmentDate = new Date(date);
       const appointmentCode = await Appointment.generateAppointmentCode(appointmentDate);
       
+      // 🏠 Fetch room/subroom names from room-service
+      const roomInfo = await this.getRoomInfo(
+        firstSlot.roomId,
+        firstSlot.subRoomId || null
+      );
+      
       // Create appointment directly (no payment required for offline booking)
       const appointment = new Appointment({
         appointmentCode,
@@ -679,14 +759,15 @@ class AppointmentService {
         startTime,
         endTime,
         roomId: firstSlot.roomId,
-        roomName: firstSlot.roomName || '',
+        roomName: roomInfo.roomName,
+        subroomId: firstSlot.subRoomId || null,
+        subroomName: roomInfo.subroomName,
         paymentId: null, // Will be created later if needed
         totalAmount: serviceInfo.servicePrice,
         status: 'confirmed', // ⭐ Start with confirmed, then check-in
         bookedAt: new Date(),
         bookedBy: currentUser.userId || currentUser._id, // ⭐ Support both userId and _id
         bookedByRole: currentUser.role,
-        bookingChannel: 'offline',
         notes: notes || ''
       });
       
@@ -737,6 +818,10 @@ class AppointmentService {
             servicePrice: appointment.servicePrice,
             dentistId: appointment.dentistId,
             dentistName: appointment.dentistName,
+            roomId: appointment.roomId,
+            roomName: appointment.roomName,
+            subroomId: appointment.subroomId,
+            subroomName: appointment.subroomName,
             appointmentDate: appointment.appointmentDate,
             startTime: appointment.startTime,
             endTime: appointment.endTime,
@@ -810,8 +895,7 @@ class AppointmentService {
         status: 'confirmed',
         bookedAt: new Date(),
         bookedBy: reservation.bookedBy,
-        bookedByRole: reservation.bookedByRole,
-        bookingChannel: reservation.bookingChannel,
+  bookedByRole: reservation.bookedByRole,
         notes: reservation.notes,
         paymentMethod: paymentInfo.paymentMethod,
         paymentStatus: paymentInfo.paymentStatus,

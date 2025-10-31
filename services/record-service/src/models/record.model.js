@@ -85,6 +85,60 @@ const treatmentIndicationSchema = new mongoose.Schema({
   }
 }, { _id: true });
 
+// ========== Additional Service Subdoc (Services used during treatment) ==========
+const additionalServiceSchema = new mongoose.Schema({
+  serviceId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    required: true,
+    ref: 'Service'
+  },
+  serviceName: {
+    type: String,
+    required: true
+  },
+  serviceType: {
+    type: String,
+    enum: ['exam', 'treatment'],
+    required: true
+  },
+  serviceAddOnId: {
+    type: String,
+    default: null
+  },
+  serviceAddOnName: {
+    type: String,
+    default: null
+  },
+  price: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  quantity: {
+    type: Number,
+    default: 1,
+    min: 1
+  },
+  totalPrice: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  notes: {
+    type: String,
+    trim: true,
+    maxlength: 300
+  },
+  addedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  addedAt: {
+    type: Date,
+    default: Date.now
+  }
+}, { _id: true });
+
 // ========== Patient Info Subdoc ==========
 const patientInfoSchema = new mongoose.Schema({
   name: { 
@@ -156,6 +210,27 @@ const recordSchema = new mongoose.Schema({
     type: String,
     required: true // Store service name for historical record
   },
+  serviceAddOnId: {
+    type: String,
+    default: null
+  },
+  serviceAddOnName: {
+    type: String,
+    default: null
+  },
+  servicePrice: {
+    type: Number,
+    default: 0
+  },
+  serviceAddOnPrice: {
+    type: Number,
+    default: 0
+  },
+  bookingChannel: {
+    type: String,
+    enum: ['online', 'offline'],
+    default: 'offline'
+  },
   
   dentistId: { 
     type: mongoose.Schema.Types.ObjectId, 
@@ -214,6 +289,9 @@ const recordSchema = new mongoose.Schema({
 
   // Only used when type = "exam"
   treatmentIndications: [treatmentIndicationSchema],
+
+  // ⭐ Additional services used during treatment (for calculating total cost)
+  additionalServices: [additionalServiceSchema],
 
   prescription: prescriptionSchema,
 

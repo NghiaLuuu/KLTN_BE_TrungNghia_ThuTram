@@ -2854,7 +2854,7 @@ async function getRoomSlotDetailsFuture({ roomId, subRoomId = null, date, shiftN
 }
 
 // ⭐ NEW: Get FUTURE dentist slots (filtered by current time) - For staff replacement
-async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, serviceId = null }) {
+async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, serviceId = null, minLeadMinutes = 30 }) {
   try {
     // Validate shiftName if provided and not empty
     if (shiftName && shiftName.trim() !== '') {
@@ -2897,12 +2897,18 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
       -7 + 24, 0, 0, 0
     ));
 
-    // ⭐ Chỉ lấy slots có startTime > hiện tại + 30 phút (booking buffer)
+    const parsedLead = parseInt(minLeadMinutes, 10);
+    let bufferMinutes = Number.isNaN(parsedLead) ? 30 : parsedLead;
+    if (bufferMinutes < 0) {
+      bufferMinutes = 0;
+    }
+
+    // ⭐ Chỉ lấy slots có startTime > hiện tại + buffer (booking buffer)
     const vietnamNow = getVietnamDate();
-    vietnamNow.setMinutes(vietnamNow.getMinutes() + 30); // Add 30 minutes buffer for booking
+    vietnamNow.setMinutes(vietnamNow.getMinutes() + bufferMinutes);
     const effectiveStartTime = vietnamNow > startUTC ? vietnamNow : startUTC;
 
-    console.log('🕐 getDentistSlotDetailsFuture (with 30-min buffer):', vietnamNow.toISOString());
+    console.log(`🕐 getDentistSlotDetailsFuture (buffer ${bufferMinutes} phút):`, vietnamNow.toISOString());
     console.log('📅 Effective start time:', effectiveStartTime.toISOString());
 
     const queryFilter = {

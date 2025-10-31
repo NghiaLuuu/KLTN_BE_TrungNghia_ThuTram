@@ -51,6 +51,13 @@ class QueueController {
    */
   async triggerAutoStart(req, res) {
     try {
+      if (typeof queueService.autoStartAppointments !== 'function') {
+        return res.json({
+          success: true,
+          message: 'Auto-start logic is disabled. Queue updates based on record status changes.'
+        });
+      }
+
       const activated = await queueService.autoStartAppointments();
       
       res.json({

@@ -38,4 +38,28 @@ redisClient.connect().catch((err) => {
   console.error('❌ Redis initial connection failed:', err);
 });
 
+// Helper function to delete keys by pattern
+redisClient.delPattern = async function(pattern) {
+  let cursor = '0';
+  let deletedCount = 0;
+  
+  do {
+    const reply = await this.scan(cursor, {
+      MATCH: pattern,
+      COUNT: 100
+    });
+    
+    cursor = reply.cursor;
+    const keys = reply.keys;
+    
+    if (keys.length > 0) {
+      await this.del(keys);
+      deletedCount += keys.length;
+    }
+  } while (cursor !== '0');
+  
+  console.log(`🗑️ Deleted ${deletedCount} keys matching pattern: ${pattern}`);
+  return deletedCount;
+};
+
 module.exports = redisClient;

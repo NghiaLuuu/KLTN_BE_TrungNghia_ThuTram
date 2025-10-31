@@ -161,13 +161,9 @@ class RecordService {
       modifiedBy
     });
 
-    // Clear relevant caches
+    // Clear ALL record caches (use pattern matching)
     try {
-      await redis.del(`records:list:*`);
-      await redis.del(`records:dentist:${existingRecord.dentistId}`);
-      if (existingRecord.patientId) {
-        await redis.del(`records:patient:${existingRecord.patientId}`);
-      }
+      await redis.delPattern('records:*');
     } catch (error) {
       console.warn('Failed to clear record cache:', error.message);
     }
@@ -195,6 +191,7 @@ class RecordService {
             bookingChannel: 'offline', // Default for records
             type: updatedRecord.type,
             treatmentIndications: updatedRecord.treatmentIndications || [],
+            additionalServices: updatedRecord.additionalServices || [], // ⭐ Additional services
             prescription: updatedRecord.prescription || null,
             totalCost: updatedRecord.totalCost || 0,
             completedAt: updatedRecord.completedAt,
@@ -229,9 +226,9 @@ class RecordService {
     // Update record status
     const record = await recordRepo.updateStatus(id, status, modifiedBy);
     
-    // Clear caches
+    // Clear ALL record caches (use pattern matching)
     try {
-      await redis.del(`records:*`);
+      await redis.delPattern('records:*');
     } catch (error) {
       console.warn('Failed to clear record cache:', error.message);
     }
@@ -268,13 +265,14 @@ class RecordService {
             serviceName: record.serviceName,
             type: record.type, // 'exam' or 'treatment'
             treatmentIndications: record.treatmentIndications || [], // Service addons used
+            additionalServices: record.additionalServices || [], // ⭐ Additional services used during treatment
             prescription: record.prescription || null,
             totalCost: record.totalCost || 0,
             completedAt: record.completedAt,
             modifiedBy: modifiedBy ? modifiedBy.toString() : null
           }
         });
-        console.log(`✅ Published record.completed event for record ${record.recordCode}`);
+        console.log(`✅ Published record.completed event for record ${record.recordCode}. Total cost: ${record.totalCost}đ (including ${record.additionalServices?.length || 0} additional services)`);
       }
     } catch (publishError) {
       console.error('❌ Failed to publish record status event:', publishError);
@@ -291,9 +289,9 @@ class RecordService {
 
     const record = await recordRepo.delete(id);
     
-    // Clear caches
+    // Clear ALL record caches (use pattern matching)
     try {
-      await redis.del(`records:*`);
+      await redis.delPattern('records:*');
     } catch (error) {
       console.warn('Failed to clear record cache:', error.message);
     }
@@ -396,9 +394,9 @@ class RecordService {
 
     const record = await recordRepo.addPrescription(id, prescription, prescribedBy);
     
-    // Clear caches
+    // Clear ALL record caches (use pattern matching)
     try {
-      await redis.del(`records:*`);
+      await redis.delPattern('records:*');
     } catch (error) {
       console.warn('Failed to clear record cache:', error.message);
     }
@@ -413,9 +411,9 @@ class RecordService {
 
     const record = await recordRepo.updateTreatmentIndication(id, indicationId, used, notes, modifiedBy);
     
-    // Clear caches
+    // Clear ALL record caches (use pattern matching)
     try {
-      await redis.del(`records:*`);
+      await redis.delPattern('records:*');
     } catch (error) {
       console.warn('Failed to clear record cache:', error.message);
     }
@@ -447,6 +445,39 @@ class RecordService {
   }
 
   async completeRecord(id, modifiedBy) {
+    // ✅ Validate record trước khi complete
+    const record = await recordRepo.findById(id);
+    
+    if (!record) {
+      throw new Error('Không tìm thấy hồ sơ');
+    }
+
+    // ✅ Kiểm tra các thông tin bắt buộc để tạo invoice
+    const errors = [];
+
+    if (!record.serviceId || !record.serviceName) {
+      errors.push('Thiếu thông tin dịch vụ chính');
+    }
+
+    if (!record.diagnosis || record.diagnosis.trim() === '') {
+      errors.push('Chưa nhập chẩn đoán');
+    }
+
+    // Nếu là type='exam' và có treatmentIndications, kiểm tra notes
+    if (record.type === 'exam' && record.treatmentIndications && record.treatmentIndications.length > 0) {
+      // Có thể không cần validate treatmentIndications vì đây chỉ là chỉ định
+    }
+
+    // ✅ QUAN TRỌNG: Phải có totalCost (giá dịch vụ)
+    if (!record.totalCost || record.totalCost <= 0) {
+      errors.push('Chưa có giá dịch vụ (totalCost). Vui lòng cập nhật giá trước khi hoàn thành');
+    }
+
+    if (errors.length > 0) {
+      throw new Error(`Không thể hoàn thành hồ sơ:\n- ${errors.join('\n- ')}`);
+    }
+
+    // ✅ Nếu validate pass, proceed to complete
     return await this.updateRecordStatus(id, 'completed', modifiedBy);
   }
 
@@ -546,6 +577,174 @@ class RecordService {
     });
 
     return indications;
+  }
+
+  // ⭐ Add additional service to record
+  async addAdditionalService(recordId, serviceData, addedBy) {
+    if (!recordId || !serviceData) {
+      throw new Error('Record ID and service data are required');
+    }
+
+    const record = await recordRepo.findById(recordId);
+    if (!record) {
+      throw new Error('Không tìm thấy hồ sơ');
+    }
+
+    if (record.status === 'completed') {
+      throw new Error('Không thể thêm dịch vụ cho hồ sơ đã hoàn thành');
+    }
+
+    // Validate service data
+    const { serviceId, serviceName, serviceType, serviceAddOnId, serviceAddOnName, price, quantity = 1, notes } = serviceData;
+    
+    if (!serviceId || !serviceName || !serviceType || !price || price < 0) {
+      throw new Error('Thông tin dịch vụ không hợp lệ');
+    }
+
+    const totalPrice = price * quantity;
+
+    const newService = {
+      serviceId,
+      serviceName,
+      serviceType,
+      serviceAddOnId: serviceAddOnId || null,
+      serviceAddOnName: serviceAddOnName || null,
+      price,
+      quantity,
+      totalPrice,
+      notes: notes || '',
+      addedBy,
+      addedAt: new Date()
+    };
+
+    // Add to additionalServices array
+    if (!record.additionalServices) {
+      record.additionalServices = [];
+    }
+    record.additionalServices.push(newService);
+
+    // Recalculate totalCost
+    const baseCost = (record.servicePrice || 0) + (record.serviceAddOnPrice || 0);
+    const additionalCost = record.additionalServices.reduce((sum, svc) => sum + svc.totalPrice, 0);
+    record.totalCost = baseCost + additionalCost;
+
+    await record.save();
+
+    // Clear ALL record caches (use pattern matching)
+    try {
+      await redis.delPattern('records:*');
+    } catch (error) {
+      console.warn('Failed to clear cache:', error.message);
+    }
+
+    console.log(`✅ Added service ${serviceName} to record ${record.recordCode}. New total: ${record.totalCost}đ`);
+    
+    return record;
+  }
+
+  // ⭐ Remove additional service from record
+  async removeAdditionalService(recordId, serviceItemId, removedBy) {
+    if (!recordId || !serviceItemId) {
+      throw new Error('Record ID and service item ID are required');
+    }
+
+    const record = await recordRepo.findById(recordId);
+    if (!record) {
+      throw new Error('Không tìm thấy hồ sơ');
+    }
+
+    if (record.status === 'completed') {
+      throw new Error('Không thể xóa dịch vụ khỏi hồ sơ đã hoàn thành');
+    }
+
+    // Find and remove service
+    const serviceIndex = record.additionalServices.findIndex(
+      svc => svc._id.toString() === serviceItemId
+    );
+
+    if (serviceIndex === -1) {
+      throw new Error('Không tìm thấy dịch vụ trong hồ sơ');
+    }
+
+    const removedService = record.additionalServices[serviceIndex];
+    record.additionalServices.splice(serviceIndex, 1);
+
+    // Recalculate totalCost
+    const baseCost = (record.servicePrice || 0) + (record.serviceAddOnPrice || 0);
+    const additionalCost = record.additionalServices.reduce((sum, svc) => sum + svc.totalPrice, 0);
+    record.totalCost = baseCost + additionalCost;
+
+    record.lastModifiedBy = removedBy;
+    await record.save();
+
+    // Clear ALL record caches (use pattern matching)
+    try {
+      await redis.delPattern('records:*');
+    } catch (error) {
+      console.warn('Failed to clear cache:', error.message);
+    }
+
+    console.log(`✅ Removed service ${removedService.serviceName} from record ${record.recordCode}. New total: ${record.totalCost}đ`);
+    
+    return record;
+  }
+
+  // ⭐ Update additional service quantity/notes
+  async updateAdditionalService(recordId, serviceItemId, updateData, updatedBy) {
+    if (!recordId || !serviceItemId) {
+      throw new Error('Record ID and service item ID are required');
+    }
+
+    const record = await recordRepo.findById(recordId);
+    if (!record) {
+      throw new Error('Không tìm thấy hồ sơ');
+    }
+
+    if (record.status === 'completed') {
+      throw new Error('Không thể cập nhật dịch vụ cho hồ sơ đã hoàn thành');
+    }
+
+    // Find service
+    const service = record.additionalServices.find(
+      svc => svc._id.toString() === serviceItemId
+    );
+
+    if (!service) {
+      throw new Error('Không tìm thấy dịch vụ trong hồ sơ');
+    }
+
+    // Update quantity if provided
+    if (updateData.quantity !== undefined) {
+      if (updateData.quantity < 1) {
+        throw new Error('Số lượng phải lớn hơn 0');
+      }
+      service.quantity = updateData.quantity;
+      service.totalPrice = service.price * service.quantity;
+    }
+
+    // Update notes if provided
+    if (updateData.notes !== undefined) {
+      service.notes = updateData.notes;
+    }
+
+    // Recalculate totalCost
+    const baseCost = (record.servicePrice || 0) + (record.serviceAddOnPrice || 0);
+    const additionalCost = record.additionalServices.reduce((sum, svc) => sum + svc.totalPrice, 0);
+    record.totalCost = baseCost + additionalCost;
+
+    record.lastModifiedBy = updatedBy;
+    await record.save();
+
+    // Clear cache
+    try {
+      await redis.delPattern('records:*');
+    } catch (error) {
+      console.warn('Failed to clear cache:', error.message);
+    }
+
+    console.log(`✅ Updated service ${service.serviceName} in record ${record.recordCode}. New total: ${record.totalCost}đ`);
+    
+    return record;
   }
 }
 

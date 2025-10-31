@@ -421,6 +421,92 @@ class RecordController {
       });
     }
   }
+
+  // ⭐ Add additional service to record
+  async addAdditionalService(req, res) {
+    try {
+      if (!isDentistOrAbove(req.user)) {
+        return res.status(403).json({ 
+          success: false,
+          message: "Từ chối quyền: chỉ nha sĩ, quản lý hoặc quản trị viên mới được phép thêm dịch vụ" 
+        });
+      }
+
+      const { id } = req.params;
+      const serviceData = req.body;
+      const addedBy = req.user.id;
+
+      const record = await recordService.addAdditionalService(id, serviceData, addedBy);
+      
+      res.json({
+        success: true,
+        message: 'Đã thêm dịch vụ vào hồ sơ',
+        data: record
+      });
+    } catch (error) {
+      res.status(400).json({ 
+        success: false,
+        message: error.message 
+      });
+    }
+  }
+
+  // ⭐ Remove additional service from record
+  async removeAdditionalService(req, res) {
+    try {
+      if (!isDentistOrAbove(req.user)) {
+        return res.status(403).json({ 
+          success: false,
+          message: "Từ chối quyền: chỉ nha sĩ, quản lý hoặc quản trị viên mới được phép xóa dịch vụ" 
+        });
+      }
+
+      const { id, serviceItemId } = req.params;
+      const removedBy = req.user.id;
+
+      const record = await recordService.removeAdditionalService(id, serviceItemId, removedBy);
+      
+      res.json({
+        success: true,
+        message: 'Đã xóa dịch vụ khỏi hồ sơ',
+        data: record
+      });
+    } catch (error) {
+      res.status(400).json({ 
+        success: false,
+        message: error.message 
+      });
+    }
+  }
+
+  // ⭐ Update additional service (quantity/notes)
+  async updateAdditionalService(req, res) {
+    try {
+      if (!isDentistOrAbove(req.user)) {
+        return res.status(403).json({ 
+          success: false,
+          message: "Từ chối quyền: chỉ nha sĩ, quản lý hoặc quản trị viên mới được phép cập nhật dịch vụ" 
+        });
+      }
+
+      const { id, serviceItemId } = req.params;
+      const updateData = req.body;
+      const updatedBy = req.user.id;
+
+      const record = await recordService.updateAdditionalService(id, serviceItemId, updateData, updatedBy);
+      
+      res.json({
+        success: true,
+        message: 'Đã cập nhật dịch vụ',
+        data: record
+      });
+    } catch (error) {
+      res.status(400).json({ 
+        success: false,
+        message: error.message 
+      });
+    }
+  }
 }
 
 module.exports = new RecordController();

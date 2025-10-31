@@ -28,6 +28,9 @@ async function handleAppointmentCheckedIn(eventData) {
       serviceName: data.serviceName,
       serviceAddOnId: data.serviceAddOnId || null,
       serviceAddOnName: data.serviceAddOnName || null,
+      servicePrice: data.servicePrice || 0,
+      serviceAddOnPrice: data.serviceAddOnPrice || 0,
+      bookingChannel: data.bookingChannel || 'offline',
       type: data.serviceType || 'exam', // 'exam' or 'treatment'
       dentistId: data.dentistId,
       dentistName: data.dentistName,
@@ -35,8 +38,9 @@ async function handleAppointmentCheckedIn(eventData) {
       roomName: data.roomName || null,
       subroomId: data.subroomId || null,
       subroomName: data.subroomName || null,
-      status: 'pending', // Initial status when created from check-in
+      status: 'pending', // ✅ Record chờ khám cho tới khi bác sĩ bắt đầu
       priority: 'normal',
+      totalCost: 0,
       createdBy: data.createdBy || data.dentistId // Use createdBy from appointment or fallback to dentistId
     };
     

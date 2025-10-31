@@ -186,6 +186,33 @@ router.patch('/:id/indications/:indicationId',
   recordController.updateTreatmentIndication
 );
 
+// ⭐ Add additional service to record
+router.post('/:id/additional-services',
+  authenticate,
+  authorize(['dentist', 'admin', 'manager']),
+  recordIdValidation,
+  validate,
+  recordController.addAdditionalService
+);
+
+// ⭐ Remove additional service from record
+router.delete('/:id/additional-services/:serviceItemId',
+  authenticate,
+  authorize(['dentist', 'admin', 'manager']),
+  recordIdValidation,
+  validate,
+  recordController.removeAdditionalService
+);
+
+// ⭐ Update additional service (quantity/notes)
+router.patch('/:id/additional-services/:serviceItemId',
+  authenticate,
+  authorize(['dentist', 'admin', 'manager']),
+  recordIdValidation,
+  validate,
+  recordController.updateAdditionalService
+);
+
 // Complete record
 router.patch('/:id/complete',
   authenticate,

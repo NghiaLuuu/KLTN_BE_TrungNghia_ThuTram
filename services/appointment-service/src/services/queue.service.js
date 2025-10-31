@@ -1,19 +1,28 @@
 const Appointment = require('../models/appointment.model');
 const { getIO } = require('../utils/socket');
+const serviceClient = require('../utils/serviceClient');
+const redisClient = require('../utils/redis.client');
 
 class QueueService {
   /**
    * Get queue for all rooms or specific room
+   * ✅ Group by room AND subroom (if exists)
+   * ✅ Don't filter by time - show all appointments today regardless of end time
    * @param {String} roomId - Optional room ID filter
-   * @returns {Array} Queue data grouped by room
+   * @returns {Array} Queue data grouped by room/subroom
    */
   async getQueue(roomId = null) {
     try {
+      const today = new Date();
+      const startOfDay = new Date(today.setHours(0, 0, 0, 0));
+      const endOfDay = new Date(today.setHours(23, 59, 59, 999));
+
       const query = {
-        status: { $in: ['checked-in', 'in-progress'] },
+        // ✅ Chỉ lấy appointment chưa hoàn thành (bao gồm cả khám lố giờ)
+        status: { $in: ['in-progress', 'checked-in', 'confirmed'] },
         appointmentDate: {
-          $gte: new Date(new Date().setHours(0, 0, 0, 0)),
-          $lte: new Date(new Date().setHours(23, 59, 59, 999))
+          $gte: startOfDay,
+          $lte: endOfDay
         }
       };
 
@@ -22,38 +31,136 @@ class QueueService {
       }
 
       const appointments = await Appointment.find(query)
-        .sort({ roomId: 1, startTime: 1 })
+        .sort({ roomId: 1, subroomId: 1, startTime: 1 })
         .lean();
 
-      // Group by room
-      const queueByRoom = {};
+      console.log(`📊 [QueueService] Found ${appointments.length} appointments for queue`);
+      console.log(`🔍 [QueueService] Query:`, JSON.stringify(query, null, 2));
+      
+      // Debug: Log first few appointments
+      if (appointments.length > 0) {
+        console.log(`📝 [QueueService] Sample appointments:`, 
+          appointments.slice(0, 3).map(apt => ({
+            code: apt.appointmentCode,
+            startTime: apt.startTime,
+            endTime: apt.endTime,
+            status: apt.status,
+            roomId: apt.roomId
+          }))
+        );
+      }
+
+      // 🔥 Load rooms from Redis cache (populated by room-service)
+      const roomDataMap = new Map();
+      const subroomDataMap = new Map();
+      
+      try {
+        const roomsCacheStr = await redisClient.get('rooms_cache');
+        
+        if (roomsCacheStr) {
+          const roomsCache = JSON.parse(roomsCacheStr);
+          
+          // Build maps for quick lookup
+          roomsCache.forEach(room => {
+            const roomIdStr = room._id.toString();
+            roomDataMap.set(roomIdStr, room);
+            
+            // Also map subrooms
+            if (room.subRooms && Array.isArray(room.subRooms)) {
+              room.subRooms.forEach(subroom => {
+                const subroomIdStr = subroom._id.toString();
+                subroomDataMap.set(subroomIdStr, subroom);
+              });
+            }
+          });
+          
+          console.log(`🏠 [QueueService] Loaded ${roomDataMap.size} rooms, ${subroomDataMap.size} subrooms from Redis cache`);
+        } else {
+          console.warn('⚠️ [QueueService] rooms_cache not found in Redis');
+        }
+      } catch (cacheError) {
+        console.error('❌ [QueueService] Error loading rooms from cache:', cacheError.message);
+      }
+
+      // ✅ Group by room + subroom (nếu có subroom thì tách riêng)
+      const queueByRoomSubroom = {};
       
       appointments.forEach(apt => {
-        const roomKey = apt.roomId.toString();
+        // Tạo key unique: roomId + subroomId (nếu có)
+        const roomIdStr = apt.roomId.toString();
+        const subroomIdStr = apt.subroomId ? apt.subroomId.toString() : null;
         
-        if (!queueByRoom[roomKey]) {
-          queueByRoom[roomKey] = {
-            roomId: apt.roomId,
-            roomName: apt.roomName || 'Phòng khám',
+        const roomKey = roomIdStr;
+        const subroomKey = subroomIdStr || 'main';
+        const uniqueKey = `${roomKey}_${subroomKey}`;
+        
+        // ✅ Get room/subroom names from fetched data
+        const roomData = roomDataMap.get(roomIdStr);
+        const subroomData = subroomIdStr ? subroomDataMap.get(subroomIdStr) : null;
+        
+        const roomName = roomData?.name || apt.roomName || 'Phòng khám';
+        const subroomName = subroomData?.name || apt.subroomName || null;
+        
+        if (!queueByRoomSubroom[uniqueKey]) {
+          queueByRoomSubroom[uniqueKey] = {
+            roomId: roomIdStr,
+            roomName: roomName,
+            subroomId: subroomIdStr,
+            subroomName: subroomName,
+            displayName: subroomName 
+              ? `${roomName} - ${subroomName}` 
+              : roomName,
             currentPatient: null,
+            nextPatient: null,
             waitingList: [],
-            totalWaiting: 0
+            totalWaiting: 0,
+            allAppointments: []
           };
         }
 
-        if (apt.status === 'in-progress') {
-          queueByRoom[roomKey].currentPatient = this._formatAppointment(apt);
-        } else if (apt.status === 'checked-in') {
-          queueByRoom[roomKey].waitingList.push(this._formatAppointment(apt));
+        queueByRoomSubroom[uniqueKey].allAppointments.push(apt);
+      });
+
+      // Process each room/subroom
+      Object.values(queueByRoomSubroom).forEach(room => {
+        const appointmentsInRoom = room.allAppointments.sort((a, b) => {
+          if (a.startTime === b.startTime) return 0;
+          return a.startTime > b.startTime ? 1 : -1;
+        });
+
+        // ✅ Current patient: status = 'in-progress' (đang khám)
+        const current = appointmentsInRoom.find(apt => apt.status === 'in-progress');
+        
+        if (current) {
+          room.currentPatient = this._formatAppointment(current, roomDataMap, subroomDataMap);
         }
+
+        // 🎯 Logic: Hiển thị tất cả phiếu chờ theo thứ tự thời gian
+        // - Phiếu checked-in: Đã đến, ưu tiên hiển thị trước
+        // - Phiếu confirmed: Chưa check-in, hiển thị sau
+        // - Tất cả đều hiển thị để lễ tân biết có bao nhiêu người đang chờ
+        
+        const checkedInQueue = appointmentsInRoom.filter(apt => apt.status === 'checked-in');
+        const confirmedQueue = appointmentsInRoom.filter(apt => apt.status === 'confirmed');
+
+        // ✅ Next patient: Ưu tiên checked-in, sau đó confirmed
+        if (checkedInQueue.length > 0) {
+          room.nextPatient = this._formatAppointment(checkedInQueue[0], roomDataMap, subroomDataMap);
+          room.waitingList = checkedInQueue.slice(1).map(apt => this._formatAppointment(apt, roomDataMap, subroomDataMap));
+          room.waitingList.push(...confirmedQueue.map(apt => this._formatAppointment(apt, roomDataMap, subroomDataMap)));
+        } else if (confirmedQueue.length > 0) {
+          room.nextPatient = this._formatAppointment(confirmedQueue[0], roomDataMap, subroomDataMap);
+          room.waitingList = confirmedQueue.slice(1).map(apt => this._formatAppointment(apt, roomDataMap, subroomDataMap));
+        }
+
+        room.totalWaiting = (room.nextPatient ? 1 : 0) + room.waitingList.length;
+        delete room.allAppointments;
       });
 
-      // Calculate totalWaiting
-      Object.values(queueByRoom).forEach(room => {
-        room.totalWaiting = room.waitingList.length;
-      });
-
-      return Object.values(queueByRoom);
+      const result = Object.values(queueByRoomSubroom);
+      console.log(`✅ [QueueService] Returning ${result.length} rooms/subrooms`);
+      
+      return result;
     } catch (error) {
       console.error('❌ [QueueService] getQueue error:', error);
       throw error;
@@ -61,8 +168,8 @@ class QueueService {
   }
 
   /**
-   * Auto-activate next patient when current one completes
-   * Called after appointment is marked as completed
+   * ✅ Sau khi complete, chỉ cần emit event để FE reload queue
+   * Không cần activate next patient vì tất cả đã có status 'in-progress' khi check-in
    * @param {String} completedAppointmentId - ID of completed appointment
    */
   async activateNextPatient(completedAppointmentId) {
@@ -75,40 +182,14 @@ class QueueService {
       }
 
       const roomId = completedApt.roomId;
-      const now = new Date();
 
-      console.log(`🔄 [QueueService] Looking for next patient in room ${completedApt.roomName || roomId}`);
+      console.log(`🔄 [QueueService] Appointment completed in room ${completedApt.roomName || roomId}`);
+      console.log(`ℹ️ [QueueService] Next patient in queue will automatically become current patient`);
 
-      // Find next checked-in patient in same room, sorted by startTime
-      const nextPatient = await Appointment.findOne({
-        roomId: roomId,
-        status: 'checked-in',
-        appointmentDate: {
-          $gte: new Date(now.setHours(0, 0, 0, 0)),
-          $lte: new Date(now.setHours(23, 59, 59, 999))
-        }
-      }).sort({ startTime: 1 });
+      // Emit socket event for realtime update - FE sẽ reload và hiển thị patient tiếp theo
+      this._emitQueueUpdate(roomId);
 
-      if (nextPatient) {
-        // Activate next patient
-        nextPatient.status = 'in-progress';
-        nextPatient.actualStartTime = new Date();
-        await nextPatient.save();
-
-        console.log(`✅ [QueueService] Activated next patient: ${nextPatient.appointmentCode}`);
-
-        // Emit socket event for realtime update
-        this._emitQueueUpdate(roomId);
-
-        return nextPatient;
-      } else {
-        console.log(`ℹ️ [QueueService] No waiting patient in room ${completedApt.roomName || roomId}`);
-        
-        // Room is now empty - emit update
-        this._emitQueueUpdate(roomId);
-        
-        return null;
-      }
+      return null; // Không cần return next patient vì logic đã tự động
     } catch (error) {
       console.error('❌ [QueueService] activateNextPatient error:', error);
       throw error;
@@ -116,67 +197,10 @@ class QueueService {
   }
 
   /**
-   * Check and auto-start appointments that reached their start time
-   * Should be called periodically (e.g., every minute via cron job)
+   * ✅ KHÔNG CẦN AUTO-START NỮA
+   * Tất cả appointment đã có status 'in-progress' ngay khi check-in
+   * Chỉ cần hiển thị theo thứ tự trong queue
    */
-  async autoStartAppointments() {
-    try {
-      const now = new Date();
-      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-
-      console.log(`⏰ [QueueService] Auto-start check at ${currentTime}`);
-
-      // Find checked-in appointments that should start now
-      const readyAppointments = await Appointment.find({
-        status: 'checked-in',
-        appointmentDate: {
-          $gte: new Date(now.setHours(0, 0, 0, 0)),
-          $lte: new Date(now.setHours(23, 59, 59, 999))
-        },
-        startTime: { $lte: currentTime }
-      }).sort({ roomId: 1, startTime: 1 });
-
-      if (readyAppointments.length === 0) {
-        return [];
-      }
-
-      console.log(`📋 [QueueService] Found ${readyAppointments.length} appointments ready to start`);
-
-      const activated = [];
-      const roomsWithActivePatient = new Set();
-
-      // Group by room to ensure only one patient per room
-      for (const apt of readyAppointments) {
-        const roomKey = apt.roomId.toString();
-
-        // Check if room already has active patient
-        const activeInRoom = await Appointment.findOne({
-          roomId: apt.roomId,
-          status: 'in-progress'
-        });
-
-        if (!activeInRoom && !roomsWithActivePatient.has(roomKey)) {
-          // Activate this appointment
-          apt.status = 'in-progress';
-          apt.actualStartTime = new Date();
-          await apt.save();
-
-          activated.push(apt);
-          roomsWithActivePatient.add(roomKey);
-
-          console.log(`✅ [QueueService] Auto-started: ${apt.appointmentCode} in ${apt.roomName || roomKey}`);
-
-          // Emit realtime update
-          this._emitQueueUpdate(apt.roomId);
-        }
-      }
-
-      return activated;
-    } catch (error) {
-      console.error('❌ [QueueService] autoStartAppointments error:', error);
-      throw error;
-    }
-  }
 
   /**
    * Get queue statistics
@@ -249,7 +273,17 @@ class QueueService {
    * Format appointment for queue response
    * @private
    */
-  _formatAppointment(apt) {
+  _formatAppointment(apt, roomDataMap = new Map(), subroomDataMap = new Map()) {
+    // ✅ Get room/subroom names from fetched data
+    const roomIdStr = apt.roomId.toString();
+    const subroomIdStr = apt.subroomId ? apt.subroomId.toString() : null;
+    
+    const roomData = roomDataMap.get(roomIdStr);
+    const subroomData = subroomIdStr ? subroomDataMap.get(subroomIdStr) : null;
+    
+    const roomName = roomData?.name || apt.roomName || 'Phòng khám';
+    const subroomName = subroomData?.name || apt.subroomName || null;
+    
     return {
       _id: apt._id,
       appointmentCode: apt.appointmentCode,
@@ -259,11 +293,18 @@ class QueueService {
       dentistName: apt.dentistName,
       nurseId: apt.nurseId || null,
       nurseName: apt.nurseName || null,
+      roomId: roomIdStr,
+      roomName: roomName,
+      subroomId: subroomIdStr,
+      subroomName: subroomName,
       startTime: apt.startTime,
       endTime: apt.endTime,
+      appointmentDate: apt.appointmentDate,
       status: apt.status,
       checkedInAt: apt.checkedInAt,
-      recordId: apt.examRecordId || null, // Include recordId
+      startedAt: apt.startedAt || null,
+      recordId: apt.examRecordId || null,
+      notes: apt.notes || null,
       estimatedWaitTime: this._calculateWaitTime(apt)
     };
   }

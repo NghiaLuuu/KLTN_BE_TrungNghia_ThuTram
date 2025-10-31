@@ -1,11 +1,16 @@
 const { consumeQueue } = require('./rabbitmq.client');
 const appointmentService = require('../services/appointment.service');
 const Appointment = require('../models/appointment.model');
+const { getIO } = require('../utils/socket');
 const { 
   handlePaymentCompleted, 
   handlePaymentFailed, 
   handlePaymentTimeout 
 } = require('./paymentEventHandlers');
+
+const resolveBookingChannel = (bookedByRole) => (
+  bookedByRole === 'patient' ? 'online' : 'offline'
+);
 
 /**
  * Setup event listeners for Appointment Service
@@ -144,8 +149,22 @@ async function handleRecordInProgress(data) {
     // Update appointment status to in-progress
     if (appointment.status !== 'in-progress') {
       appointment.status = 'in-progress';
+      appointment.startedAt = data.startedAt || new Date();
       await appointment.save();
       console.log(`✅ Appointment ${appointment.appointmentCode} status updated to in-progress`);
+
+      // Notify queue clients
+      try {
+        const io = getIO();
+        if (io) {
+          io.emit('queue_updated', {
+            roomId: appointment.roomId?.toString(),
+            timestamp: new Date()
+          });
+        }
+      } catch (emitError) {
+        console.warn('⚠️ Failed to emit queue update after record start:', emitError.message);
+      }
     }
     
   } catch (error) {
@@ -178,6 +197,19 @@ async function handleRecordCompleted(data) {
       appointment.completedAt = data.completedAt || new Date();
       await appointment.save();
       console.log(`✅ Appointment ${appointment.appointmentCode} status updated to completed`);
+
+      // Notify queue clients to refresh room info
+      try {
+        const io = getIO();
+        if (io) {
+          io.emit('queue_updated', {
+            roomId: appointment.roomId?.toString(),
+            timestamp: new Date()
+          });
+        }
+      } catch (emitError) {
+        console.warn('⚠️ Failed to emit queue update after record completion:', emitError.message);
+      }
     }
     
     // 🔥 Create payment/invoice request
@@ -255,7 +287,9 @@ async function handleRecordCompleted(data) {
       let depositPaid = 0;
       let originalPaymentId = null;
       
-      if (appointment.bookingChannel === 'online' && appointment.paymentId) {
+      const bookingChannel = resolveBookingChannel(appointment.bookedByRole);
+
+      if (bookingChannel === 'online' && appointment.paymentId) {
         // Patient paid deposit - need to fetch payment details
         originalPaymentId = appointment.paymentId;
         
@@ -298,7 +332,7 @@ async function handleRecordCompleted(data) {
           depositPaid: depositPaid,
           originalPaymentId: originalPaymentId,
           finalAmount: finalAmount,
-          bookingChannel: appointment.bookingChannel,
+          bookingChannel,
           createdBy: data.modifiedBy,
           completedAt: data.completedAt
         }

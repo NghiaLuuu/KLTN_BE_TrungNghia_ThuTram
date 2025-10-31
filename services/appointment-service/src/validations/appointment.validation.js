@@ -113,7 +113,7 @@ const createAppointmentValidation = [
   
   body('bookingChannel')
     .optional()
-    .isIn(['online', 'phone', 'walk-in', 'system'])
+    .isIn(['online', 'offline'])
     .withMessage('Kênh đặt lịch không hợp lệ'),
 
   // Optional fields
@@ -312,7 +312,7 @@ const listAppointmentsValidation = [
   
   query('bookingChannel')
     .optional()
-    .isIn(['online', 'phone', 'walk-in', 'system'])
+    .isIn(['online', 'offline'])
     .withMessage('Kênh đặt lịch không hợp lệ'),
   
   query('dateFrom')

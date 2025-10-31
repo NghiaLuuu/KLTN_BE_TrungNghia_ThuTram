@@ -146,13 +146,23 @@ class RecordRepository {
   }
 
   async updateStatus(id, status, modifiedBy) {
+    const updatePayload = {
+      status,
+      lastModifiedBy: modifiedBy
+    };
+
+    if (status === 'in_progress') {
+      updatePayload.startedAt = new Date();
+    }
+
+    if (status === 'completed') {
+      updatePayload.completedAt = new Date();
+      updatePayload.hasBeenUsed = true;
+    }
+
     return await Record.findByIdAndUpdate(
       id,
-      { 
-        status,
-        lastModifiedBy: modifiedBy,
-        ...(status === 'completed' && { hasBeenUsed: true })
-      },
+      updatePayload,
       { new: true }
     );
   }

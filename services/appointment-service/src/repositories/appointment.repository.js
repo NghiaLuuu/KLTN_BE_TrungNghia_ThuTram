@@ -311,7 +311,11 @@ class AppointmentRepository {
     }
 
     if (filter.bookingChannel) {
-      query.bookingChannel = filter.bookingChannel;
+      if (filter.bookingChannel === 'online') {
+        query.bookedByRole = 'patient';
+      } else {
+        query.bookedByRole = { $ne: 'patient' };
+      }
     }
 
     // Date filters

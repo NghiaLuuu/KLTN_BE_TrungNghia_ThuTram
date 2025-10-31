@@ -186,6 +186,11 @@ const appointmentSchema = new Schema({
     type: mongoose.Schema.Types.ObjectId,
     required: true
   },
+  bookedByRole: {
+    type: String,
+    trim: true,
+    default: 'patient'
+  },
   
   // Notes
   notes: {
@@ -196,6 +201,9 @@ const appointmentSchema = new Schema({
   
   // Check-in Information
   checkedInAt: {
+    type: Date
+  },
+  startedAt: {
     type: Date
   },
   
@@ -247,6 +255,10 @@ appointmentSchema.virtual('isUpcoming').get(function() {
   const now = new Date();
   const appointmentDate = new Date(this.appointmentDate);
   return appointmentDate > now && this.status === 'confirmed';
+});
+
+appointmentSchema.virtual('bookingChannel').get(function() {
+  return this.bookedByRole === 'patient' ? 'online' : 'offline';
 });
 
 // Static: Generate appointment code (AP000001-03102025)
