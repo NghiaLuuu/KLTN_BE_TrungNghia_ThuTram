@@ -6,6 +6,11 @@ const { uploadToS3 } = require('./s3.service');
 const USER_CACHE_KEY = 'users_cache';
 const DENTIST_CACHE_KEY = 'dentists_public';
 
+// 🔧 Helper: Get active role from currentUser (supports both old and new token structure)
+function getCurrentRole(currentUser) {
+  return currentUser.activeRole || getCurrentRole(currentUser);
+}
+
 // 🔹 CACHE OPERATIONS
 async function initUserCache() {
   try {
@@ -207,10 +212,11 @@ exports.updateUserWithPermissions = async (currentUser, targetUserId, updateData
   }
 
   // Apply role-based permissions
-  const { role: currentRole, userId: currentUserId } = currentUser; // ✅ Sử dụng userId thay vì _id
+  const { activeRole: currentRole, userId: currentUserId } = currentUser; // ✅ Sử dụng activeRole từ token
   
   // Validate current user data
   if (!currentUserId || !currentRole) {
+    console.error('Invalid token data:', currentUser);
     throw new Error('Thông tin user không hợp lệ từ token');
   }
   
@@ -328,7 +334,8 @@ exports.getUserById = async (currentUser, userId) => {
   // 🔥 Nếu không có currentUser (public access), chỉ cho phép xem thông tin cơ bản
   if (currentUser) {
     // Có authentication: kiểm tra quyền
-    if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
+    const currentRole = getCurrentRole(currentUser);
+    if (!['admin', 'manager'].includes(currentRole) && currentUser.userId.toString() !== userId) {
       throw new Error('Bạn không có quyền truy cập thông tin người dùng này');
     }
   }
@@ -344,7 +351,7 @@ exports.getUserById = async (currentUser, userId) => {
 
 // 🆕 DELETE OPERATIONS - Chỉ xóa khi chưa được sử dụng
 exports.deleteUser = async (currentUser, userId) => {
-  const currentUserRoles = currentUser.roles || [currentUser.role];
+  const currentUserRoles = currentUser.roles || [getCurrentRole(currentUser)];
   const isCurrentUserAdmin = currentUserRoles.includes('admin');
   const isCurrentUserManager = currentUserRoles.includes('manager');
 
@@ -401,7 +408,7 @@ exports.deleteUser = async (currentUser, userId) => {
 
 // 🆕 TOGGLE ACTIVE STATUS - Bật/tắt trạng thái hoạt động của user
 exports.toggleUserStatus = async (currentUser, userId) => {
-  const currentUserRoles = currentUser.roles || [currentUser.role];
+  const currentUserRoles = currentUser.roles || [getCurrentRole(currentUser)];
   const isCurrentUserAdmin = currentUserRoles.includes('admin');
   const isCurrentUserManager = currentUserRoles.includes('manager');
 
@@ -508,7 +515,7 @@ exports.updateUserAvatar = async (userId, file) => {
 // 🆕 CERTIFICATE OPERATIONS (upload ảnh với logic xác thực thông minh)
 exports.uploadCertificate = async (currentUser, userId, file, notes = null) => {
   // Validate currentUser và lấy ID linh hoạt
-  if (!currentUser || !currentUser.role) {
+  if (!currentUser || !getCurrentRole(currentUser)) {
     throw new Error('Thông tin người dùng không hợp lệ hoặc token đã hết hạn');
   }
 
@@ -519,7 +526,7 @@ exports.uploadCertificate = async (currentUser, userId, file, notes = null) => {
   }
 
   // Chỉ admin/manager mới được upload chứng chỉ
-  if (!['admin', 'manager'].includes(currentUser.role)) {
+  if (!['admin', 'manager'].includes(getCurrentRole(currentUser))) {
     throw new Error('Chỉ admin và manager mới có quyền upload chứng chỉ');
   }
 
@@ -548,7 +555,7 @@ exports.uploadCertificate = async (currentUser, userId, file, notes = null) => {
     const imageUrl = await uploadToS3(file.buffer, file.originalname, file.mimetype, 'avatars');
     
     // 🎯 LOGIC QUAN TRỌNG: Tự động xác thực nếu admin/manager upload
-    const isAutoVerified = ['admin', 'manager'].includes(currentUser.role);
+    const isAutoVerified = ['admin', 'manager'].includes(getCurrentRole(currentUser));
     
     // Save to database với trạng thái xác thực phù hợp
     const certificateData = {
@@ -580,7 +587,7 @@ exports.uploadCertificate = async (currentUser, userId, file, notes = null) => {
 
 exports.uploadMultipleCertificates = async (currentUser, userId, files, notes = null) => {
   // Validate currentUser và lấy ID linh hoạt
-  if (!currentUser || !currentUser.role) {
+  if (!currentUser || !getCurrentRole(currentUser)) {
     throw new Error('Thông tin người dùng không hợp lệ hoặc token đã hết hạn');
   }
 
@@ -590,7 +597,7 @@ exports.uploadMultipleCertificates = async (currentUser, userId, files, notes = 
   }
 
   // Chỉ admin/manager mới được upload chứng chỉ
-  if (!['admin', 'manager'].includes(currentUser.role)) {
+  if (!['admin', 'manager'].includes(getCurrentRole(currentUser))) {
     throw new Error('Chỉ admin và manager mới có quyền upload chứng chỉ');
   }
 
@@ -629,7 +636,7 @@ exports.uploadMultipleCertificates = async (currentUser, userId, files, notes = 
       const imageUrl = await uploadToS3(file.buffer, file.originalname, file.mimetype, 'avatars');
       
       // Auto verify for admin/manager
-      const isAutoVerified = ['admin', 'manager'].includes(currentUser.role);
+      const isAutoVerified = ['admin', 'manager'].includes(getCurrentRole(currentUser));
       
       // Save to database
       const certificateData = {
@@ -670,7 +677,7 @@ exports.uploadMultipleCertificates = async (currentUser, userId, files, notes = 
 
 // 🚨 DEPRECATED: Sử dụng batchDeleteCertificates thay thế
 exports.deleteCertificate = async (currentUser, userId, certificateId) => {
-  if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
+  if (!['admin', 'manager'].includes(getCurrentRole(currentUser)) && currentUser.userId.toString() !== userId) {
     throw new Error('Bạn không có quyền xóa chứng chỉ');
   }
 
@@ -700,7 +707,7 @@ exports.deleteCertificate = async (currentUser, userId, certificateId) => {
 
 // 🆕 ADMIN-ONLY: Verify certificate
 exports.verifyCertificate = async (currentUser, userId, certificateId, isVerified = true) => {
-  if (!['admin', 'manager'].includes(currentUser.role)) {
+  if (!['admin', 'manager'].includes(getCurrentRole(currentUser))) {
     throw new Error('Chỉ admin/manager mới có quyền xác thực chứng chỉ');
   }
 
@@ -714,7 +721,7 @@ exports.verifyCertificate = async (currentUser, userId, certificateId, isVerifie
 };
 
 exports.updateCertificateNotes = async (currentUser, userId, certificateId, notes) => {
-  if (!['admin', 'manager'].includes(currentUser.role) && currentUser.userId.toString() !== userId) {
+  if (!['admin', 'manager'].includes(getCurrentRole(currentUser)) && currentUser.userId.toString() !== userId) {
     throw new Error('Bạn không có quyền cập nhật ghi chú chứng chỉ');
   }
 
@@ -775,7 +782,7 @@ async function checkDuplicateImageUrls(imageFiles) {
 
 exports.batchCreateCertificates = async (currentUser, userId, { names, frontImages, backImages, certificateNotes }) => {
   // Permission check - CHỈ admin/manager mới được tạo
-  if (!['admin', 'manager'].includes(currentUser.role)) {
+  if (!['admin', 'manager'].includes(getCurrentRole(currentUser))) {
     throw new Error('Chỉ admin và manager mới có quyền tạo chứng chỉ');
   }
 
@@ -854,7 +861,7 @@ exports.batchCreateCertificates = async (currentUser, userId, { names, frontImag
 
 exports.batchUpdateCertificates = async (currentUser, userId, { certificateIds, names, frontImages, backImages, certificateNotes, isVerified }) => {
   // Permission check - CHỈ admin/manager mới được update
-  if (!['admin', 'manager'].includes(currentUser.role)) {
+  if (!['admin', 'manager'].includes(getCurrentRole(currentUser))) {
     throw new Error('Chỉ admin và manager mới có quyền cập nhật chứng chỉ');
   }
 
@@ -939,7 +946,7 @@ exports.batchUpdateCertificates = async (currentUser, userId, { certificateIds, 
 
     // ⭐ QUAN TRỌNG: Admin/Manager update certificates → tự động verified
     // Không cho phép set isVerified = false từ request
-    if (['admin', 'manager'].includes(currentUser.role)) {
+    if (['admin', 'manager'].includes(getCurrentRole(currentUser))) {
       certificateUpdateData.isVerified = true; // ✅ Luôn luôn true khi admin/manager update
       certificateUpdateData.verifiedBy = currentUser.userId;
       certificateUpdateData.verifiedAt = new Date();
@@ -956,7 +963,7 @@ exports.batchUpdateCertificates = async (currentUser, userId, { certificateIds, 
 
 exports.batchDeleteCertificates = async (currentUser, userId, { certificateIds }) => {
   // Permission check - CHỈ admin/manager mới được xóa
-  if (!['admin', 'manager'].includes(currentUser.role)) {
+  if (!['admin', 'manager'].includes(getCurrentRole(currentUser))) {
     throw new Error('Chỉ admin và manager mới có quyền xóa chứng chỉ');
   }
 

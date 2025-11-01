@@ -1476,6 +1476,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
           slotDetail.patientInfo = {
             name: appointment.patientInfo?.name || 'N/A',
             phone: appointment.patientInfo?.phone || '',
+            email: appointment.patientInfo?.email || '', // 🆕 Add email
             patientId: appointment.patientId || null
           };
         }
@@ -3287,12 +3288,40 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
       };
     }
 
+    // 🔥 If DISABLING slots, cancel appointments first
+    const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
+    let cancelledAppointments = [];
+    
+    if (isActive === false) {
+      // Find slots with appointments that will be disabled
+      const slotsWithAppointmentsToDisable = slotsToChange.filter(s => s.appointmentId);
+      
+      if (slotsWithAppointmentsToDisable.length > 0) {
+        console.log(`🚨 ${slotsWithAppointmentsToDisable.length} slots have appointments - will clean up appointmentId`);
+        
+        // Just clean up appointmentId in slots - don't cancel appointments
+        // (Appointments in states like "checked-in" cannot be cancelled)
+        const appointmentIdsInSlots = [...new Set(
+          slotsWithAppointmentsToDisable.map(s => s.appointmentId.toString())
+        )];
+        
+        console.log(`📋 Tracking ${appointmentIdsInSlots.length} appointmentIds for logging`);
+        cancelledAppointments = appointmentIdsInSlots; // Track for logging
+        
+        // ⚠️ Note: We don't actually cancel appointments
+        // We also keep appointmentId in slots for history tracking
+        // Appointments in states like "checked-in" cannot be cancelled anyway
+      }
+    }
+    
     // Update slots isActive status
     const updateData = { isActive };
     
-    // If disabling, add reason to a metadata field (if exists in schema)
-    // Note: Current schema doesn't have 'disableReason' field
-    // If needed, add it to slot.model.js first
+    // ⚠️ IMPORTANT: Do NOT clear appointmentId when disabling
+    // We need to keep appointmentId to:
+    // 1. Log patient info in SlotStatusChange history
+    // 2. Display "Cancelled Patients" list
+    // 3. Track which appointments were affected
     
     const result = await Slot.updateMany(
       { _id: { $in: objectIds } },
@@ -3318,8 +3347,6 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
       console.warn('⚠️ Could not fetch users cache for display:', cacheError.message);
     }
 
-    console.log('🔍 DEBUG updatedSlots[0]:', JSON.stringify(updatedSlots[0], null, 2));
-    console.log('🔍 DEBUG usersCache.length:', usersCache.length);
     const slotDetails = updatedSlots.map(slot => {
       // Get dentist info from cache
       const dentistIds = Array.isArray(slot.dentist) ? slot.dentist : [];
@@ -3439,51 +3466,41 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
       const axios = require('axios');
       const rabbitmqClient = require('../utils/rabbitmq.client');
       
-      const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3000';
+      const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
       const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
       
-      // 🔥 ONLY process slots that actually changed isActive
-      const changedSlotIds = slotsToChange.map(s => s._id.toString());
-      const changedUpdatedSlots = updatedSlots.filter(s => changedSlotIds.includes(s._id.toString()));
-      
-      console.log(`📧 Processing emails for ${changedUpdatedSlots.length} slots that changed isActive`);
-      
-      // 🔥 PART 1: Handle slots WITH appointments that changed
-      const slotsWithAppointments = changedUpdatedSlots.filter(s => s.appointmentId);
+      // 🔥 PART 1: Handle slots WITH appointments
+      const slotsWithAppointments = updatedSlots.filter(s => s.appointmentId);
       
       if (slotsWithAppointments.length > 0) {
-        console.log(`📧 ${slotsWithAppointments.length} changed slots have appointments, preparing emails...`);
+        console.log(`📧 Preparing emails for ${slotsWithAppointments.length} slots with appointments`);
         
         // Deduplicate by appointmentId (multiple slots can belong to same appointment)
         const uniqueAppointmentIds = [...new Set(
           slotsWithAppointments.map(s => s.appointmentId.toString())
         )];
         
-        console.log(`📋 ${uniqueAppointmentIds.length} unique appointments (deduplicated from ${slotsWithAppointments.length} slots)`);
-        
         // Get appointments
         let appointments = [];
         try {
-          const appointmentResponse = await axios.get(
-            `${APPOINTMENT_SERVICE_URL}/api/appointment/by-ids`,
-            { 
-              params: { ids: uniqueAppointmentIds.join(',') },
-              timeout: 5000
-            }
-          );
+          const appointmentUrl = `${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids?ids=${uniqueAppointmentIds.join(',')}`;
+          
+          const appointmentResponse = await axios.get(appointmentUrl, { timeout: 5000 });
           
           if (appointmentResponse.data?.success) {
             appointments = appointmentResponse.data.data || [];
-            console.log(`✅ Retrieved ${appointments.length} appointments`);
           }
         } catch (appointmentError) {
           console.error('⚠️ Could not fetch appointments:', appointmentError.message);
+          console.error('⚠️ Request URL:', `${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids`);
         }
         
         // Get users cache
         let usersCache = [];
         try {
-          const usersResponse = await axios.get(`${AUTH_SERVICE_URL}/api/user/cache/all`, { timeout: 5000 });
+          const usersCacheUrl = `${AUTH_SERVICE_URL}/api/user/cache/all`;
+          const usersResponse = await axios.get(usersCacheUrl, { timeout: 5000 });
+          
           if (usersResponse.data?.success) {
             usersCache = usersResponse.data.data || [];
             console.log(`✅ Retrieved ${usersCache.length} users from cache`);
@@ -3514,27 +3531,42 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
           const representativeSlot = appointmentSlots[0];
           
           // Send to patient
+          let patientEmail = null;
+          let patientName = null;
+          
           if (appointment.patientId) {
+            // Patient is a registered user
             const patient = usersCache.find(u => u._id.toString() === appointment.patientId.toString());
             if (patient && patient.email) {
-              emailNotifications.push({
-                email: patient.email,
-                name: patient.name,
-                role: 'patient',
-                slotInfo: {
-                  date: representativeSlot.date,
-                  shiftName: representativeSlot.shiftName,
-                  startTime: representativeSlot.startTime,
-                  endTime: representativeSlot.endTime,
-                  slotCount: appointmentSlots.length
-                },
-                action: isActive ? 'enabled' : 'disabled',
-                reason: reason || (isActive ? 'Lịch đã được kích hoạt lại' : 'Lịch tạm thời không khả dụng')
-              });
+              patientEmail = patient.email;
+              patientName = patient.name;
             }
+          } else if (appointment.patientInfo && appointment.patientInfo.email) {
+            // Guest patient (no account) - use patientInfo
+            patientEmail = appointment.patientInfo.email;
+            patientName = appointment.patientInfo.name;
           }
           
-          // Send to dentist (collect unique dentists from all slots)
+      if (patientEmail) {
+        
+        emailNotifications.push({
+          email: patientEmail,
+          name: patientName,
+          role: 'patient',
+          appointmentCode: appointment.appointmentCode,
+          slotInfo: {
+            date: representativeSlot.date,
+            shiftName: representativeSlot.shiftName,
+            startTime: representativeSlot.startTime,
+            endTime: representativeSlot.endTime,
+            slotCount: appointmentSlots.length
+          },
+          action: isActive ? 'enabled' : 'disabled',
+          reason: reason || (isActive ? 'Lịch đã được kích hoạt lại' : 'Lịch tạm thời không khả dụng')
+        });
+      } else {
+        console.warn(`⚠️ No patient email for appointment ${appointmentId} - patientId: ${appointment.patientId}, patientInfo: ${JSON.stringify(appointment.patientInfo)}`);
+          }          // Send to dentist (collect unique dentists from all slots)
           const dentistIds = new Set();
           appointmentSlots.forEach(slot => {
             if (Array.isArray(slot.dentist)) {
@@ -3598,45 +3630,29 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
         console.log(`📧 Part 1: Prepared ${emailNotifications.length} email notifications for slots with appointments`);
       }
       
-      // 🔥 PART 2: Handle slots WITHOUT appointments but WITH assigned staff - ONLY changed slots
-      const slotsWithoutAppointments = changedUpdatedSlots.filter(s => !s.appointmentId);
+      // 🔥 PART 2: Handle slots WITHOUT appointments but WITH assigned staff
+      const slotsWithoutAppointments = updatedSlots.filter(s => !s.appointmentId);
       const slotsWithStaff = slotsWithoutAppointments.filter(s => 
         (s.dentist && (Array.isArray(s.dentist) ? s.dentist.length > 0 : true)) ||
         (s.nurse && (Array.isArray(s.nurse) ? s.nurse.length > 0 : true))
       );
       
-      console.log(`🔍 DEBUG slotsWithoutAppointments (changed only): ${slotsWithoutAppointments.length}`);
-      console.log(`🔍 DEBUG slotsWithStaff (changed only): ${slotsWithStaff.length}`);
-      
-      if (slotsWithStaff.length > 0) { // Send emails for both enable AND disable
-        console.log(`📧 Part 2: ${slotsWithStaff.length} slots without appointments but with assigned staff`);
-        console.log(`📧 Part 2: Using usersCache.length = ${usersCache.length}`);
+      if (slotsWithStaff.length > 0) {
+        console.log(`📧 Preparing emails for ${slotsWithStaff.length} slots with staff (no appointments)`);
         
         // Send notifications to assigned staff
         const notifiedStaff = new Set(); // Prevent duplicate emails
         
         for (const slot of slotsWithStaff) {
-          console.log('🔍 DEBUG slot:', {
-            startTime: slot.startTime,
-            endTime: slot.endTime,
-            startTimeType: typeof slot.startTime,
-            dentist: slot.dentist,
-            nurse: slot.nurse
-          });
           
           // Notify dentists
           const dentistIds = Array.isArray(slot.dentist) 
             ? slot.dentist.map(d => d.toString())
             : (slot.dentist ? [slot.dentist.toString()] : []);
           
-          console.log('🔍 DEBUG dentistIds:', dentistIds);
-          console.log('🔍 DEBUG usersCache[0]:', usersCache[0]);
-          
           for (const dentistId of dentistIds) {
             if (!notifiedStaff.has(dentistId)) {
               const dentist = usersCache.find(u => u._id.toString() === dentistId);
-              console.log('🔍 DEBUG Searching for dentistId:', dentistId);
-              console.log('🔍 DEBUG Found dentist:', dentist);
               if (dentist && dentist.email) {
                 // Convert to Date if string
                 const startDate = typeof slot.startTime === 'string' ? new Date(slot.startTime) : slot.startTime;
@@ -3648,8 +3664,6 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
                 
                 const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
                 const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
-                
-                console.log('🔍 DEBUG Email data:', { dateStr, startTimeStr, endTimeStr, name: dentist.fullName });
                 
                 emailNotifications.push({
                   email: dentist.email,
@@ -3718,20 +3732,47 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
             metadata: {
               action: isActive ? 'enabled' : 'disabled',
               reason,
-              affectedSlots: changedUpdatedSlots.length, // 🆕 Only count changed slots
+              affectedSlots: updatedSlots.length,
               timestamp: new Date()
             }
           });
-          console.log(`✅ ${emailNotifications.length} email notifications queued successfully`);
+          
+          const patientCount = emailNotifications.filter(e => e.role === 'patient').length;
+          const dentistCount = emailNotifications.filter(e => e.role === 'dentist').length;
+          const nurseCount = emailNotifications.filter(e => e.role === 'nurse').length;
+          console.log(`✅ Queued ${emailNotifications.length} emails (${patientCount} patients, ${dentistCount} dentists, ${nurseCount} nurses)`);
         } catch (emailError) {
           console.error('⚠️ Could not queue emails:', emailError.message);
+          console.error('⚠️ Email error stack:', emailError.stack);
         }
       } else {
-        console.log('ℹ️ No email notifications to send (no changed slots with appointments/staff)');
+        console.log('ℹ️ No email notifications to send (no slots with appointments/staff)');
       }
     } catch (emailError) {
       console.error('❌ Error preparing email notifications:', emailError.message);
       // Don't throw - emails are optional, slot update is primary action
+    }
+
+    // 📝 Log this operation - Use ORIGINAL slots (before cancel) to get appointment info
+    try {
+      const { logSlotStatusChange } = require('./slotStatusLogger.service');
+      
+      // Pass ORIGINAL slotsToChange (before cancel) so logger can see appointmentIds
+      await logSlotStatusChange({
+        operationType: 'toggle_individual',
+        action: isActive ? 'enable' : 'disable',
+        criteria: { slotIds },
+        reason,
+        currentUser: null, // toggleSlotsIsActive doesn't receive currentUser, would need to add
+        affectedSlotIds: slotsToChange.map(s => s._id.toString()), // Only log slots that changed
+        affectedSlots: slotsToChange, // Pass original slots WITH appointmentId
+        stats: {
+          emailsSentCount: emailNotifications.length,
+          appointmentsCancelledCount: cancelledAppointments.length
+        }
+      });
+    } catch (logError) {
+      console.error('⚠️ Failed to log operation (operation completed successfully):', logError.message);
     }
 
     return {
@@ -3740,13 +3781,14 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
       modifiedCount: result.modifiedCount,
       changedCount: slotsToChange.length, // 🆕 Number of slots that actually changed
       unchangedCount: slotsAlreadyInState.length, // 🆕 Number of slots already in state
+      cancelledAppointmentsCount: cancelledAppointments.length, // 🆕 Number of appointments cancelled
       isActive,
       reason,
       affectedSlots: slotIds.length,
       slots: slotDetails,
       emailsSent: emailNotifications.length, // 🆕 Number of emails queued
       message: result.modifiedCount > 0 
-        ? `${isActive ? 'Bật' : 'Tắt'} thành công ${result.modifiedCount} slots${slotsAlreadyInState.length > 0 ? ` (${slotsAlreadyInState.length} slot đã ở trạng thái này)` : ''}`
+        ? `${isActive ? 'Bật' : 'Tắt'} thành công ${result.modifiedCount} slots${slotsAlreadyInState.length > 0 ? ` (${slotsAlreadyInState.length} slot đã ở trạng thái này)` : ''}${cancelledAppointments.length > 0 ? `, đã hủy ${cancelledAppointments.length} lịch hẹn` : ' (không có bệnh nhân)'}`
         : `Tất cả ${slotIds.length} slots đã ở trạng thái ${isActive ? 'bật' : 'tắt'}`
     };
   } catch (error) {
@@ -3867,35 +3909,51 @@ async function disableAllDaySlots(date, reason, currentUser) {
       const representativeSlot = appointmentSlots[0];
       
       // Send to patient (one email per appointment)
+      let patientEmail = null;
+      let patientName = null;
+      
       if (appointment.patientId) {
+        // Patient is a registered user
         const patient = usersCache.find(u => u._id.toString() === appointment.patientId.toString());
-        
         if (patient && patient.email) {
-          // Format date/time for email
-          const startDate = typeof representativeSlot.startTime === 'string' ? new Date(representativeSlot.startTime) : representativeSlot.startTime;
-          const endDate = typeof representativeSlot.endTime === 'string' ? new Date(representativeSlot.endTime) : representativeSlot.endTime;
-          
-          const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
-          const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
-          const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
-          
-          const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
-          const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
-          
-          emailNotifications.push({
-            email: patient.email,
-            name: patient.fullName || patient.name,
-            role: 'patient',
-            slotInfo: {
-              date: dateStr,
-              shiftName: representativeSlot.shiftName,
-              startTime: startTimeStr,
-              endTime: endTimeStr,
-              slotCount: appointmentSlots.length
-            },
-            reason
-          });
+          patientEmail = patient.email;
+          patientName = patient.fullName || patient.name;
         }
+      } else if (appointment.patientInfo && appointment.patientInfo.email) {
+        // Guest patient (no account) - use patientInfo
+        patientEmail = appointment.patientInfo.email;
+        patientName = appointment.patientInfo.name;
+      }
+      
+      if (patientEmail) {
+        console.log(`📧 Adding patient email: ${patientEmail} (${patientName})`);
+        
+        // Format date/time for email
+        const startDate = typeof representativeSlot.startTime === 'string' ? new Date(representativeSlot.startTime) : representativeSlot.startTime;
+        const endDate = typeof representativeSlot.endTime === 'string' ? new Date(representativeSlot.endTime) : representativeSlot.endTime;
+        
+        const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+        const dateStr = `${String(vnDate.getDate()).padStart(2, '0')}/${String(vnDate.getMonth() + 1).padStart(2, '0')}/${vnDate.getFullYear()}`;
+        const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+        
+        const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+        const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+        
+        emailNotifications.push({
+          email: patientEmail,
+          name: patientName,
+          role: 'patient',
+          slotInfo: {
+            date: dateStr,
+            shiftName: representativeSlot.shiftName,
+            startTime: startTimeStr,
+            endTime: endTimeStr,
+            slotCount: appointmentSlots.length
+          },
+          reason
+        });
+      } else {
+        console.warn(`⚠️ No patient email for appointment ${appointmentId} - patientId: ${appointment.patientId}, patientInfo: ${JSON.stringify(appointment.patientInfo)}`);
       }
       
       // Collect unique dentists from all slots of this appointment
@@ -4072,7 +4130,18 @@ async function disableAllDaySlots(date, reason, currentUser) {
     
     console.log(`📧 Total: Prepared ${emailNotifications.length} email notifications`);
     
-    // Step 4: Send emails via RabbitMQ
+    // Step 4: Clean up appointmentIds in slots (don't cancel appointments)
+    let cancelledAppointments = [];
+    if (uniqueAppointmentIds.length > 0) {
+      console.log(`📋 ${uniqueAppointmentIds.length} appointments in slots - tracking for logs`);
+      
+      // Just track for logging - don't cancel appointments or clear appointmentIds
+      cancelledAppointments = uniqueAppointmentIds;
+      
+      console.log(`✅ Tracking ${cancelledAppointments.length} appointments for logging`);
+    }
+    
+    // Step 5: Send emails via RabbitMQ
     if (emailNotifications.length > 0) {
       try {
         await rabbitmqClient.publishToQueue('email_notifications', {
@@ -4091,13 +4160,14 @@ async function disableAllDaySlots(date, reason, currentUser) {
       }
     }
     
-    // Step 5: Disable all slots
+    // Step 6: Disable all slots (keep appointmentIds for history tracking)
     const slotIds = slots.map(s => s._id.toString());
     const updateResult = await Slot.updateMany(
       { _id: { $in: slotIds } },
       { 
         $set: { 
           isActive: false,
+          // ⚠️ IMPORTANT: Do NOT clear appointmentId - needed for history & cancelled patients list
           disabledReason: reason,
           disabledAt: new Date(),
           disabledBy: currentUser?.userId || null
@@ -4107,7 +4177,7 @@ async function disableAllDaySlots(date, reason, currentUser) {
     
     console.log(`✅ Disabled ${updateResult.modifiedCount} slots`);
     
-    // Step 6: Invalidate Redis cache for ALL affected rooms
+    // Step 7: Invalidate Redis cache for ALL affected rooms
     try {
       let totalKeysDeleted = 0;
       
@@ -4125,14 +4195,237 @@ async function disableAllDaySlots(date, reason, currentUser) {
       console.error('❌ Redis cache invalidation error:', redisError.message);
     }
     
+    // Step 8: 📝 Log this operation
+    try {
+      const { logSlotStatusChange } = require('./slotStatusLogger.service');
+      
+      if (affectedRoomIds.length > 0) {
+        try {
+          const roomResponse = await axios.get(`${ROOM_SERVICE_URL}/api/room/all`, { timeout: 5000 });
+          if (roomResponse.data?.success) {
+            const rooms = roomResponse.data.data || [];
+            rooms.forEach(room => {
+              roomsMap.set(room._id.toString(), room);
+            });
+          }
+        } catch (roomError) {
+          console.error('⚠️ Could not fetch room details:', roomError.message);
+        }
+      }
+      
+      // Build affected rooms array
+      const affectedRoomsData = affectedRoomIds.map(roomId => {
+        const room = roomsMap.get(roomId.toString());
+        const roomSlots = slots.filter(s => s.roomId?.toString() === roomId.toString());
+        return {
+          roomId: roomId,
+          roomName: room?.name || 'Unknown Room',
+          slotsDisabled: roomSlots.length
+        };
+      });
+      
+      // Build cancelled appointments array with full details
+      const cancelledAppointmentsData = [];
+      
+      for (const appointmentId of uniqueAppointmentIds) {
+        const appointment = appointments.find(a => a._id.toString() === appointmentId);
+        if (!appointment) continue;
+        
+        const appointmentSlots = slotsWithAppointments.filter(
+          s => s.appointmentId.toString() === appointmentId
+        );
+        const representativeSlot = appointmentSlots[0];
+        
+        // Get patient info
+        const patient = usersCache.find(u => u._id.toString() === appointment.patientId?.toString());
+        
+        // Get dentists info
+        const dentistIds = new Set();
+        appointmentSlots.forEach(slot => {
+          if (Array.isArray(slot.dentist)) {
+            slot.dentist.forEach(d => dentistIds.add(d.toString()));
+          } else if (slot.dentist) {
+            dentistIds.add(slot.dentist.toString());
+          }
+        });
+        
+        const dentistsData = Array.from(dentistIds).map(dentistId => {
+          const dentist = usersCache.find(u => u._id.toString() === dentistId);
+          return {
+            dentistId: dentistId,
+            dentistName: dentist?.fullName || dentist?.name || 'Unknown',
+            dentistEmail: dentist?.email || ''
+          };
+        }).filter(d => d.dentistName !== 'Unknown');
+        
+        // Get nurses info
+        const nurseIds = new Set();
+        appointmentSlots.forEach(slot => {
+          if (Array.isArray(slot.nurse)) {
+            slot.nurse.forEach(n => nurseIds.add(n.toString()));
+          } else if (slot.nurse) {
+            nurseIds.add(slot.nurse.toString());
+          }
+        });
+        
+        const nursesData = Array.from(nurseIds).map(nurseId => {
+          const nurse = usersCache.find(u => u._id.toString() === nurseId);
+          return {
+            nurseId: nurseId,
+            nurseName: nurse?.fullName || nurse?.name || 'Unknown',
+            nurseEmail: nurse?.email || ''
+          };
+        }).filter(n => n.nurseName !== 'Unknown');
+        
+        // Format date/time
+        const startDate = typeof representativeSlot.startTime === 'string' 
+          ? new Date(representativeSlot.startTime) 
+          : representativeSlot.startTime;
+        const endDate = typeof representativeSlot.endTime === 'string' 
+          ? new Date(representativeSlot.endTime) 
+          : representativeSlot.endTime;
+        
+        const vnDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+        const startTimeStr = `${String(vnDate.getHours()).padStart(2, '0')}:${String(vnDate.getMinutes()).padStart(2, '0')}`;
+        
+        const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+        const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+        
+        // Get room info
+        const room = roomsMap.get(representativeSlot.roomId?.toString());
+        
+        // Check if email was sent
+        const emailSent = emailNotifications.some(
+          notif => notif.email === patient?.email && notif.role === 'patient'
+        );
+        
+        cancelledAppointmentsData.push({
+          appointmentId: appointmentId,
+          appointmentDate: startDate,
+          shiftName: representativeSlot.shiftName || 'Unknown',
+          startTime: startTimeStr,
+          endTime: endTimeStr,
+          
+          patientId: appointment.patientId,
+          patientName: patient?.fullName || patient?.name || 'Unknown',
+          patientEmail: patient?.email || '',
+          patientPhone: patient?.phone || patient?.phoneNumber || '',
+          
+          roomId: representativeSlot.roomId,
+          roomName: room?.name || 'Unknown Room',
+          
+          dentists: dentistsData,
+          nurses: nursesData,
+          
+          // Payment & Invoice info will be fetched separately if needed
+          paymentInfo: appointment.paymentId ? {
+            paymentId: appointment.paymentId,
+            status: appointment.paymentStatus || 'pending'
+          } : undefined,
+          
+          invoiceInfo: appointment.invoiceId ? {
+            invoiceId: appointment.invoiceId,
+            status: appointment.invoiceStatus || 'pending'
+          } : undefined,
+          
+          emailSent: emailSent,
+          emailSentAt: emailSent ? new Date() : undefined
+        });
+      }
+      
+      // Build affected staff without appointments
+      const affectedStaffData = [];
+      const notifiedStaffFromSlots = new Set();
+      
+      for (const slot of slotsWithStaff) {
+        // Add dentists
+        const dentistIds = Array.isArray(slot.dentist)
+          ? slot.dentist.map(d => d.toString())
+          : (slot.dentist ? [slot.dentist.toString()] : []);
+        
+        for (const dentistId of dentistIds) {
+          if (!notifiedStaffFromSlots.has(dentistId)) {
+            const dentist = usersCache.find(u => u._id.toString() === dentistId);
+            if (dentist) {
+              const emailSent = emailNotifications.some(
+                notif => notif.email === dentist.email && notif.role === 'dentist'
+              );
+              affectedStaffData.push({
+                userId: dentistId,
+                name: dentist.fullName || dentist.name || 'Unknown',
+                email: dentist.email || '',
+                role: 'dentist',
+                emailSent: emailSent
+              });
+              notifiedStaffFromSlots.add(dentistId);
+            }
+          }
+        }
+        
+        // Add nurses
+        const nurseIds = Array.isArray(slot.nurse)
+          ? slot.nurse.map(n => n.toString())
+          : (slot.nurse ? [slot.nurse.toString()] : []);
+        
+        for (const nurseId of nurseIds) {
+          if (!notifiedStaffFromSlots.has(nurseId)) {
+            const nurse = usersCache.find(u => u._id.toString() === nurseId);
+            if (nurse) {
+              const emailSent = emailNotifications.some(
+                notif => notif.email === nurse.email && notif.role === 'nurse'
+              );
+              affectedStaffData.push({
+                userId: nurseId,
+                name: nurse.fullName || nurse.name || 'Unknown',
+                email: nurse.email || '',
+                role: 'nurse',
+                emailSent: emailSent
+              });
+              notifiedStaffFromSlots.add(nurseId);
+            }
+          }
+        }
+      }
+      
+      // Create DayClosure record
+      const dayClosureRecord = new DayClosure({
+        date: targetDate,
+        reason: reason,
+        closureType: 'emergency',
+        stats: {
+          totalSlotsDisabled: updateResult.modifiedCount,
+          affectedRoomsCount: affectedRoomIds.length,
+          appointmentsCancelledCount: uniqueAppointmentIds.length,
+          emailsSentCount: emailNotifications.length
+        },
+        affectedRooms: affectedRoomsData,
+        cancelledAppointments: cancelledAppointmentsData,
+        affectedStaffWithoutAppointments: affectedStaffData,
+        closedBy: {
+          userId: currentUser?.userId || null,
+          userName: currentUser?.name || currentUser?.fullName || 'System',
+          userRole: currentUser?.role || currentUser?.activeRole || 'admin'
+        },
+        status: 'active'
+      });
+      
+      await dayClosureRecord.save();
+      console.log(`✅ Saved DayClosure record: ${dayClosureRecord._id}`);
+      
+    } catch (closureRecordError) {
+      console.error('⚠️ Could not save DayClosure record (slots still disabled):', closureRecordError.message);
+      console.error(closureRecordError.stack);
+    }
+    
     return {
       success: true,
       disabledCount: updateResult.modifiedCount,
       totalSlots: slots.length,
       affectedRooms: affectedRoomIds.length,
-      appointmentsCancelled: slotsWithAppointments.length,
+      appointmentsCancelled: cancelledAppointments.length, // Use actual cancelled count
+      uniqueAppointments: uniqueAppointmentIds.length, // Total unique appointments found
       emailsQueued: emailNotifications.length,
-      message: `Đã tắt ${updateResult.modifiedCount} slots của ${affectedRoomIds.length} phòng và gửi ${emailNotifications.length} email thông báo`
+      message: `Đã tắt ${updateResult.modifiedCount} slots của ${affectedRoomIds.length} phòng, hủy ${cancelledAppointments.length} lịch hẹn và gửi ${emailNotifications.length} email thông báo`
     };
   } catch (error) {
     console.error('❌ Error disabling all day slots:', error);

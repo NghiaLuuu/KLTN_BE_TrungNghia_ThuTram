@@ -37,7 +37,6 @@ class CashPaymentService {
       });
 
       // Publish event to invoice queue to create invoice
-      console.log('📤 [Payment] Publishing to invoice_queue for cash payment...');
       await rabbitmqClient.publishToQueue('invoice_queue', {
         event: 'payment.completed.cash',
         data: {
@@ -53,7 +52,6 @@ class CashPaymentService {
           confirmedBy: confirmedBy
         }
       });
-      console.log('✅ [Payment] Event sent to invoice_queue: payment.completed.cash');
 
       return {
         payment: updatedPayment,

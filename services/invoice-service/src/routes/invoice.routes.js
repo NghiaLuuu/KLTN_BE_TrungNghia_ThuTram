@@ -7,6 +7,9 @@ const { validateCreateInvoice, validateUpdateInvoice, validatePaymentData } = re
 // ============ PUBLIC ROUTES (for system integration) ============
 router.get("/health", invoiceController.healthCheck);
 
+// Internal service-to-service endpoint (no auth required)
+router.get("/by-payment/:paymentId", invoiceController.getInvoiceByPaymentId);
+
 // ============ PROTECTED ROUTES ============
 // Apply authentication to all routes below
 router.use(authMiddleware.authenticate);

@@ -59,6 +59,28 @@ async function handleAppointmentCreated(data) {
     } else {
       console.log(`[Schedule] Successfully marked ${result.modifiedCount} slots as booked for appointment ${appointmentId}`);
     }
+    
+    // 🔥 CRITICAL: Invalidate Redis cache for affected rooms
+    try {
+      const updatedSlots = await Slot.find({ _id: { $in: slotIds } }).select('roomId').lean();
+      const affectedRoomIds = [...new Set(updatedSlots.map(s => s.roomId.toString()))];
+      
+      const redisClient = require('./redis.client');
+      let totalKeysDeleted = 0;
+      
+      for (const roomId of affectedRoomIds) {
+        const pattern = `room_calendar:${roomId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          totalKeysDeleted += keys.length;
+        }
+      }
+      
+      console.log(`[Schedule] Invalidated ${totalKeysDeleted} Redis cache keys for ${affectedRoomIds.length} rooms`);
+    } catch (cacheError) {
+      console.error('[Schedule] Failed to invalidate Redis cache:', cacheError.message);
+    }
 
   } catch (error) {
     console.error('[Schedule] Error handling appointment.created event:', error);
@@ -107,6 +129,28 @@ async function handleAppointmentCancelled(data) {
 
     if (result.modifiedCount > 0) {
       console.log(`[Schedule] Successfully released ${result.modifiedCount} slots from cancelled appointment ${appointmentId}`);
+    }
+    
+    // 🔥 CRITICAL: Invalidate Redis cache for affected rooms
+    try {
+      const updatedSlots = await Slot.find({ _id: { $in: slotIds } }).select('roomId').lean();
+      const affectedRoomIds = [...new Set(updatedSlots.map(s => s.roomId.toString()))];
+      
+      const redisClient = require('./redis.client');
+      let totalKeysDeleted = 0;
+      
+      for (const roomId of affectedRoomIds) {
+        const pattern = `room_calendar:${roomId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          totalKeysDeleted += keys.length;
+        }
+      }
+      
+      console.log(`[Schedule] Invalidated ${totalKeysDeleted} Redis cache keys for ${affectedRoomIds.length} rooms`);
+    } catch (cacheError) {
+      console.error('[Schedule] Failed to invalidate Redis cache:', cacheError.message);
     }
 
   } catch (error) {

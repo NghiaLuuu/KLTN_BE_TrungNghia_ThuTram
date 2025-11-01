@@ -463,62 +463,10 @@ class PaymentService {
         // Delete temp payment from Redis
         await redisClient.del(tempPaymentKey);
         
-        // � CRITICAL: Publish payment.success event for invoice creation
-        // This ensures invoice is created for VNPay payments just like cash payments
-        try {
-          console.log('[Payment] Publishing payment.success event to invoice_queue...');
-          await rabbitmqClient.publishToQueue('invoice_queue', {
-            event: 'payment.success',
-            data: {
-              paymentId: payment._id.toString(),
-              paymentCode: payment.paymentCode,
-              recordId: null, // VNPay deposit doesn't have recordId yet
-              appointmentId: null, // Will be set after appointment created
-              patientId: payment.patientId,
-              patientInfo: patientInfo,
-              method: 'vnpay',
-              originalAmount: paymentAmount,
-              discountAmount: 0,
-              finalAmount: paymentAmount,
-              paidAmount: paymentAmount,
-              changeAmount: 0,
-              completedAt: payment.processedAt,
-              processedBy: payment.processedBy,
-              processedByName: payment.processedByName
-            }
-          });
-          console.log('✅ [Payment] payment.success event published for invoice creation');
-        } catch (publishError) {
-          console.error('❌ [Payment] Failed to publish payment.success event:', publishError);
-        }
-        
-        // �🚀 Publish events after successful payment
+        // Publish events after successful payment
         if (appointmentData) {
-          console.log('📤 [Payment] Starting to publish events with appointment data:', {
-            reservationId,
-            patientName: appointmentData.patientInfo?.fullName || 'Unknown',
-            slotCount: appointmentData.slotIds?.length || 0,
-            serviceId: appointmentData.serviceId,
-            serviceAddOnId: appointmentData.serviceAddOnId || 'none'
-          });
-          
           try {
-            // 🔹 STEP 1: Create Appointment (appointment-service will handle the rest)
-            console.log('📤 [Payment] Publishing to appointment_queue...');
-            await rabbitmqClient.publishToQueue('appointment_queue', {
-              event: 'payment.completed',
-              data: {
-                reservationId: reservationId,
-                paymentId: payment._id.toString(),
-                paymentCode: payment.paymentCode,
-                amount: paymentAmount,
-                appointmentData: appointmentData
-              }
-            });
-            console.log('✅ [Payment] Event sent to appointment_queue: payment.completed');
-
-            // 🔹 STEP 2: Create Invoice (initially without appointmentId)
-            console.log('📤 [Payment] Publishing to invoice_queue...');
+            // STEP 1: Create Invoice FIRST
             await rabbitmqClient.publishToQueue('invoice_queue', {
               event: 'payment.completed',
               data: {
@@ -530,7 +478,18 @@ class PaymentService {
                 appointmentData: appointmentData
               }
             });
-            console.log('✅ [Payment] Event sent to invoice_queue: payment.completed');
+
+            // STEP 2: Create Appointment (will query invoice by paymentId)
+            await rabbitmqClient.publishToQueue('appointment_queue', {
+              event: 'payment.completed',
+              data: {
+                reservationId: reservationId,
+                paymentId: payment._id.toString(),
+                paymentCode: payment.paymentCode,
+                amount: paymentAmount,
+                appointmentData: appointmentData
+              }
+            });
 
             // � STEP 3: Mark Service/ServiceAddOn as Used
             const servicesToMark = [];
@@ -543,12 +502,6 @@ class PaymentService {
             }
             
             if (servicesToMark.length > 0) {
-              console.log('📤 [Payment] Publishing to service_queue...', {
-                services: servicesToMark,
-                mainService: appointmentData.serviceId,
-                addon: appointmentData.serviceAddOnId || 'none'
-              });
-              
               await rabbitmqClient.publishToQueue('service_queue', {
                 event: 'service.mark_as_used',
                 data: {
@@ -557,13 +510,10 @@ class PaymentService {
                   paymentId: payment._id.toString()
                 }
               });
-              
-              console.log('✅ [Payment] Event sent to service_queue: service.mark_as_used');
             }
 
-            // ⭐ STEP 4: Mark Exam Record as Used (if treatment requires exam first)
+            // STEP 3: Mark exam record as used (if needed)
             if (appointmentData.examRecordId) {
-              console.log('📤 [Payment] Publishing to record_queue to mark exam record as used...');
               await rabbitmqClient.publishToQueue('record_queue', {
                 event: 'record.mark_as_used',
                 data: {
@@ -576,15 +526,7 @@ class PaymentService {
                   }
                 }
               });
-              console.log('✅ [Payment] Event sent to record_queue: record.mark_as_used', {
-                recordId: appointmentData.examRecordId
-              });
             }
-
-            // ℹ️ NOTE: appointment-service will publish events to:
-            //   - schedule_queue (update slots with appointmentId)
-            //   - invoice_queue (link invoice with appointmentId)
-            console.log('ℹ️ [Payment] Appointment-service will handle schedule & invoice linking');
 
           } catch (eventError) {
             console.error('⚠️ Error publishing events:', eventError.message);

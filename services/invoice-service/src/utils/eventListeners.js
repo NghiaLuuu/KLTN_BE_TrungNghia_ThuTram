@@ -3,10 +3,17 @@ const { InvoiceDetail } = require('../models/invoiceDetail.model');
 const rabbitmqClient = require('./rabbitmq.client');
 
 /**
- * Handle appointment.created event
- * Create invoice for the appointment
+ * ⚠️ DEPRECATED FUNCTIONS - Replaced by invoice.consumer.js
+ * These functions are kept for reference but are no longer used
+ * - handleAppointmentCreated: Now handled in invoice.consumer.js (appointment.created event)
+ * - handlePaymentSuccess: Now handled in invoice.consumer.js (payment.completed event)
  */
-async function handleAppointmentCreated(data) {
+
+/**
+ * DEPRECATED: Handle appointment.created event
+ * NOW HANDLED BY: invoice.consumer.js
+ */
+async function handleAppointmentCreated_DEPRECATED(data) {
   try {
     const {
       appointmentId,
@@ -190,10 +197,10 @@ async function handleAppointmentCancelled(data) {
 }
 
 /**
- * Handle payment.success event
- * Create invoice after payment is completed
+ * DEPRECATED: Handle payment.success event
+ * NOW HANDLED BY: invoice.consumer.js (payment.completed event)
  */
-async function handlePaymentSuccess(data) {
+async function handlePaymentSuccess_DEPRECATED(data) {
   try {
     const {
       paymentId,
@@ -598,30 +605,13 @@ async function setupEventListeners() {
     // Connect to RabbitMQ
     await rabbitmqClient.connect();
 
-    // Listen to appointment.created events
-    await rabbitmqClient.consumeQueue('appointment.created', handleAppointmentCreated);
-
-    // Listen to appointment.cancelled events
+    // Listen to appointment.cancelled events (for cache invalidation)
     await rabbitmqClient.consumeQueue('appointment.cancelled', handleAppointmentCancelled);
 
-    // Listen to invoice_queue for payment.success and invoice.create_from_record events
-    await rabbitmqClient.consumeQueue('invoice_queue', async (message) => {
-      try {
-        const { event, data } = message;
-        
-        if (event === 'payment.success') {
-          await handlePaymentSuccess(data);
-        } else if (event === 'invoice.create_from_record') {
-          await handleInvoiceCreateFromRecord(data);
-        } else {
-          console.log('[Invoice] Unknown event from invoice_queue:', event);
-        }
-      } catch (error) {
-        console.error('[Invoice] Error processing invoice_queue message:', error);
-      }
-    });
-
-    // ✅ Simplified logs - will show in index.js only
+    // ⚠️ NOTE: invoice_queue consumer moved to invoice.consumer.js
+    // This file only handles appointment.cancelled for cache invalidation
+    console.log('✅ [EventListeners] Listening to appointment.cancelled queue only');
+    console.log('📝 [EventListeners] invoice_queue is handled by invoice.consumer.js');
 
   } catch (error) {
     console.error('[Invoice] Error setting up event listeners:', error);
@@ -636,8 +626,5 @@ async function setupEventListeners() {
 
 module.exports = {
   setupEventListeners,
-  handleAppointmentCreated,
-  handleAppointmentCancelled,
-  handlePaymentSuccess,
-  handleInvoiceCreateFromRecord
+  handleAppointmentCancelled
 };

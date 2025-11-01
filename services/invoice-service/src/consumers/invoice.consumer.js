@@ -22,41 +22,13 @@ async function generateInvoiceNumber() {
 async function startConsumer() {
   try {
     await rabbitmqClient.consumeFromQueue('invoice_queue', async (message) => {
-      console.log('📥 [Invoice Consumer] Received event:', {
-        event: message.event,
-        timestamp: new Date().toISOString()
-      });
-
       if (message.event === 'payment.completed') {
         const { reservationId, paymentId, paymentCode, amount, patientInfo, appointmentData } = message.data;
 
-        console.log('🔄 [Invoice Consumer] Processing payment.completed:', {
-          reservationId,
-          paymentId,
-          paymentCode,
-          amount
-        });
-
         if (!appointmentData) {
-          console.warn('⚠️ [Invoice Consumer] No appointmentData provided, skipping...');
+          console.warn('⚠️ No appointmentData, skipping...');
           return;
         }
-
-        // 🔍 DEBUG: Log received appointment data structure
-        console.log('🔍 [Invoice Consumer] Received appointmentData:', {
-          hasPatientId: !!appointmentData.patientId,
-          hasPatientInfo: !!appointmentData.patientInfo,
-          patientName: appointmentData.patientInfo?.fullName || appointmentData.patientInfo?.name,
-          hasServiceId: !!appointmentData.serviceId,
-          serviceName: appointmentData.serviceName,
-          hasServiceAddOn: !!appointmentData.serviceAddOnId,
-          serviceAddOnName: appointmentData.serviceAddOnName,
-          serviceType: appointmentData.serviceType,
-          hasDentistId: !!appointmentData.dentistId,
-          dentistName: appointmentData.dentistName,
-          hasAppointmentDate: !!appointmentData.appointmentDate,
-          amount: amount
-        });
 
         try {
           // Generate invoice number
@@ -126,16 +98,10 @@ async function startConsumer() {
             createdByRole: appointmentData.bookedByRole || 'patient'
           };
 
-          console.log('📝 [Invoice Consumer] Creating invoice:', {
-            invoiceNumber,
-            patientName: invoiceDoc.patientInfo.name,
-            amount: invoiceDoc.totalAmount
-          });
-
           // Create invoice in database
           const invoice = await invoiceRepository.createInvoice(invoiceDoc);
 
-          console.log('✅ [Invoice Consumer] Invoice created:', {
+          console.log('✅ Invoice created:', {
             invoiceId: invoice._id.toString(),
             invoiceNumber: invoice.invoiceNumber
           });
@@ -192,19 +158,9 @@ async function startConsumer() {
             createdBy: appointmentData.patientId || null
           };
 
-          console.log('📝 [Invoice Consumer] Creating invoice detail...');
-
           const invoiceDetail = await invoiceDetailRepository.createInvoiceDetail(invoiceDetailDoc);
 
-          console.log('✅ [Invoice Consumer] Invoice detail created:', {
-            detailId: invoiceDetail._id.toString(),
-            serviceName: invoiceDetail.serviceInfo?.name || 'Unknown',
-            totalPrice: invoiceDetail.totalPrice,
-            unitPrice: invoiceDetail.unitPrice,
-            quantity: invoiceDetail.quantity
-          });
-
-          console.log('✅ [Invoice Consumer] Invoice & detail created successfully');
+          console.log('✅ Invoice detail created: detailId=' + invoiceDetail._id.toString());
 
         } catch (error) {
           console.error('❌ [Invoice Consumer] Error creating invoice:', {
@@ -215,68 +171,36 @@ async function startConsumer() {
           throw error; // Will trigger RabbitMQ retry
         }
       } else if (message.event === 'appointment.created') {
-        // ✅ NEW APPROACH: Use paymentId instead of reservationId to avoid race condition
-        // When appointment is created, update invoice with appointmentId
+        // Update invoice with appointmentId after appointment is created
         const { appointmentId, paymentId } = message.data;
 
-        console.log('🔄 [Invoice Consumer] Processing appointment.created:', {
-          appointmentId,
-          paymentId
-        });
-
         if (!appointmentId || !paymentId) {
-          console.warn('⚠️ [Invoice Consumer] Missing appointmentId or paymentId, skipping...');
+          console.warn('⚠️ [Invoice Consumer] Missing appointmentId or paymentId in appointment.created event');
           return;
         }
 
         try {
-          // Find invoice by paymentId (no race condition - invoice always created first)
+          // Find invoice by paymentId
           const invoice = await invoiceRepository.findOne({ 
             'paymentSummary.paymentIds': paymentId 
           });
 
           if (!invoice) {
-            console.warn('⚠️ [Invoice Consumer] Invoice not found for paymentId:', paymentId);
+            console.warn('⚠️ Invoice not found for paymentId:', paymentId);
             return;
           }
 
-          console.log('📝 [Invoice Consumer] Updating invoice with appointmentId:', {
-            invoiceId: invoice._id.toString(),
-            invoiceNumber: invoice.invoiceNumber,
-            appointmentId
-          });
-
           // Update invoice with appointmentId
           await invoiceRepository.updateAppointmentId(invoice._id, appointmentId);
-
-          console.log('✅ [Invoice Consumer] Invoice updated with appointmentId');
-
-          // 🔗 Now send event to appointment-service to update invoiceId
-          console.log('📤 [Invoice Consumer] Publishing event to update appointment with invoiceId:', {
+          
+          console.log('✅ Invoice linked to appointment:', {
             invoiceId: invoice._id.toString(),
-            paymentId: paymentId.toString(),
             appointmentId
           });
 
-          // Publish event to appointment_queue to update invoiceId
-          await rabbitmqClient.publishToQueue('appointment_queue', {
-            event: 'invoice.created',
-            data: {
-              invoiceId: invoice._id.toString(),
-              paymentId: paymentId.toString()
-            }
-          });
-
-          console.log('✅ [Invoice Consumer] Event published to update appointment with invoiceId');
-
         } catch (error) {
-          console.error('❌ [Invoice Consumer] Error linking invoice to appointment:', {
-            error: error.message,
-            appointmentId,
-            paymentId,
-            stack: error.stack
-          });
-          throw error; // Will trigger RabbitMQ retry
+          console.error('❌ Error linking invoice:', error.message);
+          throw error;
         }
       } else if (message.event === 'payment.completed.cash') {
         // ✅ Handle cash payment completion - create invoice with proper calculation

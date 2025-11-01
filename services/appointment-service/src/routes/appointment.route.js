@@ -28,6 +28,11 @@ router.get('/by-ids',
   appointmentController.getByIds
 );
 
+// 🆕 Cancel appointment (internal - for schedule-service when disabling slots)
+router.post('/internal/cancel/:id',
+  appointmentController.cancelInternal
+);
+
 // Get available slot groups
 router.get('/available-slots', 
   authenticate, 

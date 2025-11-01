@@ -822,6 +822,30 @@ exports.bulkUpdateSlots = async (req, res) => {
     
     console.log(`✅ Bulk updated ${result.modifiedCount} slots:`, updateFields);
     
+    // 🔥 CRITICAL: Invalidate Redis cache for affected rooms
+    try {
+      // Get unique roomIds from updated slots
+      const updatedSlots = await Slot.find({ _id: { $in: slotIds } }).select('roomId').lean();
+      const affectedRoomIds = [...new Set(updatedSlots.map(s => s.roomId.toString()))];
+      
+      const redisClient = require('../utils/redis.client');
+      let totalKeysDeleted = 0;
+      
+      for (const roomId of affectedRoomIds) {
+        const pattern = `room_calendar:${roomId}:*`;
+        const keys = await redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await redisClient.del(keys);
+          totalKeysDeleted += keys.length;
+        }
+      }
+      
+      console.log(`✅ Invalidated ${totalKeysDeleted} Redis cache keys for ${affectedRoomIds.length} rooms`);
+    } catch (cacheError) {
+      console.error('⚠️ Failed to invalidate Redis cache:', cacheError.message);
+      // Don't fail the request if cache invalidation fails
+    }
+    
     return res.status(200).json({
       success: true,
       message: `Updated ${result.modifiedCount} slots`,

@@ -113,7 +113,7 @@ Chúng tôi xin thông báo lịch ${role === 'patient' ? 'khám' : 'làm việc
 - Ngày: ${date}
 - Ca: ${slotInfo.shiftName}
 - Thời gian: ${startTime} - ${endTime}
-${slotCount > 1 ? `- Số lượng slot: ${slotCount}\n` : ''}
+${slotCount > 1 ? `- Số lượng slot: ${slotCount}\n` : ''}${notification.appointmentCode ? `- Mã lịch hẹn: ${notification.appointmentCode}\n` : ''}
 
 ${isEnabled ? '✅' : '❗'} ${isEnabled ? 'TRẠNG THÁI' : 'LÝ DO'}:
 ${reason}

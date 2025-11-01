@@ -39,6 +39,29 @@ async function startConsumer() {
         }
 
         try {
+          // Query invoice by paymentId to get invoiceId
+          let invoiceId = null;
+          
+          try {
+            const axios = require('axios');
+            const INVOICE_SERVICE_URL = process.env.INVOICE_SERVICE_URL || 'http://localhost:3008';
+            
+            // Wait for invoice to be created (invoice creation happens first)
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            const invoiceResponse = await axios.get(
+              `${INVOICE_SERVICE_URL}/api/invoice/by-payment/${paymentId}`,
+              { timeout: 5000 }
+            );
+            
+            if (invoiceResponse.data?.success && invoiceResponse.data?.data) {
+              invoiceId = invoiceResponse.data.data._id;
+              console.log('✅ Invoice found:', invoiceId);
+            }
+          } catch (error) {
+            console.warn('⚠️ Invoice query failed:', error.message);
+          }
+
           // Generate appointment code
           const appointmentCode = await generateAppointmentCode(appointmentData.appointmentDate);
 
@@ -61,10 +84,10 @@ async function startConsumer() {
             serviceId: appointmentData.serviceId,
             serviceName: appointmentData.serviceName,
             serviceType: appointmentData.serviceType || 'treatment',
-            serviceAddOnId: appointmentData.serviceAddOnId || null, // ✅ Optional
-            serviceAddOnName: appointmentData.serviceAddOnName || null, // ✅ Optional
+            serviceAddOnId: appointmentData.serviceAddOnId || null,
+            serviceAddOnName: appointmentData.serviceAddOnName || null,
             serviceDuration: appointmentData.serviceDuration || 15,
-            servicePrice: appointmentData.servicePrice || amount, // ✅ Optional
+            servicePrice: appointmentData.servicePrice || amount,
             
             // Dentist info
             dentistId: appointmentData.dentistId,
@@ -78,9 +101,9 @@ async function startConsumer() {
             roomId: appointmentData.roomId,
             roomName: appointmentData.roomName || '',
             
-            // Payment info
+            // Payment & Invoice info
             paymentId: paymentId,
-            invoiceId: null, // Will be set by invoice-service
+            invoiceId: invoiceId, // ✅ Set from query result
             totalAmount: amount,
             
             // Status
@@ -93,39 +116,21 @@ async function startConsumer() {
             // Notes
             notes: appointmentData.notes || '',
             
-            // Reservation tracking (for linking)
-            reservationId: reservationId  // ✅ ADD THIS
+            // Reservation tracking
+            reservationId: reservationId
           };
-
-          console.log('📝 [Appointment Consumer] Creating appointment:', {
-            appointmentCode,
-            patientName: appointmentDoc.patientInfo.name,
-            serviceName: appointmentDoc.serviceName,
-            serviceAddOn: appointmentDoc.serviceAddOnName || 'None',
-            slotCount: appointmentDoc.slotIds.length,
-            date: appointmentDoc.appointmentDate
-          });
 
           // Create appointment in database
           const appointment = await appointmentRepository.createAppointment(appointmentDoc);
 
-          console.log('✅ [Appointment Consumer] Appointment created successfully:', {
+          console.log('✅ Appointment created:', {
             appointmentId: appointment._id.toString(),
             appointmentCode: appointment.appointmentCode,
-            reservationId
+            paymentId: appointment.paymentId?.toString(),
+            invoiceId: appointment.invoiceId?.toString() || null
           });
 
-          // 🔔 PUBLISH appointment.created EVENT for other services
-          console.log('📤 [Appointment Consumer] Publishing appointment.created event...');
-          console.log('📊 [Appointment Consumer] Event data:', {
-            appointmentId: appointment._id.toString(),
-            slotIds: appointment.slotIds,
-            slotCount: appointment.slotIds?.length || 0,
-            reservationId: appointment.reservationId,
-            status: 'booked'
-          });
-          
-          // Notify schedule-service to update slots with appointmentId
+          // Notify schedule-service to update slots
           await rabbitmqClient.publishToQueue('schedule_queue', {
             event: 'appointment.created',
             data: {
@@ -135,78 +140,22 @@ async function startConsumer() {
               status: 'booked'
             }
           });
-          console.log('✅ [Appointment Consumer] Published appointment.created to schedule_queue');
-          console.log('   → appointmentId:', appointment._id.toString());
-          console.log('   → slotIds:', appointment.slotIds);
-          console.log('   → slotCount:', appointment.slotIds?.length || 0);
-          // Notify invoice-service to link invoice with appointmentId (using paymentId)
-          await rabbitmqClient.publishToQueue('invoice_queue', {
-            event: 'appointment.created',
-            data: {
-              appointmentId: appointment._id.toString(),
-              paymentId: appointment.paymentId // ✅ Use paymentId instead of reservationId
-            }
-          });
 
-          console.log('✅ [Appointment Consumer] Published appointment.created to schedule & invoice queues');
-
-        } catch (error) {
-          console.error('❌ [Appointment Consumer] Error creating appointment:', {
-            error: error.message,
-            reservationId,
-            stack: error.stack
-          });
-          throw error; // Will trigger RabbitMQ retry
-        }
-      } else if (message.event === 'invoice.created') {
-        // Handle invoice created event - update appointment with invoiceId
-        const { invoiceId, paymentId, reservationId } = message.data;
-
-        console.log('🔄 [Appointment Consumer] Processing invoice.created:', {
-          invoiceId,
-          paymentId,
-          reservationId
-        });
-
-        if (!invoiceId || !paymentId) {
-          console.warn('⚠️ [Appointment Consumer] Missing invoiceId or paymentId, skipping...');
-          return;
-        }
-
-        try {
-          // Find appointment by paymentId
-          const appointment = await appointmentRepository.findOne({ paymentId });
-
-          if (!appointment) {
-            console.warn('⚠️ [Appointment Consumer] Appointment not found for paymentId:', paymentId);
-            return;
+          // Notify invoice-service to link appointmentId
+          if (appointment.paymentId) {
+            await rabbitmqClient.publishToQueue('invoice_queue', {
+              event: 'appointment.created',
+              data: {
+                appointmentId: appointment._id.toString(),
+                paymentId: appointment.paymentId.toString()
+              }
+            });
           }
 
-          console.log('📝 [Appointment Consumer] Updating appointment with invoiceId:', {
-            appointmentId: appointment._id.toString(),
-            appointmentCode: appointment.appointmentCode,
-            invoiceId
-          });
-
-          // Update appointment with invoiceId
-          await appointmentRepository.updateInvoiceId(appointment._id, invoiceId);
-
-          console.log('✅ [Appointment Consumer] Appointment linked to invoice successfully:', {
-            appointmentId: appointment._id.toString(),
-            invoiceId
-          });
-
         } catch (error) {
-          console.error('❌ [Appointment Consumer] Error linking appointment to invoice:', {
-            error: error.message,
-            invoiceId,
-            paymentId,
-            stack: error.stack
-          });
-          throw error; // Will trigger RabbitMQ retry
+          console.error('❌ Error creating appointment:', error.message);
+          throw error;
         }
-      } else {
-        console.log('ℹ️ [Appointment Consumer] Unhandled event type:', message.event);
       }
     });
 

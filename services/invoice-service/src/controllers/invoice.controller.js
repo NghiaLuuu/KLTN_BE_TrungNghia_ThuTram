@@ -94,6 +94,37 @@ class InvoiceController {
     }
   }
 
+  // Get invoice by paymentId (for internal service calls)
+  async getInvoiceByPaymentId(req, res) {
+    try {
+      const { paymentId } = req.params;
+      
+      const invoiceRepository = require('../repositories/invoice.repository');
+      const invoice = await invoiceRepository.findOne({ 
+        'paymentSummary.paymentIds': paymentId 
+      });
+
+      if (!invoice) {
+        return res.status(404).json({
+          success: false,
+          message: "Không tìm thấy hóa đơn cho paymentId này"
+        });
+      }
+
+      res.json({
+        success: true,
+        message: "Lấy thông tin hóa đơn thành công",
+        data: invoice
+      });
+    } catch (error) {
+      console.error("❌ Get invoice by paymentId error:", error);
+      res.status(400).json({
+        success: false,
+        message: error.message || "Lỗi khi lấy thông tin hóa đơn"
+      });
+    }
+  }
+
   async getInvoiceById(req, res) {
     try {
       const { id } = req.params;

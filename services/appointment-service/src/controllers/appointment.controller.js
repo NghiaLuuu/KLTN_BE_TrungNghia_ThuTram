@@ -164,6 +164,27 @@ class AppointmentController {
       res.status(400).json({ success: false, message: error.message });
     }
   }
+
+  // 🆕 Cancel appointment - internal (no auth required, for schedule-service)
+  async cancelInternal(req, res) {
+    try {
+      const { cancelledBy, cancellationReason } = req.body;
+      const appointment = await appointmentService.cancel(
+        req.params.id, 
+        cancelledBy || 'system', 
+        cancellationReason || 'Slot disabled by system'
+      );
+      res.json({ 
+        success: true, 
+        message: 'Appointment cancelled successfully (internal)', 
+        data: appointment 
+      });
+      
+    } catch (error) {
+      console.error('cancelInternal error:', error);
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
   
   async createOffline(req, res) {
     try {

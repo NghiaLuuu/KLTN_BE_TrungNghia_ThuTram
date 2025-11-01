@@ -1166,14 +1166,17 @@ class AppointmentService {
 
       const appointments = await Appointment.find({
         _id: { $in: appointmentIds }
-      }).select('_id patientId patientInfo appointmentCode status');
+      }).select('_id patientId patientInfo appointmentCode status paymentId invoiceId cancelledAt');
 
       return appointments.map(apt => ({
         _id: apt._id,
         appointmentCode: apt.appointmentCode,
         patientId: apt.patientId,
         patientInfo: apt.patientInfo,
-        status: apt.status
+        status: apt.status,
+        paymentId: apt.paymentId,
+        invoiceId: apt.invoiceId,
+        cancelledAt: apt.cancelledAt
       }));
     } catch (error) {
       console.error('❌ Error getting appointments by IDs:', error);
