@@ -34,6 +34,10 @@ async function refreshUserCache() {
     const dentists = await getDentists();
     await redis.set(DENTIST_CACHE_KEY, JSON.stringify(dentists));
 
+    // ✅ Clear public dentists cache (used by getDentistsForPatients)
+    await redis.del('dentists_public');
+    console.log('🗑️ Cleared dentists_public cache');
+
     console.log(`♻ Cache người dùng đã được làm mới: ${Array.isArray(users) ? users.length : 0} người dùng`);
   } catch (err) {
     console.error('❌ Lỗi khi refresh cache:', err);
@@ -237,11 +241,11 @@ exports.updateUserWithPermissions = async (currentUser, targetUserId, updateData
   
   // 🔒 ADMIN RULES
   if (currentRole === 'admin') {
-    // ✅ Admin KHÔNG thể cập nhật chính mình (tránh tự thay đổi role)
-    if (isUpdatingSelf) {
-      throw new Error('Admin không thể cập nhật chính mình để tránh thay đổi role/quyền');
+    // ✅ Admin có thể cập nhật TẤT CẢ (bao gồm cả chính mình và admin/manager khác)
+    // ⚠️ Nếu cập nhật chính mình, không được thay đổi role/roles
+    if (isUpdatingSelf && (updateData.role || updateData.roles)) {
+      throw new Error('Admin không thể thay đổi role của chính mình');
     }
-    // ✅ Admin có thể cập nhật TẤT CẢ user khác (bao gồm cả admin và manager khác)
   }
   
   // 🔒 MANAGER RULES  
@@ -340,7 +344,11 @@ exports.getUserById = async (currentUser, userId) => {
 
 // 🆕 DELETE OPERATIONS - Chỉ xóa khi chưa được sử dụng
 exports.deleteUser = async (currentUser, userId) => {
-  if (!['admin', 'manager'].includes(currentUser.role)) {
+  const currentUserRoles = currentUser.roles || [currentUser.role];
+  const isCurrentUserAdmin = currentUserRoles.includes('admin');
+  const isCurrentUserManager = currentUserRoles.includes('manager');
+
+  if (!isCurrentUserAdmin && !isCurrentUserManager) {
     throw new Error('Bạn không có quyền xóa người dùng');
   }
 
@@ -357,14 +365,22 @@ exports.deleteUser = async (currentUser, userId) => {
     throw new Error('Không thể xóa bệnh nhân từ auth-service');
   }
 
-  // Không cho phép xóa user có role admin (không ai có thể xóa admin)
-  if (user.role === 'admin') {
-    throw new Error(`Không thể xóa admin ${user.fullName}. Admin không thể bị xóa.`);
-  }
+  const targetUserRoles = user.roles || [user.role];
+  const targetIsAdmin = targetUserRoles.includes('admin');
+  const targetIsManager = targetUserRoles.includes('manager');
 
-  // Chỉ admin mới có thể xóa manager
-  if (user.role === 'manager' && currentUser.role !== 'admin') {
-    throw new Error(`Chỉ admin mới có thể xóa manager ${user.fullName}.`);
+  // ✅ Admin can delete ANYONE (except themselves)
+  if (isCurrentUserAdmin) {
+    // Admin has full permission
+  }
+  // ✅ Manager cannot delete admin or other managers
+  else if (isCurrentUserManager) {
+    if (targetIsAdmin) {
+      throw new Error(`Manager không thể xóa admin ${user.fullName}`);
+    }
+    if (targetIsManager) {
+      throw new Error(`Manager không thể xóa manager khác ${user.fullName}`);
+    }
   }
 
   // � Không cho phép xóa nếu user đã được sử dụng trong hệ thống
@@ -385,7 +401,11 @@ exports.deleteUser = async (currentUser, userId) => {
 
 // 🆕 TOGGLE ACTIVE STATUS - Bật/tắt trạng thái hoạt động của user
 exports.toggleUserStatus = async (currentUser, userId) => {
-  if (!['admin', 'manager'].includes(currentUser.role)) {
+  const currentUserRoles = currentUser.roles || [currentUser.role];
+  const isCurrentUserAdmin = currentUserRoles.includes('admin');
+  const isCurrentUserManager = currentUserRoles.includes('manager');
+
+  if (!isCurrentUserAdmin && !isCurrentUserManager) {
     throw new Error('Bạn không có quyền thay đổi trạng thái người dùng');
   }
 
@@ -402,14 +422,22 @@ exports.toggleUserStatus = async (currentUser, userId) => {
     throw new Error('Không thể thay đổi trạng thái bệnh nhân từ auth-service');
   }
 
-  // Không cho phép thay đổi trạng thái admin (không ai có thể tác động admin)
-  if (user.role === 'admin') {
-    throw new Error(`Không thể thay đổi trạng thái admin ${user.fullName}. Admin không thể bị tác động.`);
-  }
+  const targetUserRoles = user.roles || [user.role];
+  const targetIsAdmin = targetUserRoles.includes('admin');
+  const targetIsManager = targetUserRoles.includes('manager');
 
-  // Chỉ admin mới có thể thay đổi trạng thái manager
-  if (user.role === 'manager' && currentUser.role !== 'admin') {
-    throw new Error(`Chỉ admin mới có thể thay đổi trạng thái manager ${user.fullName}.`);
+  // ✅ Admin can toggle status for ANYONE (except themselves)
+  if (isCurrentUserAdmin) {
+    // Admin has full permission
+  }
+  // ✅ Manager cannot toggle status for admin or other managers
+  else if (isCurrentUserManager) {
+    if (targetIsAdmin) {
+      throw new Error(`Manager không thể thay đổi trạng thái của admin ${user.fullName}`);
+    }
+    if (targetIsManager) {
+      throw new Error(`Manager không thể thay đổi trạng thái của manager khác ${user.fullName}`);
+    }
   }
 
   let updatedUser;
@@ -1004,6 +1032,7 @@ exports.createStaff = async (data, createdBy) => {
   const { email, phone, roles, fullName, ...rest } = data;
 
   // Validation
+  if (!email) throw new Error('Thiếu email'); // ✅ Email is required
   if (!phone) throw new Error('Thiếu số điện thoại');
   if (!roles || !Array.isArray(roles) || roles.length === 0) {
     throw new Error('Phải chọn ít nhất 1 vai trò');
@@ -1017,15 +1046,28 @@ exports.createStaff = async (data, createdBy) => {
     throw new Error(`Vai trò không hợp lệ: ${invalidRoles.join(', ')}`);
   }
 
-  // ✅ Check role creation permissions based on createdBy role
-  const creatorRole = createdBy?.role;
+  // ✅ Check role creation permissions based on createdBy activeRole and roles
+  const creatorActiveRole = createdBy?.activeRole; // Currently selected role at login
+  const creatorAllRoles = createdBy?.roles || []; // All available roles
   
-  if (creatorRole === 'admin') {
+  // Check if user has admin or manager in their roles array
+  const isCreatorAdmin = creatorAllRoles.includes('admin');
+  const isCreatorManager = creatorAllRoles.includes('manager');
+  
+  console.log('🔍 [createStaff] Permission check:', {
+    creatorActiveRole,
+    creatorAllRoles,
+    isCreatorAdmin,
+    isCreatorManager,
+    requestedRoles: roles
+  });
+  
+  if (isCreatorAdmin) {
     // Admin KHÔNG được tạo admin
     if (roles.includes('admin')) {
       throw new Error('Admin không thể tạo tài khoản Admin khác');
     }
-  } else if (creatorRole === 'manager') {
+  } else if (isCreatorManager) {
     // Manager KHÔNG được tạo admin và manager
     if (roles.includes('admin') || roles.includes('manager')) {
       throw new Error('Manager không thể tạo tài khoản Admin hoặc Manager');
@@ -1035,14 +1077,12 @@ exports.createStaff = async (data, createdBy) => {
     throw new Error('Bạn không có quyền tạo nhân viên');
   }
 
-  // Check existing phone
+  // Check existing phone and email
   const existingPhone = await userRepo.findByPhone(phone);
   if (existingPhone) throw new Error('Số điện thoại đã được sử dụng');
   
-  if (email) {
-    const existingEmail = await userRepo.findByEmail(email);
-    if (existingEmail) throw new Error('Email đã được sử dụng');
-  }
+  const existingEmail = await userRepo.findByEmail(email);
+  if (existingEmail) throw new Error('Email đã được sử dụng');
 
   // Generate employeeCode (NV + 8 digits)
   const lastEmployee = await userRepo.getLastEmployeeCode();
@@ -1055,6 +1095,7 @@ exports.createStaff = async (data, createdBy) => {
   // Create staff
   const User = require('../models/user.model');
   const staffData = {
+    email, // ✅ Email is required
     phone,
     employeeCode,
     password: hashedPassword,
@@ -1064,11 +1105,6 @@ exports.createStaff = async (data, createdBy) => {
     isFirstLogin: true, // Force password change on first login
     ...rest,
   };
-
-  // ✅ Email is optional
-  if (email) {
-    staffData.email = email;
-  }
 
   const staff = new User(staffData);
   const savedStaff = await staff.save();
@@ -1090,7 +1126,7 @@ exports.resetUserPasswordToDefault = async (userId, resetBy) => {
   const resetByUser = await userRepo.findById(resetBy);
   if (!resetByUser) throw new Error('Không tìm thấy người thực hiện reset');
 
-  // Check permissions: Admin can reset all (except admin), Manager can reset all (except admin/manager)
+  // Check permissions: Admin can reset ALL (including themselves and other admins), Manager can reset all (except admin/manager)
   const isResetByAdmin = resetByUser.role === 'admin' || (resetByUser.roles && resetByUser.roles.includes('admin'));
   const isResetByManager = resetByUser.role === 'manager' || (resetByUser.roles && resetByUser.roles.includes('manager'));
 
@@ -1099,15 +1135,21 @@ exports.resetUserPasswordToDefault = async (userId, resetBy) => {
   const targetIsManager = user.role === 'manager' || (user.roles && user.roles.includes('manager'));
 
   // Permission validation
-  if (targetIsAdmin) {
-    throw new Error('Không thể reset mật khẩu của admin');
-  }
-
-  if (targetIsManager && !isResetByAdmin) {
-    throw new Error('Chỉ admin mới có thể reset mật khẩu của manager');
-  }
-
-  if (!isResetByAdmin && !isResetByManager) {
+  // ✅ Admin can reset password for ANYONE (including themselves and other admins)
+  if (isResetByAdmin) {
+    // Admin has full permission - no restrictions
+  } 
+  // ✅ Manager cannot reset password for admin or other managers
+  else if (isResetByManager) {
+    if (targetIsAdmin) {
+      throw new Error('Manager không thể reset mật khẩu của admin');
+    }
+    if (targetIsManager) {
+      throw new Error('Manager không thể reset mật khẩu của manager khác');
+    }
+  } 
+  // ❌ Other roles cannot reset passwords
+  else {
     throw new Error('Chỉ admin hoặc manager mới có thể reset mật khẩu');
   }
 
