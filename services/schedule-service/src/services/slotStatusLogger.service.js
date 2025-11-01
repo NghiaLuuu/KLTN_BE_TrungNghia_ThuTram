@@ -263,16 +263,25 @@ async function logSlotStatusChange({
         
         paymentInfo: appointment.paymentId ? {
           paymentId: appointment.paymentId,
-          status: 'has_payment' // Just mark that payment exists
+          status: 'has_payment'
         } : undefined,
         
         invoiceInfo: appointment.invoiceId ? {
           invoiceId: appointment.invoiceId,
-          status: 'has_invoice' // Just mark that invoice exists
+          status: 'has_invoice'
         } : undefined,
         
-        emailSent: false, // Will be updated by email service
+        emailSent: false,
         emailSentAt: undefined
+      });
+      
+      // Debug: Log payment/invoice info
+      console.log('💰 Payment/Invoice for appointment:', {
+        appointmentId: appointment._id,
+        paymentId: appointment.paymentId?.toString() || 'null',
+        invoiceId: appointment.invoiceId?.toString() || 'null',
+        hasPaymentInfo: !!appointment.paymentId,
+        hasInvoiceInfo: !!appointment.invoiceId
       });
     }
 

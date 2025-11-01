@@ -281,6 +281,17 @@ async function getAllCancelledPatients(filters = {}) {
     let allPatients = [];
     records.forEach(record => {
       const patients = (record.cancelledAppointments || []).map(p => {
+        // Debug: Check if paymentInfo/invoiceInfo exists in raw data
+        if (p.paymentInfo || p.invoiceInfo) {
+          console.log('🔍 Found payment/invoice in cancelled appointment:', {
+            appointmentId: p.appointmentId,
+            hasPaymentInfo: !!p.paymentInfo,
+            paymentId: p.paymentInfo?.paymentId,
+            hasInvoiceInfo: !!p.invoiceInfo,
+            invoiceId: p.invoiceInfo?.invoiceId
+          });
+        }
+        
         // Use actual cancelledAt from appointment if available, fallback to record's dateFrom
         const actualCancelledAt = p.cancelledAt || record.dateFrom || record.createdAt;
         const cancelledDate = new Date(actualCancelledAt);

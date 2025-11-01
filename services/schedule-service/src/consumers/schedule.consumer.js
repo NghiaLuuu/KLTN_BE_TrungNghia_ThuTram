@@ -80,16 +80,7 @@ async function startConsumer() {
         // Handle appointment created event - update slots with appointmentId
         const { appointmentId, slotIds, reservationId, status } = message.data;
 
-        console.log('� [Schedule Consumer] ========================================');
-        console.log('📥 [Schedule Consumer] Received appointment.created event');
-        console.log('📊 [Schedule Consumer] Event data:', {
-          appointmentId,
-          slotIds,
-          slotCount: slotIds?.length || 0,
-          reservationId,
-          status
-        });
-        console.log('📥 [Schedule Consumer] ========================================');
+
 
         if (!slotIds || !Array.isArray(slotIds) || slotIds.length === 0) {
           console.warn('⚠️ [Schedule Consumer] No slotIds provided, skipping...');
@@ -113,31 +104,31 @@ async function startConsumer() {
               lockedAt: null
             };
 
-            console.log(`🔄 [Schedule Consumer] Updating slot ${slotId}:`);
-            console.log(`   → appointmentId: ${appointmentId}`);
-            console.log(`   → status: ${status || 'booked'}`);
-
             const updatedSlot = await slotRepository.updateSlot(slotId, updateData);
 
             if (updatedSlot) {
               updatedCount++;
-              console.log(`✅ [Schedule Consumer] Slot ${slotId} linked to appointment ${appointmentId}`);
-              console.log(`   → Slot status: ${updatedSlot.status}`);
-              console.log(`   → Slot appointmentId: ${updatedSlot.appointmentId}`);
             } else {
-              console.warn(`⚠️ [Schedule Consumer] Slot ${slotId} not found`);
+              console.warn(`⚠️ Slot ${slotId} not found`);
             }
           }
 
-          console.log('✅ [Schedule Consumer] ========================================');
-          console.log('✅ [Schedule Consumer] Slots linked to appointment successfully');
-          console.log('📊 [Schedule Consumer] Summary:', {
-            totalSlots: slotIds.length,
-            updatedSlots: updatedCount,
-            appointmentId: appointmentId,
-            finalStatus: status || 'booked'
-          });
-          console.log('✅ [Schedule Consumer] ========================================');
+          console.log(`✅ Linked ${updatedCount} slots to appointment ${appointmentId}`);
+          
+          // 🔥 Invalidate Redis cache for room calendar
+          const firstSlot = await slotRepository.getSlotById(slotIds[0]);
+          if (firstSlot?.roomId) {
+            try {
+              const cachePattern = `room_calendar:${firstSlot.roomId}:*`;
+              const keys = await redisClient.keys(cachePattern);
+              if (keys.length > 0) {
+                await Promise.all(keys.map(key => redisClient.del(key)));
+                console.log(`🗑️ Invalidated ${keys.length} calendar cache keys`);
+              }
+            } catch (cacheError) {
+              console.error('⚠️ Cache invalidation failed:', cacheError.message);
+            }
+          }
 
         } catch (error) {
           console.error('❌ [Schedule Consumer] Error linking slots to appointment:', {

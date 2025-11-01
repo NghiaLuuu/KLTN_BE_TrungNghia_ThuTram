@@ -955,11 +955,14 @@ exports.toggleSlotsIsActive = async (req, res) => {
 // 🆕 Disable all slots in a day (emergency closure)
 exports.disableAllDaySlots = async (req, res) => {
   try {
-    // Only admin can disable all day slots
-    if (!req.user || req.user.role !== 'admin') {
+    // Only admin/manager can disable all day slots
+    const userRoles = req.user?.roles || [];
+    const hasPermission = userRoles.includes('admin') || userRoles.includes('manager');
+    
+    if (!hasPermission) {
       return res.status(403).json({
         success: false,
-        message: 'Chỉ admin mới có quyền tắt toàn bộ lịch trong ngày'
+        message: 'Chỉ admin/manager mới có quyền tắt toàn bộ lịch trong ngày'
       });
     }
     
@@ -995,11 +998,14 @@ exports.disableAllDaySlots = async (req, res) => {
 // 🆕 Enable all slots in a day (reactivate after emergency closure)
 exports.enableAllDaySlots = async (req, res) => {
   try {
-    // Only admin can enable all day slots
-    if (!req.user || req.user.role !== 'admin') {
+    // Only admin/manager can enable all day slots
+    const userRoles = req.user?.roles || [];
+    const hasPermission = userRoles.includes('admin') || userRoles.includes('manager');
+    
+    if (!hasPermission) {
       return res.status(403).json({
         success: false,
-        message: 'Chỉ admin mới có quyền bật toàn bộ lịch trong ngày'
+        message: 'Chỉ admin/manager mới có quyền bật toàn bộ lịch trong ngày'
       });
     }
     

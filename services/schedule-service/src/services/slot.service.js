@@ -1353,7 +1353,6 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
     const slotsWithAppointments = slots.filter(s => s.appointmentId);
     if (slotsWithAppointments.length > 0) {
       const uniqueAppointmentIds = [...new Set(slotsWithAppointments.map(s => s.appointmentId.toString()))];
-      console.log(`📋 Fetching ${uniqueAppointmentIds.length} unique appointments for calendar...`);
       
       try {
         const appointmentResponse = await axios.get(
@@ -1366,14 +1365,13 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
         
         if (appointmentResponse.data?.success) {
           const appointments = appointmentResponse.data.data || [];
-          console.log(`✅ Retrieved ${appointments.length} appointments for calendar`);
-          // Create map for quick lookup
+          console.log(`✅ Calendar fetched ${appointments.length}/${uniqueAppointmentIds.length} appointments`);
           appointments.forEach(apt => {
             appointmentsMap[apt._id.toString()] = apt;
           });
         }
       } catch (appointmentError) {
-        console.error('⚠️ Could not fetch appointments for calendar:', appointmentError.message);
+        console.error('⚠️ Calendar: Could not fetch appointments:', appointmentError.message);
       }
     }
     
@@ -1470,13 +1468,13 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
           patientInfo: null
         };
         
-        // 🆕 Populate patient info from appointment
+        // Populate patient info from appointment
         if (slot.appointmentId && appointmentsMap[slot.appointmentId.toString()]) {
           const appointment = appointmentsMap[slot.appointmentId.toString()];
           slotDetail.patientInfo = {
             name: appointment.patientInfo?.name || 'N/A',
             phone: appointment.patientInfo?.phone || '',
-            email: appointment.patientInfo?.email || '', // 🆕 Add email
+            email: appointment.patientInfo?.email || '',
             patientId: appointment.patientId || null
           };
         }
@@ -3539,17 +3537,18 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
             const patient = usersCache.find(u => u._id.toString() === appointment.patientId.toString());
             if (patient && patient.email) {
               patientEmail = patient.email;
-              patientName = patient.name;
+              patientName = patient.fullName || patient.name;
             }
-          } else if (appointment.patientInfo && appointment.patientInfo.email) {
-            // Guest patient (no account) - use patientInfo
+          }
+          
+          // Fallback to patientInfo if user not found or no email in user
+          if (!patientEmail && appointment.patientInfo && appointment.patientInfo.email) {
             patientEmail = appointment.patientInfo.email;
             patientName = appointment.patientInfo.name;
           }
           
-      if (patientEmail) {
-        
-        emailNotifications.push({
+          if (patientEmail) {
+            emailNotifications.push({
           email: patientEmail,
           name: patientName,
           role: 'patient',
@@ -3779,14 +3778,20 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
       success: true,
       matchedCount: result.matchedCount,
       modifiedCount: result.modifiedCount,
-      changedCount: slotsToChange.length, // 🆕 Number of slots that actually changed
-      unchangedCount: slotsAlreadyInState.length, // 🆕 Number of slots already in state
-      cancelledAppointmentsCount: cancelledAppointments.length, // 🆕 Number of appointments cancelled
+      changedCount: slotsToChange.length,
+      unchangedCount: slotsAlreadyInState.length,
+      cancelledAppointmentsCount: cancelledAppointments.length,
       isActive,
       reason,
       affectedSlots: slotIds.length,
       slots: slotDetails,
-      emailsSent: emailNotifications.length, // 🆕 Number of emails queued
+      emailsSent: emailNotifications.length,
+      emailDetails: emailNotifications.map(e => ({
+        email: e.email,
+        name: e.name,
+        role: e.role,
+        action: e.action
+      })),
       message: result.modifiedCount > 0 
         ? `${isActive ? 'Bật' : 'Tắt'} thành công ${result.modifiedCount} slots${slotsAlreadyInState.length > 0 ? ` (${slotsAlreadyInState.length} slot đã ở trạng thái này)` : ''}${cancelledAppointments.length > 0 ? `, đã hủy ${cancelledAppointments.length} lịch hẹn` : ' (không có bệnh nhân)'}`
         : `Tất cả ${slotIds.length} slots đã ở trạng thái ${isActive ? 'bật' : 'tắt'}`
@@ -3805,6 +3810,7 @@ async function disableAllDaySlots(date, reason, currentUser) {
     
     const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
     const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
+    const ROOM_SERVICE_URL = process.env.ROOM_SERVICE_URL || 'http://localhost:3009';
     
     console.log(`🚨 Disabling ALL slots for date ${date}`);
     
@@ -4198,6 +4204,8 @@ async function disableAllDaySlots(date, reason, currentUser) {
     // Step 8: 📝 Log this operation
     try {
       const { logSlotStatusChange } = require('./slotStatusLogger.service');
+      
+      const roomsMap = new Map();
       
       if (affectedRoomIds.length > 0) {
         try {
