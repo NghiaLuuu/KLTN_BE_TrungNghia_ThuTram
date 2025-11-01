@@ -117,7 +117,7 @@ class PaymentService {
       const cacheKey = `${this.cachePrefix}${id}`;
       
       // Check cache first
-      const cached = await redis.get(cacheKey);
+      const cached = await redisClient.get(cacheKey);
       if (cached) {
         return JSON.parse(cached);
       }
@@ -129,7 +129,7 @@ class PaymentService {
       }
 
       // Cache the result
-      await redis.setex(cacheKey, this.cacheTTL, JSON.stringify(payment));
+      await redisClient.setEx(cacheKey, this.cacheTTL, JSON.stringify(payment));
       
       return payment;
     } catch (error) {
@@ -142,7 +142,7 @@ class PaymentService {
       const cacheKey = `${this.cachePrefix}code:${code}`;
       
       // Check cache first
-      const cached = await redis.get(cacheKey);
+      const cached = await redisClient.get(cacheKey);
       if (cached) {
         return JSON.parse(cached);
       }
@@ -154,7 +154,7 @@ class PaymentService {
       }
 
       // Cache the result
-      await redis.setex(cacheKey, this.cacheTTL, JSON.stringify(payment));
+      await redisClient.setEx(cacheKey, this.cacheTTL, JSON.stringify(payment));
       
       return payment;
     } catch (error) {
@@ -167,7 +167,7 @@ class PaymentService {
       const cacheKey = `${this.cachePrefix}patient:${patientId}`;
       
       // Check cache first
-      const cached = await redis.get(cacheKey);
+      const cached = await redisClient.get(cacheKey);
       if (cached && !options.page) {
         return JSON.parse(cached);
       }
@@ -177,7 +177,7 @@ class PaymentService {
 
       // Cache the result (only for first page)
       if (!options.page || options.page === 1) {
-        await redis.setex(cacheKey, this.cacheTTL, JSON.stringify(payments));
+        await redisClient.setEx(cacheKey, this.cacheTTL, JSON.stringify(payments));
       }
       
       return payments;
@@ -226,7 +226,7 @@ class PaymentService {
     const cacheKey = `${this.cachePrefix}today`;
     
     // Check cache first
-    const cached = await redis.get(cacheKey);
+    const cached = await redisClient.get(cacheKey);
     if (cached) {
       return JSON.parse(cached);
     }
@@ -234,7 +234,7 @@ class PaymentService {
     const payments = await paymentRepository.findTodayPayments();
     
     // Cache for 10 minutes
-    await redis.setex(cacheKey, 600, JSON.stringify(payments));
+    await redisClient.setEx(cacheKey, 600, JSON.stringify(payments));
     
     return payments;
   }
@@ -404,7 +404,7 @@ class PaymentService {
           }
           
           if (!appointmentData) {
-            console.error('❌ [DEBUG] No appointment data found in Redis. Tried keys:', possibleKeys);
+            console.error('❌ [DEBUG] No appointment data found in redisClient. Tried keys:', possibleKeys);
             // Don't throw - continue with limited data
           }
           
@@ -565,7 +565,7 @@ class PaymentService {
       const cacheKey = `${this.cachePrefix}stats:${groupBy}:${startDate.toISOString()}:${endDate.toISOString()}`;
       
       // Check cache first
-      const cached = await redis.get(cacheKey);
+      const cached = await redisClient.get(cacheKey);
       if (cached) {
         return JSON.parse(cached);
       }
@@ -573,7 +573,7 @@ class PaymentService {
       const stats = await paymentRepository.getStatistics(startDate, endDate, groupBy);
       
       // Cache for 1 hour
-      await redis.setex(cacheKey, 3600, JSON.stringify(stats));
+      await redisClient.setEx(cacheKey, 3600, JSON.stringify(stats));
       
       return stats;
     } catch (error) {
@@ -586,7 +586,7 @@ class PaymentService {
       const cacheKey = `${this.cachePrefix}revenue:${startDate.toISOString()}:${endDate.toISOString()}`;
       
       // Check cache first
-      const cached = await redis.get(cacheKey);
+      const cached = await redisClient.get(cacheKey);
       if (cached) {
         return JSON.parse(cached);
       }
@@ -594,7 +594,7 @@ class PaymentService {
       const stats = await paymentRepository.getRevenueStats(startDate, endDate);
       
       // Cache for 30 minutes
-      await redis.setex(cacheKey, 1800, JSON.stringify(stats));
+      await redisClient.setEx(cacheKey, 1800, JSON.stringify(stats));
       
       return stats;
     } catch (error) {
@@ -705,7 +705,7 @@ class PaymentService {
 
     // 1️⃣ Nếu temp payment
     if (payload.id.startsWith('payment:temp:')) {
-      const raw = await redis.get(payload.id);
+      const raw = await redisClient.get(payload.id);
       if (!raw) throw new Error('Temporary payment not found or expired');
       const tempData = JSON.parse(raw);
 
@@ -714,15 +714,15 @@ class PaymentService {
         method: tempData.method
       });
 
-      await redis.del(payload.id);
+      await redisClient.del(payload.id);
 
       // Xử lý appointment
       if (tempData.appointmentHoldKey) {
-        const appointmentRaw = await redis.get(tempData.appointmentHoldKey);
+        const appointmentRaw = await redisClient.get(tempData.appointmentHoldKey);
         if (appointmentRaw) {
           const appointmentData = JSON.parse(appointmentRaw);
           appointmentData.status = 'confirmed';
-          await redis.setex(tempData.appointmentHoldKey, 600, JSON.stringify(appointmentData));
+          await redisClient.setEx(tempData.appointmentHoldKey, 600, JSON.stringify(appointmentData));
           console.log(`✅ Temporary appointment updated to confirmed in Redis for holdKey ${tempData.appointmentHoldKey}`);
         }
 
@@ -755,7 +755,7 @@ class PaymentService {
   async getPaymentByIdRPC(payload) {
     if (!payload.id) throw new Error('Payment ID is required');
     if (payload.id.startsWith('payment:temp:')) {
-      const raw = await redis.get(payload.id);
+      const raw = await redisClient.get(payload.id);
       return raw ? JSON.parse(raw) : null;
     }
     return this.getPaymentById(payload.id);
@@ -867,11 +867,11 @@ class PaymentService {
   }
 
   async clearPaymentCache(id) {
-    await redis.del(`${this.cachePrefix}${id}`);
+    await redisClient.del(`${this.cachePrefix}${id}`);
   }
 
   async clearPatientCache(patientId) {
-    await redis.del(`${this.cachePrefix}patient:${patientId}`);
+    await redisClient.del(`${this.cachePrefix}patient:${patientId}`);
   }
 
   // ============ VISA PAYMENT PROCESSING ============
@@ -1004,7 +1004,7 @@ class PaymentService {
 
       // Store payment in Redis temporarily (for tracking)
       const paymentRedisKey = `temp_payment:${reservationId}`;
-      await redisClient.setex(
+      await redisClient.setEx(
         paymentRedisKey,
         900, // 15 minutes TTL
         JSON.stringify({

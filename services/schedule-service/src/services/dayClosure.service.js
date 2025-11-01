@@ -210,8 +210,14 @@ async function getCancelledPatients(closureId) {
           roomName: p.roomName,
           dentists: p.dentists?.map(d => d.dentistName).join(', ') || 'N/A',
           nurses: p.nurses?.map(n => n.nurseName).join(', ') || 'N/A',
-          paymentStatus: p.paymentInfo?.status || 'N/A',
-          invoiceStatus: p.invoiceInfo?.status || 'N/A',
+          paymentInfo: p.paymentInfo ? {
+            paymentId: p.paymentInfo.paymentId,
+            status: p.paymentInfo.status
+          } : null,
+          invoiceInfo: p.invoiceInfo ? {
+            invoiceId: p.invoiceInfo.invoiceId,
+            status: p.invoiceInfo.status
+          } : null,
           emailSent: p.emailSent
         }))
       }
