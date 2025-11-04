@@ -128,13 +128,14 @@ exports.login = async ({ login, password, role }) => {
     throw new Error('Tài khoản đã bị tạm khóa. Vui lòng liên hệ quản trị viên để được hỗ trợ.');
   }
 
-  // ✅ Kiểm tra mật khẩu mặc định - BẮT BUỘC đổi mật khẩu
+  // ✅ Kiểm tra mật khẩu mặc định hoặc isFirstLogin - BẮT BUỘC đổi mật khẩu
   const isPatient = user.role === 'patient' || (user.roles && user.roles.length === 1 && user.roles[0] === 'patient');
   const isUsingDefaultPassword = isPatient 
     ? (password === '12345678') // Patient default password
     : (user.employeeCode && password === user.employeeCode); // Staff default password
   
-  if (isUsingDefaultPassword) {
+  // Force password change if using default password OR isFirstLogin flag is true
+  if (isUsingDefaultPassword || user.isFirstLogin === true) {
     // Generate temp token for password change
     const tempToken = jwt.sign(
       { userId: user._id, type: 'password-change' },
@@ -348,7 +349,33 @@ exports.completePasswordChange = async (tempToken, newPassword) => {
   user.isFirstLogin = false; // Mark as not first login anymore
   await userRepo.saveUser(user);
 
-  // Generate real tokens and complete login
+  // ✅ Check if user has multiple roles - require role selection
+  if (user.roles && user.roles.length > 1) {
+    // Generate temporary token for role selection
+    const tempToken = jwt.sign(
+      { userId: user._id, type: 'role-selection' },
+      process.env.JWT_SECRET,
+      { expiresIn: '10m' } // Short expiry for security
+    );
+    
+    return {
+      message: 'Đổi mật khẩu thành công. Vui lòng chọn vai trò đăng nhập.',
+      pendingData: {
+        requiresRoleSelection: true,
+        roles: user.roles,
+        userId: user._id,
+        tempToken,
+        user: {
+          _id: user._id,
+          fullName: user.fullName,
+          email: user.email,
+          employeeCode: user.employeeCode
+        }
+      }
+    };
+  }
+
+  // ✅ Single role - generate real tokens and complete login
   const refreshToken = generateRefreshToken(user);
   const accessToken = generateAccessToken(user);
   await userRepo.updateRefreshTokens(user, [refreshToken]);
