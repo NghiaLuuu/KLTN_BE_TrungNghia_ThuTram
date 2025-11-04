@@ -80,8 +80,7 @@ const serviceAddOnSchema = new mongoose.Schema({
   },
   description: {
     type: String,
-    trim: true,
-    maxlength: 1000
+    trim: true
   },
   isActive: {
     type: Boolean,

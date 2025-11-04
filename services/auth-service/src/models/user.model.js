@@ -87,8 +87,7 @@ const userSchema = new Schema({
   description: {
     type: String,
     default: null,
-    trim: true,
-    maxlength: 1000
+    trim: true
   },
   gender: {
     type: String,
