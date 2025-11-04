@@ -14,6 +14,14 @@ function getCurrentRole(currentUser) {
 // 🔹 CACHE OPERATIONS
 async function initUserCache() {
   try {
+    console.log('🧹 Clearing user cache on startup...');
+    
+    // Clear old cache keys
+    await redis.del(USER_CACHE_KEY);
+    await redis.del(DENTIST_CACHE_KEY);
+    await redis.del('dentists_public');
+    
+    // Load fresh cache
     const users = await userRepo.listUsers();
     await redis.set(USER_CACHE_KEY, JSON.stringify(users));
     console.log(`✅ Cache người dùng đã được tải: ${users.length} người dùng`);
