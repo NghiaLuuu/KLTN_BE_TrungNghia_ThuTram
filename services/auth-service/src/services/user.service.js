@@ -1027,6 +1027,7 @@ exports.getDentistsForPatients = async () => {
     id: dentist._id,
     name: dentist.fullName,
     avatar: dentist.avatar,
+    description: dentist.description || null,
     certificates: {
       total: dentist.certificates.length,
       verified: dentist.certificates.filter(cert => cert.isVerified).length,
