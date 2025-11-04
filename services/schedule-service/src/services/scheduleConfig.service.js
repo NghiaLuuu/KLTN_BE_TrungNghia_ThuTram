@@ -232,59 +232,24 @@ exports.addHoliday = async (holiday) => {
     hasBeenUsed: false
   };
 
+  // ✅ Validate: startDate và endDate phải hợp lệ
   if (!h.name || isNaN(h.startDate.getTime()) || isNaN(h.endDate.getTime()) || h.endDate < h.startDate) {
     throw new Error('Ngày nghỉ trong khoảng thời gian cần có name và startDate <= endDate hợp lệ');
   }
 
-  // Check duplicate name (chỉ trong các ngày nghỉ không cố định)
+  // ✅ Validate: startDate phải > ngày hiện tại
+  const now = new Date();
+  now.setHours(0, 0, 0, 0); // Reset to start of day for comparison
+  const startDateOnly = new Date(h.startDate);
+  startDateOnly.setHours(0, 0, 0, 0);
+  
+  if (startDateOnly <= now) {
+    throw new Error('Ngày bắt đầu phải lớn hơn ngày hiện tại');
+  }
+
+  // ✅ Validate: Tên không trùng (chỉ trong các ngày nghỉ không cố định)
   if (holidayConfig.holidays.some(x => !x.isRecurring && x.name === h.name)) {
-    throw new Error(`Tên ngày nghỉ đã tồn tại: ${h.name}`);
-  }
-
-  // Check overlap với các ngày nghỉ không cố định khác
-  for (const ex of holidayConfig.holidays) {
-    if (ex.isRecurring) continue; // Bỏ qua ngày nghỉ cố định
-    
-    const exStart = new Date(ex.startDate);
-    const exEnd = new Date(ex.endDate);
-    if (!(h.endDate < exStart || h.startDate > exEnd)) {
-      throw new Error(`Khoảng thời gian trùng với ngày nghỉ '${ex.name}'`);
-    }
-  }
-
-  // 🔹 Kiểm tra xem có slots nào trong khoảng thời gian này không
-  console.log(`🔍 Kiểm tra slots trong khoảng ${h.startDate.toISOString().split('T')[0]} - ${h.endDate.toISOString().split('T')[0]}`);
-  
-  const startOfDay = new Date(h.startDate);
-  startOfDay.setHours(0, 0, 0, 0);
-  
-  const endOfDay = new Date(h.endDate);
-  endOfDay.setHours(23, 59, 59, 999);
-  
-  const existingSlots = await Slot.countDocuments({
-    $or: [
-      {
-        date: {
-          $gte: startOfDay,
-          $lte: endOfDay
-        }
-      },
-      {
-        startTime: {
-          $gte: startOfDay,
-          $lte: endOfDay
-        }
-      }
-    ]
-  });
-  
-  console.log(`📊 Tìm thấy ${existingSlots} slots trong khoảng thời gian này`);
-  
-  if (existingSlots > 0) {
-    throw new Error(
-      `Không thể tạo ngày nghỉ vì đã có ${existingSlots} slots được tạo trong khoảng thời gian này. ` +
-      `Vui lòng tạo ngày nghỉ TRƯỚC KHI tạo lịch cho khoảng thời gian đó.`
-    );
+    throw new Error(`Tên ngày nghỉ "${h.name}" đã tồn tại`);
   }
   
   console.log(`➕ Tạo ngày nghỉ khoảng thời gian: ${h.name} (${h.startDate.toISOString().split('T')[0]} - ${h.endDate.toISOString().split('T')[0]})`);
@@ -532,7 +497,35 @@ exports.updateHolidayById = async (holidayId, updates) => {
   } else {
     // ===== NGÀY NGHỈ KHÔNG CỐ ĐỊNH (KHOẢNG THỜI GIAN) =====
     
-    console.log(`� Update ngày nghỉ khoảng thời gian "${current.name}"`);
+    console.log(`📝 Update ngày nghỉ khoảng thời gian "${current.name}"`);
+    
+    // ✅ Validate: Không cho phép update ngày nghỉ đã kết thúc (quá khứ)
+    const now = new Date();
+    const currentEndDate = new Date(current.endDate);
+    currentEndDate.setHours(23, 59, 59, 999); // Set to end of day
+    
+    if (now > currentEndDate) {
+      throw new Error(`Không thể cập nhật ngày nghỉ "${current.name}" vì đã kết thúc`);
+    }
+    
+    // ✅ Allow updating isActive for non-recurring holidays (if not past)
+    if (updates.isActive !== undefined) {
+      holidayConfig.holidays[idx].isActive = updates.isActive;
+      console.log(`  ➡️ isActive: ${current.isActive} → ${updates.isActive}`);
+      
+      // If only updating isActive, save and return early
+      if (Object.keys(updates).length === 1 && updates.isActive !== undefined) {
+        await holidayConfig.save();
+        // ✅ Update Redis cache
+        try { 
+          await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig)); 
+          console.log('✅ Updated holiday cache after toggle');
+        } catch (e) {
+          console.warn('⚠️ Failed to update holiday cache:', e.message);
+        }
+        return holidayConfig;
+      }
+    }
     
     // Kiểm tra holiday đã được sử dụng chưa
     if (current.hasBeenUsed) {
@@ -547,78 +540,24 @@ exports.updateHolidayById = async (holidayId, updates) => {
       note: updates.note ?? current.note
     };
 
+    // ✅ Validate: startDate và endDate phải hợp lệ
     if (!prop.name || isNaN(prop.startDate.getTime()) || isNaN(prop.endDate.getTime()) || prop.endDate < prop.startDate) {
       throw new Error('Invalid holiday update: require name and valid startDate <= endDate');
     }
 
-    // Check duplicate name among other non-recurring holidays
+    // ✅ Validate: startDate phải > ngày hiện tại (khi update dates)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset to start of day for comparison
+    const propStartDate = new Date(prop.startDate);
+    propStartDate.setHours(0, 0, 0, 0);
+    
+    if (propStartDate <= today) {
+      throw new Error('Ngày bắt đầu phải lớn hơn ngày hiện tại');
+    }
+
+    // ✅ Validate: Tên không trùng với ngày nghỉ khác
     if (holidayConfig.holidays.some((h, i) => i !== idx && !h.isRecurring && h.name === prop.name)) {
-      throw new Error(`Holiday name already exists: ${prop.name}`);
-    }
-
-    // Check overlap with other non-recurring holidays
-    for (let i = 0; i < holidayConfig.holidays.length; i++) {
-      if (i === idx) continue;
-      const ex = holidayConfig.holidays[i];
-      if (ex.isRecurring) continue; // Bỏ qua ngày nghỉ cố định
-      
-      const exStart = new Date(ex.startDate);
-      const exEnd = new Date(ex.endDate);
-      if (!(prop.endDate < exStart || prop.startDate > exEnd)) {
-        throw new Error(`Updated holiday range overlaps with existing holiday '${ex.name}'`);
-      }
-    }
-
-    // 🔹 Kiểm tra nếu dates changed hoặc holiday chưa dùng - check slots
-    const oldStartDate = new Date(current.startDate);
-    const oldEndDate = new Date(current.endDate);
-    const datesChanged = oldStartDate.getTime() !== prop.startDate.getTime() || 
-                        oldEndDate.getTime() !== prop.endDate.getTime();
-
-    console.log(`📝 Update Info: datesChanged=${datesChanged}, hasBeenUsed=${current.hasBeenUsed}`);
-
-    if (datesChanged || !current.hasBeenUsed) {
-      console.log(`🔍 Kiểm tra slots trong khoảng ${prop.startDate.toISOString().split('T')[0]} - ${prop.endDate.toISOString().split('T')[0]}`);
-      
-      // Set time to cover full day range
-      const startOfDay = new Date(prop.startDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      
-      const endOfDay = new Date(prop.endDate);
-      endOfDay.setHours(23, 59, 59, 999);
-      
-      console.log(`🕐 Time range: ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
-      
-      // Check both 'date' field and 'startTime' field
-      const query = {
-        $or: [
-          {
-            date: {
-              $gte: startOfDay,
-              $lte: endOfDay
-            }
-          },
-          {
-            startTime: {
-              $gte: startOfDay,
-              $lte: endOfDay
-            }
-          }
-        ]
-      };
-      
-      console.log(`🔎 Query:`, JSON.stringify(query, null, 2));
-      
-      const existingSlots = await Slot.countDocuments(query);
-      
-      console.log(`📊 Tìm thấy ${existingSlots} slots trong khoảng thời gian`);
-      
-      if (existingSlots > 0) {
-        throw new Error(
-          `Không thể cập nhật ngày nghỉ vì đã có ${existingSlots} slots được tạo trong khoảng thời gian (${prop.startDate.toISOString().split('T')[0]} - ${prop.endDate.toISOString().split('T')[0]}). ` +
-          `Vui lòng chọn khoảng thời gian chưa có lịch hoặc xóa lịch cũ trước.`
-        );
-      }
+      throw new Error(`Tên ngày nghỉ "${prop.name}" đã tồn tại`);
     }
 
     // Apply updates

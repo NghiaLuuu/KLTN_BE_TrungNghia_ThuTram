@@ -17,7 +17,7 @@ router.patch('/', authMiddleware, cfgController.updateConfig);
 
 // 🔹 Holiday Management
 router.get('/holidays', cfgController.getHolidays);
-router.get('/holidays/blocked-ranges', cfgController.getBlockedDateRanges); // 🆕 Get blocked date ranges
+// router.get('/holidays/blocked-ranges', cfgController.getBlockedDateRanges); // ❌ REMOVED: Không cần check lịch đã tạo
 router.patch('/holidays/:holidayId', authMiddleware, updateHolidayValidation, validationErrorHandler, cfgController.updateHoliday);
 router.post('/holidays', authMiddleware, createHolidayValidation, validationErrorHandler, cfgController.addHoliday);
 router.post('/holidays/bulk', authMiddleware, cfgController.addHolidays); // 🆕 Nhiệm vụ 2.1: Bulk create

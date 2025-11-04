@@ -36,20 +36,38 @@ app.use('/api/day-closure', dayClosureRoutes);
 
 startRpcServer();
 
-// 🔥 Clear calendar cache on startup to ensure fresh data
+// 🔥 Clear all caches on startup to ensure fresh data
 setTimeout(async () => {
   try {
-    console.log('🧹 Clearing calendar cache on startup...');
-    const pattern = 'room_calendar:*';
-    const keys = await redisClient.keys(pattern);
-    if (keys.length > 0) {
-      await redisClient.del(keys);
-      console.log(`✅ Cleared ${keys.length} calendar cache keys on startup`);
-    } else {
-      console.log('✅ No calendar cache to clear on startup');
+    console.log('🧹 Clearing all caches on startup...');
+    
+    // Clear calendar cache
+    const calendarPattern = 'room_calendar:*';
+    const calendarKeys = await redisClient.keys(calendarPattern);
+    if (calendarKeys.length > 0) {
+      await redisClient.del(calendarKeys);
+      console.log(`✅ Cleared ${calendarKeys.length} calendar cache keys`);
     }
+    
+    // Clear schedule config cache
+    const scheduleConfigKey = 'schedule_config_cache';
+    const hasScheduleConfig = await redisClient.exists(scheduleConfigKey);
+    if (hasScheduleConfig) {
+      await redisClient.del(scheduleConfigKey);
+      console.log(`✅ Cleared schedule config cache`);
+    }
+    
+    // Clear holiday config cache
+    const holidayConfigKey = 'holiday_config_cache';
+    const hasHolidayConfig = await redisClient.exists(holidayConfigKey);
+    if (hasHolidayConfig) {
+      await redisClient.del(holidayConfigKey);
+      console.log(`✅ Cleared holiday config cache`);
+    }
+    
+    console.log('✅ All caches cleared on startup');
   } catch (error) {
-    console.error('❌ Error clearing calendar cache on startup:', error.message);
+    console.error('❌ Error clearing caches on startup:', error.message);
   }
 }, 1000); // Wait 1s for Redis connection
 
