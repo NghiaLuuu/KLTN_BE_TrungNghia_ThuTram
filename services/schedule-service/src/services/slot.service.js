@@ -1330,6 +1330,23 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
       slotRepo.findForCalendar(queryFilter), // ⚡ OPTIMIZED: Use lean query
       scheduleRepo.findByRoomAndDateRange(roomId, overallStart, overallEnd)
     ]);
+    
+    // 🔍 DEBUG: Log slots found
+    console.log(`🔍 [getRoomCalendar] Query filter:`, JSON.stringify(queryFilter));
+    console.log(`🔍 [getRoomCalendar] Found ${slots.length} slots`);
+    if (slots.length > 0) {
+      // Log first 3 slots for debugging
+      console.log(`🔍 [getRoomCalendar] Sample slots (first 3):`, 
+        slots.slice(0, 3).map(s => ({
+          _id: s._id.toString(),
+          shiftName: s.shiftName,
+          startTime: s.startTime,
+          roomId: s.roomId.toString(),
+          scheduleId: s.scheduleId?.toString()
+        }))
+      );
+    }
+    
     const targetSubRoomId = subRoomId ? subRoomId.toString() : null;
     const relevantSchedules = schedulesInRange.filter(schedule => {
       const scheduleSubRoomId = schedule?.subRoomId ? schedule.subRoomId.toString() : null;
@@ -1380,11 +1397,19 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
     const appointmentCounts = {}; // Track unique appointments
     const staffStats = {}; // Track staff frequency by date and shift
     
+    console.log(`🔍 [getRoomCalendar] Starting to group ${slots.length} slots...`);
+    
     for (const slot of slots) {
       // Convert to Vietnam date
       const slotDateVN = new Date(slot.startTime).toLocaleDateString('en-CA', {
         timeZone: 'Asia/Ho_Chi_Minh'
       });
+      
+      // 🔍 DEBUG: Log shift name for first few slots
+      const slotIndex = slots.indexOf(slot);
+      if (slotIndex < 5) {
+        console.log(`🔍 [getRoomCalendar] Slot #${slotIndex}: date=${slotDateVN}, shiftName="${slot.shiftName}"`);
+      }
       
       if (!calendar[slotDateVN]) {
         calendar[slotDateVN] = {
@@ -1407,6 +1432,17 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
       
       const shift = calendar[slotDateVN].shifts[slot.shiftName];
       const shiftStats = staffStats[slotDateVN][slot.shiftName];
+      
+      // 🔍 DEBUG: Log when shift is undefined
+      if (!shift || !shiftStats) {
+        console.log(`⚠️ [getRoomCalendar] Shift NOT FOUND for slot:`, {
+          slotId: slot._id ? slot._id.toString() : 'unknown',
+          shiftName: slot.shiftName,
+          shiftNameLength: (slot.shiftName || '').length,
+          availableShifts: Object.keys(calendar[slotDateVN].shifts),
+          date: slotDateVN
+        });
+      }
       
       if (shift && shiftStats) {
         shift.totalSlots++;
@@ -1538,6 +1574,17 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
         shift.slots.push(slotDetail);
       }
     }
+    
+    // 🔍 DEBUG: Log calendar structure
+    console.log(`🔍 [getRoomCalendar] Calendar dates:`, Object.keys(calendar));
+    Object.keys(calendar).slice(0, 3).forEach(dateStr => {
+      const day = calendar[dateStr];
+      console.log(`🔍 [getRoomCalendar] Date ${dateStr}:`, {
+        'Ca Sáng': day.shifts['Ca Sáng']?.totalSlots || 0,
+        'Ca Chiều': day.shifts['Ca Chiều']?.totalSlots || 0,
+        'Ca Tối': day.shifts['Ca Tối']?.totalSlots || 0
+      });
+    });
     
     // Update appointment counts and add staff statistics
     for (const [dateStr, appointmentIds] of Object.entries(appointmentCounts)) {

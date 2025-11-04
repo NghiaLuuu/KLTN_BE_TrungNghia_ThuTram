@@ -476,11 +476,15 @@ exports.updateSchedule = async (req, res) => {
 
 // 🆕 Add missing shifts to existing schedule
 exports.addMissingShifts = async (req, res) => {
-  // Chỉ admin mới được phép thêm ca thiếu
-  if (!req.user || req.user.role !== 'admin') {
+  // ✅ Chỉ manager/admin mới được phép thêm ca thiếu
+  // req.user.activeRole là role đã được chọn khi login (từ JWT token)
+  const activeRole = req.user?.activeRole;
+  const isManagerOrAdmin = activeRole === 'manager' || activeRole === 'admin';
+  
+  if (!isManagerOrAdmin) {
     return res.status(403).json({
       success: false,
-      message: 'Chỉ admin mới được phép thêm ca thiếu vào lịch'
+      message: 'Chỉ manager/admin mới được phép thêm ca thiếu vào lịch'
     });
   }
 

@@ -1605,15 +1605,14 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
 
     console.log(`📅 Checking ${monthsToCheck.length} months:`, monthsToCheck.map(m => `${m.month}/${m.year}`).join(', '));
 
-    // 🔧 FIX: Lấy schedule config để biết ca nào đang BẬT
-    const configResult = await cfgService.getConfig();
-    const workShifts = configResult?.data?.workShifts || {};
-    const activeShifts = {
-      morning: workShifts.morning?.isActive !== false,
-      afternoon: workShifts.afternoon?.isActive !== false,
-      evening: workShifts.evening?.isActive !== false
+    // 🆕 Lấy Config hiện tại để biết ca nào đang bật (cho tháng chưa có schedule)
+    const currentConfig = await cfgService.getConfig(); // ✅ FIX: getConfig() trả về document trực tiếp, không phải { data: ... }
+    const currentConfigShifts = {
+      morning: currentConfig.morningShift?.isActive !== false,
+      afternoon: currentConfig.afternoonShift?.isActive !== false,
+      evening: currentConfig.eveningShift?.isActive !== false
     };
-    console.log('📋 Active shifts from config:', activeShifts);
+    console.log('📋 Current config shifts (for months without schedules):', currentConfigShifts);
 
     // Lấy thông tin tất cả phòng
     const roomsInfo = await Promise.all(
@@ -1678,9 +1677,9 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
 
           // Kiểm tra từng ca
           const shiftStatus = {
-            morning: { allHave: false, someHave: false },
-            afternoon: { allHave: false, someHave: false },
-            evening: { allHave: false, someHave: false }
+            morning: { allHave: false, someHave: false, anyActive: false },
+            afternoon: { allHave: false, someHave: false, anyActive: false },
+            evening: { allHave: false, someHave: false, anyActive: false }
           };
 
           ['morning', 'afternoon', 'evening'].forEach(shiftKey => {
@@ -1695,8 +1694,19 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
               return isSubRoomActive && isScheduleSubRoomActive && isShiftGenerated && isShiftActive;
             }).length;
 
+            // 🆕 Check xem có schedule nào có ca này đang bật không (dù đã tạo hay chưa)
+            const subRoomsWithActiveShift = monthSchedules.filter(s => {
+              const subRoomId = s.subRoomId?.toString();
+              const isSubRoomActive = activeSubRoomIds.has(subRoomId);
+              const isScheduleSubRoomActive = s.isActiveSubRoom !== false;
+              const isShiftActive = s.shiftConfig?.[shiftKey]?.isActive !== false;
+              
+              return isSubRoomActive && isScheduleSubRoomActive && isShiftActive;
+            }).length;
+
             shiftStatus[shiftKey].allHave = subRoomsWithShift >= activeSubRoomCount;
             shiftStatus[shiftKey].someHave = subRoomsWithShift > 0;
+            shiftStatus[shiftKey].anyActive = subRoomsWithActiveShift > 0; // 🆕 Có ít nhất 1 schedule có ca đang bật
           });
 
           return {
@@ -1716,9 +1726,9 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
               year,
               hasSchedule: false,
               shiftStatus: {
-                morning: { allHave: false, someHave: false },
-                afternoon: { allHave: false, someHave: false },
-                evening: { allHave: false, someHave: false }
+                morning: { allHave: false, someHave: false, anyActive: false },
+                afternoon: { allHave: false, someHave: false, anyActive: false },
+                evening: { allHave: false, someHave: false, anyActive: false }
               }
             };
           }
@@ -1733,7 +1743,8 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
                        schedule.shiftConfig?.morning?.isActive !== false,
               someHave: isScheduleActive &&
                        schedule.shiftConfig?.morning?.isGenerated === true &&
-                       schedule.shiftConfig?.morning?.isActive !== false
+                       schedule.shiftConfig?.morning?.isActive !== false,
+              anyActive: isScheduleActive && schedule.shiftConfig?.morning?.isActive !== false // 🆕 Ca đang bật (dù đã tạo hay chưa)
             },
             afternoon: {
               allHave: isScheduleActive &&
@@ -1741,7 +1752,8 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
                        schedule.shiftConfig?.afternoon?.isActive !== false,
               someHave: isScheduleActive &&
                        schedule.shiftConfig?.afternoon?.isGenerated === true &&
-                       schedule.shiftConfig?.afternoon?.isActive !== false
+                       schedule.shiftConfig?.afternoon?.isActive !== false,
+              anyActive: isScheduleActive && schedule.shiftConfig?.afternoon?.isActive !== false // 🆕
             },
             evening: {
               allHave: isScheduleActive &&
@@ -1749,7 +1761,8 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
                        schedule.shiftConfig?.evening?.isActive !== false,
               someHave: isScheduleActive &&
                        schedule.shiftConfig?.evening?.isGenerated === true &&
-                       schedule.shiftConfig?.evening?.isActive !== false
+                       schedule.shiftConfig?.evening?.isActive !== false,
+              anyActive: isScheduleActive && schedule.shiftConfig?.evening?.isActive !== false // 🆕
             }
           };
 
@@ -1787,56 +1800,104 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
         // Nếu phòng có subrooms nhưng chưa đầy đủ tất cả subrooms -> có thể chọn
         if (room.hasSubRooms && !monthAnalysis.allSubRoomsHaveSchedule) return true;
 
-        // 🔧 FIX: Chỉ kiểm tra ca ĐANG BẬT (isActive=true trong config)
-        // Kiểm tra xem có thiếu ca nào ĐANG BẬT không
-        const missingActiveShifts = [];
-        if (activeShifts.morning && !monthAnalysis.shiftStatus.morning.allHave) {
-          missingActiveShifts.push('morning');
-        }
-        if (activeShifts.afternoon && !monthAnalysis.shiftStatus.afternoon.allHave) {
-          missingActiveShifts.push('afternoon');
-        }
-        if (activeShifts.evening && !monthAnalysis.shiftStatus.evening.allHave) {
-          missingActiveShifts.push('evening');
-        }
+        // 🔧 FIX: Kiểm tra xem có thiếu ca nào không (shiftStatus đã check isActive rồi)
+        // Không cần check activeShifts từ config global nữa
+        const hasMissingShifts = 
+          !monthAnalysis.shiftStatus.morning.allHave ||
+          !monthAnalysis.shiftStatus.afternoon.allHave ||
+          !monthAnalysis.shiftStatus.evening.allHave;
         
-        // Nếu thiếu ít nhất 1 ca ĐANG BẬT -> có thể chọn tháng này
-        return missingActiveShifts.length > 0;
+        // Nếu thiếu ít nhất 1 ca -> có thể chọn tháng này
+        return hasMissingShifts;
       });
     });
 
     console.log(`✅ Available months: ${availableMonths.length}/${monthsToCheck.length}`);
 
-    // Tính toán ca có thể chọn (ca mà KHÔNG PHẢI TẤT CẢ phòng đều có ca đó trong toàn bộ khoảng thời gian)
+    // 🔧 NEW LOGIC: Tính toán ca có thể chọn
+    // Ca có thể chọn khi:
+    // 1. Có ít nhất 1 tháng chưa có schedule + Config hiện tại có ca đang bật
+    // 2. HOẶC có ít nhất 1 schedule thiếu ca đó (schedule.shiftConfig có ca đang bật)
     const availableShifts = {
       morning: false,
       afternoon: false,
       evening: false
     };
 
+    // 🆕 Thêm thông tin lý do tại sao shift không available
+    const shiftUnavailableReasons = {
+      morning: null,
+      afternoon: null,
+      evening: null
+    };
+
     ['morning', 'afternoon', 'evening'].forEach(shiftKey => {
-      // Ca có thể chọn nếu có ít nhất 1 phòng trong 1 tháng bất kỳ chưa có ca này
-      const canSelectShift = roomsAnalysis.some(room => {
-        return room.monthsAnalysis.some(monthAnalysis => {
-          // Chỉ check trong các tháng được chọn
+      let canSelectShift = false;
+      let allRoomsHaveShift = true; // Track xem tất cả phòng đã có ca chưa
+      let allConfigsDisabled = true; // Track xem tất cả config đều tắt ca chưa
+
+      // Check từng room
+      for (const room of roomsAnalysis) {
+        // Check từng tháng của room này
+        for (const monthAnalysis of room.monthsAnalysis) {
+          // Chỉ check trong các tháng available
           const isInRange = availableMonths.some(
             m => m.month === monthAnalysis.month && m.year === monthAnalysis.year
           );
           
-          if (!isInRange) return false;
+          if (!isInRange) continue;
 
-          // Nếu phòng chưa có lịch tháng đó -> có thể chọn ca
-          if (!monthAnalysis.hasSchedule) return true;
-
-          // Nếu phòng có lịch nhưng chưa có ca này -> có thể chọn
-          return !monthAnalysis.shiftStatus[shiftKey].allHave;
-        });
-      });
+          // Case 1: Tháng chưa có schedule + Config hiện tại có ca đang bật
+          if (!monthAnalysis.hasSchedule) {
+            if (currentConfigShifts[shiftKey]) {
+              canSelectShift = true;
+              allConfigsDisabled = false;
+              allRoomsHaveShift = false;
+              console.log(`✅ ${shiftKey} available: Room ${room.roomName} month ${monthAnalysis.month}/${monthAnalysis.year} - no schedule + config active`);
+              break;
+            } else {
+              // Config disabled but room doesn't have schedule
+              allRoomsHaveShift = false;
+            }
+          } 
+          // Case 2: Tháng đã có schedule nhưng thiếu ca này
+          else {
+            // Nếu !allHave = có ít nhất 1 subroom/room thiếu ca này
+            // NHƯNG phải check xem ca đó có đang bật trong schedule không
+            if (!monthAnalysis.shiftStatus[shiftKey].allHave) {
+              // 🆕 Check xem có schedule nào có ca đang bật không
+              if (monthAnalysis.shiftStatus[shiftKey].anyActive) {
+                canSelectShift = true;
+                allRoomsHaveShift = false;
+                allConfigsDisabled = false;
+                console.log(`✅ ${shiftKey} available: Room ${room.roomName} month ${monthAnalysis.month}/${monthAnalysis.year} - schedule exists, shift active but missing`);
+                break;
+              } else {
+                // Ca bị tắt trong schedule
+                allRoomsHaveShift = false; // Không phải tất cả đã có
+                console.log(`⚠️ ${shiftKey} disabled: Room ${room.roomName} month ${monthAnalysis.month}/${monthAnalysis.year} - schedule exists but shift disabled`);
+              }
+            }
+          }
+        }
+        
+        if (canSelectShift) break;
+      }
 
       availableShifts[shiftKey] = canSelectShift;
+
+      // 🆕 Xác định lý do không available
+      if (!canSelectShift) {
+        if (allRoomsHaveShift) {
+          shiftUnavailableReasons[shiftKey] = 'complete'; // Tất cả phòng đã có đầy đủ
+        } else if (allConfigsDisabled) {
+          shiftUnavailableReasons[shiftKey] = 'disabled'; // Ca đang tắt trong config
+        }
+      }
     });
 
     console.log('✅ Available shifts:', availableShifts);
+    console.log('📊 Unavailable reasons:', shiftUnavailableReasons);
 
     return {
       success: true,
@@ -1844,6 +1905,8 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
         roomsAnalysis,
         availableMonths,
         availableShifts,
+        shiftUnavailableReasons, // 🆕 Lý do tại sao shift không available
+        currentConfigShifts, // 🆕 Thêm config hiện tại để frontend biết
         summary: {
           totalRooms: validRooms.length,
           totalMonthsChecked: monthsToCheck.length,
@@ -2073,6 +2136,14 @@ exports.createScheduleOverrideHoliday = async (data) => {
     const targetDate = new Date(date);
     targetDate.setUTCHours(0, 0, 0, 0); // ✅ Dùng UTC
     
+    // 🔧 FIX: Validate ngày phải > hôm nay
+    const today = dayjs().tz('Asia/Ho_Chi_Minh').startOf('day');
+    const targetDateDayjs = dayjs(targetDate).tz('Asia/Ho_Chi_Minh').startOf('day');
+    
+    if (targetDateDayjs.isSameOrBefore(today, 'day')) {
+      throw new Error('Không thể tạo lịch override cho ngày hiện tại hoặc quá khứ');
+    }
+    
     // Kiểm tra ngày có phải holiday không (từ holidaySnapshot)
     // ✅ Convention: dayOfWeek 1=Sunday, 2=Monday, ..., 7=Saturday (dayjs format)
     const jsDay = targetDate.getUTCDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
@@ -2168,6 +2239,8 @@ exports.createScheduleOverrideHoliday = async (data) => {
 
     // Generate slots cho các ca được chọn
     const createdSlots = [];
+    const successfullyCreatedShifts = []; // 🆕 Track shifts đã tạo thành công (pass isActive check)
+    
     const shiftInfoMap = {
       morning: { key: 'morning', name: 'Ca Sáng', config: schedule.shiftConfig.morning },
       afternoon: { key: 'afternoon', name: 'Ca Chiều', config: schedule.shiftConfig.afternoon },
@@ -2184,7 +2257,7 @@ exports.createScheduleOverrideHoliday = async (data) => {
       const shiftConfig = shiftInfo.config;
       
       if (!shiftConfig.isActive) {
-        console.log(`⚠️ Bỏ qua ${shiftInfo.name} vì không active trong schedule`);
+        console.log(`⚠️ Bỏ qua ${shiftInfo.name} vì không active trong schedule (isActive=false)`);
         continue;
       }
 
@@ -2230,6 +2303,7 @@ exports.createScheduleOverrideHoliday = async (data) => {
       if (shiftSlots.length > 0) {
         const insertedSlots = await Slot.insertMany(shiftSlots); // ✅ Lấy kết quả
         createdSlots.push(...insertedSlots); // ✅ Push slots đã có _id
+        successfullyCreatedShifts.push(shiftKey); // 🆕 Track shift đã tạo thành công
         console.log(`✅ Tạo ${insertedSlots.length} slots override cho ${shiftInfo.name} ngày ${date}`);
       }
     }
@@ -2240,14 +2314,14 @@ exports.createScheduleOverrideHoliday = async (data) => {
       const dayOffEntry = schedule.holidaySnapshot.computedDaysOff.find(d => d.date === dateStr);
       
       if (dayOffEntry) {
-        // Mark các ca đã tạo
+        // 🔧 FIX: Chỉ mark các ca đã THỰC SỰ TẠO THÀNH CÔNG (pass isActive check)
         const shiftKeyMap = {
           'morning': 'morning',
           'afternoon': 'afternoon',
           'evening': 'evening'
         };
         
-        shifts.forEach(shiftKey => {
+        successfullyCreatedShifts.forEach(shiftKey => {
           const mappedKey = shiftKeyMap[shiftKey];
           if (mappedKey && dayOffEntry.shifts && dayOffEntry.shifts[mappedKey]) {
             dayOffEntry.shifts[mappedKey].isOverridden = true;
@@ -2255,6 +2329,12 @@ exports.createScheduleOverrideHoliday = async (data) => {
             console.log(`✅ Marked ${mappedKey} as overridden for date ${dateStr}`);
           }
         });
+        
+        // 🆕 Log các ca bị skip (không mark isOverridden)
+        const skippedShifts = shifts.filter(s => !successfullyCreatedShifts.includes(s));
+        if (skippedShifts.length > 0) {
+          console.log(`⏭️ Các ca bị bỏ qua (không update isOverridden): ${skippedShifts.join(', ')}`);
+        }
         
         // 🔍 Kiểm tra nếu CẢ 3 CA đều overridden → XÓA ngày khỏi array
         const allShiftsOverridden = dayOffEntry.shifts &&
@@ -2506,6 +2586,7 @@ module.exports = {
   checkConflictsForSlots,
   getBulkRoomSchedulesInfo,
   generateBulkRoomSchedules
+  // createOverrideHolidayForAllRooms exported separately below
 };
 
 /**
@@ -2541,6 +2622,14 @@ exports.createBatchScheduleOverrideHoliday = async ({ scheduleIds, date, shifts,
     const targetDate = new Date(date);
     targetDate.setUTCHours(0, 0, 0, 0);
     const dateStr = targetDate.toISOString().split('T')[0];
+    
+    // 🔧 FIX: Validate ngày phải > hôm nay
+    const today = dayjs().tz('Asia/Ho_Chi_Minh').startOf('day');
+    const targetDateDayjs = dayjs(targetDate).tz('Asia/Ho_Chi_Minh').startOf('day');
+    
+    if (targetDateDayjs.isSameOrBefore(today, 'day')) {
+      throw new Error('Không thể tạo lịch override cho ngày hiện tại hoặc quá khứ');
+    }
 
     // Fetch all schedules
     const schedules = await Schedule.find({
@@ -4758,16 +4847,39 @@ exports.generateRoomSchedule = async ({
             
             // 🆕 Validate partialStartDate nếu có
             let effectiveStartDate = existingSchedule.startDate;
+            
+            // 🔧 FIX: Validate ngày không được <= hôm nay
+            const today = dayjs().tz('Asia/Ho_Chi_Minh').startOf('day');
+            const tomorrow = today.add(1, 'day');
+            
             if (partialStartDate) {
-              const partialDate = new Date(partialStartDate);
-              const scheduleEnd = new Date(existingSchedule.endDate);
+              const partialDate = dayjs(partialStartDate).tz('Asia/Ho_Chi_Minh').startOf('day');
+              const scheduleEnd = dayjs(existingSchedule.endDate).tz('Asia/Ho_Chi_Minh');
               
-              if (partialDate > scheduleEnd) {
+              // Validate: partialDate phải > today
+              if (partialDate.isSameOrBefore(today, 'day')) {
+                throw new Error('Ngày bắt đầu tạo lịch phải sau ngày hiện tại');
+              }
+              
+              if (partialDate.isAfter(scheduleEnd, 'day')) {
                 throw new Error('Ngày bắt đầu tạo lịch không thể sau ngày kết thúc của lịch');
               }
               
-              effectiveStartDate = partialDate;
-              console.log(`🗓️  Tạo ca thiếu từ ngày: ${partialDate.toLocaleDateString('vi-VN')}`);
+              effectiveStartDate = partialDate.toDate();
+              console.log(`🗓️  Tạo ca thiếu từ ngày: ${partialDate.format('DD/MM/YYYY')}`);
+            } else {
+              // Không có partialStartDate -> Kiểm tra scheduleStart
+              const scheduleStart = dayjs(existingSchedule.startDate).tz('Asia/Ho_Chi_Minh').startOf('day');
+              
+              if (scheduleStart.isSameOrBefore(today, 'day')) {
+                // Schedule đã bắt đầu hoặc bắt đầu hôm nay -> Dùng tomorrow
+                effectiveStartDate = tomorrow.toDate();
+                console.log(`🗓️  Schedule start <= today, tạo ca thiếu từ ngày mai: ${tomorrow.format('DD/MM/YYYY')}`);
+              } else {
+                // Schedule chưa bắt đầu -> Dùng scheduleStart
+                effectiveStartDate = scheduleStart.toDate();
+                console.log(`🗓️  Tạo ca thiếu từ schedule start: ${scheduleStart.format('DD/MM/YYYY')}`);
+              }
             }
             
             try {
@@ -4883,7 +4995,7 @@ exports.generateRoomSchedule = async ({
         }
         
         // Create shift config snapshot - LƯU CẢ 3 CA
-        // ✅ Chỉ set isGenerated=true nếu: subroom được chọn + shift được chọn
+        // ✅ Chỉ set isGenerated=true nếu: subroom được chọn + shift được chọn + CA ĐANG BẬT
         const shiftConfig = {
           morning: {
             name: config.morningShift.name,
@@ -4891,7 +5003,7 @@ exports.generateRoomSchedule = async ({
             endTime: config.morningShift.endTime,
             slotDuration: resolveSlotDuration('morning', config.morningShift),
             isActive: config.morningShift.isActive, // ✅ Lưu đúng trạng thái từ config
-            isGenerated: isSubRoomSelected && shifts.includes('morning') // ✅ Chỉ true nếu subroom được chọn + shift được chọn
+            isGenerated: isSubRoomSelected && shifts.includes('morning') && config.morningShift.isActive !== false // 🔥 FIX: Thêm check isActive
           },
           afternoon: {
             name: config.afternoonShift.name,
@@ -4899,7 +5011,7 @@ exports.generateRoomSchedule = async ({
             endTime: config.afternoonShift.endTime,
             slotDuration: resolveSlotDuration('afternoon', config.afternoonShift),
             isActive: config.afternoonShift.isActive, // ✅ Lưu đúng trạng thái từ config
-            isGenerated: isSubRoomSelected && shifts.includes('afternoon')
+            isGenerated: isSubRoomSelected && shifts.includes('afternoon') && config.afternoonShift.isActive !== false // 🔥 FIX
           },
           evening: {
             name: config.eveningShift.name,
@@ -4907,7 +5019,7 @@ exports.generateRoomSchedule = async ({
             endTime: config.eveningShift.endTime,
             slotDuration: resolveSlotDuration('evening', config.eveningShift),
             isActive: config.eveningShift.isActive, // ✅ Lưu đúng trạng thái từ config
-            isGenerated: isSubRoomSelected && shifts.includes('evening')
+            isGenerated: isSubRoomSelected && shifts.includes('evening') && config.eveningShift.isActive !== false // 🔥 FIX
           }
         };
         
@@ -5892,7 +6004,7 @@ exports.addMissingShifts = async ({
               const generatedSlots = await generateSlotsForShift({
                 scheduleId: schedule._id,
                 roomId: roomId,
-                subRoomId: roomId, // Use roomId as subRoomId for rooms without subrooms
+                subRoomId: null, // 🔧 FIX: Set null for rooms without subrooms (to match calendar query)
                 shiftName: shiftInfo.name,
                 shiftStart: shiftInfo.startTime,
                 shiftEnd: shiftInfo.endTime,
@@ -6113,15 +6225,26 @@ exports.addMissingShifts = async ({
     // 🆕 Clear calendar cache for this room
     if (totalAddedSlots > 0) {
       try {
-        const redisClient = require('../config/redis');
         const pattern = `room_calendar:${roomId}:*`;
+        console.log(`🔍 [addMissingShifts] Searching for cache keys with pattern: ${pattern}`);
+        
         const keys = await redisClient.keys(pattern);
+        console.log(`🔍 [addMissingShifts] Found ${keys.length} cache keys:`, keys.slice(0, 5)); // Show first 5
+        
         if (keys.length > 0) {
           await redisClient.del(keys);
-          console.log(`🗑️ [Cache Cleared] Deleted ${keys.length} calendar cache keys for room ${roomId}`);
+          console.log(`🗑️ [addMissingShifts] Cleared ${keys.length} calendar cache keys for room ${roomId}`);
+        } else {
+          // Debug: Check if there are ANY calendar cache keys
+          const allCalendarKeys = await redisClient.keys('room_calendar:*');
+          console.log(`ℹ️ [addMissingShifts] No calendar cache found for room ${roomId}`);
+          console.log(`🔍 [addMissingShifts] Total calendar keys in Redis: ${allCalendarKeys.length}`);
+          if (allCalendarKeys.length > 0) {
+            console.log(`🔍 [addMissingShifts] Sample keys:`, allCalendarKeys.slice(0, 3));
+          }
         }
       } catch (cacheError) {
-        console.error('⚠️ Cache clear error (data still saved):', cacheError.message);
+        console.error('⚠️ [addMissingShifts] Cache clear error (slots still saved):', cacheError.message);
       }
     }
 
@@ -7803,7 +7926,15 @@ exports.createOverrideHolidayForAllRooms = async (roomId, month, year, date, shi
 
     console.log(`🔄 Creating override holiday for all rooms: ${roomId}, date: ${date}, shifts: ${shifts.join(', ')}`);
 
-    // 🔍 TÌM TẤT CẢ SCHEDULES (room chính + tất cả subroom) cho tháng/năm
+    // � FIX: Validate ngày phải > hôm nay
+    const today = dayjs().tz('Asia/Ho_Chi_Minh').startOf('day');
+    const targetDateDayjs = dayjs(date).tz('Asia/Ho_Chi_Minh').startOf('day');
+    
+    if (targetDateDayjs.isSameOrBefore(today, 'day')) {
+      throw new Error('Không thể tạo lịch override cho ngày hiện tại hoặc quá khứ');
+    }
+
+    // �🔍 TÌM TẤT CẢ SCHEDULES (room chính + tất cả subroom) cho tháng/năm
     const allSchedules = await Schedule.find({
       roomId: new mongoose.Types.ObjectId(roomId),
       month: parseInt(month),
@@ -7822,13 +7953,16 @@ exports.createOverrideHolidayForAllRooms = async (roomId, month, year, date, shi
     // 🔄 TẠO OVERRIDE HOLIDAY CHO TỪNG SCHEDULE
     for (const schedule of allSchedules) {
       try {
-        // Gọi hàm createScheduleOverrideHoliday hiện có
-        const result = await exports.createScheduleOverrideHoliday(
-          schedule._id.toString(),
+        // 🔧 FIX: Gọi hàm createScheduleOverrideHoliday với đúng signature (data object)
+        const result = await exports.createScheduleOverrideHoliday({
+          roomId: schedule.roomId.toString(),
+          subRoomId: schedule.subRoomId ? schedule.subRoomId.toString() : null,
+          month: parseInt(month),
+          year: parseInt(year),
           date,
           shifts,
           note
-        );
+        });
 
         results.push({
           scheduleId: schedule._id,
@@ -7876,6 +8010,9 @@ exports.createOverrideHolidayForAllRooms = async (roomId, month, year, date, shi
     throw error;
   }
 };
+
+// 🔧 FIX: Export ngay sau khi định nghĩa để tránh undefined
+module.exports.createOverrideHolidayForAllRooms = exports.createOverrideHolidayForAllRooms;
 
 /**
  * 🆕 API: Enable các ca và buồng bị tắt trong schedule
