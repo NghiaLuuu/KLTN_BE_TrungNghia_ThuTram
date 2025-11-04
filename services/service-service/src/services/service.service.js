@@ -174,34 +174,52 @@ exports.addServiceAddOn = async (serviceId, addOnData, imageFile = null) => {
 };
 
 exports.updateServiceAddOn = async (serviceId, addOnId, updateData, imageFile = null) => {
+  console.log('🔵 [Service] updateServiceAddOn called');
+  console.log('🔵 [Service] serviceId:', serviceId, 'addOnId:', addOnId);
+  console.log('🔵 [Service] imageFile:', imageFile ? `${imageFile.originalname} (${imageFile.size} bytes)` : 'null');
+  console.log('🔵 [Service] updateData:', updateData);
+  
   // Upload new image if provided
   if (imageFile) {
+    console.log('✅ [Service] Image file detected, uploading to S3...');
     try {
       // Get old image URL to delete later
       const { service, addOn } = await serviceRepo.findServiceAddOnById(serviceId, addOnId);
       const oldImageUrl = addOn.imageUrl;
+      console.log('🔵 [Service] Old image URL:', oldImageUrl || 'none');
       
       // Upload new image
+      console.log('🔵 [Service] Uploading to S3...');
       const imageUrl = await uploadToS3(
         imageFile.buffer,
         imageFile.originalname,
         imageFile.mimetype,
         'avatars'
       );
+      console.log('✅ [Service] Uploaded to S3:', imageUrl);
       updateData.imageUrl = imageUrl;
       
       // Delete old image from S3 if exists
       if (oldImageUrl) {
+        console.log('🔵 [Service] Deleting old image from S3...');
         await deleteFromS3(oldImageUrl);
+        console.log('✅ [Service] Old image deleted');
       }
     } catch (error) {
-      console.error('❌ Error uploading image to S3:', error);
+      console.error('❌ [Service] Error uploading image to S3:', error);
       throw new Error('Không thể upload ảnh lên S3');
     }
+  } else {
+    console.log('⚠️ [Service] No image file provided, skipping upload');
   }
   
+  console.log('🔵 [Service] Updating addon in database...');
   const service = await serviceRepo.updateServiceAddOn(serviceId, addOnId, updateData);
+  console.log('✅ [Service] Addon updated in database');
+  
   await refreshServiceCache();
+  console.log('✅ [Service] Cache refreshed');
+  
   return service;
 };
 
@@ -371,6 +389,15 @@ exports.updatePriceSchedule = async (serviceId, addOnId, scheduleId, updateData)
     throw new Error('Không tìm thấy lịch giá');
   }
 
+  // ✅ Validate: Không cho phép update lịch giá đã kết thúc (quá khứ)
+  const now = new Date();
+  const currentEndDate = new Date(schedule.endDate);
+  currentEndDate.setHours(23, 59, 59, 999); // Set to end of day
+  
+  if (now > currentEndDate) {
+    throw new Error('Không thể chỉnh sửa lịch giá đã kết thúc');
+  }
+
   // Update fields
   if (updateData.price !== undefined) schedule.price = updateData.price;
   if (updateData.startDate !== undefined) schedule.startDate = updateData.startDate;
@@ -423,6 +450,20 @@ exports.deletePriceSchedule = async (serviceId, addOnId, scheduleId) => {
     throw new Error('Không tìm thấy dịch vụ bổ sung');
   }
 
+  const schedule = addOn.priceSchedules.id(scheduleId);
+  if (!schedule) {
+    throw new Error('Không tìm thấy lịch giá');
+  }
+
+  // ✅ Validate: Không cho phép xóa lịch giá đã kết thúc (quá khứ)
+  const now = new Date();
+  const endDate = new Date(schedule.endDate);
+  endDate.setHours(23, 59, 59, 999); // Set to end of day
+  
+  if (now > endDate) {
+    throw new Error('Không thể xóa lịch giá đã kết thúc');
+  }
+
   // Remove the schedule
   addOn.priceSchedules.pull(scheduleId);
   await service.save();
@@ -448,6 +489,15 @@ exports.togglePriceScheduleStatus = async (serviceId, addOnId, scheduleId) => {
   const schedule = addOn.priceSchedules.id(scheduleId);
   if (!schedule) {
     throw new Error('Không tìm thấy lịch giá');
+  }
+
+  // ✅ Validate: Không cho phép toggle lịch giá đã kết thúc (quá khứ)
+  const now = new Date();
+  const endDate = new Date(schedule.endDate);
+  endDate.setHours(23, 59, 59, 999); // Set to end of day
+  
+  if (now > endDate) {
+    throw new Error('Không thể thay đổi trạng thái lịch giá đã kết thúc');
   }
 
   schedule.isActive = !schedule.isActive;

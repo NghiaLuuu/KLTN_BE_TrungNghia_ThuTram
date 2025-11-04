@@ -169,6 +169,11 @@ exports.updateServiceAddOn = async (req, res) => {
   }
 
   try {
+    console.log('🔵 [Controller] updateServiceAddOn called');
+    console.log('🔵 [Controller] serviceId:', req.params.serviceId, 'addOnId:', req.params.addOnId);
+    console.log('🔵 [Controller] req.file:', req.file ? `${req.file.originalname} (${req.file.size} bytes)` : 'null');
+    console.log('🔵 [Controller] req.body:', req.body);
+    
     // Extract image file from multer (if provided)
     const imageFile = req.file || null;
     
@@ -176,14 +181,19 @@ exports.updateServiceAddOn = async (req, res) => {
     const updateData = { ...req.body };
     if (updateData.price) updateData.price = Number(updateData.price);
     
+    console.log('🔵 [Controller] Calling service.updateServiceAddOn with imageFile:', imageFile ? 'YES' : 'NO');
+    
     const service = await serviceService.updateServiceAddOn(
       req.params.serviceId, 
       req.params.addOnId, 
       updateData,
       imageFile
     );
+    
+    console.log('✅ [Controller] Update successful');
     res.json(service);
   } catch (err) {
+    console.error('❌ [Controller] Error:', err);
     res.status(400).json({ message: err.message || 'Không thể cập nhật dịch vụ bổ sung' });
   }
 };
