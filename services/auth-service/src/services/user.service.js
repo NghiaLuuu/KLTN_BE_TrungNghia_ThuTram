@@ -539,7 +539,13 @@ exports.uploadCertificate = async (currentUser, userId, file, notes = null) => {
   }
 
   const user = await userRepo.findById(userId);
-  if (!user || user.role !== 'dentist') {
+  if (!user) {
+    throw new Error('Không tìm thấy người dùng');
+  }
+  
+  // Check if user has dentist role
+  const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
+  if (!userRoles.includes('dentist')) {
     throw new Error('Chỉ có thể upload chứng chỉ cho nha sĩ');
   }
 
@@ -610,7 +616,13 @@ exports.uploadMultipleCertificates = async (currentUser, userId, files, notes = 
   }
 
   const user = await userRepo.findById(userId);
-  if (!user || user.role !== 'dentist') {
+  if (!user) {
+    throw new Error('Không tìm thấy người dùng');
+  }
+  
+  // Check if user has dentist role
+  const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
+  if (!userRoles.includes('dentist')) {
     throw new Error('Chỉ có thể upload chứng chỉ cho nha sĩ');
   }
 
@@ -694,7 +706,10 @@ exports.deleteCertificate = async (currentUser, userId, certificateId) => {
   if (!user) {
     throw new Error('Không tìm thấy người dùng');
   }
-  if (user.role !== 'dentist') {
+  
+  // Check if user has dentist role
+  const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
+  if (!userRoles.includes('dentist')) {
     throw new Error('Chỉ có thể xóa chứng chỉ của nha sĩ');
   }
 
@@ -799,7 +814,9 @@ exports.batchCreateCertificates = async (currentUser, userId, { names, frontImag
     throw new Error('Không tìm thấy người dùng');
   }
 
-  if (user.role !== 'dentist') {
+  // Check if user has dentist role (support both old role field and new roles array)
+  const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
+  if (!userRoles.includes('dentist')) {
     throw new Error('Chỉ nha sĩ mới có thể có chứng chỉ');
   }
 
@@ -879,7 +896,8 @@ exports.batchUpdateCertificates = async (currentUser, userId, { certificateIds, 
   }
 
   // 🆕 Kiểm tra user phải là dentist
-  if (user.role !== 'dentist') {
+  const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
+  if (!userRoles.includes('dentist')) {
     throw new Error('Chỉ có thể cập nhật chứng chỉ của nha sĩ');
   }
 
@@ -981,7 +999,8 @@ exports.batchDeleteCertificates = async (currentUser, userId, { certificateIds }
   }
 
   // 🆕 Kiểm tra user phải là dentist
-  if (user.role !== 'dentist') {
+  const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
+  if (!userRoles.includes('dentist')) {
     throw new Error('Chỉ có thể xóa chứng chỉ của nha sĩ');
   }
 
