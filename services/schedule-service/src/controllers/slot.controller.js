@@ -861,6 +861,30 @@ exports.bulkUpdateSlots = async (req, res) => {
   }
 };
 
+// 🆕 Get locked slots (for appointment-service cleanup cronjob)
+exports.getLockedSlots = async (req, res) => {
+  try {
+    const lockedSlots = await Slot.find({ status: 'locked' })
+      .select('_id roomId subRoomId dentistIds date startTime endTime lockedAt lockedBy')
+      .lean();
+
+    console.log(`📊 Found ${lockedSlots.length} locked slots`);
+
+    return res.status(200).json({
+      success: true,
+      count: lockedSlots.length,
+      slots: lockedSlots
+    });
+
+  } catch (error) {
+    console.error('[slotController] getLockedSlots error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error getting locked slots: ' + error.message
+    });
+  }
+};
+
 // 🆕 Nhiệm vụ 2.2: Tắt slots linh hoạt
 exports.disableSlots = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
@@ -1057,5 +1081,6 @@ module.exports = {
   getDentistWorkingDates: exports.getDentistWorkingDates,          // 🆕 PATIENT BOOKING
   bulkUpdateSlots: exports.bulkUpdateSlots,                        // 🆕 BULK UPDATE
   disableSlots: exports.disableSlots,                              // 🆕 Nhiệm vụ 2.2
-  enableSlots: exports.enableSlots                                 // 🆕 Nhiệm vụ 2.2
+  enableSlots: exports.enableSlots,                                // 🆕 Nhiệm vụ 2.2
+  getLockedSlots: exports.getLockedSlots                           // 🆕 Get locked slots for cleanup
 };

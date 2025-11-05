@@ -55,6 +55,9 @@ router.get('/dentist/:dentistId/working-dates', slotController.getDentistWorking
 // 🆕 Bulk update slots (for appointment service to update booked status)
 router.put('/bulk-update', slotController.bulkUpdateSlots);
 
+// 🆕 Get locked slots (for appointment-service cleanup cronjob)
+router.get('/locked', slotController.getLockedSlots);
+
 // 🆕 Toggle isActive status of multiple slots (for calendar slot selection)
 router.post('/toggle-active', authMiddleware, slotController.toggleSlotsIsActive);
 
