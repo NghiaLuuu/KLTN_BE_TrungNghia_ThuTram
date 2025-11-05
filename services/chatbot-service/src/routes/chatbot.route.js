@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const chatbotController = require('../controllers/chatbot.controller');
+const { uploadSingle, uploadMultiple } = require('../middlewares/upload.middleware');
 
 // Simple auth middleware (check if user exists in request)
 const simpleAuth = (req, res, next) => {
@@ -17,6 +18,13 @@ const simpleAuth = (req, res, next) => {
 router.post('/chat', simpleAuth, chatbotController.sendMessage);
 router.get('/history', simpleAuth, chatbotController.getChatHistory);
 router.delete('/history', simpleAuth, chatbotController.clearHistory);
+
+// Image analysis endpoints
+router.post('/analyze-image', simpleAuth, uploadSingle, chatbotController.analyzeImage);
+router.post('/analyze-multiple-images', simpleAuth, uploadMultiple, chatbotController.analyzeMultipleImages);
+
+// Smart Query endpoint (AI-powered MongoDB query)
+router.post('/smart-query', simpleAuth, chatbotController.smartQuery);
 
 // Health check
 router.get('/health', (req, res) => {

@@ -33,12 +33,23 @@ class ChatSessionRepository {
   /**
    * Add message to session
    */
-  async addMessage(sessionId, role, content) {
+  async addMessage(sessionId, role, content, imageUrl = null) {
+    const message = { 
+      role, 
+      content, 
+      timestamp: new Date() 
+    };
+    
+    // Add imageUrl if provided
+    if (imageUrl) {
+      message.imageUrl = imageUrl;
+    }
+    
     return await ChatSession.findOneAndUpdate(
       { sessionId },
       {
         $push: {
-          messages: { role, content, timestamp: new Date() }
+          messages: message
         }
       },
       { new: true }

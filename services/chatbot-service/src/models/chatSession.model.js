@@ -10,6 +10,10 @@ const messageSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  imageUrl: {
+    type: String, // S3 URL for uploaded images
+    required: false
+  },
   timestamp: {
     type: Date,
     default: Date.now
@@ -18,7 +22,7 @@ const messageSchema = new mongoose.Schema({
 
 const chatSessionSchema = new mongoose.Schema({
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String (for anonymous users)
     required: true,
     index: true
   },

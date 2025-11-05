@@ -13,7 +13,7 @@ const API_ENDPOINTS = {
   SEARCH_SERVICES: {
     method: 'GET',
     baseUrl: API_BASE_URLS.SERVICE_SERVICE,
-    path: '/api/services/search',
+    path: '/api/service/search',
     description: 'Search dental services by name or keyword',
     params: ['query'] // Required params
   },
@@ -21,7 +21,7 @@ const API_ENDPOINTS = {
   GET_ALL_SERVICES: {
     method: 'GET',
     baseUrl: API_BASE_URLS.SERVICE_SERVICE,
-    path: '/api/services',
+    path: '/api/service',
     description: 'Get all available dental services',
     params: []
   },
@@ -29,41 +29,41 @@ const API_ENDPOINTS = {
   GET_SERVICE_DETAIL: {
     method: 'GET',
     baseUrl: API_BASE_URLS.SERVICE_SERVICE,
-    path: '/api/services/:id',
+    path: '/api/service/:id',
     description: 'Get detailed info of a specific service',
     params: ['id']
   },
 
-  // Schedule Service APIs
-  GET_AVAILABLE_SLOTS: {
-    method: 'GET',
-    baseUrl: API_BASE_URLS.SCHEDULE_SERVICE,
-    path: '/api/schedules/available-slots',
-    description: 'Get available time slots for booking',
-    params: ['date', 'serviceId'] // date format: YYYY-MM-DD
-  },
+  // Schedule Service APIs (COMMENTED OUT - APIs not implemented yet)
+  // GET_AVAILABLE_SLOTS: {
+  //   method: 'GET',
+  //   baseUrl: API_BASE_URLS.SCHEDULE_SERVICE,
+  //   path: '/api/schedule/available-slots',
+  //   description: 'Get available time slots for booking',
+  //   params: ['date', 'serviceId'] // date format: YYYY-MM-DD
+  // },
 
-  GET_DOCTORS_BY_SERVICE: {
-    method: 'GET',
-    baseUrl: API_BASE_URLS.SCHEDULE_SERVICE,
-    path: '/api/schedules/doctors-by-service',
-    description: 'Get list of doctors who can perform a service',
-    params: ['serviceId']
-  },
+  // GET_DOCTORS_BY_SERVICE: {
+  //   method: 'GET',
+  //   baseUrl: API_BASE_URLS.SCHEDULE_SERVICE,
+  //   path: '/api/schedule/doctors-by-service',
+  //   description: 'Get list of doctors who can perform a service',
+  //   params: ['serviceId']
+  // },
 
-  GET_DOCTOR_SCHEDULE: {
-    method: 'GET',
-    baseUrl: API_BASE_URLS.SCHEDULE_SERVICE,
-    path: '/api/schedules/doctor/:doctorId',
-    description: 'Get schedule of a specific doctor',
-    params: ['doctorId', 'date']
-  },
+  // GET_DOCTOR_SCHEDULE: {
+  //   method: 'GET',
+  //   baseUrl: API_BASE_URLS.SCHEDULE_SERVICE,
+  //   path: '/api/schedule/doctor/:doctorId',
+  //   description: 'Get schedule of a specific doctor',
+  //   params: ['doctorId', 'date']
+  // },
 
   // Auth Service APIs (for doctor/staff info)
   GET_DOCTORS_LIST: {
     method: 'GET',
     baseUrl: API_BASE_URLS.AUTH_SERVICE,
-    path: '/api/users/doctors',
+    path: '/api/user/public/dentists',
     description: 'Get list of all doctors',
     params: []
   },
@@ -71,7 +71,7 @@ const API_ENDPOINTS = {
   GET_DOCTOR_INFO: {
     method: 'GET',
     baseUrl: API_BASE_URLS.AUTH_SERVICE,
-    path: '/api/users/:id',
+    path: '/api/user/:id',
     description: 'Get detailed info of a doctor',
     params: ['id']
   }

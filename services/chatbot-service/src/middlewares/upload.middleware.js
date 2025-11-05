@@ -27,4 +27,12 @@ const upload = multer({
   }
 });
 
-module.exports = upload;
+// Export middleware functions
+const uploadSingle = upload.single('image');
+const uploadMultiple = upload.array('images', 4); // Max 4 images
+
+module.exports = {
+  upload,
+  uploadSingle,
+  uploadMultiple
+};

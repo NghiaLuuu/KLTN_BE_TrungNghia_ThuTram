@@ -22,21 +22,31 @@ const { API_ENDPOINTS } = require('../config/apiMapping');
  */
 function extractApiRequest(responseText) {
   try {
+    // Look for [API_CALL] tags first (new format)
+    const apiCallMatch = responseText.match(/\[API_CALL\]([\s\S]*?)\[\/API_CALL\]/);
+    if (apiCallMatch) {
+      console.log('[Parser] Found [API_CALL] tag:', apiCallMatch[1].trim());
+      return JSON.parse(apiCallMatch[1].trim());
+    }
+
     // Look for JSON block in markdown code fence
     const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
     if (jsonMatch) {
+      console.log('[Parser] Found ```json block:', jsonMatch[1].trim());
       return JSON.parse(jsonMatch[1].trim());
     }
 
     // Look for JSON object directly
     const objectMatch = responseText.match(/\{[\s\S]*"action"[\s\S]*\}/);
     if (objectMatch) {
+      console.log('[Parser] Found JSON object:', objectMatch[0]);
       return JSON.parse(objectMatch[0]);
     }
 
+    console.log('[Parser] No API request found in:', responseText);
     return null;
   } catch (error) {
-    console.error('Error extracting API request:', error.message);
+    console.error('[Parser] Error extracting API request:', error.message);
     return null;
   }
 }
@@ -148,6 +158,11 @@ function parseApiRequest(responseText) {
 function hasApiRequest(responseText) {
   if (!responseText || typeof responseText !== 'string') {
     return false;
+  }
+
+  // Check for [API_CALL] tags (priority)
+  if (responseText.includes('[API_CALL]')) {
+    return true;
   }
 
   // Check for JSON markers
