@@ -111,6 +111,131 @@ class PaymentService {
     }
   }
 
+  /**
+   * Create payment from completed record
+   * Calculate finalAmount based on booking channel (online/offline)
+   * - Offline: finalAmount = totalCost
+   * - Online: finalAmount = totalCost - depositAmount
+   */
+  async createPaymentFromRecord(recordId) {
+    try {
+      console.log('📝 [createPaymentFromRecord] Starting for recordId:', recordId);
+
+      // 1. Get record via RPC
+      const recordResponse = await rpcClient.request('record_rpc_queue', {
+        action: 'getRecordById',
+        payload: { id: recordId }
+      });
+
+      if (recordResponse.error) {
+        throw new Error(`RPC Error: ${recordResponse.error}`);
+      }
+
+      const record = recordResponse.record;
+      if (!record) {
+        throw new Error('Record not found');
+      }
+
+      console.log('📋 [createPaymentFromRecord] Record found:', {
+        recordCode: record.recordCode,
+        totalCost: record.totalCost,
+        bookingChannel: record.bookingChannel,
+        appointmentId: record.appointmentId
+      });
+
+      // 2. Validate record status
+      if (record.status !== 'completed') {
+        throw new Error('Record must be completed before creating payment');
+      }
+
+      if (!record.totalCost || record.totalCost <= 0) {
+        throw new Error('Record totalCost must be greater than 0');
+      }
+
+      // 3. Calculate payment amount based on booking channel
+      let finalAmount = record.totalCost;
+      let depositAmount = 0;
+      let depositPayment = null;
+
+      if (record.bookingChannel === 'online' && record.appointmentId) {
+        console.log('💰 [createPaymentFromRecord] Online booking detected, checking for deposit...');
+
+        // Get appointment to find deposit payment
+        try {
+          const appointmentResponse = await rpcClient.request('appointment_rpc_queue', {
+            action: 'getAppointmentById',
+            payload: { id: record.appointmentId.toString() }
+          });
+
+          if (appointmentResponse.error) {
+            console.warn('⚠️ Could not get appointment:', appointmentResponse.error);
+          } else if (appointmentResponse.appointment && appointmentResponse.appointment.paymentId) {
+            const appointment = appointmentResponse.appointment;
+            console.log('🎫 [createPaymentFromRecord] Appointment found with paymentId:', appointment.paymentId);
+
+            // Get deposit payment
+            depositPayment = await this.getPaymentById(appointment.paymentId);
+
+            if (depositPayment && depositPayment.status === PaymentStatus.COMPLETED) {
+              depositAmount = depositPayment.finalAmount;
+              finalAmount = Math.max(0, record.totalCost - depositAmount);
+
+              console.log('✅ [createPaymentFromRecord] Deposit payment found:', {
+                depositPaymentId: depositPayment._id,
+                depositAmount: depositAmount,
+                totalCost: record.totalCost,
+                finalAmount: finalAmount
+              });
+            } else {
+              console.warn('⚠️ Deposit payment exists but not completed:', depositPayment?.status);
+            }
+          }
+        } catch (appointmentError) {
+          console.warn('⚠️ Error fetching appointment:', appointmentError.message);
+          // Continue without deposit - fallback to full amount
+        }
+      }
+
+      // 4. Create payment
+      const paymentData = {
+        recordId: record._id,
+        appointmentId: record.appointmentId || null,
+        patientId: record.patientId || null,
+        patientInfo: record.patientInfo,
+        type: PaymentType.PAYMENT,
+        method: PaymentMethod.CASH, // Default, will be changed by user
+        status: PaymentStatus.PENDING,
+        originalAmount: record.totalCost,
+        discountAmount: depositAmount,
+        taxAmount: 0,
+        finalAmount: finalAmount,
+        paidAmount: 0,
+        processedBy: record.dentistId,
+        processedByName: record.dentistName,
+        description: `Thanh toán ${record.type === 'exam' ? 'khám' : 'điều trị'} - ${record.serviceName}`,
+        notes: [
+          `Record: ${record.recordCode}`,
+          `Booking: ${record.bookingChannel}`,
+          depositAmount > 0 ? `Đã trừ tiền cọc: ${depositAmount.toLocaleString('vi-VN')} VNĐ` : 'Không có tiền cọc',
+          depositPayment ? `Deposit Payment: ${depositPayment.paymentCode}` : ''
+        ].filter(Boolean).join('\n')
+      };
+
+      const payment = await this.createPayment(paymentData);
+
+      console.log('✅ [createPaymentFromRecord] Payment created:', {
+        paymentId: payment._id,
+        paymentCode: payment.paymentCode,
+        finalAmount: payment.finalAmount
+      });
+
+      return payment;
+    } catch (error) {
+      console.error('❌ [createPaymentFromRecord] Error:', error);
+      throw new Error(`Lỗi tạo thanh toán từ record: ${error.message}`);
+    }
+  }
+
   // ============ GET METHODS ============
   async getPaymentById(id) {
     try {
@@ -351,7 +476,23 @@ class PaymentService {
     try {
       const { orderId, status, transactionId, amount } = callbackData;
       
-      // orderId here is actually reservationId (vnp_TxnRef)
+      console.log('🔍 [processGatewayCallback] Processing:', { orderId, status, transactionId });
+      
+      // Check if this is for an existing payment (from record)
+      const mappingKey = `payment:vnpay:${orderId}`;
+      const existingPaymentId = await redisClient.get(mappingKey);
+      
+      if (existingPaymentId) {
+        console.log('📝 [processGatewayCallback] Found existing payment mapping:', existingPaymentId);
+        return await this.updateExistingPaymentFromVNPay(existingPaymentId, {
+          orderId,
+          status,
+          transactionId,
+          amount
+        });
+      }
+      
+      // Otherwise, process as temporary payment (appointment booking)
       const reservationId = orderId;
       const tempPaymentKey = `payment:temp:${reservationId}`;
       
@@ -445,7 +586,9 @@ class PaymentService {
               reservationId,
               vnp_TxnRef: reservationId,
               gateway: 'vnpay',
-              processedAt: new Date()
+              processedAt: new Date(),
+              vnpayUrl: tempPayment.vnpayUrl || null,
+              vnpayCreatedAt: tempPayment.vnpayCreatedAt || null
             }
           },
           processedBy: new mongoose.Types.ObjectId(),
@@ -456,6 +599,8 @@ class PaymentService {
           isVerified: true,
           verifiedAt: new Date()
         };
+        
+        console.log('💾 Payment data includes VNPay URL:', !!tempPayment.vnpayUrl);
         
         const payment = await paymentRepository.create(paymentData);
         console.log('✅ Payment created:', payment._id);
@@ -689,6 +834,20 @@ class PaymentService {
       // Verify storage
       const verifyRole = await redisClient.get(roleKey);
       console.log('✔️  Verification - Role retrieved:', verifyRole);
+      
+      // Store VNPay URL in temp payment for later persistence
+      const tempPaymentKey = `payment:temp:${orderId}`;
+      const tempPaymentData = await redisClient.get(tempPaymentKey);
+      if (tempPaymentData) {
+        const tempPayment = JSON.parse(tempPaymentData);
+        tempPayment.vnpayUrl = paymentUrl;
+        tempPayment.vnpayCreatedAt = new Date().toISOString();
+        await redisClient.setEx(tempPaymentKey, 900, JSON.stringify(tempPayment));
+        console.log('💾 VNPay URL saved to temp payment:', tempPaymentKey);
+      } else {
+        console.warn('⚠️  Temp payment not found, VNPay URL not saved:', tempPaymentKey);
+      }
+      
       console.log('='.repeat(60));
       
       console.log('✅ VNPay payment URL created:', { orderId, amount, userRole: roleToStore });
@@ -696,6 +855,178 @@ class PaymentService {
     } catch (err) {
       console.error('❌ Failed to create VNPay payment URL:', err);
       throw new Error('Cannot create VNPay payment link');
+    }
+  }
+
+  /**
+   * Create VNPay URL for existing payment (from record)
+   * Used when staff wants to create VNPay payment for a cash payment
+   */
+  async createVNPayUrlForExistingPayment(paymentId, ipAddr, userRole = 'patient') {
+    try {
+      console.log('🔍 [Create VNPay URL for Existing Payment]:', { paymentId });
+      
+      // Get payment from database
+      const payment = await paymentRepository.findById(paymentId);
+      if (!payment) {
+        throw new Error('Payment not found');
+      }
+      
+      // Validate payment status
+      if (payment.status === 'completed') {
+        throw new Error('Payment already completed');
+      }
+      
+      if (payment.status === 'cancelled') {
+        throw new Error('Cannot create VNPay URL for cancelled payment');
+      }
+      
+      // Create unique orderId for VNPay
+      const orderId = `PAY${Date.now()}${payment._id.toString().slice(-6)}`;
+      const amount = payment.finalAmount;
+      const orderInfo = `Thanh toán ${payment.paymentCode}`;
+      
+      console.log('📝 [Create VNPay URL] Payment details:', {
+        paymentCode: payment.paymentCode,
+        orderId,
+        amount,
+        status: payment.status
+      });
+      
+      // Create VNPay payment URL
+      const paymentUrl = createVNPayPayment(
+        orderId,
+        amount,
+        orderInfo,
+        ipAddr,
+        '', // bankCode
+        'vn' // locale
+      );
+      
+      // Store mapping between orderId and paymentId in Redis
+      const mappingKey = `payment:vnpay:${orderId}`;
+      await redisClient.setEx(mappingKey, 1800, paymentId.toString()); // 30 min TTL
+      
+      // Store user role for redirect
+      const roleKey = `payment:role:${orderId}`;
+      await redisClient.setEx(roleKey, 1800, userRole);
+      
+      // Update payment with VNPay URL and orderId
+      payment.gatewayResponse = payment.gatewayResponse || {};
+      payment.gatewayResponse.additionalData = payment.gatewayResponse.additionalData || {};
+      payment.gatewayResponse.additionalData.vnpayUrl = paymentUrl;
+      payment.gatewayResponse.additionalData.vnpayOrderId = orderId;
+      payment.gatewayResponse.additionalData.vnpayCreatedAt = new Date();
+      payment.method = 'vnpay'; // Update method to VNPay
+      payment.status = 'processing'; // Update status
+      
+      await payment.save();
+      
+      console.log('✅ [Create VNPay URL] URL created and saved:', { orderId, paymentId });
+      
+      return {
+        paymentUrl,
+        orderId,
+        paymentId: payment._id,
+        amount
+      };
+    } catch (err) {
+      console.error('❌ [Create VNPay URL for Existing Payment] Error:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Update existing payment from VNPay callback
+   * Used when payment was created from record
+   */
+  async updateExistingPaymentFromVNPay(paymentId, callbackData) {
+    try {
+      const { orderId, status, transactionId, amount } = callbackData;
+      
+      console.log('🔄 [Update Existing Payment] Starting:', { paymentId, orderId, status });
+      
+      // Get payment from database
+      const payment = await paymentRepository.findById(paymentId);
+      if (!payment) {
+        throw new Error('Payment not found');
+      }
+      
+      console.log('📝 [Update Existing Payment] Current payment:', {
+        paymentCode: payment.paymentCode,
+        status: payment.status,
+        method: payment.method
+      });
+      
+      // Update payment based on VNPay response
+      if (status === 'success') {
+        payment.status = 'completed';
+        payment.externalTransactionId = transactionId;
+        payment.paidAmount = payment.finalAmount;
+        payment.processedAt = new Date();
+        payment.completedAt = new Date();
+        
+        // Update gateway response
+        payment.gatewayResponse = payment.gatewayResponse || {};
+        payment.gatewayResponse.responseCode = '00';
+        payment.gatewayResponse.responseMessage = 'Success';
+        payment.gatewayResponse.transactionId = transactionId;
+        payment.gatewayResponse.completedAt = new Date();
+        
+        console.log('✅ [Update Existing Payment] Payment completed successfully');
+      } else {
+        payment.status = 'failed';
+        payment.gatewayResponse = payment.gatewayResponse || {};
+        payment.gatewayResponse.responseCode = 'FAILED';
+        payment.gatewayResponse.responseMessage = 'Payment failed';
+        payment.gatewayResponse.failedAt = new Date();
+        
+        console.log('❌ [Update Existing Payment] Payment failed');
+      }
+      
+      await payment.save();
+      
+      // Clean up Redis mapping
+      const mappingKey = `payment:vnpay:${orderId}`;
+      await redisClient.del(mappingKey);
+      
+      // If payment completed and has recordId, trigger invoice creation
+      if (status === 'success' && payment.recordId) {
+        try {
+          console.log('📄 [Update Existing Payment] Triggering invoice creation for record:', payment.recordId);
+          
+          await rabbitmqClient.publishToQueue('invoice_queue', {
+            event: 'payment.success',
+            data: {
+              paymentId: payment._id.toString(),
+              paymentCode: payment.paymentCode,
+              recordId: payment.recordId.toString(),
+              appointmentId: payment.appointmentId ? payment.appointmentId.toString() : null,
+              patientId: payment.patientId ? payment.patientId.toString() : null,
+              patientInfo: payment.patientInfo,
+              method: payment.method,
+              originalAmount: payment.originalAmount,
+              discountAmount: payment.discountAmount,
+              finalAmount: payment.finalAmount,
+              paidAmount: payment.paidAmount,
+              changeAmount: payment.changeAmount || 0,
+              completedAt: payment.completedAt,
+              processedBy: payment.processedBy ? payment.processedBy.toString() : null,
+              processedByName: payment.processedByName || 'System'
+            }
+          });
+          
+          console.log('✅ [Update Existing Payment] Invoice creation event sent');
+        } catch (err) {
+          console.error('❌ [Update Existing Payment] Failed to send invoice event:', err);
+        }
+      }
+      
+      console.log('✅ [Update Existing Payment] Completed:', payment._id);
+      return payment;
+    } catch (err) {
+      console.error('❌ [Update Existing Payment] Error:', err);
+      throw err;
     }
   }
 

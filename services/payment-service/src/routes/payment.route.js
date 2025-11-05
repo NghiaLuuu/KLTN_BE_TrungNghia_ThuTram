@@ -67,6 +67,12 @@ router.post('/:originalPaymentId/refund',
   paymentController.createRefundPayment
 );
 
+// Create VNPay URL for existing payment (Staff only)
+router.post('/:id/vnpay-url',
+  roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
+  paymentController.createVNPayUrlForPayment
+);
+
 // ============ GET PAYMENT ROUTES ============
 // Get payment by ID
 router.get('/id/:id', 
@@ -99,7 +105,13 @@ router.get('/invoice/:invoiceId',
   paymentController.getInvoicePayments
 );
 
-// Get payment by recordId (for testing and staff operations)
+// Get payment by recordId (auto-creates if not exists)
+router.get('/record/:recordId', 
+  roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
+  paymentController.getPaymentByRecordId
+);
+
+// Legacy route - kept for backward compatibility
 router.get('/by-record/:recordId', 
   roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
   paymentController.getPaymentByRecordId
@@ -216,15 +228,6 @@ router.get('/stats/refunds',
   getStatisticsValidation,
   validationMiddleware.validate,
   paymentController.getRefundStatistics
-);
-
-// ============ CASH PAYMENT CONFIRMATION ROUTE ============
-// Confirm cash payment and create invoice
-router.post('/:paymentId/confirm-cash',
-  roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
-  getPaymentByIdValidation,
-  validationMiddleware.validate,
-  cashPaymentController.confirmCashPayment
 );
 
 // ============ RPC ROUTES ============

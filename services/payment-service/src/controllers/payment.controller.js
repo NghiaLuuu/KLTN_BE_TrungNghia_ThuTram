@@ -170,6 +170,46 @@ class PaymentController {
     }
   }
 
+  /**
+   * Create VNPay URL for existing payment (from record)
+   * POST /api/payments/:id/vnpay-url
+   */
+  async createVNPayUrlForPayment(req, res) {
+    try {
+      const { id } = req.params;
+      
+      console.log('🔵 [Create VNPay URL for Payment] Request:', { paymentId: id });
+      
+      // Get IP address
+      let ipAddr = req.headers['x-forwarded-for'] ||
+        req.connection.remoteAddress ||
+        req.socket.remoteAddress ||
+        '127.0.0.1';
+      
+      if (ipAddr === '::1' || ipAddr === '::ffff:127.0.0.1') {
+        ipAddr = '127.0.0.1';
+      }
+      
+      const result = await paymentService.createVNPayUrlForExistingPayment(
+        id,
+        ipAddr,
+        req.user?.role || 'patient'
+      );
+      
+      res.status(200).json({
+        success: true,
+        message: 'Tạo VNPay URL thành công',
+        data: result
+      });
+    } catch (error) {
+      console.error('❌ [Create VNPay URL for Payment] Error:', error);
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Không thể tạo VNPay URL'
+      });
+    }
+  }
+
   // ============ GET PAYMENT METHODS ============
   async getPaymentById(req, res) {
     try {
@@ -276,27 +316,52 @@ class PaymentController {
 
   /**
    * Get payment by recordId
-   * GET /api/payment/by-record/:recordId
+   * If no payment exists, automatically creates one from record
+   * GET /api/payments/record/:recordId
    */
   async getPaymentByRecordId(req, res) {
     try {
       const { recordId } = req.params;
       
-      const payments = await paymentService.getPaymentsByRecordId(recordId);
+      console.log(`🔍 [GET Payment by Record] Checking record ${recordId}`);
       
+      // First, try to get existing payment
+      let payments = await paymentService.getPaymentsByRecordId(recordId);
+      
+      // If no payment exists, create one automatically
       if (!payments || payments.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: 'Không tìm thấy thanh toán cho record này'
-        });
+        console.log(`📝 [GET Payment by Record] No payment found, creating from record ${recordId}`);
+        
+        try {
+          const newPayment = await paymentService.createPaymentFromRecord(recordId);
+          
+          console.log(`✅ [GET Payment by Record] Created payment ${newPayment.paymentCode}`);
+          
+          return res.status(201).json({
+            success: true,
+            message: 'Tạo thanh toán từ record thành công',
+            data: newPayment,
+            isNewlyCreated: true
+          });
+        } catch (createError) {
+          console.error(`❌ [GET Payment by Record] Failed to create payment:`, createError);
+          return res.status(400).json({
+            success: false,
+            message: createError.message || 'Không thể tạo thanh toán từ record'
+          });
+        }
       }
+      
+      console.log(`✅ [GET Payment by Record] Found existing payment ${payments[0].paymentCode}`);
       
       res.json({
         success: true,
         data: payments[0], // Return first payment (usually only one)
-        total: payments.length
+        total: payments.length,
+        isNewlyCreated: false
       });
     } catch (error) {
+      console.error(`❌ [GET Payment by Record] Error:`, error);
       res.status(400).json({
         success: false,
         message: error.message || 'Lỗi lấy thanh toán theo recordId'

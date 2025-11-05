@@ -474,6 +474,193 @@ async function startConsumer() {
           });
           throw error; // Will trigger RabbitMQ retry
         }
+      } else if (message.event === 'payment.success') {
+        // ✅ Handle payment success from record completion (VNPay or Cash)
+        const {
+          paymentId,
+          paymentCode,
+          recordId,
+          appointmentId,
+          patientId,
+          patientInfo,
+          method,
+          originalAmount,
+          discountAmount,
+          finalAmount,
+          paidAmount,
+          completedAt,
+          processedByName
+        } = message.data;
+
+        console.log('🔄 [Invoice Consumer] Processing payment.success:', {
+          paymentId,
+          paymentCode,
+          recordId,
+          appointmentId,
+          method,
+          finalAmount
+        });
+
+        try {
+          // Generate invoice number
+          const invoiceNumber = await generateInvoiceNumber();
+
+          // Fetch record details to get service info
+          let recordData = null;
+          let serviceDescription = 'Medical Service';
+          let dentistName = 'Dentist';
+
+          if (recordId) {
+            try {
+              const axios = require('axios');
+              const recordServiceUrl = process.env.RECORD_SERVICE_URL || 'http://localhost:3010';
+              
+              const recordResponse = await axios.get(
+                `${recordServiceUrl}/api/record/${recordId}`,
+                {
+                  headers: { 'x-internal-call': 'true' },
+                  timeout: 5000
+                }
+              );
+
+              if (recordResponse.data && recordResponse.data.success) {
+                recordData = recordResponse.data.data;
+                serviceDescription = recordData.serviceName || 'Medical Service';
+                dentistName = recordData.dentistName || 'Dentist';
+                
+                console.log('✅ [Invoice Consumer] Fetched record details:', {
+                  recordId,
+                  serviceName: serviceDescription,
+                  dentistName
+                });
+              }
+            } catch (error) {
+              console.warn('⚠️ [Invoice Consumer] Could not fetch record details:', error.message);
+            }
+          }
+
+          // Build invoice document
+          const invoiceDoc = {
+            invoiceNumber,
+            
+            // Reference IDs
+            patientId: patientId || null,
+            appointmentId: appointmentId || null,
+            recordId: recordId || null,
+            
+            // Type and Status
+            type: recordId ? 'treatment' : 'appointment',
+            status: 'paid',
+            
+            // Patient Info
+            patientInfo: {
+              name: patientInfo?.name || recordData?.patientInfo?.name || 'Patient',
+              phone: patientInfo?.phone || recordData?.patientInfo?.phone || '0000000000',
+              email: patientInfo?.email || recordData?.patientInfo?.email || null,
+              address: patientInfo?.address || recordData?.patientInfo?.address || null
+            },
+            
+            // Dentist Info
+            dentistInfo: {
+              name: dentistName,
+              specialization: null,
+              licenseNumber: null
+            },
+            
+            // Financial Info
+            subtotal: originalAmount,
+            discountInfo: {
+              type: discountAmount > 0 ? 'fixed_amount' : 'none',
+              value: discountAmount,
+              reason: discountAmount > 0 ? 'Deposit deduction' : null
+            },
+            taxInfo: {
+              taxRate: 0,
+              taxAmount: 0,
+              taxIncluded: true
+            },
+            totalAmount: finalAmount,
+            
+            // Payment Summary
+            paymentSummary: {
+              totalPaid: paidAmount || finalAmount,
+              remainingAmount: 0,
+              lastPaymentDate: completedAt || new Date(),
+              paymentMethod: method || 'vnpay',
+              paymentIds: [paymentId]
+            },
+            
+            // Dates
+            issueDate: new Date(),
+            dueDate: new Date(),
+            paidDate: completedAt || new Date(),
+            
+            // Metadata
+            notes: discountAmount > 0 ? `Original: ${originalAmount}, Discount: ${discountAmount}, Final: ${finalAmount}` : '',
+            createdBy: patientId || null,
+            createdByRole: 'system'
+          };
+
+          console.log('📝 [Invoice Consumer] Creating invoice for payment.success:', {
+            invoiceNumber,
+            patientName: invoiceDoc.patientInfo.name,
+            totalAmount: invoiceDoc.totalAmount,
+            paymentMethod: method
+          });
+
+          // Create invoice in database
+          const invoice = await invoiceRepository.createInvoice(invoiceDoc);
+
+          console.log('✅ [Invoice Consumer] Invoice created:', {
+            invoiceId: invoice._id.toString(),
+            invoiceNumber: invoice.invoiceNumber
+          });
+
+          // Create invoice detail
+          const invoiceDetailDoc = {
+            invoiceId: invoice._id,
+            serviceInfo: {
+              name: serviceDescription,
+              code: null,
+              type: 'treatment',
+              category: 'medical',
+              description: serviceDescription
+            },
+            quantity: 1,
+            unitPrice: originalAmount,
+            discount: {
+              type: discountAmount > 0 ? 'fixed_amount' : 'none',
+              value: discountAmount,
+              reason: discountAmount > 0 ? 'Deposit deduction' : null
+            },
+            subtotal: originalAmount,
+            discountAmount: discountAmount,
+            totalPrice: finalAmount,
+            scheduledDate: recordData?.appointmentDate ? new Date(recordData.appointmentDate) : new Date(),
+            completedDate: completedAt || new Date(),
+            status: 'completed',
+            description: serviceDescription,
+            notes: discountAmount > 0 ? `Deposit deducted: ${discountAmount}` : null,
+            createdBy: patientId || null
+          };
+
+          const invoiceDetail = await invoiceDetailRepository.createInvoiceDetail(invoiceDetailDoc);
+
+          console.log('✅ [Invoice Consumer] Invoice detail created:', {
+            detailId: invoiceDetail._id.toString(),
+            serviceName: serviceDescription,
+            totalPrice: finalAmount
+          });
+
+        } catch (error) {
+          console.error('❌ [Invoice Consumer] Error creating invoice for payment.success:', {
+            error: error.message,
+            paymentId,
+            recordId,
+            stack: error.stack
+          });
+          throw error; // Will trigger RabbitMQ retry
+        }
       } else {
         console.log('ℹ️ [Invoice Consumer] Unhandled event type:', message.event);
       }
