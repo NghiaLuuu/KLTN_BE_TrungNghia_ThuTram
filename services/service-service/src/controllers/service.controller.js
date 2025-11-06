@@ -109,11 +109,11 @@ exports.getServiceById = async (req, res) => {
   try {
     const service = await serviceService.getServiceById(req.params.id);
     if (!service) {
-      return res.status(404).json({ message: 'Không tìm thấy dịch vụ' });
+      return res.status(404).json({ success: false, message: 'Không tìm thấy dịch vụ' });
     }
-    res.json(service);
+    res.json({ success: true, data: service });
   } catch (err) {
-    res.status(500).json({ message: err.message || 'Lỗi server' });
+    res.status(500).json({ success: false, message: err.message || 'Lỗi server' });
   }
 };
 
@@ -121,20 +121,40 @@ exports.getServiceById = async (req, res) => {
 exports.listServices = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
-    const data = await serviceService.listServices(page, limit);
-    res.json(data);
+    const result = await serviceService.listServices(page, limit);
+    // Return services array directly in data field for consistency
+    res.json({ 
+      success: true, 
+      data: result.services,
+      pagination: {
+        total: result.total,
+        page: result.page,
+        limit: result.limit,
+        totalPages: result.totalPages
+      }
+    });
   } catch (err) {
-    res.status(500).json({ message: err.message || 'Lỗi server khi lấy danh sách dịch vụ' });
+    res.status(500).json({ success: false, message: err.message || 'Lỗi server khi lấy danh sách dịch vụ' });
   }
 };
 
 exports.searchService = async (req, res) => {
   try {
     const { q = '', page = 1, limit = 10 } = req.query;
-    const data = await serviceService.searchService(q, page, limit);
-    res.json(data);
+    const result = await serviceService.searchService(q, page, limit);
+    // Return services array directly in data field for consistency
+    res.json({ 
+      success: true, 
+      data: result.services,
+      pagination: {
+        total: result.total,
+        page: result.page,
+        limit: result.limit,
+        totalPages: result.totalPages
+      }
+    });
   } catch (err) {
-    res.status(500).json({ message: err.message || 'Lỗi server khi tìm kiếm dịch vụ' });
+    res.status(500).json({ success: false, message: err.message || 'Lỗi server khi tìm kiếm dịch vụ' });
   }
 };
 

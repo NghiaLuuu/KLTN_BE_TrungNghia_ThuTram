@@ -28,8 +28,8 @@ const createMedicineValidation = [
   
   body('description')
     .optional()
-    .isLength({ max: 500 })
-    .withMessage('Mô tả không được quá 500 ký tự')
+    .isLength({ max: 1000 })
+    .withMessage('Mô tả không được quá 1000 ký tự')
     .trim(),
   
   body('instructions')
@@ -81,8 +81,8 @@ const updateMedicineValidation = [
   
   body('description')
     .optional()
-    .isLength({ max: 500 })
-    .withMessage('Mô tả không được quá 500 ký tự')
+    .isLength({ max: 1000 })
+    .withMessage('Mô tả không được quá 1000 ký tự')
     .trim(),
   
   body('instructions')
