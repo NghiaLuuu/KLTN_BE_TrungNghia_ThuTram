@@ -205,7 +205,7 @@ const updateStatusValidation = [
   body('status')
     .notEmpty()
     .withMessage('Trạng thái là bắt buộc')
-    .isIn(['pending', 'in_progress', 'completed', 'cancelled'])
+    .isIn(['pending', 'in-progress', 'completed', 'cancelled'])
     .withMessage('Trạng thái không hợp lệ')
 ];
 
@@ -293,7 +293,7 @@ const listRecordsValidation = [
   
   query('status')
     .optional()
-    .isIn(['pending', 'in_progress', 'completed', 'cancelled'])
+    .isIn(['pending', 'in-progress', 'completed', 'cancelled'])
     .withMessage('Trạng thái không hợp lệ'),
   
   query('type')

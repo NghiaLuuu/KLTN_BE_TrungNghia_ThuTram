@@ -100,6 +100,8 @@ async function startConsumer() {
             endTime: appointmentData.endTime,
             roomId: appointmentData.roomId,
             roomName: appointmentData.roomName || '',
+            subroomId: appointmentData.subroomId || null, // ✅ FIX: Add subroom ID
+            subroomName: appointmentData.subroomName || null, // ✅ FIX: Add subroom name
             
             // Payment & Invoice info
             paymentId: paymentId,
@@ -112,6 +114,7 @@ async function startConsumer() {
             // Booking info
             bookedAt: new Date(),
             bookedBy: appointmentData.patientId || null,
+            bookedByRole: appointmentData.bookedByRole || 'patient', // ✅ FIX: Add bookedByRole
             
             // Notes
             notes: appointmentData.notes || '',
@@ -155,6 +158,73 @@ async function startConsumer() {
         } catch (error) {
           console.error('❌ Error creating appointment:', error.message);
           throw error;
+        }
+      }
+
+      // 🆕 Handle record.in-progress event
+      if (message.event === 'record.in-progress') {
+        console.log('🔥🔥🔥 [Appointment Consumer] RECEIVED record.in-progress event!');
+        const { appointmentId, recordId, recordCode, startedAt } = message.data;
+
+        console.log('🔄 [Appointment Consumer] Processing record.in-progress:', {
+          appointmentId,
+          recordId,
+          recordCode,
+          startedAt,
+          fullMessageData: JSON.stringify(message.data, null, 2)
+        });
+
+        if (!appointmentId) {
+          console.warn('⚠️⚠️⚠️ [Appointment Consumer] No appointmentId provided, skipping...');
+          return;
+        }
+
+        try {
+          console.log(`🔍 [Appointment Consumer] Fetching appointment ${appointmentId}...`);
+          // Update appointment status to in-progress
+          const appointment = await appointmentRepository.findById(appointmentId);
+          if (appointment) {
+            console.log(`📝 [Appointment Consumer] Current appointment status: ${appointment.status}`);
+            await appointmentRepository.updateStatus(appointmentId, 'in-progress');
+            console.log(`✅✅✅ Updated appointment ${appointmentId} status to in-progress`);
+          } else {
+            console.warn(`⚠️⚠️⚠️ Appointment ${appointmentId} not found`);
+          }
+        } catch (error) {
+          console.error('❌❌❌ Error updating appointment status to in-progress:', error.message);
+          console.error('❌ Error stack:', error.stack);
+          // Don't throw - record already updated
+        }
+      }
+
+      // 🆕 Handle record.completed event
+      if (message.event === 'record.completed') {
+        const { appointmentId, recordId, recordCode, completedAt } = message.data;
+
+        console.log('🔄 [Appointment Consumer] Processing record.completed:', {
+          appointmentId,
+          recordId,
+          recordCode,
+          completedAt
+        });
+
+        if (!appointmentId) {
+          console.warn('⚠️ [Appointment Consumer] No appointmentId provided, skipping...');
+          return;
+        }
+
+        try {
+          // Update appointment status to completed
+          const appointment = await appointmentRepository.findById(appointmentId);
+          if (appointment) {
+            await appointmentRepository.updateStatus(appointmentId, 'completed');
+            console.log(`✅ Updated appointment ${appointmentId} status to completed`);
+          } else {
+            console.warn(`⚠️ Appointment ${appointmentId} not found`);
+          }
+        } catch (error) {
+          console.error('❌ Error updating appointment status to completed:', error.message);
+          // Don't throw - record already updated
         }
       }
     });

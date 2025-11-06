@@ -31,10 +31,10 @@ class RecordRepository {
     if (filters.nurseId) {
       try {
         const axios = require('axios');
-        const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3008';
+        const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
         
         // Get appointments where nurse is assigned
-        const response = await axios.get(`${APPOINTMENT_SERVICE_URL}/api/appointment`, {
+        const response = await axios.get(`${APPOINTMENT_SERVICE_URL}/api/appointments`, {
           params: { nurseId: filters.nurseId }
         });
 
@@ -86,6 +86,70 @@ class RecordRepository {
       .sort({ createdAt: -1 });
     
     console.log('📊 [REPO] Found records:', results.length);
+    console.log('🔍 [DEBUG] About to populate appointment times...');
+    
+    // 🕐 Populate appointment times (startTime & endTime)
+    if (results.length > 0) {
+      console.log('🔍 [DEBUG] results.length > 0, proceeding...');
+      try {
+        const axios = require('axios');
+        const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
+        
+        // Get unique appointmentIds
+        const appointmentIds = results
+          .filter(r => r.appointmentId)
+          .map(r => r.appointmentId.toString())
+          .filter((id, index, self) => self.indexOf(id) === index); // unique
+        
+        if (appointmentIds.length > 0) {
+          console.log('🕐 Fetching appointment times for', appointmentIds.length, 'appointments');
+          console.log('🕐 Appointment IDs:', appointmentIds);
+          console.log('🕐 URL:', `${APPOINTMENT_SERVICE_URL}/api/appointment/by-ids`);
+          
+          // Fetch appointments in bulk
+          const response = await axios.get(`${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids`, {
+            params: { ids: appointmentIds.join(',') }
+          });
+          
+          console.log('🕐 Response status:', response.status);
+          console.log('🕐 Response data:', JSON.stringify(response.data, null, 2));
+          
+          if (response.data.success && response.data.data) {
+            const appointmentsMap = {};
+            response.data.data.forEach(apt => {
+              appointmentsMap[apt._id.toString()] = {
+                startTime: apt.startTime,
+                endTime: apt.endTime
+              };
+            });
+            
+            console.log('🕐 Appointments map:', JSON.stringify(appointmentsMap, null, 2));
+            
+            // Add times to records
+            results.forEach(record => {
+              if (record.appointmentId) {
+                const aptTime = appointmentsMap[record.appointmentId.toString()];
+                if (aptTime) {
+                  record._doc.appointmentStartTime = aptTime.startTime;
+                  record._doc.appointmentEndTime = aptTime.endTime;
+                  console.log(`✅ Added times to record ${record.recordCode}: ${aptTime.startTime} - ${aptTime.endTime}`);
+                }
+              }
+            });
+            
+            console.log('✅ Added appointment times to records');
+          }
+        } else {
+          console.log('ℹ️ No records with appointmentId found');
+        }
+      } catch (error) {
+        console.error('⚠️ Failed to fetch appointment times:', error.message);
+        if (error.response) {
+          console.error('⚠️ Error response:', error.response.status, error.response.data);
+        }
+        // Don't throw - just continue without times
+      }
+    }
     
     return results;
   }
@@ -151,7 +215,7 @@ class RecordRepository {
       lastModifiedBy: modifiedBy
     };
 
-    if (status === 'in_progress') {
+    if (status === 'in-progress') {
       updatePayload.startedAt = new Date();
     }
 

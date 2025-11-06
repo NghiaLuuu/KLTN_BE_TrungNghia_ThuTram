@@ -151,6 +151,26 @@ class AppointmentService {
       slots.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
       
       const firstSlot = slots[0]; // Use first slot from sorted array
+      
+      // 🔧 Extract roomId and subRoomId (handle both populated and non-populated cases)
+      // When populated: roomId/subRoomId are objects { _id, name }
+      // When not populated: roomId/subRoomId are strings (ObjectId)
+      const extractId = (field) => {
+        if (!field) return null;
+        return typeof field === 'object' && field._id ? field._id.toString() : field.toString();
+      };
+      
+      const roomId = extractId(firstSlot.roomId);
+      const subRoomId = extractId(firstSlot.subRoomId);
+      
+      console.log('🔍 [reserveAppointment] firstSlot data:', JSON.stringify({
+        _id: firstSlot._id,
+        roomId: roomId,
+        subRoomId: subRoomId,
+        status: firstSlot.status,
+        startTime: firstSlot.startTime
+      }, null, 2));
+      
       const startTime = this.formatTime(firstSlot.startTime);
       const endTime = this.formatTime(slots[slots.length - 1].endTime);
       
@@ -158,10 +178,8 @@ class AppointmentService {
       const totalDepositAmount = depositAmount * slotIds.length;
       
       // 🏠 Fetch room/subroom names from room-service
-      const roomInfo = await this.getRoomInfo(
-        firstSlot.roomId,
-        firstSlot.subRoomId || null
-      );
+      const roomInfo = await this.getRoomInfo(roomId, subRoomId);
+      console.log('🔍 [reserveAppointment] roomInfo result:', JSON.stringify(roomInfo, null, 2));
       
       const reservation = {
         reservationId, patientId, patientInfo,
@@ -172,15 +190,23 @@ class AppointmentService {
         servicePrice: serviceInfo.servicePrice,
         dentistId, dentistName: dentistInfo.name,
         slotIds, appointmentDate: date, startTime, endTime,
-        roomId: firstSlot.roomId, 
+        roomId: roomId, 
         roomName: roomInfo.roomName,
-        subroomId: firstSlot.subRoomId || null,
+        subroomId: subRoomId || null,
         subroomName: roomInfo.subroomName,
         notes: notes || '',
         bookedBy: currentUser._id, bookedByRole: currentUser.role,
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + 15 * 60 * 1000)
       };
+      
+      console.log('🔍 [reserveAppointment] reservation object:', JSON.stringify({
+        reservationId: reservation.reservationId,
+        roomId: reservation.roomId,
+        roomName: reservation.roomName,
+        subroomId: reservation.subroomId,
+        subroomName: reservation.subroomName
+      }, null, 2));
       
       // 2️⃣ Lock slots in DB (set status='locked')
       try {
@@ -424,6 +450,15 @@ class AppointmentService {
       }
       
       const reservation = JSON.parse(reservationStr);
+      
+      console.log('🔍 [createAppointmentFromPayment] reservation from Redis:', JSON.stringify({
+        reservationId: reservation.reservationId,
+        roomId: reservation.roomId,
+        roomName: reservation.roomName,
+        subroomId: reservation.subroomId,
+        subroomName: reservation.subroomName
+      }, null, 2));
+      
       const appointmentDate = new Date(reservation.appointmentDate);
       const appointmentCode = await Appointment.generateAppointmentCode(appointmentDate);
       
@@ -457,7 +492,23 @@ class AppointmentService {
         notes: reservation.notes
       });
       
+      console.log('🔍 [createAppointmentFromPayment] appointment before save:', JSON.stringify({
+        appointmentCode: appointment.appointmentCode,
+        roomId: appointment.roomId,
+        roomName: appointment.roomName,
+        subroomId: appointment.subroomId,
+        subroomName: appointment.subroomName
+      }, null, 2));
+      
       await appointment.save();
+      
+      console.log('🔍 [createAppointmentFromPayment] appointment after save:', JSON.stringify({
+        appointmentCode: appointment.appointmentCode,
+        roomId: appointment.roomId,
+        roomName: appointment.roomName,
+        subroomId: appointment.subroomId,
+        subroomName: appointment.subroomName
+      }, null, 2));
       
       await serviceClient.bulkUpdateSlots(reservation.slotIds, {
         status: 'booked',
@@ -565,15 +616,33 @@ class AppointmentService {
   appointment.checkedInBy = userId;
     await appointment.save();
     
-    // 🔥 Emit realtime queue update
+    // 🔥 Emit realtime appointment checked-in event (Socket.IO)
     try {
       const io = getIO();
       if (io) {
+        // Emit to specific room queue
+        const roomKey = `queue_${appointment.roomId}`;
+        io.to(roomKey).emit('appointment:checked-in', {
+          appointmentId: appointment._id.toString(),
+          appointmentCode: appointment.appointmentCode,
+          patientName: appointment.patientInfo?.name || 'N/A',
+          patientPhone: appointment.patientInfo?.phone,
+          roomId: appointment.roomId.toString(),
+          roomName: appointment.roomName,
+          startTime: appointment.startTime,
+          endTime: appointment.endTime,
+          status: 'checked-in',
+          checkedInAt: appointment.checkedInAt,
+          timestamp: new Date()
+        });
+        
+        // Also emit generic queue_updated for backward compatibility
         io.emit('queue_updated', {
           roomId: appointment.roomId.toString(),
           timestamp: new Date()
         });
-        console.log(`📡 Emitted queue_updated for room ${appointment.roomName || appointment.roomId}`);
+        
+        console.log(`📡 Emitted appointment:checked-in for ${appointment.appointmentCode} to room ${roomKey}`);
       }
     } catch (socketError) {
       console.warn('⚠️ Socket emit failed:', socketError.message);
@@ -584,7 +653,7 @@ class AppointmentService {
     // 🔥 Publish event to record-service to auto-create record
     try {
       await publishToQueue('record_queue', {
-        event: 'appointment_checked_in',
+        event: 'appointment_checked-in',
         data: {
           appointmentId: appointment._id.toString(),
           appointmentCode: appointment.appointmentCode,
@@ -610,9 +679,9 @@ class AppointmentService {
           checkedInBy: userId.toString()
         }
       });
-      console.log(`✅ Published appointment_checked_in event for appointment ${appointment.appointmentCode}`);
+      console.log(`✅ Published appointment_checked-in event for appointment ${appointment.appointmentCode}`);
     } catch (publishError) {
-      console.error('❌ Failed to publish appointment_checked_in event:', publishError);
+      console.error('❌ Failed to publish appointment_checked-in event:', publishError);
       // Don't throw error - appointment check-in still successful
     }
     
@@ -640,7 +709,37 @@ class AppointmentService {
     
     await appointment.save();
     
-    // 🔥 Publish appointment.completed event
+    // 🔥 Emit realtime appointment completed event (Socket.IO)
+    try {
+      const io = getIO();
+      if (io) {
+        const roomKey = `queue_${appointment.roomId}`;
+        io.to(roomKey).emit('appointment:completed', {
+          appointmentId: appointment._id.toString(),
+          appointmentCode: appointment.appointmentCode,
+          patientName: appointment.patientInfo?.name || 'N/A',
+          patientPhone: appointment.patientInfo?.phone,
+          roomId: appointment.roomId.toString(),
+          roomName: appointment.roomName,
+          status: 'completed',
+          completedAt: appointment.completedAt,
+          actualDuration: appointment.actualDuration,
+          timestamp: new Date()
+        });
+        
+        // Also emit generic queue_updated
+        io.emit('queue_updated', {
+          roomId: appointment.roomId.toString(),
+          timestamp: new Date()
+        });
+        
+        console.log(`📡 Emitted appointment:completed for ${appointment.appointmentCode} to room ${roomKey}`);
+      }
+    } catch (socketError) {
+      console.warn('⚠️ Socket emit failed:', socketError.message);
+    }
+    
+    // 🔥 Publish appointment.completed event (RabbitMQ for other services)
     try {
       await publishToQueue('appointment_queue', {
         event: 'appointment.completed',
@@ -727,6 +826,16 @@ class AppointmentService {
       // Sort slots by time
       slots.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
       const firstSlot = slots[0];
+      
+      // 🔧 Extract roomId and subRoomId (handle both populated and non-populated cases)
+      const extractId = (field) => {
+        if (!field) return null;
+        return typeof field === 'object' && field._id ? field._id.toString() : field.toString();
+      };
+      
+      const roomId = extractId(firstSlot.roomId);
+      const subRoomId = extractId(firstSlot.subRoomId);
+      
       const startTime = this.formatTime(slots[0].startTime);
       const endTime = this.formatTime(slots[slots.length - 1].endTime);
       
@@ -735,10 +844,7 @@ class AppointmentService {
       const appointmentCode = await Appointment.generateAppointmentCode(appointmentDate);
       
       // 🏠 Fetch room/subroom names from room-service
-      const roomInfo = await this.getRoomInfo(
-        firstSlot.roomId,
-        firstSlot.subRoomId || null
-      );
+      const roomInfo = await this.getRoomInfo(roomId, subRoomId);
       
       // Create appointment directly (no payment required for offline booking)
       const appointment = new Appointment({
@@ -758,9 +864,9 @@ class AppointmentService {
         appointmentDate,
         startTime,
         endTime,
-        roomId: firstSlot.roomId,
+        roomId: roomId,
         roomName: roomInfo.roomName,
-        subroomId: firstSlot.subRoomId || null,
+        subroomId: subRoomId || null,
         subroomName: roomInfo.subroomName,
         paymentId: null, // Will be created later if needed
         totalAmount: serviceInfo.servicePrice,
@@ -1157,7 +1263,7 @@ class AppointmentService {
     }
   }
 
-  // 🆕 GET APPOINTMENTS BY IDS (for schedule-service to get patient info for email)
+  // 🆕 GET APPOINTMENTS BY IDS (for schedule-service to get patient info for email, and record-service for times)
   async getAppointmentsByIds(appointmentIds) {
     try {
       if (!Array.isArray(appointmentIds) || appointmentIds.length === 0) {
@@ -1166,7 +1272,7 @@ class AppointmentService {
 
       const appointments = await Appointment.find({
         _id: { $in: appointmentIds }
-      }).select('_id patientId patientInfo appointmentCode status paymentId invoiceId cancelledAt');
+      }).select('_id patientId patientInfo appointmentCode status paymentId invoiceId cancelledAt startTime endTime');
 
       return appointments.map(apt => ({
         _id: apt._id,
@@ -1176,7 +1282,9 @@ class AppointmentService {
         status: apt.status,
         paymentId: apt.paymentId,
         invoiceId: apt.invoiceId,
-        cancelledAt: apt.cancelledAt
+        cancelledAt: apt.cancelledAt,
+        startTime: apt.startTime,
+        endTime: apt.endTime
       }));
     } catch (error) {
       console.error('❌ Error getting appointments by IDs:', error);

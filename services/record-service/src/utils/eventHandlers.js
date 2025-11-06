@@ -2,7 +2,7 @@ const Record = require('../models/record.model');
 const { publishToQueue } = require('./rabbitmq.client');
 
 /**
- * Handle appointment_checked_in event
+ * Handle appointment_checked-in event
  * Auto-create record when appointment is checked in
  */
 async function handleAppointmentCheckedIn(eventData) {

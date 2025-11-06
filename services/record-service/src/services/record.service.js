@@ -213,7 +213,7 @@ class RecordService {
       throw new Error('Record ID is required');
     }
 
-    if (!['pending', 'in_progress', 'completed', 'cancelled'].includes(status)) {
+    if (!['pending', 'in-progress', 'completed', 'cancelled'].includes(status)) {
       throw new Error('Trạng thái không hợp lệ');
     }
 
@@ -235,7 +235,17 @@ class RecordService {
 
     // 🔥 Publish events and update appointment based on status
     try {
-      if (status === 'in_progress') {
+      if (status === 'in-progress') {
+        console.log('🔥🔥🔥 [Record Service] About to publish record.in-progress event');
+        console.log('📋 Event data:', {
+          recordId: record._id.toString(),
+          recordCode: record.recordCode,
+          appointmentId: record.appointmentId ? record.appointmentId.toString() : null,
+          patientId: record.patientId ? record.patientId.toString() : null,
+          dentistId: record.dentistId.toString(),
+          startedAt: record.startedAt
+        });
+        
         // Emit record.in-progress event
         await publishToQueue('appointment_queue', {
           event: 'record.in-progress',
@@ -249,7 +259,7 @@ class RecordService {
             modifiedBy: modifiedBy ? modifiedBy.toString() : null
           }
         });
-        console.log(`✅ Published record.in-progress event for record ${record.recordCode}`);
+        console.log(`✅✅✅ Published record.in-progress event for record ${record.recordCode} with appointmentId: ${record.appointmentId}`);
       } else if (status === 'completed') {
         // Emit record.completed event
         await publishToQueue('appointment_queue', {

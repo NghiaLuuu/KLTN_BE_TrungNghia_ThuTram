@@ -133,6 +133,9 @@ class AppointmentRepository {
       case 'checked-in':
         updateData.checkedInAt = new Date();
         break;
+      case 'in-progress':
+        updateData.startedAt = new Date();
+        break;
       case 'cancelled':
         updateData.cancelledAt = new Date();
         break;

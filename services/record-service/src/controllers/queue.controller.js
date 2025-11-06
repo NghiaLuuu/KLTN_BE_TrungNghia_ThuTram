@@ -45,7 +45,7 @@ class QueueController {
   }
 
   /**
-   * Call a record - assign queue number and update status to in_progress
+   * Call a record - assign queue number and update status to in-progress
    * POST /api/record/:recordId/call
    */
   async callRecord(req, res) {

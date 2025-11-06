@@ -42,7 +42,7 @@ class QueueService {
   }
 
   /**
-   * Call a record - assign queue number and update status to in_progress
+   * Call a record - assign queue number and update status to in-progress
    * @param {String} recordId - Record ID
    * @param {String} userId - User ID who calls the record
    * @returns {Object} Updated record
@@ -66,7 +66,7 @@ class QueueService {
 
     // Update record
     const updatedRecord = await recordRepo.update(recordId, {
-      status: 'in_progress',
+      status: 'in-progress',
       queueNumber,
       startedAt: new Date(),
       lastModifiedBy: userId
@@ -99,7 +99,7 @@ class QueueService {
       throw new Error('Record không tồn tại');
     }
 
-    if (record.status !== 'in_progress') {
+    if (record.status !== 'in-progress') {
       throw new Error(`Record đang ở trạng thái ${record.status}, không thể hoàn thành`);
     }
 
@@ -159,7 +159,7 @@ class QueueService {
       throw new Error('Record không tồn tại');
     }
 
-    if (!['pending', 'in_progress'].includes(record.status)) {
+    if (!['pending', 'in-progress'].includes(record.status)) {
       throw new Error(`Record đang ở trạng thái ${record.status}, không thể hủy`);
     }
 
@@ -203,26 +203,94 @@ class QueueService {
       roomId
     };
 
-    // Current record (in_progress)
+    // Current record (in-progress)
     const current = await recordRepo.findOne({
       ...query,
-      status: 'in_progress'
+      status: 'in-progress'
     });
 
-    // Pending records (ordered by priority and created time)
-    const pending = await recordRepo.findAll({
+    // Get ALL appointments for the day (sorted by slot startTime)
+    const allRecords = await recordRepo.findAll({
       ...query,
-      status: 'pending'
+      status: { $in: ['pending', 'in-progress', 'completed', 'cancelled'] }
     }, {
-      sort: { priority: -1, createdAt: 1 },
-      limit: 5
+      sort: { 'appointmentInfo.startTime': 1, createdAt: 1 }
     });
+
+    // Filter pending only for next
+    const pending = allRecords.filter(r => r.status === 'pending');
+
+    // Generate time slots with gaps
+    const timeSlots = this._generateTimeSlots(allRecords);
 
     return {
       current: current || null,
       next: pending.length > 0 ? pending[0] : null,
-      upcoming: pending.slice(1)
+      upcoming: pending.slice(1), // Keep for backward compatibility
+      allAppointments: allRecords || [],
+      timeSlots: timeSlots || [],
+      summary: {
+        total: allRecords.length,
+        pending: allRecords.filter(a => a.status === 'pending').length,
+        inProgress: allRecords.filter(a => a.status === 'in-progress').length,
+        completed: allRecords.filter(a => a.status === 'completed').length,
+        cancelled: allRecords.filter(a => a.status === 'cancelled').length
+      }
     };
+  }
+
+  /**
+   * Generate time slots showing appointments and gaps
+   * @private
+   */
+  _generateTimeSlots(records) {
+    if (!records || records.length === 0) return [];
+
+    const slots = [];
+    
+    // Filter and sort by start time
+    const sorted = records
+      .filter(rec => rec.appointmentInfo && rec.appointmentInfo.startTime)
+      .sort((a, b) => {
+        const timeA = new Date(a.appointmentInfo.startTime);
+        const timeB = new Date(b.appointmentInfo.startTime);
+        return timeA - timeB;
+      });
+
+    for (let i = 0; i < sorted.length; i++) {
+      const current = sorted[i];
+      const next = sorted[i + 1];
+
+      // Add current appointment slot
+      slots.push({
+        type: 'appointment',
+        recordId: current._id,
+        patientName: current.patientInfo?.name || 'N/A',
+        patientPhone: current.patientInfo?.phone,
+        startTime: current.appointmentInfo.startTime,
+        endTime: current.appointmentInfo.endTime,
+        status: current.status,
+        queueNumber: current.queueNumber
+      });
+
+      // Check for gap between current and next appointment
+      if (next) {
+        const currentEnd = new Date(current.appointmentInfo.endTime);
+        const nextStart = new Date(next.appointmentInfo.startTime);
+        
+        // If there's a gap (more than 1 minute)
+        if ((nextStart - currentEnd) > 60000) {
+          slots.push({
+            type: 'gap',
+            startTime: currentEnd.toISOString(),
+            endTime: nextStart.toISOString(),
+            durationMinutes: Math.round((nextStart - currentEnd) / 60000)
+          });
+        }
+      }
+    }
+
+    return slots;
   }
 }
 

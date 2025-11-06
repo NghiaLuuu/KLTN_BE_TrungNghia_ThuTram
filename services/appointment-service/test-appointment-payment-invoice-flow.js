@@ -7,7 +7,7 @@
  * 1. Staff creates walk-in appointment (offline)
  * 2. System auto-checks-in appointment
  * 3. Record auto-created with status=pending
- * 4. Staff starts treatment (record.status=in_progress)
+ * 4. Staff starts treatment (record.status=in-progress)
  * 5. Appointment.status updates to in-progress
  * 6. Staff completes record (totalCost set)
  * 7. Payment created with finalAmount (no deposit for walk-in)
@@ -181,7 +181,7 @@ async function runTest() {
       'PUT',
       `${RECORD_SERVICE}/api/record/${recordId}`,
       {
-        status: 'in_progress',
+        status: 'in-progress',
         diagnosis: 'Test diagnosis',
         treatmentPlan: 'Test treatment plan'
       },

@@ -187,7 +187,7 @@ const InvoiceDetailSchema = new Schema({
   completedDate: Date,
   status: {
     type: String,
-    enum: ['scheduled', 'in_progress', 'completed', 'cancelled', 'postponed'],
+    enum: ['scheduled', 'in-progress', 'completed', 'cancelled', 'postponed'],
     default: 'scheduled'
   },
   
@@ -282,7 +282,7 @@ InvoiceDetailSchema.methods.canBeModified = function() {
 };
 
 InvoiceDetailSchema.methods.canBeCancelled = function() {
-  return ['scheduled', 'postponed', 'in_progress'].includes(this.status);
+  return ['scheduled', 'postponed', 'in-progress'].includes(this.status);
 };
 
 // Static methods

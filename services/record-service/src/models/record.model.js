@@ -295,13 +295,11 @@ const recordSchema = new mongoose.Schema({
 
   prescription: prescriptionSchema,
 
-  status: { 
-    type: String, 
-    enum: ["pending", "in_progress", "completed", "cancelled"], 
-    default: "pending" 
-  },
-
-  priority: {
+  status: {
+    type: String,
+    enum: ["pending", "in-progress", "completed", "cancelled"], 
+    default: "pending"
+  },  priority: {
     type: String,
     enum: ["low", "normal", "high", "urgent"],
     default: "normal"
@@ -332,7 +330,7 @@ const recordSchema = new mongoose.Schema({
   },
   
   startedAt: {
-    type: Date // Timestamp when status changed to in_progress (when Call button pressed)
+    type: Date // Timestamp when status changed to in-progress (when Call button pressed)
   },
   
   completedAt: {
