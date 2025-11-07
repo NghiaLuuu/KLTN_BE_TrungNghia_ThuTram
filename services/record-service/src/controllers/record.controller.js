@@ -507,6 +507,31 @@ class RecordController {
       });
     }
   }
+
+  /**
+   * Get payment info for record (preview before completing)
+   * Fetches appointment and invoice data to calculate deposit
+   */
+  async getPaymentInfo(req, res) {
+    try {
+      const { id } = req.params; // ✅ Changed from recordId to id
+      console.log(`🔍 [getPaymentInfo] Fetching payment info for record: ${id}`);
+
+      const paymentInfo = await recordService.getPaymentInfo(id);
+      
+      res.json({
+        success: true,
+        message: 'Lấy thông tin thanh toán thành công',
+        data: paymentInfo
+      });
+    } catch (error) {
+      console.error('❌ [getPaymentInfo] Error:', error);
+      res.status(400).json({ 
+        success: false,
+        message: error.message 
+      });
+    }
+  }
 }
 
 module.exports = new RecordController();

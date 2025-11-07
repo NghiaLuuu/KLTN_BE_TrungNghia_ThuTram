@@ -60,6 +60,15 @@ router.post('/:recordId/complete',
   queueController.completeRecord
 );
 
+// Get payment info for record (preview before completing)
+router.get('/:id/payment-info',
+  authenticate,
+  authorize(['dentist', 'admin', 'manager', 'nurse', 'receptionist']),
+  recordIdValidation,
+  validate,
+  recordController.getPaymentInfo
+);
+
 // Cancel a record
 router.post('/:recordId/cancel',
   authenticate,

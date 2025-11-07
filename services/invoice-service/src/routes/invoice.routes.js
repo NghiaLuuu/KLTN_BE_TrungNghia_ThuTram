@@ -10,6 +10,9 @@ router.get("/health", invoiceController.healthCheck);
 // Internal service-to-service endpoint (no auth required)
 router.get("/by-payment/:paymentId", invoiceController.getInvoiceByPaymentId);
 
+// Internal service-to-service endpoint for getting invoice by ID (no auth required)
+router.get("/internal/:id", invoiceController.getInvoiceById);
+
 // ============ PROTECTED ROUTES ============
 // Apply authentication to all routes below
 router.use(authMiddleware.authenticate);

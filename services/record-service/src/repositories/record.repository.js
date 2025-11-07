@@ -119,7 +119,10 @@ class RecordRepository {
             response.data.data.forEach(apt => {
               appointmentsMap[apt._id.toString()] = {
                 startTime: apt.startTime,
-                endTime: apt.endTime
+                endTime: apt.endTime,
+                bookingChannel: apt.bookingChannel, // online or walk-in
+                deposit: apt.deposit || 0, // Tiền cọc (nếu có)
+                paymentStatus: apt.paymentStatus // pending, paid, etc.
               };
             });
             
@@ -128,11 +131,18 @@ class RecordRepository {
             // Add times to records
             results.forEach(record => {
               if (record.appointmentId) {
-                const aptTime = appointmentsMap[record.appointmentId.toString()];
-                if (aptTime) {
-                  record._doc.appointmentStartTime = aptTime.startTime;
-                  record._doc.appointmentEndTime = aptTime.endTime;
-                  console.log(`✅ Added times to record ${record.recordCode}: ${aptTime.startTime} - ${aptTime.endTime}`);
+                const aptData = appointmentsMap[record.appointmentId.toString()];
+                if (aptData) {
+                  record._doc.appointmentStartTime = aptData.startTime;
+                  record._doc.appointmentEndTime = aptData.endTime;
+                  record._doc.appointmentBookingChannel = aptData.bookingChannel;
+                  record._doc.appointmentDeposit = aptData.deposit;
+                  record._doc.appointmentPaymentStatus = aptData.paymentStatus;
+                  console.log(`✅ Added appointment data to record ${record.recordCode}:`, {
+                    time: `${aptData.startTime} - ${aptData.endTime}`,
+                    channel: aptData.bookingChannel,
+                    deposit: aptData.deposit
+                  });
                 }
               }
             });

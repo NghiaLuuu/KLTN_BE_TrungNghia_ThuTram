@@ -1,4 +1,5 @@
 const recordRepo = require("../repositories/record.repository");
+const recordService = require('./record.service');
 const redis = require('../utils/redis.client');
 const { emitRecordStatusChange, emitQueueUpdate, emitRecordUpdate } = require('../utils/socket');
 
@@ -103,37 +104,41 @@ class QueueService {
       throw new Error(`Record đang ở trạng thái ${record.status}, không thể hoàn thành`);
     }
 
-    // Update record status
-    const updatedRecord = await recordRepo.update(recordId, {
-      status: 'completed',
-      completedAt: new Date(),
-      lastModifiedBy: userId
-    });
+    // Use record service to handle validations + publish domain events
+    const completedRecord = await recordService.completeRecord(recordId, userId);
 
-    // Emit Socket.IO event
-    emitRecordStatusChange(updatedRecord);
+    // Emit Socket.IO event for real-time UI updates
+    emitRecordStatusChange(completedRecord);
     emitQueueUpdate(
       record.roomId.toString(),
       new Date(record.date).toISOString().split('T')[0],
-      `Hoàn thành: ${updatedRecord.patientInfo?.name || 'Bệnh nhân'}`
+      `Hoàn thành: ${completedRecord.patientInfo?.name || 'Bệnh nhân'}`
     );
 
-    // Calculate total amount from record
-    // TODO: Get actual service prices from service/appointment
-    const totalAmount = record.totalCost || 0;
+    let paymentInfo = null;
+    try {
+      paymentInfo = await recordService.getPaymentInfo(recordId);
+    } catch (infoError) {
+      console.error('⚠️ [QueueService.completeRecord] Failed to fetch payment info:', infoError.message);
+    }
 
-    // Create payment (pending status)
-    // Payment creation will be handled by payment-service via API call
-    // Return record data for payment creation
+    const totalAmount = paymentInfo?.totalCost ?? completedRecord.totalCost ?? 0;
+    const depositAmount = paymentInfo?.depositAmount ?? 0;
+    const finalAmount = paymentInfo?.finalAmount ?? Math.max(0, totalAmount - depositAmount);
+
     const paymentData = {
-      recordId: record._id,
-      appointmentId: record.appointmentId,
-      patientId: record.patientId,
-      patientInfo: record.patientInfo,
+      recordId: completedRecord._id,
+      appointmentId: completedRecord.appointmentId,
+      patientId: completedRecord.patientId,
+      patientInfo: completedRecord.patientInfo,
       totalAmount,
+      depositAmount,
+      finalAmount,
       type: 'payment',
       status: 'pending',
-      processedBy: userId
+      processedBy: userId,
+      hasDeposit: paymentInfo?.hasDeposit ?? depositAmount > 0,
+      bookingChannel: paymentInfo?.bookingChannel || null
     };
 
     // Clear cache
@@ -141,8 +146,9 @@ class QueueService {
     await redis.del(`queue:*`);
 
     return {
-      record: updatedRecord,
-      paymentData
+      record: completedRecord,
+      paymentData,
+      paymentInfo
     };
   }
 

@@ -932,10 +932,23 @@ class PaymentController {
         });
       }
 
+      const user = req.user || {};
+      const processedBy = {
+        _id: user.userId || user._id || user.id || user.toString?.() || null,
+        fullName: user.fullName || user.name || user.username || user.email || 'Staff'
+      };
+
+      if (!processedBy._id) {
+        return res.status(401).json({
+          success: false,
+          message: 'Không xác định được người xác nhận thanh toán'
+        });
+      }
+
       const payment = await paymentService.confirmCashPayment(
         id,
         { paidAmount, notes },
-        req.user
+        processedBy
       );
 
       res.status(200).json({

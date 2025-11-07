@@ -81,8 +81,8 @@ const cardInfoSchema = new Schema({
 const paymentSchema = new Schema({
   paymentCode: {
     type: String,
-    unique: true,
-    required: true
+    unique: true
+    // ⚠️ Don't set required: true - it will be auto-generated in pre-save hook
   },
   
   // Reference information
@@ -138,7 +138,8 @@ const paymentSchema = new Schema({
   method: {
     type: String,
     enum: Object.values(PaymentMethod),
-    required: true
+    required: false,
+    default: null // ✅ Allow null - Receptionist will choose method later
   },
   status: {
     type: String,
@@ -151,6 +152,12 @@ const paymentSchema = new Schema({
     type: Number,
     required: true,
     min: 0
+  },
+  depositAmount: {
+    type: Number,
+    min: 0,
+    default: 0,
+    comment: 'Số tiền cọc từ đặt lịch online (nếu có)'
   },
   discountAmount: {
     type: Number,
@@ -165,7 +172,8 @@ const paymentSchema = new Schema({
   finalAmount: {
     type: Number,
     required: true,
-    min: 0
+    min: 0,
+    comment: 'Số tiền phải thanh toán = originalAmount - depositAmount - discountAmount + taxAmount'
   },
   paidAmount: {
     type: Number,
@@ -318,7 +326,7 @@ paymentSchema.pre('save', async function(next) {
   
   // Calculate final amount if not set
   if (!this.finalAmount && this.originalAmount !== undefined) {
-    this.finalAmount = this.originalAmount - this.discountAmount + this.taxAmount;
+    this.finalAmount = this.originalAmount - this.depositAmount - this.discountAmount + this.taxAmount;
   }
   
   next();

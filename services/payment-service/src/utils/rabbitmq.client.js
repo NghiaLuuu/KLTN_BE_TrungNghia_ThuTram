@@ -37,6 +37,12 @@ function getChannel() {
  */
 async function publishToQueue(queueName, message) {
   try {
+    // Check if channel is initialized
+    if (!channel) {
+      console.warn(`⚠️ RabbitMQ channel not initialized, skipping publish to ${queueName}`);
+      return;
+    }
+
     const ch = getChannel();
     
     // ✅ FIXED: Don't delete queue - just assert it exists
@@ -49,7 +55,7 @@ async function publishToQueue(queueName, message) {
     console.log(`📤 Event sent to ${queueName}`);
   } catch (error) {
     console.error(`❌ Failed to publish to ${queueName}:`, error.message);
-    throw error;
+    // Don't throw - let the caller handle it
   }
 }
 

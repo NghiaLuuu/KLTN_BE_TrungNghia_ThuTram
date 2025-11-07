@@ -1438,37 +1438,39 @@ class PaymentService {
 
       console.log(`✅ Cash payment confirmed: ${payment.paymentCode}`);
 
-      // Publish payment.success event to invoice-service
-      try {
-        await rabbitmqClient.publishToQueue('invoice_queue', {
-          event: 'payment.success',
-          data: {
-            paymentId: payment._id.toString(),
-            paymentCode: payment.paymentCode,
-            recordId: payment.recordId ? payment.recordId.toString() : null,
-            appointmentId: payment.appointmentId ? payment.appointmentId.toString() : null,
-            patientId: payment.patientId ? payment.patientId.toString() : null,
-            patientInfo: payment.patientInfo,
-            method: payment.method,
-            originalAmount: payment.originalAmount,
-            discountAmount: payment.discountAmount,
-            finalAmount: payment.finalAmount,
-            paidAmount: payment.paidAmount,
-            changeAmount: payment.changeAmount,
-            completedAt: payment.completedAt,
-            processedBy: payment.processedBy.toString(),
-            processedByName: payment.processedByName
-          }
-        });
-        console.log(`✅ Published payment.success for ${payment.paymentCode}`);
-      } catch (publishError) {
-        console.error('❌ Failed to publish payment.success:', publishError);
-        // Don't fail - payment is already confirmed
-      }
+      // Publish payment.success event to invoice-service (non-blocking)
+      setImmediate(async () => {
+        try {
+          await rabbitmqClient.publishToQueue('invoice_queue', {
+            event: 'payment.success',
+            data: {
+              paymentId: payment._id.toString(),
+              paymentCode: payment.paymentCode,
+              recordId: payment.recordId ? payment.recordId.toString() : null,
+              appointmentId: payment.appointmentId ? payment.appointmentId.toString() : null,
+              patientId: payment.patientId ? payment.patientId.toString() : null,
+              patientInfo: payment.patientInfo,
+              method: payment.method,
+              originalAmount: payment.originalAmount,
+              discountAmount: payment.discountAmount,
+              finalAmount: payment.finalAmount,
+              paidAmount: payment.paidAmount,
+              changeAmount: payment.changeAmount,
+              completedAt: payment.completedAt,
+              processedBy: payment.processedBy.toString(),
+              processedByName: payment.processedByName
+            }
+          });
+          console.log(`✅ Published payment.success for ${payment.paymentCode}`);
+        } catch (publishError) {
+          console.error('❌ Failed to publish payment.success:', publishError.message);
+          // Don't fail - payment is already confirmed
+        }
+      });
 
       return payment;
     } catch (error) {
-      console.error('Error confirming cash payment:', error);
+      console.error('❌ Error confirming cash payment:', error);
       throw error;
     }
   }

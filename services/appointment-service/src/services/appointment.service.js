@@ -1282,7 +1282,7 @@ class AppointmentService {
 
       const appointments = await Appointment.find({
         _id: { $in: appointmentIds }
-      }).select('_id patientId patientInfo appointmentCode status paymentId invoiceId cancelledAt startTime endTime');
+      }).select('_id patientId patientInfo appointmentCode status paymentId invoiceId cancelledAt startTime endTime bookingChannel deposit paymentStatus');
 
       return appointments.map(apt => ({
         _id: apt._id,
@@ -1294,7 +1294,10 @@ class AppointmentService {
         invoiceId: apt.invoiceId,
         cancelledAt: apt.cancelledAt,
         startTime: apt.startTime,
-        endTime: apt.endTime
+        endTime: apt.endTime,
+        bookingChannel: apt.bookingChannel, // online or walk-in
+        deposit: apt.deposit || 0, // Tiền cọc
+        paymentStatus: apt.paymentStatus // pending, paid, etc.
       }));
     } catch (error) {
       console.error('❌ Error getting appointments by IDs:', error);

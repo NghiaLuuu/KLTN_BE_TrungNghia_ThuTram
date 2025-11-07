@@ -9,7 +9,8 @@ async function handlePaymentCreate(eventData) {
   try {
     const { data } = eventData;
     
-    console.log(`🔄 [handlePaymentCreate] Creating payment for record ${data.recordId}`);
+    console.log(`� [handlePaymentCreate] Creating payment for record ${data.recordId}`);
+    console.log('📋 Payment data:', JSON.stringify(data, null, 2));
     
     // Check if payment already exists for this record
     const existingPayment = await Payment.findOne({ recordId: data.recordId });
@@ -17,6 +18,70 @@ async function handlePaymentCreate(eventData) {
       console.log(`⚠️ [handlePaymentCreate] Payment already exists for record ${data.recordId}: ${existingPayment.paymentCode}`);
       return;
     }
+    
+    // 🆕 Fetch deposit from invoice-service (if appointment has invoiceId)
+    let depositAmount = 0;
+    let bookingChannel = 'offline';
+    let invoiceNumber = null;
+    
+    if (data.appointmentId) {
+      try {
+        const axios = require('axios');
+        
+        // Step 1: Get appointment to check if it has invoiceId
+        const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
+        const appointmentResponse = await axios.get(`${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids`, {
+          params: { ids: data.appointmentId }
+        });
+        
+        if (appointmentResponse.data.success && appointmentResponse.data.data && appointmentResponse.data.data.length > 0) {
+          const appointment = appointmentResponse.data.data[0];
+          bookingChannel = appointment.bookingChannel || 'offline';
+          const invoiceId = appointment.invoiceId;
+          
+          console.log(`📄 [handlePaymentCreate] Appointment ${data.appointmentId} has invoiceId: ${invoiceId}`);
+          
+          // Step 2: If appointment has invoiceId, fetch invoice to get deposit amount
+          if (invoiceId) {
+            try {
+              const INVOICE_SERVICE_URL = process.env.INVOICE_SERVICE_URL || 'http://localhost:3008';
+              const invoiceResponse = await axios.get(`${INVOICE_SERVICE_URL}/api/invoices/internal/${invoiceId}`);
+              
+              if (invoiceResponse.data.success && invoiceResponse.data.data) {
+                const invoice = invoiceResponse.data.data;
+                depositAmount = invoice.paymentSummary?.totalPaid || 0;
+                invoiceNumber = invoice.invoiceNumber || null;
+                bookingChannel = 'online'; // ✅ Has invoice = online booking
+                
+                console.log(`💰 [handlePaymentCreate] Invoice ${invoiceNumber} deposit: ${depositAmount.toLocaleString('vi-VN')}đ (online booking)`);
+              }
+            } catch (invoiceError) {
+              console.error('⚠️ [handlePaymentCreate] Failed to fetch invoice:', invoiceError.message);
+            }
+          } else {
+            console.log(`ℹ️ [handlePaymentCreate] Appointment has no invoice - no deposit`);
+          }
+          
+          console.log(`📋 [handlePaymentCreate] Appointment info:`, {
+            appointmentId: data.appointmentId,
+            bookingChannel: bookingChannel,
+            invoiceId: invoiceId,
+            deposit: depositAmount
+          });
+        }
+      } catch (error) {
+        console.error('⚠️ [handlePaymentCreate] Failed to fetch appointment:', error.message);
+        // Continue without deposit info
+      }
+    }
+    
+    // Calculate final amount (after deducting deposit)
+    const originalAmount = data.originalAmount || 0;
+    const finalAmount = Math.max(0, originalAmount - depositAmount);
+    
+    // 🆕 Handle processedBy - use a system default ObjectId if null
+    const mongoose = require('mongoose');
+    const systemUserId = data.createdBy || new mongoose.Types.ObjectId('000000000000000000000000'); // System user
     
     // Prepare payment data
     const paymentData = {
@@ -30,18 +95,19 @@ async function handlePaymentCreate(eventData) {
         address: data.patientInfo?.address || null
       },
       type: PaymentType.PAYMENT,
-      method: PaymentMethod.CASH, // Default to cash, can be changed later
+      method: null, // ✅ No default method - receptionist will choose later
       status: PaymentStatus.PENDING,
-      originalAmount: data.originalAmount || 0,
-      discountAmount: data.depositDeducted || 0, // Deposit treated as discount
-      finalAmount: data.finalAmount || 0,
+      originalAmount: originalAmount,
+      depositAmount: depositAmount, // 💰 Deposit from invoice
+      discountAmount: 0, // Additional discount (if any)
+      finalAmount: finalAmount,
       paidAmount: 0,
-      processedBy: data.createdBy,
-      processedByName: 'System',
-      description: `Thanh toán cho dịch vụ: ${data.serviceName || 'Unknown'}`,
-      notes: data.depositDeducted > 0 
-        ? `Đã trừ tiền cọc: ${data.depositDeducted.toLocaleString('vi-VN')} VND`
-        : null
+      processedBy: systemUserId, // ✅ Use system ID if null
+      processedByName: data.createdByName || 'Hệ thống',
+      description: `Thanh toán cho ${data.serviceName || 'dịch vụ'}${data.serviceAddOnName ? ` - ${data.serviceAddOnName}` : ''}`,
+      notes: depositAmount > 0 
+        ? `Đã cọc ${depositAmount.toLocaleString('vi-VN')}đ qua ${invoiceNumber ? `hóa đơn ${invoiceNumber}` : 'đặt lịch online'} (${bookingChannel})`
+        : 'Chưa có cọc trước'
     };
     
     // Create payment
@@ -49,6 +115,13 @@ async function handlePaymentCreate(eventData) {
     await payment.save();
     
     console.log(`✅ [handlePaymentCreate] Payment created: ${payment.paymentCode} for record ${data.recordId}`);
+    console.log(`💰 Payment details:`, {
+      originalAmount: payment.originalAmount,
+      depositAmount: payment.depositAmount,
+      discountAmount: payment.discountAmount,
+      finalAmount: payment.finalAmount,
+      invoiceNumber: invoiceNumber
+    });
     
     // Publish payment.created event
     try {

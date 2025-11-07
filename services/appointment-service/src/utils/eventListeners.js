@@ -178,38 +178,64 @@ async function handleRecordInProgress(data) {
  */
 async function handleRecordCompleted(data) {
   try {
-    console.log('✅ Record completed - Updating appointment:', data.appointmentId);
+    console.log('='.repeat(100));
+    console.log('🔥🔥🔥 [Appointment Service] Received record.completed event');
+    console.log('📋 Full Event Data:', JSON.stringify({
+      recordId: data.recordId,
+      recordCode: data.recordCode,
+      appointmentId: data.appointmentId,
+      patientId: data.patientId,
+      totalCost: data.totalCost,
+      bookingChannel: data.bookingChannel,
+      type: data.type,
+      additionalServicesCount: data.additionalServices?.length || 0
+    }, null, 2));
+    console.log('='.repeat(100));
     
     if (!data.appointmentId) {
-      console.warn('⚠️ No appointmentId provided in record.completed event');
+      console.warn('⚠️⚠️⚠️ No appointmentId provided in record.completed event - cannot update appointment!');
+      console.warn('⚠️ This means the record was created without an appointment (walk-in patient)');
       return;
     }
     
+    console.log(`🔍 [Appointment Service] Looking up appointment: ${data.appointmentId}`);
     const appointment = await Appointment.findById(data.appointmentId);
     if (!appointment) {
-      console.warn(`⚠️ Appointment not found: ${data.appointmentId}`);
+      console.warn(`❌❌❌ Appointment not found: ${data.appointmentId}`);
       return;
     }
+    
+    console.log(`✅ [Appointment Service] Found appointment: ${appointment.appointmentCode}`);
+    console.log(`📊 Current appointment status: ${appointment.status}`);
+    console.log(`🏥 Room: ${appointment.roomName || appointment.roomId}`);
     
     // Update appointment status to completed
     if (appointment.status !== 'completed') {
+      const oldStatus = appointment.status;
       appointment.status = 'completed';
       appointment.completedAt = data.completedAt || new Date();
       await appointment.save();
-      console.log(`✅ Appointment ${appointment.appointmentCode} status updated to completed`);
+      console.log(`✅✅✅ Appointment ${appointment.appointmentCode} status: ${oldStatus} → completed`);
 
       // Notify queue clients to refresh room info
       try {
         const io = getIO();
         if (io) {
-          io.emit('queue_updated', {
+          const eventData = {
             roomId: appointment.roomId?.toString(),
             timestamp: new Date()
-          });
+          };
+          io.emit('queue_updated', eventData);
+          console.log('📡 [Socket.IO] Emitted queue_updated event:', eventData);
+          console.log('🔔 Frontend Queue Dashboard should refresh now!');
+        } else {
+          console.warn('⚠️ Socket.IO not initialized - cannot emit queue_updated event');
         }
       } catch (emitError) {
-        console.warn('⚠️ Failed to emit queue update after record completion:', emitError.message);
+        console.error('❌ Failed to emit queue update after record completion:', emitError.message);
       }
+    } else {
+      console.log(`⚠️ Appointment ${appointment.appointmentCode} already completed, skipping status update`);
     }
     
     // 🔥 Create payment/invoice request
