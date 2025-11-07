@@ -79,6 +79,20 @@ async function handleAppointmentCheckedIn(eventData) {
     
     console.log(`✅ [handleAppointmentCheckedIn] Record created: ${record.recordCode} for appointment ${data.appointmentCode}`);
     
+    // 🔥 EMIT SOCKET: Notify queue dashboard about new record
+    try {
+      const { emitRecordUpdate, emitQueueUpdate } = require('./socket');
+      const date = new Date(record.date).toISOString().split('T')[0];
+      
+      if (record.roomId) {
+        emitRecordUpdate(record, `${record.patientInfo?.name || 'Bệnh nhân'} đã check-in`);
+        emitQueueUpdate(record.roomId.toString(), date, `Bệnh nhân mới check-in: ${record.recordCode}`);
+        console.log(`📡 [handleAppointmentCheckedIn] Emitted socket events for new record ${record.recordCode}`);
+      }
+    } catch (socketError) {
+      console.warn('⚠️ Socket emit failed:', socketError.message);
+    }
+    
     // Publish record_created event (for other services if needed)
     try {
       await publishToQueue('record_created_queue', {

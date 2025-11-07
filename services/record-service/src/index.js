@@ -73,6 +73,29 @@ async function startEventListeners() {
     await consumeQueue('record_queue', async (message) => {
       if (message.event === 'appointment_checked-in') {
         await handleAppointmentCheckedIn(message);
+      } else if (message.event === 'appointment.status_changed') {
+        // 🔥 NEW: Handle appointment status changes from appointment-service
+        // Emit socket to notify queue dashboard
+        try {
+          const { data } = message;
+          console.log('🔄 [Record Service] Received appointment.status_changed:', JSON.stringify(data, null, 2));
+          
+          const { emitQueueUpdate } = require('./utils/socket');
+          
+          if (data.roomId && data.date) {
+            const date = typeof data.date === 'string' 
+              ? data.date.split('T')[0] 
+              : new Date(data.date).toISOString().split('T')[0];
+            
+            console.log(`📡 [Record Service] About to emit queue update - roomId: ${data.roomId}, date: ${date}`);
+            emitQueueUpdate(data.roomId, date, data.message || 'Appointment status updated');
+            console.log(`✅ [Record Service] Emitted queue update for appointment status change`);
+          } else {
+            console.warn('⚠️ [Record Service] Missing roomId or date in appointment.status_changed:', data);
+          }
+        } catch (error) {
+          console.error('❌ Error handling appointment.status_changed:', error);
+        }
       } else if (message.event === 'invoice.created') {
         // Update record with invoiceId when invoice is created
         try {

@@ -185,8 +185,41 @@ async function startConsumer() {
           const appointment = await appointmentRepository.findById(appointmentId);
           if (appointment) {
             console.log(`📝 [Appointment Consumer] Current appointment status: ${appointment.status}`);
+            console.log(`📝 [Appointment Consumer] Appointment data:`, {
+              roomId: appointment.roomId,
+              appointmentDate: appointment.appointmentDate,
+              queueNumber: appointment.queueNumber,
+              patientName: appointment.patientInfo?.name
+            });
+            
             await appointmentRepository.updateStatus(appointmentId, 'in-progress');
             console.log(`✅✅✅ Updated appointment ${appointmentId} status to in-progress`);
+            
+            // 🔥 PUBLISH TO RECORD SERVICE: Let record-service emit socket (port 3010)
+            // FE connects to record-service socket, not appointment-service
+            try {
+              const { publishToQueue } = require('../utils/rabbitmq.client');
+              const updatedAppointment = await appointmentRepository.findById(appointmentId);
+              
+              if (updatedAppointment) {
+                await publishToQueue('record_queue', {
+                  event: 'appointment.status_changed',
+                  data: {
+                    appointmentId: updatedAppointment._id.toString(),
+                    appointmentCode: updatedAppointment.appointmentCode,
+                    status: 'in-progress',
+                    roomId: updatedAppointment.roomId?.toString(),
+                    date: updatedAppointment.appointmentDate,
+                    patientName: updatedAppointment.patientInfo?.name,
+                    recordId: recordId,
+                    message: `Lịch hẹn ${updatedAppointment.appointmentCode} đang khám`
+                  }
+                });
+                console.log('📡 [Appointment Consumer] Published status change to record-service for socket emit');
+              }
+            } catch (publishError) {
+              console.warn('⚠️ Failed to publish to record-service:', publishError.message);
+            }
           } else {
             console.warn(`⚠️⚠️⚠️ Appointment ${appointmentId} not found`);
           }
@@ -217,8 +250,39 @@ async function startConsumer() {
           // Update appointment status to completed
           const appointment = await appointmentRepository.findById(appointmentId);
           if (appointment) {
+            console.log(`📝 [Appointment Consumer] Appointment data for completed:`, {
+              roomId: appointment.roomId,
+              appointmentDate: appointment.appointmentDate,
+              queueNumber: appointment.queueNumber
+            });
+            
             await appointmentRepository.updateStatus(appointmentId, 'completed');
             console.log(`✅ Updated appointment ${appointmentId} status to completed`);
+            
+            // 🔥 PUBLISH TO RECORD SERVICE: Let record-service emit socket
+            try {
+              const { publishToQueue } = require('../utils/rabbitmq.client');
+              const updatedAppointment = await appointmentRepository.findById(appointmentId);
+              
+              if (updatedAppointment) {
+                await publishToQueue('record_queue', {
+                  event: 'appointment.status_changed',
+                  data: {
+                    appointmentId: updatedAppointment._id.toString(),
+                    appointmentCode: updatedAppointment.appointmentCode,
+                    status: 'completed',
+                    roomId: updatedAppointment.roomId?.toString(),
+                    date: updatedAppointment.appointmentDate,
+                    patientName: updatedAppointment.patientInfo?.name,
+                    recordId: recordId,
+                    message: `Lịch hẹn ${updatedAppointment.appointmentCode} đã hoàn thành`
+                  }
+                });
+                console.log('📡 [Appointment Consumer] Published completed status to record-service');
+              }
+            } catch (publishError) {
+              console.warn('⚠️ Failed to publish to record-service:', publishError.message);
+            }
           } else {
             console.warn(`⚠️ Appointment ${appointmentId} not found`);
           }

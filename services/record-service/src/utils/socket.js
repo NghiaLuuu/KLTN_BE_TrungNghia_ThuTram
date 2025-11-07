@@ -98,6 +98,17 @@ function emitRecordStatusChange(record) {
  * Emit queue update
  */
 function emitQueueUpdate(roomId, date, message = 'Hàng đợi đã cập nhật') {
+  console.log('🔔 [emitQueueUpdate] Called with:', { roomId, date, message });
+  
+  if (!io) {
+    console.error('❌ [emitQueueUpdate] Socket.IO not initialized!');
+    return;
+  }
+  
+  const roomKey = `room:${roomId}:${date}`;
+  const clients = io.sockets.adapter.rooms.get(roomKey);
+  console.log(`👥 [emitQueueUpdate] Clients in ${roomKey}:`, clients ? clients.size : 0);
+  
   emitToRoom(roomId, date, 'queue:updated', { message });
 }
 

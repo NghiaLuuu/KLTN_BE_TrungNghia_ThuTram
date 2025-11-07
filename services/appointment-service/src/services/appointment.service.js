@@ -616,36 +616,28 @@ class AppointmentService {
   appointment.checkedInBy = userId;
     await appointment.save();
     
-    // 🔥 Emit realtime appointment checked-in event (Socket.IO)
+    // 🔥 DIRECT SOCKET EMIT: Notify Queue Dashboard immediately
+    // Queue Dashboard connects to BOTH appointment-service (3006) AND record-service (3010)
     try {
-      const io = getIO();
-      if (io) {
-        // Emit to specific room queue
-        const roomKey = `queue_${appointment.roomId}`;
-        io.to(roomKey).emit('appointment:checked-in', {
-          appointmentId: appointment._id.toString(),
-          appointmentCode: appointment.appointmentCode,
-          patientName: appointment.patientInfo?.name || 'N/A',
-          patientPhone: appointment.patientInfo?.phone,
-          roomId: appointment.roomId.toString(),
-          roomName: appointment.roomName,
-          startTime: appointment.startTime,
-          endTime: appointment.endTime,
-          status: 'checked-in',
-          checkedInAt: appointment.checkedInAt,
-          timestamp: new Date()
-        });
+      const { emitAppointmentStatusChange, emitQueueUpdate } = require('../utils/socket');
+      
+      if (appointment.roomId && appointment.appointmentDate) {
+        const date = new Date(appointment.appointmentDate).toISOString().split('T')[0];
         
-        // Also emit generic queue_updated for backward compatibility
-        io.emit('queue_updated', {
-          roomId: appointment.roomId.toString(),
-          timestamp: new Date()
-        });
+        // Populate for socket emit
+        const appointmentWithDate = {
+          ...appointment.toObject(),
+          date: date
+        };
         
-        console.log(`📡 Emitted appointment:checked-in for ${appointment.appointmentCode} to room ${roomKey}`);
+        // Emit directly to appointment-service socket (port 3006)
+        emitAppointmentStatusChange(appointmentWithDate);
+        emitQueueUpdate(appointment.roomId, date, `${appointment.patientInfo?.name || 'Bệnh nhân'} đã check-in`);
+        
+        console.log(`📡 [CheckIn] Emitted socket events directly from appointment-service`);
       }
     } catch (socketError) {
-      console.warn('⚠️ Socket emit failed:', socketError.message);
+      console.warn('⚠️ Failed to emit socket:', socketError.message);
     }
     
     const bookingChannel = resolveBookingChannel(appointment.bookedByRole);
@@ -709,34 +701,28 @@ class AppointmentService {
     
     await appointment.save();
     
-    // 🔥 Emit realtime appointment completed event (Socket.IO)
+    // 🔥 PUBLISH TO RECORD SERVICE: Let record-service emit socket
     try {
-      const io = getIO();
-      if (io) {
-        const roomKey = `queue_${appointment.roomId}`;
-        io.to(roomKey).emit('appointment:completed', {
-          appointmentId: appointment._id.toString(),
-          appointmentCode: appointment.appointmentCode,
-          patientName: appointment.patientInfo?.name || 'N/A',
-          patientPhone: appointment.patientInfo?.phone,
-          roomId: appointment.roomId.toString(),
-          roomName: appointment.roomName,
-          status: 'completed',
-          completedAt: appointment.completedAt,
-          actualDuration: appointment.actualDuration,
-          timestamp: new Date()
+      if (appointment.roomId && appointment.appointmentDate) {
+        const date = new Date(appointment.appointmentDate).toISOString().split('T')[0];
+        
+        await publishToQueue('record_queue', {
+          event: 'appointment.status_changed',
+          data: {
+            appointmentId: appointment._id.toString(),
+            appointmentCode: appointment.appointmentCode,
+            status: 'completed',
+            roomId: appointment.roomId.toString(),
+            date: date,
+            patientName: appointment.patientInfo?.name,
+            message: `${appointment.patientInfo?.name || 'Bệnh nhân'} đã hoàn thành`
+          }
         });
         
-        // Also emit generic queue_updated
-        io.emit('queue_updated', {
-          roomId: appointment.roomId.toString(),
-          timestamp: new Date()
-        });
-        
-        console.log(`📡 Emitted appointment:completed for ${appointment.appointmentCode} to room ${roomKey}`);
+        console.log(`📡 [Complete] Published status change to record-service for socket emit`);
       }
     } catch (socketError) {
-      console.warn('⚠️ Socket emit failed:', socketError.message);
+      console.warn('⚠️ Failed to publish status change:', socketError.message);
     }
     
     // 🔥 Publish appointment.completed event (RabbitMQ for other services)
@@ -780,6 +766,30 @@ class AppointmentService {
     appointment.cancelledBy = userId;
     appointment.cancellationReason = reason;
     await appointment.save();
+    
+    // 🔥 PUBLISH TO RECORD SERVICE: Let record-service emit socket
+    try {
+      if (appointment.roomId && appointment.appointmentDate) {
+        const date = new Date(appointment.appointmentDate).toISOString().split('T')[0];
+        
+        await publishToQueue('record_queue', {
+          event: 'appointment.status_changed',
+          data: {
+            appointmentId: appointment._id.toString(),
+            appointmentCode: appointment.appointmentCode,
+            status: 'cancelled',
+            roomId: appointment.roomId.toString(),
+            date: date,
+            patientName: appointment.patientInfo?.name,
+            message: `${appointment.patientInfo?.name || 'Bệnh nhân'} đã hủy lịch hẹn`
+          }
+        });
+        
+        console.log(`📡 [Cancel] Published status change to record-service for socket emit`);
+      }
+    } catch (socketError) {
+      console.warn('⚠️ Failed to publish status change:', socketError.message);
+    }
     
     await serviceClient.bulkUpdateSlots(appointment.slotIds, {
       status: 'available',
