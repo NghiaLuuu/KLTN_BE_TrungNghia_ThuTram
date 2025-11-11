@@ -1,0 +1,57 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches:
+      - develop
+      - staging
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Staging Server
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup SSH Key
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
+      
+      - name: Add Server to Known Hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.STAGING_HOST }} >> ~/.ssh/known_hosts
+      
+      - name: Deploy to Staging
+        env:
+          SERVER_HOST: ${{ secrets.STAGING_HOST }}
+          SERVER_USER: ${{ secrets.STAGING_USER }}
+          SERVER_PATH: ${{ secrets.STAGING_PATH }}
+        run: |
+          ssh $SERVER_USER@$SERVER_HOST "
+            echo '🚀 Deploying to STAGING...' &&
+            cd $SERVER_PATH &&
+            git pull origin develop &&
+            cd docker &&
+            docker-compose down &&
+            docker-compose build &&
+            docker-compose up -d &&
+            echo '✅ Staging deployment completed!'
+          "
+      
+      - name: Health Check
+        env:
+          SERVER_HOST: ${{ secrets.STAGING_HOST }}
+          SERVER_USER: ${{ secrets.STAGING_USER }}
+        run: |
+          echo "⏳ Waiting for services..."
+          sleep 20
+          
+          ssh $SERVER_USER@$SERVER_HOST "
+            curl -f http://localhost:3001/health && echo '✅ Auth OK' &&
+            curl -f http://localhost:3007/health && echo '✅ Payment OK'
+          "

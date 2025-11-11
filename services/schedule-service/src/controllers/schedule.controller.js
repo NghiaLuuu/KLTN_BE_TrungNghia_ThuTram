@@ -238,6 +238,8 @@ exports.generateRoomSchedule = async (req, res) => {
     const effectiveToYear = toYear || year;
     
     // Validation
+    // 📝 LƯU Ý: startDate là ngày bắt đầu của LỊCH (metadata), không cần validate <= today
+    // Vì có thể tạo lịch từ 1/11-30/11 vào ngày 10/11, service sẽ tự động sinh slot từ 11/11
     if (!roomId || !fromMonth || !toMonth || !effectiveFromYear || !effectiveToYear || !startDate || !shifts || !Array.isArray(shifts)) {
       return res.status(400).json({
         success: false,

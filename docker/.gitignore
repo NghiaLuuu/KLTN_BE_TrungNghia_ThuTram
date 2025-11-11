@@ -1,0 +1,11 @@
+# Docker environment files
+.env
+
+# Archive folder (nếu có)
+.archive/
+
+# Logs
+*.log
+
+# Backup files
+backup_*/

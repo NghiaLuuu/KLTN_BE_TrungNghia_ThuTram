@@ -310,35 +310,3 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-  # Nginx Reverse Proxy (RECOMMENDED for production)
-  nginx:
-    image: nginx:alpine
-    container_name: dental_nginx
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - auth-service
-      - room-service
-      - service-service
-      - schedule-service
-      - appointment-service
-      - payment-service
-      - invoice-service
-      - medicine-service
-      - record-service
-      - statistic-service
-      - chat-service
-      - chatbot-service
-    networks:
-      - dental-network
-    restart: always
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"

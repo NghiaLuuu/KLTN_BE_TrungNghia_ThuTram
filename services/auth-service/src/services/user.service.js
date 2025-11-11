@@ -281,9 +281,9 @@ exports.updateUserWithPermissions = async (currentUser, targetUserId, updateData
     if (!isUpdatingSelf) {
       throw new Error('Bạn chỉ có thể cập nhật thông tin của chính mình');
     }
-    // Patient không được cập nhật email và số điện thoại
-    if (updateData.email || updateData.phoneNumber) {
-      throw new Error('Bạn không thể cập nhật email hoặc số điện thoại');
+    // Patient không được cập nhật email (vì email là username)
+    if (updateData.email) {
+      throw new Error('Bạn không thể cập nhật email');
     }
     // Patient không thể thay đổi role
     if (updateData.role) {

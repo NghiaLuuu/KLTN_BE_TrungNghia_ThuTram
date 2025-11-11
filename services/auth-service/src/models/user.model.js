@@ -98,6 +98,12 @@ const userSchema = new Schema({
     type: Date,
     required: true,
   },
+  address: {
+    type: String,
+    default: null,
+    trim: true,
+    maxlength: 200
+  },
   employeeCode: {
     type: String,
     unique: true,

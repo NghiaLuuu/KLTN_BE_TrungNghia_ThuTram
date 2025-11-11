@@ -1755,10 +1755,10 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
       periods: calendarPeriods
     };
     
-    // 🔥 REDIS CACHE: Save result to Redis with 1 day TTL (86400 seconds)
+    // 🔥 REDIS CACHE: Save result to Redis with 1 hour TTL (3600 seconds)
     try {
-      await redisClient.setEx(cacheKey, 86400, JSON.stringify(result));
-      console.log(`✅ [Redis Cache SAVED] getRoomCalendar - Key: ${cacheKey}, TTL: 1 day`);
+      await redisClient.setEx(cacheKey, 3600, JSON.stringify(result));
+      console.log(`✅ [Redis Cache SAVED] getRoomCalendar - Key: ${cacheKey}, TTL: 1 hour`);
     } catch (redisError) {
       console.error('❌ Redis set error (data still returned):', redisError.message);
     }

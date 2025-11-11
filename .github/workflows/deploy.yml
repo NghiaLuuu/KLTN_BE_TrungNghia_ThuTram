@@ -1,0 +1,104 @@
+name: Deploy to Production Server
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch: # Cho phép trigger manual
+
+jobs:
+  deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+      
+      - name: Deploy Application
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          ssh -i ~/.ssh/id_rsa $SERVER_USER@$SERVER_HOST << 'EOF'
+            echo "🚀 Starting deployment..."
+            
+            # Navigate to project directory
+            cd ~/dental-clinic || {
+              echo "Project directory not found. Cloning repository..."
+              cd ~
+              git clone https://github.com/${{ github.repository }}.git dental-clinic
+              cd dental-clinic
+            }
+            
+            echo "📥 Pulling latest code..."
+            git fetch origin
+            git reset --hard origin/main
+            git pull origin main
+            
+            echo "🐳 Building and starting Docker containers..."
+            cd docker
+            
+            # Stop existing containers
+            docker-compose -f docker-compose.yml -f docker-compose.prod.yml down
+            
+            # Build new images
+            docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
+            
+            # Start containers
+            docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+            
+            echo "🧹 Cleaning up old images..."
+            docker system prune -f
+            
+            echo "✅ Deployment completed!"
+          EOF
+      
+      - name: Health Check
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          echo "⏳ Waiting 30 seconds for services to start..."
+          sleep 30
+          
+          ssh -i ~/.ssh/id_rsa $SERVER_USER@$SERVER_HOST << 'EOF'
+            echo "🩺 Running health checks..."
+            
+            # Check critical services
+            services=(3001 3007 3012)
+            failed=0
+            
+            for port in "${services[@]}"; do
+              if curl -f http://localhost:$port/health > /dev/null 2>&1; then
+                echo "✅ Service on port $port is healthy"
+              else
+                echo "❌ Service on port $port is not responding"
+                failed=$((failed + 1))
+              fi
+            done
+            
+            if [ $failed -gt 0 ]; then
+              echo "❌ $failed service(s) failed health check"
+              exit 1
+            fi
+            
+            echo "✅ All services are healthy!"
+          EOF
+      
+      - name: Show Deployment Info
+        if: success()
+        run: |
+          echo "✅ Deployment successful!"
+          echo "📊 Server: ${{ secrets.SERVER_HOST }}"
+          echo "👤 User: ${{ secrets.SERVER_USER }}"
+          echo "🌐 Check your application at: http://${{ secrets.SERVER_HOST }}"
+

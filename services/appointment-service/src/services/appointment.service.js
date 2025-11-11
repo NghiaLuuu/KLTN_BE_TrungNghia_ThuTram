@@ -263,7 +263,8 @@ class AppointmentService {
         appointmentDate: date,
         startTime: startTime,
         endTime: endTime,
-        roomName: firstSlot.roomName || 'Sẽ được thông báo'
+        roomName: roomInfo.roomName || 'Sẽ được thông báo',
+        subroomName: roomInfo.subroomName || null
       };
       
     } catch (error) {
