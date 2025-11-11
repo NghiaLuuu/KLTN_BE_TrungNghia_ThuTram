@@ -525,13 +525,24 @@ async function startConsumer() {
 
               if (recordResponse.data && recordResponse.data.success) {
                 recordData = recordResponse.data.data;
-                serviceDescription = recordData.serviceName || 'Medical Service';
+                // Build service description with addon and unit
+                const serviceName = recordData.serviceName || 'Medical Service';
+                const addonName = recordData.serviceAddOnName || '';
+                const unit = recordData.serviceAddOnUnit || '';
+                const quantity = recordData.quantity || 1;
+                
+                serviceDescription = addonName 
+                  ? `${serviceName} - ${addonName}${unit ? ` (${quantity} ${unit})` : ''}`
+                  : serviceName;
+                
                 dentistName = recordData.dentistName || 'Dentist';
                 
                 console.log('✅ [Invoice Consumer] Fetched record details:', {
                   recordId,
                   serviceName: serviceDescription,
-                  dentistName
+                  dentistName,
+                  quantity,
+                  unit
                 });
               }
             } catch (error) {
@@ -616,41 +627,157 @@ async function startConsumer() {
             invoiceNumber: invoice.invoiceNumber
           });
 
-          // Create invoice detail
-          const invoiceDetailDoc = {
-            invoiceId: invoice._id,
-            serviceInfo: {
-              name: serviceDescription,
-              code: null,
-              type: 'treatment',
-              category: 'medical',
-              description: serviceDescription
-            },
-            quantity: 1,
-            unitPrice: originalAmount,
-            discount: {
-              type: discountAmount > 0 ? 'fixed_amount' : 'none',
-              value: discountAmount,
-              reason: discountAmount > 0 ? 'Deposit deduction' : null
-            },
-            subtotal: originalAmount,
-            discountAmount: discountAmount,
-            totalPrice: finalAmount,
-            scheduledDate: recordData?.appointmentDate ? new Date(recordData.appointmentDate) : new Date(),
-            completedDate: completedAt || new Date(),
-            status: 'completed',
-            description: serviceDescription,
-            notes: discountAmount > 0 ? `Deposit deducted: ${discountAmount}` : null,
-            createdBy: patientId || null
-          };
+          // ✅ Create invoice details for main service AND additional services
+          const invoiceDetails = [];
+          
+          // 1️⃣ Main service detail
+          if (recordData) {
+            const mainServiceName = recordData.serviceName || 'Medical Service';
+            const mainAddonName = recordData.serviceAddOnName || '';
+            const mainUnit = recordData.serviceAddOnUnit || '';
+            const mainQuantity = recordData.quantity || 1;
+            const mainPrice = recordData.serviceAddOnPrice || 0;
+            const mainTotal = mainPrice * mainQuantity;
+            
+            const mainServiceDescription = mainAddonName 
+              ? `${mainServiceName} - ${mainAddonName}`
+              : mainServiceName;
+            
+            const mainDetailDoc = {
+              invoiceId: invoice._id,
+              serviceInfo: {
+                name: mainServiceDescription,
+                code: null,
+                type: 'treatment',
+                category: 'medical',
+                description: mainServiceDescription,
+                unit: mainUnit || null
+              },
+              quantity: mainQuantity,
+              unitPrice: mainPrice,
+              discount: {
+                type: 'none',
+                value: 0,
+                reason: null
+              },
+              subtotal: mainTotal,
+              discountAmount: 0,
+              totalPrice: mainTotal,
+              scheduledDate: recordData.appointmentDate ? new Date(recordData.appointmentDate) : new Date(),
+              completedDate: completedAt || new Date(),
+              status: 'completed',
+              description: mainServiceDescription,
+              notes: null,
+              createdBy: patientId || null
+            };
+            
+            const mainDetail = await invoiceDetailRepository.createInvoiceDetail(mainDetailDoc);
+            invoiceDetails.push(mainDetail);
+            
+            console.log('✅ [Invoice Consumer] Main service detail created:', {
+              detailId: mainDetail._id.toString(),
+              serviceName: mainServiceDescription,
+              quantity: mainQuantity,
+              unit: mainUnit,
+              totalPrice: mainTotal
+            });
+          }
+          
+          // 2️⃣ Additional services details
+          if (recordData?.additionalServices && recordData.additionalServices.length > 0) {
+            for (const addSvc of recordData.additionalServices) {
+              const addServiceName = addSvc.serviceName || 'Additional Service';
+              const addAddonName = addSvc.serviceAddOnName || '';
+              const addUnit = addSvc.serviceAddOnUnit || '';
+              const addQuantity = addSvc.quantity || 1;
+              const addPrice = addSvc.price || 0;
+              const addTotal = addSvc.totalPrice || (addPrice * addQuantity);
+              
+              const addServiceDescription = addAddonName 
+                ? `${addServiceName} - ${addAddonName}`
+                : addServiceName;
+              
+              const addDetailDoc = {
+                invoiceId: invoice._id,
+                serviceInfo: {
+                  name: addServiceDescription,
+                  code: null,
+                  type: 'treatment',
+                  category: 'medical',
+                  description: addServiceDescription,
+                  unit: addUnit || null
+                },
+                quantity: addQuantity,
+                unitPrice: addPrice,
+                discount: {
+                  type: 'none',
+                  value: 0,
+                  reason: null
+                },
+                subtotal: addTotal,
+                discountAmount: 0,
+                totalPrice: addTotal,
+                scheduledDate: recordData.appointmentDate ? new Date(recordData.appointmentDate) : new Date(),
+                completedDate: completedAt || new Date(),
+                status: 'completed',
+                description: addServiceDescription,
+                notes: 'Dịch vụ bổ sung',
+                createdBy: patientId || null
+              };
+              
+              const addDetail = await invoiceDetailRepository.createInvoiceDetail(addDetailDoc);
+              invoiceDetails.push(addDetail);
+              
+              console.log('✅ [Invoice Consumer] Additional service detail created:', {
+                detailId: addDetail._id.toString(),
+                serviceName: addServiceDescription,
+                quantity: addQuantity,
+                unit: addUnit,
+                totalPrice: addTotal
+              });
+            }
+          }
+          
+          // 3️⃣ Add discount as a separate "service" if there's a deposit deduction
+          if (discountAmount > 0) {
+            const discountDetailDoc = {
+              invoiceId: invoice._id,
+              serviceInfo: {
+                name: 'Giảm trừ tiền cọc',
+                code: null,
+                type: 'treatment',
+                category: 'medical',
+                description: `Đã cọc trước ${discountAmount.toLocaleString('vi-VN')}đ`,
+                unit: null
+              },
+              quantity: 1,
+              unitPrice: -discountAmount,  // Negative amount
+              discount: {
+                type: 'none',
+                value: 0,
+                reason: null
+              },
+              subtotal: -discountAmount,
+              discountAmount: 0,
+              totalPrice: -discountAmount,
+              scheduledDate: recordData?.appointmentDate ? new Date(recordData.appointmentDate) : new Date(),
+              completedDate: completedAt || new Date(),
+              status: 'completed',
+              description: 'Giảm trừ tiền cọc',
+              notes: 'Deposit deduction',
+              createdBy: patientId || null
+            };
+            
+            const discountDetail = await invoiceDetailRepository.createInvoiceDetail(discountDetailDoc);
+            invoiceDetails.push(discountDetail);
+            
+            console.log('✅ [Invoice Consumer] Deposit deduction detail created:', {
+              detailId: discountDetail._id.toString(),
+              amount: -discountAmount
+            });
+          }
 
-          const invoiceDetail = await invoiceDetailRepository.createInvoiceDetail(invoiceDetailDoc);
-
-          console.log('✅ [Invoice Consumer] Invoice detail created:', {
-            detailId: invoiceDetail._id.toString(),
-            serviceName: serviceDescription,
-            totalPrice: finalAmount
-          });
+          console.log(`✅ [Invoice Consumer] Created ${invoiceDetails.length} invoice detail(s) total`);
 
         } catch (error) {
           console.error('❌ [Invoice Consumer] Error creating invoice for payment.success:', {

@@ -167,6 +167,11 @@ const updateRecordValidation = [
     .withMessage('Ghi chú không được quá 1000 ký tự')
     .trim(),
   
+  body('quantity')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Số lượng phải là số nguyên dương'),
+  
   body('priority')
     .optional()
     .isIn(['low', 'normal', 'high', 'urgent'])

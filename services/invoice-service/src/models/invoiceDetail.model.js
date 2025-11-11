@@ -56,6 +56,11 @@ const ServiceInfoSchema = new Schema({
   description: {
     type: String,
     trim: true
+  },
+  unit: {
+    type: String,
+    trim: true,
+    default: null
   }
 }, { _id: false });
 

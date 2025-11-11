@@ -156,6 +156,20 @@ class RecordService {
       throw new Error('Không tìm thấy hồ sơ');
     }
 
+    // ✅ Recalculate totalCost if service/quantity changed
+    if (updateData.serviceAddOnPrice !== undefined || updateData.quantity !== undefined) {
+      const mainServiceCost = (updateData.serviceAddOnPrice !== undefined ? updateData.serviceAddOnPrice : existingRecord.serviceAddOnPrice || 0) * 
+                               (updateData.quantity !== undefined ? updateData.quantity : existingRecord.quantity || 1);
+      const additionalCost = existingRecord.additionalServices?.reduce((sum, svc) => sum + svc.totalPrice, 0) || 0;
+      updateData.totalCost = mainServiceCost + additionalCost;
+      
+      console.log(`💰 [updateRecord] Recalculated totalCost for ${id}:`, {
+        mainServiceCost,
+        additionalCost,
+        totalCost: updateData.totalCost
+      });
+    }
+
     const updatedRecord = await recordRepo.update(id, {
       ...updateData,
       modifiedBy
@@ -308,14 +322,31 @@ class RecordService {
           event: 'payment.create',
           data: {
             recordId: record._id.toString(),
+            recordCode: record.recordCode,
             appointmentId: record.appointmentId ? record.appointmentId.toString() : null,
             patientId: record.patientId ? record.patientId.toString() : null,
             patientInfo: record.patientInfo,
+            // Main service details
             serviceName: record.serviceName,
             serviceAddOnName: record.serviceAddOnName || null,
+            serviceAddOnUnit: record.serviceAddOnUnit || null,
+            serviceAddOnPrice: record.serviceAddOnPrice || 0,
+            quantity: record.quantity || 1,
+            // Additional services with full details
+            additionalServices: (record.additionalServices || []).map(svc => ({
+              serviceId: svc.serviceId,
+              serviceName: svc.serviceName,
+              serviceAddOnName: svc.serviceAddOnName || null,
+              serviceAddOnUnit: svc.serviceAddOnUnit || null,
+              price: svc.price,
+              quantity: svc.quantity,
+              totalPrice: svc.totalPrice
+            })),
+            // Cost breakdown
             originalAmount: record.totalCost || 0,
             depositDeducted: depositDeducted, // Will be calculated by payment-service
             finalAmount: (record.totalCost || 0) - depositDeducted,
+            // Metadata
             createdBy: modifiedBy ? modifiedBy.toString() : null
           }
         });
@@ -658,7 +689,7 @@ class RecordService {
     }
 
     // Validate service data
-    const { serviceId, serviceName, serviceType, serviceAddOnId, serviceAddOnName, price, quantity = 1, notes } = serviceData;
+    const { serviceId, serviceName, serviceType, serviceAddOnId, serviceAddOnName, serviceAddOnUnit, price, quantity = 1, notes } = serviceData;
     
     if (!serviceId || !serviceName || !serviceType || !price || price < 0) {
       throw new Error('Thông tin dịch vụ không hợp lệ');
@@ -672,6 +703,7 @@ class RecordService {
       serviceType,
       serviceAddOnId: serviceAddOnId || null,
       serviceAddOnName: serviceAddOnName || null,
+      serviceAddOnUnit: serviceAddOnUnit || null,
       price,
       quantity,
       totalPrice,
@@ -686,10 +718,10 @@ class RecordService {
     }
     record.additionalServices.push(newService);
 
-    // Recalculate totalCost
-    const baseCost = (record.servicePrice || 0) + (record.serviceAddOnPrice || 0);
+    // Recalculate totalCost = (main service addon price * quantity) + sum of additional services
+    const mainServiceCost = (record.serviceAddOnPrice || 0) * (record.quantity || 1);
     const additionalCost = record.additionalServices.reduce((sum, svc) => sum + svc.totalPrice, 0);
-    record.totalCost = baseCost + additionalCost;
+    record.totalCost = mainServiceCost + additionalCost;
 
     await record.save();
 
@@ -732,10 +764,10 @@ class RecordService {
     const removedService = record.additionalServices[serviceIndex];
     record.additionalServices.splice(serviceIndex, 1);
 
-    // Recalculate totalCost
-    const baseCost = (record.servicePrice || 0) + (record.serviceAddOnPrice || 0);
+    // Recalculate totalCost = (main service addon price * quantity) + sum of additional services
+    const mainServiceCost = (record.serviceAddOnPrice || 0) * (record.quantity || 1);
     const additionalCost = record.additionalServices.reduce((sum, svc) => sum + svc.totalPrice, 0);
-    record.totalCost = baseCost + additionalCost;
+    record.totalCost = mainServiceCost + additionalCost;
 
     record.lastModifiedBy = removedBy;
     await record.save();

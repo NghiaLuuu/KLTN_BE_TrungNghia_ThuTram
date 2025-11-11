@@ -109,6 +109,10 @@ const additionalServiceSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  serviceAddOnUnit: {
+    type: String,
+    default: null // 'Răng', 'Hàm', 'Trụ', 'Cái', 'Lần'
+  },
   price: {
     type: Number,
     required: true,
@@ -218,6 +222,10 @@ const recordSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  serviceAddOnUnit: {
+    type: String,
+    default: null // 'Răng', 'Hàm', 'Trụ', 'Cái', 'Lần'
+  },
   servicePrice: {
     type: Number,
     default: 0
@@ -225,6 +233,11 @@ const recordSchema = new mongoose.Schema({
   serviceAddOnPrice: {
     type: Number,
     default: 0
+  },
+  quantity: {
+    type: Number,
+    default: 1,
+    min: 1
   },
   bookingChannel: {
     type: String,

@@ -1211,21 +1211,6 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
 // Get room calendar with appointment counts (daily/weekly/monthly view) with pagination
 async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate = null, page = 0, limit = 10, futureOnly = false }) {
   try {
-    // 🔥 REDIS CACHE: Create cache key based on params
-    const cacheKey = `room_calendar:${roomId}:${subRoomId || 'main'}:${viewType}:${startDate || 'current'}:${page}:${limit}:${futureOnly}`;
-    
-    // 🔥 REDIS CACHE: Try to get from Redis first
-    try {
-      const cachedData = await redisClient.get(cacheKey);
-      if (cachedData) {
-        console.log(`✅ [Redis Cache HIT] getRoomCalendar - Key: ${cacheKey}`);
-        return JSON.parse(cachedData);
-      }
-      console.log(`⚠️ [Redis Cache MISS] getRoomCalendar - Key: ${cacheKey}`);
-    } catch (redisError) {
-      console.error('❌ Redis get error (continuing without cache):', redisError.message);
-    }
-    
     // Get schedule config for shift information
     const { ScheduleConfig } = require('../models/scheduleConfig.model');
     const scheduleConfig = await ScheduleConfig.getSingleton();
@@ -1754,14 +1739,6 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
       },
       periods: calendarPeriods
     };
-    
-    // 🔥 REDIS CACHE: Save result to Redis with 1 hour TTL (3600 seconds)
-    try {
-      await redisClient.setEx(cacheKey, 3600, JSON.stringify(result));
-      console.log(`✅ [Redis Cache SAVED] getRoomCalendar - Key: ${cacheKey}, TTL: 1 hour`);
-    } catch (redisError) {
-      console.error('❌ Redis set error (data still returned):', redisError.message);
-    }
     
     return result;
     
