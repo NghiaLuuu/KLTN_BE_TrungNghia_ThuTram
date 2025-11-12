@@ -22,8 +22,7 @@ const uploadToS3 = async (fileBuffer, fileName, mimeType, folder = 'chatbot-imag
     Bucket: process.env.AWS_BUCKET_NAME,
     Key: key,
     Body: fileBuffer,
-    ContentType: mimeType,
-    ACL: 'public-read' // Make images publicly accessible
+    ContentType: mimeType
   };
 
   try {
