@@ -194,6 +194,13 @@ const recordIdValidation = [
     .withMessage('Record ID không hợp lệ')
 ];
 
+// Validation for queue operations that use :recordId parameter
+const queueRecordIdValidation = [
+  param('recordId')
+    .isMongoId()
+    .withMessage('Record ID không hợp lệ')
+];
+
 const recordCodeValidation = [
   param('code')
     .notEmpty()
@@ -374,6 +381,7 @@ module.exports = {
   createRecordValidation,
   updateRecordValidation,
   recordIdValidation,
+  queueRecordIdValidation,
   recordCodeValidation,
   updateStatusValidation,
   addPrescriptionValidation,

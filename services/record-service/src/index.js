@@ -16,33 +16,8 @@ const {
   handleAppointmentCheckedIn, 
   handlePatientInfoResponse 
 } = require('./utils/eventHandlers');
-const redis = require('./utils/redis.client');
 
 connectDB();
-
-// ✅ Clear Redis cache on startup
-async function clearRecordCacheOnStartup() {
-  try {
-    // Wait for Redis to be ready
-    if (!redis.isReady) {
-      console.log('⏳ Waiting for Redis connection...');
-      await new Promise((resolve) => {
-        redis.once('ready', resolve);
-      });
-    }
-    
-    const pattern = 'records:*';
-    const deletedCount = await redis.delPattern(pattern);
-    console.log(`✅ Cleared ${deletedCount} record cache keys on startup`);
-  } catch (error) {
-    console.warn('⚠️ Failed to clear record cache on startup:', error.message);
-  }
-}
-
-// Clear cache after a short delay to ensure Redis is connected
-setTimeout(() => {
-  clearRecordCacheOnStartup();
-}, 2000);
 
 // ✅ Kết nối DB
 const app = express();

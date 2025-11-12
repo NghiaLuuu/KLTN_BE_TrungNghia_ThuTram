@@ -145,17 +145,38 @@ class InvoiceService {
 
   async getInvoices(filter = {}, options = {}) {
     try {
+      // ⚠️ Temporarily skip cache for debugging
+      const useCache = false;
       const cacheKey = `invoices:${JSON.stringify({ filter, options })}`;
       
-      const cached = await this.redis.get(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
+      if (useCache) {
+        const cached = await this.redis.get(cacheKey);
+        if (cached) {
+          return JSON.parse(cached);
+        }
       }
 
       const result = await invoiceRepo.findAll(filter, options);
 
+      // ✅ Populate invoice details for each invoice
+      if (result.invoices && result.invoices.length > 0) {
+        const invoicesWithDetails = await Promise.all(
+          result.invoices.map(async (invoice) => {
+            const details = await invoiceDetailRepo.findByInvoice(invoice._id);
+            console.log(`📋 [Invoice Service] Invoice ${invoice.invoiceNumber} has ${details.length} details`);
+            return {
+              ...invoice.toObject ? invoice.toObject() : invoice,
+              details
+            };
+          })
+        );
+        result.invoices = invoicesWithDetails;
+      }
+
       // Cache for shorter time due to frequently changing data
-      await this.redis.setex(cacheKey, 60, JSON.stringify(result));
+      if (useCache) {
+        await this.redis.setex(cacheKey, 60, JSON.stringify(result));
+      }
 
       return result;
     } catch (error) {

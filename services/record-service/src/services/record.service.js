@@ -1,8 +1,5 @@
 const recordRepo = require("../repositories/record.repository");
-const redis = require('../utils/redis.client');
 const { publishToQueue } = require('../utils/rabbitmq.client');
-
-const CACHE_TTL = 300; // 5 minutes
 
 class RecordService {
   async createRecord(data) {
@@ -81,17 +78,6 @@ class RecordService {
     };
 
     const record = await recordRepo.create(recordData);
-    
-    // Clear relevant caches
-    try {
-      await redis.del(`records:dentist:${finalDentistId}`);
-      if (finalPatientId) {
-        await redis.del(`records:patient:${finalPatientId}`);
-      }
-      await redis.del('records:pending');
-    } catch (error) {
-      console.warn('Failed to clear record cache:', error.message);
-    }
 
     console.log("✅ Record created:", record);
     return record;
@@ -124,25 +110,7 @@ class RecordService {
   }
 
   async getAllRecords(filters = {}) {
-    const cacheKey = `records:list:${JSON.stringify(filters)}`;
-    
-    try {
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    } catch (error) {
-      console.warn('Cache get failed:', error.message);
-    }
-
     const records = await recordRepo.findAll(filters);
-    
-    try {
-      await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(records));
-    } catch (error) {
-      console.warn('Cache set failed:', error.message);
-    }
-
     return records;
   }
 
@@ -156,31 +124,14 @@ class RecordService {
       throw new Error('Không tìm thấy hồ sơ');
     }
 
-    // ✅ Recalculate totalCost if service/quantity changed
-    if (updateData.serviceAddOnPrice !== undefined || updateData.quantity !== undefined) {
-      const mainServiceCost = (updateData.serviceAddOnPrice !== undefined ? updateData.serviceAddOnPrice : existingRecord.serviceAddOnPrice || 0) * 
-                               (updateData.quantity !== undefined ? updateData.quantity : existingRecord.quantity || 1);
-      const additionalCost = existingRecord.additionalServices?.reduce((sum, svc) => sum + svc.totalPrice, 0) || 0;
-      updateData.totalCost = mainServiceCost + additionalCost;
-      
-      console.log(`💰 [updateRecord] Recalculated totalCost for ${id}:`, {
-        mainServiceCost,
-        additionalCost,
-        totalCost: updateData.totalCost
-      });
-    }
+    // ✅ Trust totalCost from FE - DO NOT recalculate
+    // FE has full context of all changes (service addon, quantity, additional services)
+    // and calculates totalCost correctly before sending to BE
 
     const updatedRecord = await recordRepo.update(id, {
       ...updateData,
       modifiedBy
     });
-
-    // Clear ALL record caches (use pattern matching)
-    try {
-      await redis.delPattern('records:*');
-    } catch (error) {
-      console.warn('Failed to clear record cache:', error.message);
-    }
 
     // 🔥 If record is already completed, republish event to update invoice
     if (updatedRecord.status === 'completed') {
@@ -239,13 +190,6 @@ class RecordService {
 
     // Update record status
     const record = await recordRepo.updateStatus(id, status, modifiedBy);
-    
-    // Clear ALL record caches (use pattern matching)
-    try {
-      await redis.delPattern('records:*');
-    } catch (error) {
-      console.warn('Failed to clear record cache:', error.message);
-    }
 
     // 🔥 Publish events and update appointment based on status
     try {
@@ -371,13 +315,6 @@ class RecordService {
     }
 
     const record = await recordRepo.delete(id);
-    
-    // Clear ALL record caches (use pattern matching)
-    try {
-      await redis.delPattern('records:*');
-    } catch (error) {
-      console.warn('Failed to clear record cache:', error.message);
-    }
 
     return { message: 'Hồ sơ đã được xóa thành công' };
   }
@@ -387,25 +324,7 @@ class RecordService {
       throw new Error('Patient ID is required');
     }
 
-    const cacheKey = `records:patient:${patientId}:${limit}`;
-    
-    try {
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    } catch (error) {
-      console.warn('Cache get failed:', error.message);
-    }
-
     const records = await recordRepo.findByPatient(patientId, limit);
-    
-    try {
-      await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(records));
-    } catch (error) {
-      console.warn('Cache set failed:', error.message);
-    }
-
     return records;
   }
 
@@ -414,48 +333,12 @@ class RecordService {
       throw new Error('Dentist ID is required');
     }
 
-    const cacheKey = `records:dentist:${dentistId}:${startDate}:${endDate}`;
-    
-    try {
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    } catch (error) {
-      console.warn('Cache get failed:', error.message);
-    }
-
     const records = await recordRepo.findByDentist(dentistId, startDate, endDate);
-    
-    try {
-      await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(records));
-    } catch (error) {
-      console.warn('Cache set failed:', error.message);
-    }
-
     return records;
   }
 
   async getPendingRecords() {
-    const cacheKey = 'records:pending';
-    
-    try {
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    } catch (error) {
-      console.warn('Cache get failed:', error.message);
-    }
-
     const records = await recordRepo.findPending();
-    
-    try {
-      await redis.setEx(cacheKey, CACHE_TTL / 2, JSON.stringify(records)); // Shorter cache for pending
-    } catch (error) {
-      console.warn('Cache set failed:', error.message);
-    }
-
     return records;
   }
 
@@ -476,13 +359,6 @@ class RecordService {
     }
 
     const record = await recordRepo.addPrescription(id, prescription, prescribedBy);
-    
-    // Clear ALL record caches (use pattern matching)
-    try {
-      await redis.delPattern('records:*');
-    } catch (error) {
-      console.warn('Failed to clear record cache:', error.message);
-    }
 
     return record;
   }
@@ -493,37 +369,12 @@ class RecordService {
     }
 
     const record = await recordRepo.updateTreatmentIndication(id, indicationId, used, notes, modifiedBy);
-    
-    // Clear ALL record caches (use pattern matching)
-    try {
-      await redis.delPattern('records:*');
-    } catch (error) {
-      console.warn('Failed to clear record cache:', error.message);
-    }
 
     return record;
   }
 
   async getStatistics(startDate, endDate) {
-    const cacheKey = `records:stats:${startDate}:${endDate}`;
-    
-    try {
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
-      }
-    } catch (error) {
-      console.warn('Cache get failed:', error.message);
-    }
-
     const stats = await recordRepo.getStatistics(startDate, endDate);
-    
-    try {
-      await redis.setEx(cacheKey, CACHE_TTL * 2, JSON.stringify(stats)); // Longer cache for stats
-    } catch (error) {
-      console.warn('Cache set failed:', error.message);
-    }
-
     return stats;
   }
 
@@ -718,21 +569,13 @@ class RecordService {
     }
     record.additionalServices.push(newService);
 
-    // Recalculate totalCost = (main service addon price * quantity) + sum of additional services
-    const mainServiceCost = (record.serviceAddOnPrice || 0) * (record.quantity || 1);
-    const additionalCost = record.additionalServices.reduce((sum, svc) => sum + svc.totalPrice, 0);
-    record.totalCost = mainServiceCost + additionalCost;
+    // ⚠️ DO NOT recalculate totalCost here
+    // FE will send the correct totalCost via updateRecord API
+    // This function only adds the service to the array
 
     await record.save();
 
-    // Clear ALL record caches (use pattern matching)
-    try {
-      await redis.delPattern('records:*');
-    } catch (error) {
-      console.warn('Failed to clear cache:', error.message);
-    }
-
-    console.log(`✅ Added service ${serviceName} to record ${record.recordCode}. New total: ${record.totalCost}đ`);
+    console.log(`✅ Added service ${serviceName} to record ${record.recordCode}`);
     
     return record;
   }
@@ -764,22 +607,14 @@ class RecordService {
     const removedService = record.additionalServices[serviceIndex];
     record.additionalServices.splice(serviceIndex, 1);
 
-    // Recalculate totalCost = (main service addon price * quantity) + sum of additional services
-    const mainServiceCost = (record.serviceAddOnPrice || 0) * (record.quantity || 1);
-    const additionalCost = record.additionalServices.reduce((sum, svc) => sum + svc.totalPrice, 0);
-    record.totalCost = mainServiceCost + additionalCost;
+    // ⚠️ DO NOT recalculate totalCost here
+    // FE will send the correct totalCost via updateRecord API
+    // This function only removes the service from the array
 
     record.lastModifiedBy = removedBy;
     await record.save();
 
-    // Clear ALL record caches (use pattern matching)
-    try {
-      await redis.delPattern('records:*');
-    } catch (error) {
-      console.warn('Failed to clear cache:', error.message);
-    }
-
-    console.log(`✅ Removed service ${removedService.serviceName} from record ${record.recordCode}. New total: ${record.totalCost}đ`);
+    console.log(`✅ Removed service ${removedService.serviceName} from record ${record.recordCode}`);
     
     return record;
   }
@@ -822,22 +657,14 @@ class RecordService {
       service.notes = updateData.notes;
     }
 
-    // Recalculate totalCost
-    const baseCost = (record.servicePrice || 0) + (record.serviceAddOnPrice || 0);
-    const additionalCost = record.additionalServices.reduce((sum, svc) => sum + svc.totalPrice, 0);
-    record.totalCost = baseCost + additionalCost;
+    // ⚠️ DO NOT recalculate totalCost here
+    // FE will send the correct totalCost via updateRecord API
+    // This function only updates the service details
 
     record.lastModifiedBy = updatedBy;
     await record.save();
 
-    // Clear cache
-    try {
-      await redis.delPattern('records:*');
-    } catch (error) {
-      console.warn('Failed to clear cache:', error.message);
-    }
-
-    console.log(`✅ Updated service ${service.serviceName} in record ${record.recordCode}. New total: ${record.totalCost}đ`);
+    console.log(`✅ Updated service ${service.serviceName} in record ${record.recordCode}`);
     
     return record;
   }

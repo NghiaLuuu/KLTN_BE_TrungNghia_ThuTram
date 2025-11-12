@@ -151,7 +151,8 @@ const InvoiceSchema = new Schema({
   // Reference information
   patientId: {
     type: mongoose.Schema.Types.ObjectId,
-    required: true,
+    required: false, // ✅ Changed to false - walk-in patients may not have patientId
+    default: null,
     index: true
   },
   appointmentId: {
@@ -248,7 +249,7 @@ const InvoiceSchema = new Schema({
   },
   createdByRole: {
     type: String,
-    enum: ['admin', 'manager', 'dentist', 'receptionist', 'patient'], // ✅ Added 'patient'
+    enum: ['admin', 'manager', 'dentist', 'receptionist', 'patient', 'system'], // ✅ Added 'system' for automated invoice creation
     required: true
   },
   updatedBy: {

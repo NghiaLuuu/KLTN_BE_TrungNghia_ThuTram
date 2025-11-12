@@ -1,7 +1,7 @@
 const recordRepo = require("../repositories/record.repository");
 const recordService = require('./record.service');
-const redis = require('../utils/redis.client');
 const { emitRecordStatusChange, emitQueueUpdate, emitRecordUpdate } = require('../utils/socket');
+const axios = require('axios');
 
 class QueueService {
   /**
@@ -81,10 +81,6 @@ class QueueService {
       `Đang khám: ${updatedRecord.patientInfo?.name || 'Bệnh nhân'} (STT ${queueNumber})`
     );
 
-    // Clear cache
-    await redis.del(`record:${recordId}`);
-    await redis.del(`queue:*`);
-
     return updatedRecord;
   }
 
@@ -141,12 +137,61 @@ class QueueService {
       bookingChannel: paymentInfo?.bookingChannel || null
     };
 
-    // Clear cache
-    await redis.del(`record:${recordId}`);
-    await redis.del(`queue:*`);
+    // ✅ Create payment immediately via HTTP to ensure it exists before returning
+    let createdPayment = null;
+    try {
+      console.log('💰 [QueueService.completeRecord] Creating payment via HTTP...', paymentData);
+      
+      const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3007';
+      const response = await axios.post(`${paymentServiceUrl}/api/payments`, paymentData, {
+        headers: {
+          'x-internal-call': 'true',
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000 // 10s timeout
+      });
+      
+      if (response.data && response.data.success) {
+        createdPayment = response.data.data;
+        console.log('✅ [QueueService.completeRecord] Payment created:', createdPayment._id);
+        
+        // ✅ Auto-confirm cash payment to trigger invoice creation
+        try {
+          console.log('💰 [QueueService.completeRecord] Auto-confirming cash payment...');
+          const confirmResponse = await axios.post(
+            `${paymentServiceUrl}/api/payments/${createdPayment._id}/confirm-cash`,
+            {
+              confirmedBy: userId,
+              notes: 'Auto-confirmed upon record completion'
+            },
+            {
+              headers: {
+                'x-internal-call': 'true',
+                'Content-Type': 'application/json'
+              },
+              timeout: 10000
+            }
+          );
+          
+          if (confirmResponse.data && confirmResponse.data.success) {
+            createdPayment = confirmResponse.data.data; // Update with confirmed payment
+            console.log('✅ [QueueService.completeRecord] Payment confirmed, invoice will be created');
+          }
+        } catch (confirmError) {
+          console.warn('⚠️ [QueueService.completeRecord] Failed to auto-confirm payment:', confirmError.message);
+          // Payment still exists, can be confirmed manually
+        }
+      } else {
+        console.warn('⚠️ [QueueService.completeRecord] Payment creation returned unsuccessful:', response.data);
+      }
+    } catch (paymentError) {
+      console.error('❌ [QueueService.completeRecord] Failed to create payment:', paymentError.message);
+      // Don't throw - record is already completed, payment can be created manually
+    }
 
     return {
       record: completedRecord,
+      payment: createdPayment, // ✅ Return created payment
       paymentData,
       paymentInfo
     };
@@ -183,10 +228,6 @@ class QueueService {
       new Date(record.date).toISOString().split('T')[0],
       `Đã hủy: ${updatedRecord.patientInfo?.name || 'Bệnh nhân'} - ${reason}`
     );
-
-    // Clear cache
-    await redis.del(`record:${recordId}`);
-    await redis.del(`queue:*`);
 
     return updatedRecord;
   }

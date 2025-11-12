@@ -1,6 +1,17 @@
 const jwt = require('jsonwebtoken');
 
 const authMiddleware = (req, res, next) => {
+  // ✅ Allow internal service-to-service calls
+  if (req.headers['x-internal-call'] === 'true') {
+    // Set a system user for internal calls
+    req.user = {
+      userId: 'system',
+      role: 'system',
+      isInternal: true
+    };
+    return next();
+  }
+
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer "))
     return res.status(401).json({ message: 'No token provided' });

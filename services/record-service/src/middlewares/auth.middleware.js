@@ -1,6 +1,18 @@
 const jwt = require('jsonwebtoken');
 
 const authenticate = (req, res, next) => {
+  // ✅ Allow internal service-to-service calls
+  if (req.headers['x-internal-call'] === 'true') {
+    req.user = {
+      userId: 'system',
+      role: 'system',
+      roles: ['system'],
+      activeRole: 'system',
+      isInternal: true
+    };
+    return next();
+  }
+
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer "))
     return res.status(401).json({ message: 'No token provided' });
@@ -23,6 +35,11 @@ const authorize = (roles = []) => {
         success: false,
         message: 'Không có thông tin xác thực' 
       });
+    }
+
+    // ✅ Allow internal system calls
+    if (req.user.isInternal === true && req.user.role === 'system') {
+      return next();
     }
 
     // ✅ Check if user has ANY of the required roles (support multiple roles)

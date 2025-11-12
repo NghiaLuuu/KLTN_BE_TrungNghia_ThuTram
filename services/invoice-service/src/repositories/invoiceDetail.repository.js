@@ -17,7 +17,19 @@ class InvoiceDetailRepository {
   }
 
   async findByInvoice(invoiceId, options = {}) {
-    let query = InvoiceDetail.find({ invoiceId, isActive: true });
+    const mongoose = require('mongoose');
+    
+    console.log(`🔍 [InvoiceDetail Repo] Finding details for invoiceId: ${invoiceId}`);
+    console.log(`🔍 [InvoiceDetail Repo] InvoiceId type: ${typeof invoiceId}`);
+    
+    // Ensure invoiceId is an ObjectId
+    const objectId = mongoose.Types.ObjectId.isValid(invoiceId) 
+      ? new mongoose.Types.ObjectId(invoiceId) 
+      : invoiceId;
+    
+    console.log(`🔍 [InvoiceDetail Repo] Converted to ObjectId: ${objectId}`);
+    
+    let query = InvoiceDetail.find({ invoiceId: objectId, isActive: true });
 
     if (options.populateService) {
       query = query.populate('serviceId', 'name description');
@@ -30,7 +42,10 @@ class InvoiceDetailRepository {
       query = query.sort({ createdAt: 1 });
     }
 
-    return await query;
+    const results = await query;
+    console.log(`✅ [InvoiceDetail Repo] Found ${results.length} details`);
+    
+    return results;
   }
 
   async findByService(serviceId, options = {}) {

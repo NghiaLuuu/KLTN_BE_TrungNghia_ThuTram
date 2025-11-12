@@ -10,6 +10,11 @@ const roleMiddleware = (allowedRoles) => {
         });
       }
 
+      // ✅ Allow internal service calls to bypass role checks
+      if (user.isInternal === true && user.role === 'system') {
+        return next();
+      }
+
       // ✅ Support both activeRole (new token structure) and role (old structure)
       const userRole = user.activeRole || user.role;
 

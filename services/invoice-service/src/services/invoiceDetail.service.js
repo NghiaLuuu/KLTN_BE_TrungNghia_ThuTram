@@ -93,16 +93,26 @@ class InvoiceDetailService {
 
   async getDetailsByInvoice(invoiceId, options = {}) {
     try {
+      console.log(`🔍 [InvoiceDetail Service] Getting details for invoice: ${invoiceId}`);
+      
+      // ⚠️ Temporarily disable cache for debugging
+      const useCache = false;
       const cacheKey = `invoice_details:${invoiceId}:${JSON.stringify(options)}`;
       
-      const cached = await this.redis.get(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
+      if (useCache) {
+        const cached = await this.redis.get(cacheKey);
+        if (cached) {
+          console.log(`✅ [InvoiceDetail Service] Found cached details`);
+          return JSON.parse(cached);
+        }
       }
 
       const details = await invoiceDetailRepo.findByInvoice(invoiceId, options);
+      console.log(`📋 [InvoiceDetail Service] Found ${details.length} details for invoice ${invoiceId}`);
       
-      await this.redis.setex(cacheKey, this.cacheTimeout, JSON.stringify(details));
+      if (useCache) {
+        await this.redis.setex(cacheKey, this.cacheTimeout, JSON.stringify(details));
+      }
 
       return details;
     } catch (error) {

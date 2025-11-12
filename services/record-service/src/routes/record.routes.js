@@ -14,6 +14,7 @@ const {
   createRecordValidation,
   updateRecordValidation,
   recordIdValidation,
+  queueRecordIdValidation,
   recordCodeValidation,
   updateStatusValidation,
   addPrescriptionValidation,
@@ -46,7 +47,7 @@ router.get('/queue/status',
 router.post('/:recordId/call',
   authenticate,
   authorize(['dentist', 'admin', 'manager', 'staff', 'receptionist']),
-  recordIdValidation,
+  queueRecordIdValidation,
   validate,
   queueController.callRecord
 );
@@ -55,7 +56,7 @@ router.post('/:recordId/call',
 router.post('/:recordId/complete',
   authenticate,
   authorize(['dentist', 'admin', 'manager']),
-  recordIdValidation,
+  queueRecordIdValidation,
   validate,
   queueController.completeRecord
 );
@@ -73,7 +74,7 @@ router.get('/:id/payment-info',
 router.post('/:recordId/cancel',
   authenticate,
   authorize(['dentist', 'admin', 'manager', 'staff', 'receptionist']),
-  recordIdValidation,
+  queueRecordIdValidation,
   validate,
   queueController.cancelRecord
 );

@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const rabbitmqClient = require('../utils/rabbitmq.client');
 const invoiceRepository = require('../repositories/invoice.repository');
 const invoiceDetailRepository = require('../repositories/invoiceDetail.repository');
@@ -94,7 +95,7 @@ async function startConsumer() {
             // Metadata
             reservationId: reservationId,
             notes: appointmentData.notes || '',
-            createdBy: appointmentData.patientId || null,
+            createdBy: appointmentData.patientId || new mongoose.Types.ObjectId(),
             createdByRole: appointmentData.bookedByRole || 'patient'
           };
 
@@ -155,7 +156,7 @@ async function startConsumer() {
             notes: appointmentData.notes || null,
             
             // Optional: Audit
-            createdBy: appointmentData.patientId || null
+            createdBy: appointmentData.patientId || new mongoose.Types.ObjectId()
           };
 
           const invoiceDetail = await invoiceDetailRepository.createInvoiceDetail(invoiceDetailDoc);
@@ -405,7 +406,7 @@ async function startConsumer() {
             
             // Metadata
             notes: depositAmount > 0 ? `Original amount: ${amount}, Deposit: ${depositAmount}, Final amount: ${finalAmount}` : '',
-            createdBy: confirmedBy || null,
+            createdBy: confirmedBy || new mongoose.Types.ObjectId(),
             createdByRole: 'receptionist'
           };
 
@@ -432,8 +433,8 @@ async function startConsumer() {
             serviceInfo: {
               name: serviceDescription,
               code: null,
-              type: isOnlineBooking ? 'appointment' : 'treatment',
-              category: 'medical',
+              type: isOnlineBooking ? 'examination' : 'filling', // ✅ Use valid enum values
+              category: isOnlineBooking ? 'diagnostic' : 'restorative', // ✅ Use valid enum values
               description: serviceDescription
             },
             quantity: 1,
@@ -451,7 +452,7 @@ async function startConsumer() {
             status: 'completed',
             description: serviceDescription,
             notes: depositAmount > 0 ? `Deposit deducted: ${depositAmount}` : null,
-            createdBy: confirmedBy || null
+            createdBy: confirmedBy || new mongoose.Types.ObjectId()
           };
 
           console.log('📝 [Invoice Consumer] Creating invoice detail for cash payment...');
@@ -608,7 +609,7 @@ async function startConsumer() {
             
             // Metadata
             notes: discountAmount > 0 ? `Original: ${originalAmount}, Discount: ${discountAmount}, Final: ${finalAmount}` : '',
-            createdBy: patientId || null,
+            createdBy: patientId || new mongoose.Types.ObjectId(), // ✅ Create dummy ObjectId if no patientId
             createdByRole: 'system'
           };
 
@@ -643,13 +644,17 @@ async function startConsumer() {
               ? `${mainServiceName} - ${mainAddonName}`
               : mainServiceName;
             
+            // ✅ Determine service type based on record type
+            const serviceType = recordData.type === 'exam' ? 'examination' : 'filling'; // Default to filling for treatment
+            const serviceCategory = recordData.type === 'exam' ? 'diagnostic' : 'restorative';
+            
             const mainDetailDoc = {
               invoiceId: invoice._id,
               serviceInfo: {
                 name: mainServiceDescription,
                 code: null,
-                type: 'treatment',
-                category: 'medical',
+                type: serviceType,
+                category: serviceCategory,
                 description: mainServiceDescription,
                 unit: mainUnit || null
               },
@@ -668,7 +673,7 @@ async function startConsumer() {
               status: 'completed',
               description: mainServiceDescription,
               notes: null,
-              createdBy: patientId || null
+              createdBy: patientId || new mongoose.Types.ObjectId()
             };
             
             const mainDetail = await invoiceDetailRepository.createInvoiceDetail(mainDetailDoc);
@@ -697,13 +702,17 @@ async function startConsumer() {
                 ? `${addServiceName} - ${addAddonName}`
                 : addServiceName;
               
+              // ✅ Determine service type for additional services (default to filling/restorative)
+              const addServiceType = addSvc.type === 'exam' ? 'examination' : 'filling';
+              const addServiceCategory = addSvc.type === 'exam' ? 'diagnostic' : 'restorative';
+              
               const addDetailDoc = {
                 invoiceId: invoice._id,
                 serviceInfo: {
                   name: addServiceDescription,
                   code: null,
-                  type: 'treatment',
-                  category: 'medical',
+                  type: addServiceType,
+                  category: addServiceCategory,
                   description: addServiceDescription,
                   unit: addUnit || null
                 },
@@ -722,7 +731,7 @@ async function startConsumer() {
                 status: 'completed',
                 description: addServiceDescription,
                 notes: 'Dịch vụ bổ sung',
-                createdBy: patientId || null
+                createdBy: patientId || new mongoose.Types.ObjectId()
               };
               
               const addDetail = await invoiceDetailRepository.createInvoiceDetail(addDetailDoc);
@@ -745,8 +754,8 @@ async function startConsumer() {
               serviceInfo: {
                 name: 'Giảm trừ tiền cọc',
                 code: null,
-                type: 'treatment',
-                category: 'medical',
+                type: 'consultation', // ✅ Use valid enum value
+                category: 'diagnostic', // ✅ Use valid enum value
                 description: `Đã cọc trước ${discountAmount.toLocaleString('vi-VN')}đ`,
                 unit: null
               },
@@ -765,7 +774,7 @@ async function startConsumer() {
               status: 'completed',
               description: 'Giảm trừ tiền cọc',
               notes: 'Deposit deduction',
-              createdBy: patientId || null
+              createdBy: patientId || new mongoose.Types.ObjectId()
             };
             
             const discountDetail = await invoiceDetailRepository.createInvoiceDetail(discountDetailDoc);
