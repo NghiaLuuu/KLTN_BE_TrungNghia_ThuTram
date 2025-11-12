@@ -36,6 +36,44 @@ const chatSessionSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  bookingContext: {
+    type: {
+      isInBookingFlow: { type: Boolean, default: false },
+      selectedService: { type: Object, default: null },
+      selectedServiceAddOn: { type: Object, default: null },
+      selectedServiceItem: { type: Object, default: null }, // Combined service+addon for flat list
+      flatServiceList: { type: Array, default: [] }, // Flat numbered list
+      availableDentists: { type: Array, default: [] }, // Dentist list
+      selectedDentist: { type: Object, default: null },
+      availableDates: { type: Array, default: [] }, // Working dates
+      selectedDate: { type: String, default: null },
+      availableSlotGroups: { type: Array, default: [] }, // Slot groups
+      selectedSlot: { type: Object, default: null },
+      selectedSlotGroup: { type: Object, default: null }, // Selected slot group
+      step: { 
+        type: String, 
+        enum: ['SERVICE_SELECTION', 'ADDON_SELECTION', 'DENTIST_SELECTION', 'DATE_SELECTION', 'SLOT_SELECTION', 'CONFIRMATION', null],
+        default: null 
+      },
+      lastUpdated: { type: Date, default: null }
+    },
+    default: {
+      isInBookingFlow: false,
+      selectedService: null,
+      selectedServiceAddOn: null,
+      selectedServiceItem: null,
+      flatServiceList: [],
+      availableDentists: [],
+      selectedDentist: null,
+      availableDates: [],
+      selectedDate: null,
+      availableSlotGroups: [],
+      selectedSlot: null,
+      selectedSlotGroup: null,
+      step: null,
+      lastUpdated: null
+    }
   }
 }, {
   timestamps: true

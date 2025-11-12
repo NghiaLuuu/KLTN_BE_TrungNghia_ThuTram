@@ -27,7 +27,17 @@ class AIService {
       const gptResponse = response.choices[0].message.content;
       console.log('🤖 GPT Response:', gptResponse);
 
-      // Step 2: Check if GPT wants to query database
+      // Step 2: Check if GPT wants to use booking functionality
+      if (this.hasBookingRequest(gptResponse)) {
+        console.log('📅 Booking request detected');
+        return {
+          response: gptResponse,
+          bookingAction: this.extractBookingAction(gptResponse),
+          usedBooking: true
+        };
+      }
+
+      // Step 3: Check if GPT wants to query database
       if (this.hasQueryRequest(gptResponse)) {
         console.log('🔍 Query request detected, executing Query Engine...');
         
@@ -41,7 +51,7 @@ class AIService {
         if (queryResult.success) {
           console.log(`✅ Query executed successfully: ${queryResult.count} results`);
           
-          // Step 3: Send query results back to GPT for natural language response
+          // Step 4: Send query results back to GPT for natural language response
           const resultsContext = this.formatQueryResultsForGPT(queryResult);
           
           const finalResponse = await openai.chat.completions.create({
@@ -51,7 +61,7 @@ class AIService {
               ...messages,
               { 
                 role: 'system', 
-                content: `KẾT QUẢ TRỊ VẤN:\n${resultsContext}\n\nHãy tổng hợp thông tin trên và trả lời người dùng một cách tự nhiên, thân thiện. Đừng nói về query hay database.` 
+                content: `KẾT QUẢ TRUY VẤN:\n${resultsContext}\n\nHãy tổng hợp thông tin trên và trả lời người dùng một cách tự nhiên, thân thiện. Đừng nói về query hay database.` 
               }
             ],
             temperature: config.temperature,
@@ -89,6 +99,36 @@ class AIService {
       console.error('❌ OpenAI API Error:', error);
       throw new Error('Xin lỗi, tôi đang gặp sự cố kỹ thuật. Vui lòng thử lại sau.');
     }
+  }
+
+  /**
+   * Check if GPT response contains booking request
+   * @param {String} response - GPT response
+   * @returns {Boolean}
+   */
+  hasBookingRequest(response) {
+    return response.includes('[BOOKING_') && response.includes(']');
+  }
+
+  /**
+   * Extract booking action from response
+   * @param {String} response - GPT response
+   * @returns {Object|null}
+   */
+  extractBookingAction(response) {
+    // Match patterns like [BOOKING_CHECK_SERVICES], [BOOKING_GET_DENTISTS serviceId], etc.
+    const match = response.match(/\[BOOKING_(\w+)(?:\s+([^\]]+))?\]/);
+    
+    if (!match) return null;
+    
+    const action = match[1]; // e.g., "CHECK_SERVICES", "GET_DENTISTS"
+    const params = match[2] ? match[2].trim().split(/\s+/) : [];
+    
+    return {
+      action,
+      params,
+      fullMatch: match[0]
+    };
   }
 
   /**

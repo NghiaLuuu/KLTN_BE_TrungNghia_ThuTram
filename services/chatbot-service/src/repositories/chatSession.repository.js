@@ -94,6 +94,56 @@ class ChatSessionRepository {
     
     return session;
   }
+
+  /**
+   * Update booking context
+   */
+  async updateBookingContext(sessionId, contextUpdate) {
+    return await ChatSession.findOneAndUpdate(
+      { sessionId },
+      {
+        $set: {
+          'bookingContext': {
+            ...contextUpdate,
+            lastUpdated: new Date()
+          }
+        }
+      },
+      { new: true }
+    );
+  }
+
+  /**
+   * Get booking context
+   */
+  async getBookingContext(sessionId) {
+    const session = await ChatSession.findOne({ sessionId }).select('bookingContext');
+    return session?.bookingContext || null;
+  }
+
+  /**
+   * Clear booking context
+   */
+  async clearBookingContext(sessionId) {
+    return await ChatSession.findOneAndUpdate(
+      { sessionId },
+      {
+        $set: {
+          'bookingContext': {
+            isInBookingFlow: false,
+            selectedService: null,
+            selectedServiceAddOn: null,
+            selectedDentist: null,
+            selectedDate: null,
+            selectedSlot: null,
+            step: null,
+            lastUpdated: null
+          }
+        }
+      },
+      { new: true }
+    );
+  }
 }
 
 module.exports = new ChatSessionRepository();

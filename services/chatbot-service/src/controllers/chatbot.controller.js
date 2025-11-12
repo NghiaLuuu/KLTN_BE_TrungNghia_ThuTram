@@ -1,8 +1,10 @@
-const aiService = require('../services/ai.service');
+﻿const aiService = require('../services/ai.service');
 const chatSessionRepo = require('../repositories/chatSession.repository');
 const imageAnalysisService = require('../services/imageAnalysis.service');
 const { validateImageFile, optimizeImage } = require('../utils/imageValidator');
 const { handleQuery } = require('../services/queryEngine.service');
+const bookingService = require('../services/booking.service');
+const axios = require('axios');
 
 class ChatbotController {
   /**
@@ -12,7 +14,7 @@ class ChatbotController {
   async sendMessage(req, res) {
     try {
       const { message } = req.body;
-      const userId = req.user?.userId || req.user?._id;
+      const userId = req.user?.userId || req.user?._id || 'anonymous';
 
       if (!message || message.trim() === '') {
         return res.status(400).json({
@@ -21,25 +23,103 @@ class ChatbotController {
         });
       }
 
+      // Get or create session first (needed for booking flow check)
+      const session = await chatSessionRepo.getOrCreateSession(userId);
+
+      // Check booking context to see if user is in booking flow
+      const bookingContext = await chatSessionRepo.getBookingContext(session.sessionId);
+      const isInBookingFlowContext = bookingContext && bookingContext.isInBookingFlow;
+
       // Check if message is dental-related
-      if (!aiService.isDentalRelated(message)) {
+      const isDentalRelated = aiService.isDentalRelated(message);
+      
+      // Check if user is in booking flow (recently received service list)
+      const recentMessages = session.messages.slice(-7); // Last 7 messages for better context
+      const isInBookingFlow = recentMessages.some(msg => 
+        msg.role === 'assistant' && 
+        (msg.content.includes('Dịch vụ khám và điều trị') || 
+         msg.content.includes('Dịch vụ được bác sĩ chỉ định') ||
+         msg.content.includes('Danh sách dịch vụ có thể đặt lịch') ||
+         msg.content.includes('Danh sách nha sĩ khả dụng') ||
+         msg.content.includes('Ngày làm việc có lịch trống') ||
+         msg.content.includes('Khung giờ trống') ||
+         msg.content.includes('Bạn muốn đặt lịch cho dịch vụ nào'))
+      );
+      
+      // Skip off-topic check if:
+      // 1. User is in booking flow (context or messages)
+      // 2. Message is a number (service/dentist/date/slot selection)
+      // 3. Message contains booking keywords
+      // 4. Message looks like a person name (for dentist selection)
+      const isNumberSelection = /^\d+$/.test(message.trim());
+      const looksLikePersonName = /^[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ][a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]+(\s[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ][a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]+)+$/i.test(message.trim());
+      const hasBookingKeywords = ['đặt lịch', 'dịch vụ', 'khám', 'hẹn', 'có', 'không', 'bất kỳ', 'nha sĩ', 'bác sĩ', 'ngày', 'giờ'].some(kw => 
+        message.toLowerCase().includes(kw)
+      );
+      
+      if (!isDentalRelated && !isInBookingFlowContext && !isInBookingFlow && !isNumberSelection && !hasBookingKeywords && !looksLikePersonName) {
+        // Increment off-topic count (rate limiting)
+        if (req.rateLimit && req.rateLimit.incrementOffTopicCount) {
+          const rateStatus = await req.rateLimit.incrementOffTopicCount(userId);
+          
+          if (rateStatus.isBlocked) {
+            return res.status(429).json({
+              success: false,
+              message: `Bạn đã hỏi quá nhiều nội dung không liên quan đến nha khoa (${rateStatus.count}/3 lần). Vui lòng chờ ${rateStatus.remainingTime} giây trước khi tiếp tục.`,
+              isBlocked: true,
+              remainingTime: rateStatus.remainingTime,
+              offTopicCount: rateStatus.count,
+              timestamp: new Date().toISOString()
+            });
+          }
+          
+          const rejectMessage = `Xin lỗi, tôi chỉ có thể hỗ trợ các vấn đề liên quan đến phòng khám nha khoa SmileCare. Bạn có câu hỏi nào về răng miệng không? 😊\n\n⚠️ Lưu ý: Bạn đã hỏi ${rateStatus.count}/3 lần nội dung không liên quan. Nếu tiếp tục, bạn sẽ bị chặn 1 phút.`;
+          
+          return res.json({
+            success: true,
+            response: rejectMessage,
+            isOffTopic: true,
+            offTopicCount: rateStatus.count,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        // Fallback if rate limiter not available
         const rejectMessage = 'Xin lỗi, tôi chỉ có thể hỗ trợ các vấn đề liên quan đến phòng khám nha khoa SmileCare. Bạn có câu hỏi nào về răng miệng không? 😊';
         
         return res.json({
           success: true,
           response: rejectMessage,
+          isOffTopic: true,
           timestamp: new Date().toISOString()
         });
       }
-
-      // Get or create session
-      const session = await chatSessionRepo.getOrCreateSession(userId);
+      
+      // Reset off-topic count on valid dental message
+      if (req.rateLimit && req.rateLimit.resetOffTopicCount) {
+        await req.rateLimit.resetOffTopicCount(userId);
+      }
 
       // Add user message to session
       await chatSessionRepo.addMessage(session.sessionId, 'user', message);
 
-      // Get conversation history (last 10 messages for context)
-      const history = await chatSessionRepo.getHistory(userId, 10);
+      // Get conversation history (optimized for cost)
+      // Read 20 messages at CONFIRMATION step when user confirms (to get full booking context)
+      // Read 10 messages at CONFIRMATION step for GPT summary
+      // Other steps: 5 messages is enough for context
+      let historyLimit = 5; // Default for most steps
+      
+      if (bookingContext && bookingContext.step === 'CONFIRMATION') {
+        const input = message.trim().toLowerCase();
+        // If user is confirming (Có), read more history to ensure we have all booking data
+        if (input.includes('có') || input.includes('yes') || input.includes('ok') || input.includes('đồng ý') || input.includes('xác nhận')) {
+          historyLimit = 20; // Read full context when confirming
+        } else {
+          historyLimit = 10; // Normal confirmation step
+        }
+      }
+      
+      const history = await chatSessionRepo.getHistory(userId, historyLimit);
       const formattedMessages = aiService.formatMessagesForGPT(history);
 
       // Get auth token from request (for authenticated API calls)
@@ -47,6 +127,459 @@ class ChatbotController {
 
       // Get GPT response (with Query Engine integration)
       const result = await aiService.sendMessageToGPT(formattedMessages, undefined, authToken);
+
+      // Check if user is selecting a service (after seeing the service list)
+      // bookingContext already fetched above
+      
+      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'SERVICE_SELECTION') {
+        console.log('🎯 User is in SERVICE_SELECTION step');
+        
+        // Try to match service selection from flat list
+        const selectedItem = await this.matchServiceFromFlatList(
+          message,
+          bookingContext.flatServiceList
+        );
+        
+        if (selectedItem) {
+          console.log('✅ Service selected:', selectedItem);
+          
+          // Handle dentist selection flow (skip addon selection)
+          return await this.handleDentistSelection(
+            req,
+            res,
+            session,
+            selectedItem,
+            userId,
+            authToken
+          );
+        }
+      }
+
+      // Check if user is selecting a dentist
+      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'DENTIST_SELECTION') {
+        console.log('🎯 User is in DENTIST_SELECTION step');
+        
+        // Try to match dentist selection
+        const selectedDentist = await this.matchDentistSelection(
+          message,
+          bookingContext.availableDentists
+        );
+        
+        if (selectedDentist) {
+          console.log('✅ Dentist selected:', selectedDentist.fullName);
+          
+          // Handle date selection flow
+          return await this.handleDateSelection(
+            req,
+            res,
+            session,
+            bookingContext.selectedServiceItem,
+            selectedDentist,
+            userId,
+            authToken
+          );
+        }
+      }
+
+      // Check if user is selecting a date
+      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'DATE_SELECTION') {
+        console.log('🎯 User is in DATE_SELECTION step');
+        
+        // Try to match date selection
+        const selectedDate = await this.matchDateSelection(
+          message,
+          bookingContext.availableDates
+        );
+        
+        if (selectedDate) {
+          console.log('✅ Date selected:', selectedDate);
+          
+          // Handle slot selection flow
+          return await this.handleSlotSelection(
+            req,
+            res,
+            session,
+            bookingContext.selectedServiceItem,
+            bookingContext.selectedDentist,
+            selectedDate,
+            userId,
+            authToken
+          );
+        }
+      }
+
+      // Check if user is selecting a slot
+      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'SLOT_SELECTION') {
+        console.log('🎯 User is in SLOT_SELECTION step');
+        
+        // Try to match slot group selection
+        const selectedSlotGroup = await this.matchSlotGroupSelection(
+          message,
+          bookingContext.availableSlotGroups
+        );
+        
+        if (selectedSlotGroup) {
+          console.log('✅ Slot group selected:', selectedSlotGroup);
+          
+          // Handle final confirmation
+          return await this.handleFinalConfirmation(
+            req,
+            res,
+            session,
+            {
+              selectedServiceItem: bookingContext.selectedServiceItem,
+              selectedDentist: bookingContext.selectedDentist,
+              selectedDate: bookingContext.selectedDate,
+              selectedSlotGroup: selectedSlotGroup
+            },
+            userId,
+            authToken
+          );
+        }
+      }
+
+      // Check if user is confirming booking
+      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'CONFIRMATION') {
+        console.log('🎯 User is in CONFIRMATION step');
+        
+        const input = message.trim().toLowerCase();
+        
+        if (input.includes('có') || input.includes('yes') || input.includes('ok') || input.includes('đồng ý') || input.includes('xác nhận')) {
+          // User confirmed - Re-fetch booking context to ensure we have latest data
+          console.log('✅ User confirmed booking, re-fetching booking context...');
+          
+          const latestContext = await chatSessionRepo.getBookingContext(session.sessionId);
+          
+          if (!latestContext || !latestContext.selectedSlotGroup) {
+            console.error('❌ No booking context or selectedSlotGroup found after re-fetch');
+            const errorMessage = '❌ Không tìm thấy thông tin đặt lịch. Vui lòng thử đặt lại từ đầu!';
+            await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
+            return res.json({
+              success: false,
+              response: errorMessage,
+              sessionId: session.sessionId,
+              timestamp: new Date().toISOString()
+            });
+          }
+          
+          console.log('📦 Latest booking context:', JSON.stringify(latestContext, null, 2));
+          
+          const selectedServiceItem = latestContext.selectedServiceItem;
+          const selectedDentist = latestContext.selectedDentist;
+          const selectedDate = latestContext.selectedDate;
+          const selectedSlotGroup = latestContext.selectedSlotGroup;
+          
+          console.log('🔍 Selected slot group:', JSON.stringify(selectedSlotGroup, null, 2));
+          
+          // Extract slot ID (handle multiple possible field names)
+          const slotId = selectedSlotGroup?._id || selectedSlotGroup?.slotId || selectedSlotGroup?.id;
+          
+          if (!slotId) {
+            console.error('❌ No slot ID found in selectedSlotGroup:', selectedSlotGroup);
+            const errorMessage = '❌ Không thể lấy thông tin slot. Vui lòng thử đặt lại lịch!';
+            await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
+            return res.json({
+              success: false,
+              response: errorMessage,
+              sessionId: session.sessionId,
+              timestamp: new Date().toISOString()
+            });
+          }
+          
+          console.log('✅ Slot ID extracted:', slotId);
+          
+          // Prepare booking data to send to frontend
+          const bookingData = {
+            service: {
+              _id: selectedServiceItem.serviceId,
+              name: selectedServiceItem.serviceName
+            },
+            serviceAddOn: {
+              _id: selectedServiceItem.addOnId,
+              name: selectedServiceItem.addOnName,
+              price: selectedServiceItem.price,
+              durationMinutes: selectedServiceItem.duration
+            },
+            dentist: {
+              _id: selectedDentist._id,
+              name: selectedDentist.fullName || selectedDentist.name,
+              fullName: selectedDentist.fullName || selectedDentist.name
+            },
+            date: selectedDate,
+            slotGroup: {
+              slotIds: [slotId], // ✅ Frontend expects "slotIds" not "slots"
+              slots: [slotId],    // Keep both for compatibility
+              startTime: selectedSlotGroup.startTime,
+              endTime: selectedSlotGroup.endTime
+            }
+          };
+          
+          console.log('📦 Final booking data:', JSON.stringify(bookingData, null, 2));
+          
+          const successMessage = `✅ **Đặt lịch thành công!**\n\n🔄 Đang chuyển đến trang thanh toán...\n\n💡 Vui lòng hoàn tất thanh toán để xác nhận lịch hẹn của bạn.`;
+          
+          // Clear booking context
+          await chatSessionRepo.clearBookingContext(session.sessionId);
+          await chatSessionRepo.addMessage(session.sessionId, 'assistant', successMessage);
+          
+          return res.json({
+            success: true,
+            response: successMessage,
+            sessionId: session.sessionId,
+            timestamp: new Date().toISOString(),
+            bookingData: bookingData, // 🔥 Return booking data for frontend to handle
+            redirectToPayment: true // Flag to indicate frontend should redirect
+          });
+        } else if (input.includes('không') || input.includes('no') || input.includes('hủy') || input.includes('cancel')) {
+          // User cancelled
+          const cancelMessage = '❌ Đã hủy đặt lịch.\n\nNếu bạn cần đặt lại, vui lòng nói "đặt lịch" hoặc liên hệ hotline! 📞';
+          
+          // Clear booking context
+          await chatSessionRepo.clearBookingContext(session.sessionId);
+          await chatSessionRepo.addMessage(session.sessionId, 'assistant', cancelMessage);
+          
+          return res.json({
+            success: true,
+            response: cancelMessage,
+            sessionId: session.sessionId,
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+
+      // Check if user message contains booking intent (before GPT processing)
+      const bookingKeywords = [
+        'đặt lịch', 'dat lich', 'book', 'hẹn khám', 'muốn khám',
+        'dịch vụ được chỉ định', 'dịch vụ chỉ định', 'chỉ định nha sĩ',
+        'có dịch vụ nào', 'dịch vụ gì'
+      ];
+      
+      const hasBookingIntent = bookingKeywords.some(keyword => 
+        message.toLowerCase().includes(keyword)
+      );
+      
+      if (hasBookingIntent) {
+        console.log('📅 Booking intent detected in user message!');
+        
+        try {
+          // Automatically get user's available services
+          const servicesResult = await bookingService.getUserAvailableServices(userId, authToken);
+          
+          if (servicesResult.services.length === 0) {
+            const noServicesResponse = 'Hiện tại chưa có dịch vụ nào khả dụng. Vui lòng liên hệ hotline để được hỗ trợ! 📞';
+            await chatSessionRepo.addMessage(session.sessionId, 'assistant', noServicesResponse);
+            
+            return res.json({
+              success: true,
+              response: noServicesResponse,
+              sessionId: session.sessionId,
+              timestamp: new Date().toISOString()
+            });
+          }
+          
+          // Format services list with FLAT structure (all service + addon combinations)
+          let servicesMessage = '📋 **Danh sách dịch vụ có thể đặt lịch:**\n\n';
+          
+          const recommended = servicesResult.services.filter(s => s.isRecommended);
+          const regular = servicesResult.services.filter(s => !s.isRecommended);
+          
+          // Flatten all services into a single numbered list
+          let flatServiceList = [];
+          let counter = 1;
+          
+          // Add recommended services (from treatmentIndications)
+          // IMPORTANT: For recommended services, only show the SPECIFIC addon that was indicated
+          recommended.forEach(service => {
+            // Check if this service has a specific addon indicated
+            if (service.recommendedAddOnId) {
+              // Find the specific addon that was indicated
+              const indicatedAddon = service.serviceAddOns?.find(
+                addon => addon._id.toString() === service.recommendedAddOnId.toString()
+              );
+              
+              if (indicatedAddon) {
+                flatServiceList.push({
+                  number: counter++,
+                  serviceId: service._id,
+                  serviceName: service.name,
+                  addOnId: indicatedAddon._id,
+                  addOnName: indicatedAddon.name,
+                  price: indicatedAddon.effectivePrice || indicatedAddon.price || indicatedAddon.basePrice || 0,
+                  duration: indicatedAddon.durationMinutes || 30,
+                  isRecommended: true,
+                  requireExamFirst: service.requireExamFirst,
+                  recordId: service.recordId
+                });
+              }
+            } else if (service.serviceAddOns && service.serviceAddOns.length > 0) {
+              // If no specific addon indicated, show all addons (fallback)
+              service.serviceAddOns.forEach(addon => {
+                flatServiceList.push({
+                  number: counter++,
+                  serviceId: service._id,
+                  serviceName: service.name,
+                  addOnId: addon._id,
+                  addOnName: addon.name,
+                  price: addon.effectivePrice || addon.price || addon.basePrice || 0,
+                  duration: addon.durationMinutes || 30,
+                  isRecommended: true,
+                  requireExamFirst: service.requireExamFirst,
+                  recordId: service.recordId
+                });
+              });
+            } else {
+              // Service without addons
+              flatServiceList.push({
+                number: counter++,
+                serviceId: service._id,
+                serviceName: service.name,
+                addOnId: null,
+                addOnName: null,
+                price: 0,
+                duration: 30,
+                isRecommended: true,
+                requireExamFirst: service.requireExamFirst,
+                recordId: service.recordId
+              });
+            }
+          });
+          
+          // Add regular services with ALL their addons (not recommended, so show all options)
+          regular.forEach(service => {
+            if (service.serviceAddOns && service.serviceAddOns.length > 0) {
+              service.serviceAddOns.forEach(addon => {
+                flatServiceList.push({
+                  number: counter++,
+                  serviceId: service._id,
+                  serviceName: service.name,
+                  addOnId: addon._id,
+                  addOnName: addon.name,
+                  price: addon.effectivePrice || addon.price || addon.basePrice || 0,
+                  duration: addon.durationMinutes || 30,
+                  isRecommended: false,
+                  requireExamFirst: service.requireExamFirst
+                });
+              });
+            } else {
+              // Service without addons
+              flatServiceList.push({
+                number: counter++,
+                serviceId: service._id,
+                serviceName: service.name,
+                addOnId: null,
+                addOnName: null,
+                price: 0,
+                duration: 30,
+                isRecommended: false,
+                requireExamFirst: service.requireExamFirst
+              });
+            }
+          });
+          
+          // Format the list
+          flatServiceList.forEach(item => {
+            const displayName = item.addOnName 
+              ? `${item.serviceName} - ${item.addOnName}` 
+              : item.serviceName;
+            
+            const priceStr = item.price > 0 ? ` - ${item.price.toLocaleString('vi-VN')}đ` : '';
+            const durationStr = ` (${item.duration} phút)`;
+            const recommendedTag = item.isRecommended ? ' ⭐ (Chỉ định)' : '';
+            
+            servicesMessage += `${item.number}. ${displayName}${priceStr}${durationStr}${recommendedTag}\n`;
+          });
+          
+          servicesMessage += '\n💡 Chọn dịch vụ bằng số (1, 2, 3...) hoặc gõ tên dịch vụ';
+          
+          // Save to session
+          await chatSessionRepo.addMessage(session.sessionId, 'assistant', servicesMessage);
+          
+          // Set booking context - user is now in booking flow
+          await chatSessionRepo.updateBookingContext(session.sessionId, {
+            isInBookingFlow: true,
+            step: 'SERVICE_SELECTION',
+            flatServiceList: flatServiceList, // Store flat list for selection
+            selectedService: null,
+            selectedServiceAddOn: null,
+            selectedDentist: null,
+            selectedDate: null,
+            selectedSlot: null
+          });
+          
+          return res.json({
+            success: true,
+            response: servicesMessage,
+            sessionId: session.sessionId,
+            timestamp: new Date().toISOString(),
+            bookingMode: true,
+            servicesData: {
+              flatServiceList: flatServiceList,
+              total: flatServiceList.length
+            }
+          });
+          
+        } catch (bookingError) {
+          console.error('❌ Booking services fetch error:', bookingError);
+          
+          // Fallback to normal GPT response
+          const errorResponse = `Xin lỗi, tôi không thể tải danh sách dịch vụ lúc này: ${bookingError.message}. Vui lòng thử lại sau hoặc liên hệ hotline! 📞`;
+          await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorResponse);
+          
+          return res.json({
+            success: true,
+            response: errorResponse,
+            sessionId: session.sessionId,
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
+      
+      // DEPRECATED: Old GPT booking logic - replaced by new flow with step-by-step confirmation
+      // Check if GPT wants to use booking functionality (fallback)
+      // This is disabled because we now use the new booking flow:
+      // 1. Show flat service list → 2. Select dentist → 3. Select date → 4. Select slot → 5. Confirm
+      if (false && result.usedBooking && result.bookingAction) {
+        console.log('📅 Processing GPT booking action:', result.bookingAction);
+        
+        try {
+          const bookingResult = await this.handleBookingAction(
+            result.bookingAction,
+            userId,
+            authToken
+          );
+          
+          // Replace booking tag with actual result
+          let finalResponse = result.response.replace(
+            result.bookingAction.fullMatch,
+            bookingResult.message
+          );
+          
+          // Save assistant response
+          await chatSessionRepo.addMessage(session.sessionId, 'assistant', finalResponse);
+          
+          return res.json({
+            success: true,
+            response: finalResponse,
+            sessionId: session.sessionId,
+            timestamp: new Date().toISOString(),
+            usedBooking: true,
+            bookingData: bookingResult.data || null
+          });
+        } catch (bookingError) {
+          console.error('❌ Booking action error:', bookingError);
+          
+          // Fallback response
+          const errorResponse = `Xin lỗi, tôi không thể xử lý yêu cầu đặt lịch: ${bookingError.message}. Vui lòng thử lại hoặc liên hệ hotline để được hỗ trợ! 📞`;
+          await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorResponse);
+          
+          return res.json({
+            success: true,
+            response: errorResponse,
+            sessionId: session.sessionId,
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
 
       // Save assistant response
       await chatSessionRepo.addMessage(session.sessionId, 'assistant', result.response);
@@ -363,6 +896,764 @@ class ChatbotController {
       res.status(500).json({
         success: false,
         message: error.message || 'Không thể thực thi truy vấn'
+      });
+    }
+  }
+
+  /**
+   * POST /api/ai/booking/start
+   * Start booking flow - Get user's available services
+   */
+  async startBooking(req, res) {
+    try {
+      const userId = req.user?.userId || req.user?._id;
+      
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Vui lòng đăng nhập để đặt lịch'
+        });
+      }
+
+      const result = await bookingService.getUserAvailableServices(userId);
+      
+      res.json({
+        success: true,
+        data: result,
+        message: 'Vui lòng chọn dịch vụ bạn muốn đặt lịch'
+      });
+      
+    } catch (error) {
+      console.error('❌ Start booking error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Không thể bắt đầu đặt lịch'
+      });
+    }
+  }
+
+  /**
+   * POST /api/ai/booking/get-dentists
+   * Get available dentists for selected service
+   */
+  async getBookingDentists(req, res) {
+    try {
+      const { serviceId, serviceAddOnId } = req.body;
+      
+      if (!serviceId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Thiếu thông tin dịch vụ'
+        });
+      }
+
+      const result = await bookingService.getAvailableDentists(serviceId, serviceAddOnId);
+      
+      res.json({
+        success: true,
+        data: result,
+        message: 'Vui lòng chọn nha sĩ'
+      });
+      
+    } catch (error) {
+      console.error('❌ Get booking dentists error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Không thể lấy danh sách nha sĩ'
+      });
+    }
+  }
+
+  /**
+   * POST /api/ai/booking/get-slots
+   * Get available time slots
+   */
+  async getBookingSlots(req, res) {
+    try {
+      const { dentistId, date, serviceDuration } = req.body;
+      
+      if (!dentistId || !date || !serviceDuration) {
+        return res.status(400).json({
+          success: false,
+          message: 'Thiếu thông tin để lấy lịch trống'
+        });
+      }
+
+      const result = await bookingService.getAvailableSlots(dentistId, date, serviceDuration);
+      
+      res.json({
+        success: true,
+        data: result,
+        message: 'Vui lòng chọn giờ khám'
+      });
+      
+    } catch (error) {
+      console.error('❌ Get booking slots error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Không thể lấy lịch trống'
+      });
+    }
+  }
+
+  /**
+   * POST /api/ai/booking/confirm
+   * Confirm booking and create appointment reservation
+   */
+  async confirmBooking(req, res) {
+    try {
+      const userId = req.user?.userId || req.user?._id;
+      const { serviceId, serviceAddOnId, dentistId, date, slotIds, notes } = req.body;
+      
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Vui lòng đăng nhập để đặt lịch'
+        });
+      }
+
+      if (!serviceId || !dentistId || !date || !slotIds || slotIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Thiếu thông tin đặt lịch'
+        });
+      }
+
+      const result = await bookingService.createReservation({
+        userId,
+        serviceId,
+        serviceAddOnId,
+        dentistId,
+        date,
+        slotIds,
+        notes
+      });
+      
+      res.json({
+        success: true,
+        data: result,
+        message: 'Đặt lịch thành công! Vui lòng thanh toán để xác nhận.'
+      });
+      
+    } catch (error) {
+      console.error('❌ Confirm booking error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Không thể xác nhận đặt lịch'
+      });
+    }
+  }
+
+  /**
+   * DEPRECATED: Old booking action handler
+   * This method is no longer used - replaced by step-by-step booking flow
+   */
+  // async handleBookingAction() - REMOVED
+
+  /**
+   * Match service selection from flat list (by number or name)
+   */
+  async matchServiceFromFlatList(userInput, flatServiceList) {
+    if (!flatServiceList || flatServiceList.length === 0) return null;
+    
+    const input = userInput.trim().toLowerCase();
+    
+    // Try match by number
+    const numberMatch = input.match(/^(\d+)$/);
+    if (numberMatch) {
+      const number = parseInt(numberMatch[1]);
+      const found = flatServiceList.find(item => item.number === number);
+      if (found) return found;
+    }
+    
+    // Try match by service name or addon name (fuzzy)
+    for (const item of flatServiceList) {
+      const fullName = item.addOnName 
+        ? `${item.serviceName} ${item.addOnName}`.toLowerCase()
+        : item.serviceName.toLowerCase();
+      
+      if (fullName.includes(input) || input.includes(item.serviceName.toLowerCase())) {
+        return item;
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Handle dentist selection after service is chosen
+   */
+  async handleDentistSelection(req, res, session, selectedItem, userId, authToken) {
+    try {
+      console.log('�‍⚕️ Fetching dentists for service:', selectedItem.serviceName);
+      
+      // Update booking context
+      await chatSessionRepo.updateBookingContext(session.sessionId, {
+        isInBookingFlow: true,
+        step: 'DENTIST_SELECTION',
+        selectedServiceItem: selectedItem,
+        selectedDentist: null,
+        selectedDate: null,
+        selectedSlot: null
+      });
+      
+      // Call API to get dentists with nearest slot
+      const SCHEDULE_SERVICE_URL = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
+      
+      const dentistsResponse = await axios.get(
+        `${SCHEDULE_SERVICE_URL}/api/slot/dentists-with-nearest-slot`,
+        {
+          params: {
+            serviceId: selectedItem.serviceId,
+            serviceDuration: selectedItem.duration
+          },
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
+        }
+      );
+      
+      console.log('📦 Dentists response:', dentistsResponse.data);
+      
+      // Extract dentists array from response
+      let dentists = [];
+      if (dentistsResponse.data.success && dentistsResponse.data.data) {
+        // Check if data contains dentists array or is directly an array
+        if (dentistsResponse.data.data.dentists && Array.isArray(dentistsResponse.data.data.dentists)) {
+          dentists = dentistsResponse.data.data.dentists;
+        } else if (Array.isArray(dentistsResponse.data.data)) {
+          dentists = dentistsResponse.data.data;
+        }
+      }
+      
+      if (dentists.length === 0) {
+        const noDentistsMessage = `Xin lỗi, hiện tại không có nha sĩ nào khả dụng cho dịch vụ "${selectedItem.serviceName}". Vui lòng liên hệ hotline! 📞`;
+        
+        await chatSessionRepo.addMessage(session.sessionId, 'assistant', noDentistsMessage);
+        
+        return res.json({
+          success: true,
+          response: noDentistsMessage,
+          sessionId: session.sessionId,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      // Format dentist list
+      let dentistMessage = `✅ Bạn đã chọn: **${selectedItem.serviceName}`;
+      if (selectedItem.addOnName) {
+        dentistMessage += ` - ${selectedItem.addOnName}`;
+      }
+      dentistMessage += `**\n\n👨‍⚕️ **Danh sách nha sĩ khả dụng:**\n\n`;
+      
+      dentists.slice(0, 10).forEach((dentist, idx) => {
+        dentistMessage += `${idx + 1}. ${dentist.fullName || dentist.name}`;
+        if (dentist.specialization) {
+          dentistMessage += ` (${dentist.specialization})`;
+        }
+        if (dentist.nearestSlot) {
+          // Format nearestSlot properly
+          console.log('🔍 nearestSlot type:', typeof dentist.nearestSlot, 'value:', JSON.stringify(dentist.nearestSlot));
+          
+          let slotInfo = '';
+          if (typeof dentist.nearestSlot === 'object' && dentist.nearestSlot !== null) {
+            // Check various possible object structures
+            if (dentist.nearestSlot.date && dentist.nearestSlot.startTime) {
+              // Format: { date: '2025-11-14', startTime: '09:00' }
+              const slotDate = new Date(dentist.nearestSlot.date);
+              slotInfo = `${slotDate.toLocaleDateString('vi-VN')} ${dentist.nearestSlot.startTime}`;
+            } else if (dentist.nearestSlot.$date) {
+              // MongoDB date format: { $date: '...' }
+              const slotDate = new Date(dentist.nearestSlot.$date);
+              slotInfo = slotDate.toLocaleDateString('vi-VN');
+            } else {
+              // Try to extract any date-like string
+              const jsonStr = JSON.stringify(dentist.nearestSlot);
+              if (jsonStr !== '{}' && jsonStr !== '[object Object]') {
+                slotInfo = jsonStr.replace(/[{}"]/g, '');
+              }
+            }
+          } else if (typeof dentist.nearestSlot === 'string') {
+            slotInfo = dentist.nearestSlot;
+          }
+          
+          if (slotInfo && slotInfo !== '[object Object]') {
+            dentistMessage += `\n   📅 Lịch gần nhất: ${slotInfo}`;
+          }
+        }
+        dentistMessage += '\n';
+      });
+      
+      if (dentists.length > 10) {
+        dentistMessage += `\n... và ${dentists.length - 10} nha sĩ khác.\n`;
+      }
+      
+      dentistMessage += '\n💡 Chọn nha sĩ (1, 2, 3...) hoặc gõ "bất kỳ" để hệ thống chọn tự động';
+      
+      // Save dentist list to context
+      await chatSessionRepo.updateBookingContext(session.sessionId, {
+        isInBookingFlow: true,
+        step: 'DENTIST_SELECTION',
+        selectedServiceItem: selectedItem,
+        availableDentists: dentists
+      });
+      
+      await chatSessionRepo.addMessage(session.sessionId, 'assistant', dentistMessage);
+      
+      return res.json({
+        success: true,
+        response: dentistMessage,
+        sessionId: session.sessionId,
+        timestamp: new Date().toISOString()
+      });
+      
+    } catch (error) {
+      console.error('❌ Handle dentist selection error:', error);
+      
+      const errorResponse = `Xin lỗi, không thể tải danh sách nha sĩ: ${error.message}. Vui lòng thử lại! 📞`;
+      await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorResponse);
+      
+      return res.json({
+        success: true,
+        response: errorResponse,
+        sessionId: session.sessionId,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+
+  /**
+   * Match dentist selection from user input
+   */
+  async matchDentistSelection(userInput, availableDentists) {
+    if (!availableDentists || availableDentists.length === 0) return null;
+    
+    const input = userInput.trim().toLowerCase();
+    
+    // Handle "bất kỳ" or "any" -> return first dentist
+    if (input.includes('bất kỳ') || input.includes('bat ky') || input === 'any') {
+      return availableDentists[0];
+    }
+    
+    // Try match by number
+    const numberMatch = input.match(/^(\d+)$/);
+    if (numberMatch) {
+      const index = parseInt(numberMatch[1]) - 1;
+      if (index >= 0 && index < availableDentists.length) {
+        return availableDentists[index];
+      }
+    }
+    
+    // Try match by dentist name (fuzzy)
+    for (const dentist of availableDentists) {
+      const name = (dentist.fullName || dentist.name || '').toLowerCase();
+      if (name.includes(input) || input.includes(name)) {
+        return dentist;
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Handle date selection after dentist is chosen
+   */
+  async handleDateSelection(req, res, session, selectedServiceItem, selectedDentist, userId, authToken) {
+    try {
+      console.log('📅 Fetching working dates for dentist:', selectedDentist.fullName);
+      
+      // Update booking context
+      await chatSessionRepo.updateBookingContext(session.sessionId, {
+        isInBookingFlow: true,
+        step: 'DATE_SELECTION',
+        selectedServiceItem: selectedServiceItem,
+        selectedDentist: selectedDentist,
+        selectedDate: null,
+        selectedSlot: null
+      });
+      
+      // Call API to get working dates
+      const SCHEDULE_SERVICE_URL = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
+      
+      const datesResponse = await axios.get(
+        `${SCHEDULE_SERVICE_URL}/api/slot/dentist/${selectedDentist._id}/working-dates`,
+        {
+          params: {
+            serviceId: selectedServiceItem.serviceId,
+            serviceDuration: selectedServiceItem.duration
+          },
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
+        }
+      );
+      
+      console.log('📦 Working dates response:', datesResponse.data);
+      
+      // Extract working dates array from response
+      let workingDates = [];
+      if (datesResponse.data.success && datesResponse.data.data) {
+        // Check if data contains workingDates array or is directly an array
+        if (datesResponse.data.data.workingDates && Array.isArray(datesResponse.data.data.workingDates)) {
+          workingDates = datesResponse.data.data.workingDates;
+        } else if (Array.isArray(datesResponse.data.data)) {
+          workingDates = datesResponse.data.data;
+        }
+      }
+      
+      if (workingDates.length === 0) {
+        const noDatesMessage = `Xin lỗi, nha sĩ ${selectedDentist.fullName} hiện không có lịch trống. Vui lòng chọn nha sĩ khác hoặc liên hệ hotline! 📞`;
+        
+        await chatSessionRepo.addMessage(session.sessionId, 'assistant', noDatesMessage);
+        
+        return res.json({
+          success: true,
+          response: noDatesMessage,
+          sessionId: session.sessionId,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      // Format date list
+      let dateMessage = `✅ Đã chọn nha sĩ: **${selectedDentist.fullName}**\n\n📅 **Ngày làm việc có lịch trống:**\n\n`;
+      
+      workingDates.slice(0, 14).forEach((dateItem, idx) => {
+        // Handle both string format and object format
+        const dateStr = typeof dateItem === 'string' ? dateItem : (dateItem.date || dateItem);
+        const date = new Date(dateStr);
+        const dayName = date.toLocaleDateString('vi-VN', { weekday: 'long' });
+        const dateFormatted = date.toLocaleDateString('vi-VN');
+        
+        dateMessage += `${idx + 1}. ${dayName}, ${dateFormatted}\n`;
+      });
+      
+      if (workingDates.length > 14) {
+        dateMessage += `\n... và ${workingDates.length - 14} ngày khác.\n`;
+      }
+      
+      dateMessage += '\n💡 Chọn ngày (1, 2, 3...) hoặc gõ ngày theo định dạng "DD/MM/YYYY"';
+      
+      // Normalize working dates to array of date strings (YYYY-MM-DD)
+      const normalizedDates = workingDates.map(dateItem => {
+        const dateStr = typeof dateItem === 'string' ? dateItem : (dateItem.date || dateItem);
+        // Ensure format is YYYY-MM-DD
+        const date = new Date(dateStr);
+        return date.toISOString().split('T')[0];
+      });
+      
+      // Save dates to context
+      await chatSessionRepo.updateBookingContext(session.sessionId, {
+        isInBookingFlow: true,
+        step: 'DATE_SELECTION',
+        selectedServiceItem: selectedServiceItem,
+        selectedDentist: selectedDentist,
+        availableDates: normalizedDates
+      });
+      
+      await chatSessionRepo.addMessage(session.sessionId, 'assistant', dateMessage);
+      
+      return res.json({
+        success: true,
+        response: dateMessage,
+        sessionId: session.sessionId,
+        timestamp: new Date().toISOString()
+      });
+      
+    } catch (error) {
+      console.error('❌ Handle date selection error:', error);
+      
+      const errorResponse = `Xin lỗi, không thể tải lịch làm việc: ${error.message}. Vui lòng thử lại! 📞`;
+      await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorResponse);
+      
+      return res.json({
+        success: true,
+        response: errorResponse,
+        sessionId: session.sessionId,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+
+  /**
+   * Match date selection from user input
+   */
+  async matchDateSelection(userInput, availableDates) {
+    if (!availableDates || availableDates.length === 0) return null;
+    
+    const input = userInput.trim();
+    
+    // Try match by number
+    const numberMatch = input.match(/^(\d+)$/);
+    if (numberMatch) {
+      const index = parseInt(numberMatch[1]) - 1;
+      if (index >= 0 && index < availableDates.length) {
+        return availableDates[index];
+      }
+    }
+    
+    // Try match by date format DD/MM/YYYY
+    const dateMatch = input.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if (dateMatch) {
+      const [, day, month, year] = dateMatch;
+      const inputDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      
+      if (availableDates.includes(inputDate)) {
+        return inputDate;
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Handle slot selection after date is chosen
+   */
+  async handleSlotSelection(req, res, session, selectedServiceItem, selectedDentist, selectedDate, userId, authToken) {
+    try {
+      console.log('🕐 Fetching slots for date:', selectedDate);
+      
+      // Update booking context
+      await chatSessionRepo.updateBookingContext(session.sessionId, {
+        isInBookingFlow: true,
+        step: 'SLOT_SELECTION',
+        selectedServiceItem: selectedServiceItem,
+        selectedDentist: selectedDentist,
+        selectedDate: selectedDate,
+        selectedSlot: null
+      });
+      
+      // Call API to get slot details
+      const SCHEDULE_SERVICE_URL = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
+      
+      // IMPORTANT: Use addon duration if available (for recommended services)
+      // For non-recommended services, use longest addon duration
+      const serviceDuration = selectedServiceItem.duration || 30;
+      
+      console.log(`🕐 Fetching slots with duration: ${serviceDuration} minutes for ${selectedServiceItem.addOnName || selectedServiceItem.serviceName}`);
+      
+      const slotsResponse = await axios.get(
+        `${SCHEDULE_SERVICE_URL}/api/slot/dentist/${selectedDentist._id}/details/future`,
+        {
+          params: {
+            date: selectedDate,
+            serviceId: selectedServiceItem.serviceId,
+            serviceDuration: serviceDuration // ← Add duration parameter
+          },
+          headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
+        }
+      );
+      
+      console.log('📦 Slots response:', slotsResponse.data);
+      
+      // Extract slots/slotGroups from response
+      let slotGroups = [];
+      if (slotsResponse.data.success && slotsResponse.data.data) {
+        // API may return either 'slotGroups' or 'slots' array
+        if (slotsResponse.data.data.slotGroups && Array.isArray(slotsResponse.data.data.slotGroups)) {
+          slotGroups = slotsResponse.data.data.slotGroups;
+        } else if (slotsResponse.data.data.slots && Array.isArray(slotsResponse.data.data.slots)) {
+          slotGroups = slotsResponse.data.data.slots;
+        }
+      }
+      
+      if (slotGroups.length === 0) {
+        const noSlotsMessage = `Xin lỗi, ngày ${new Date(selectedDate).toLocaleDateString('vi-VN')} không có khung giờ trống. Vui lòng chọn ngày khác! 📞`;
+        
+        await chatSessionRepo.addMessage(session.sessionId, 'assistant', noSlotsMessage);
+        
+        return res.json({
+          success: true,
+          response: noSlotsMessage,
+          sessionId: session.sessionId,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      // Format slot groups
+      const dateFormatted = new Date(selectedDate).toLocaleDateString('vi-VN');
+      
+      let slotMessage = `✅ Đã chọn ngày: **${dateFormatted}**\n\n🕐 **Khung giờ trống:**\n\n`;
+      
+      slotGroups.slice(0, 12).forEach((group, idx) => {
+        // Format time properly - handle both string and Date object
+        let startTime = group.startTime;
+        let endTime = group.endTime;
+        
+        // If startTime is ISO string or Date object, convert to HH:mm
+        if (startTime && typeof startTime === 'string' && startTime.includes('T')) {
+          const date = new Date(startTime);
+          startTime = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+        }
+        
+        if (endTime && typeof endTime === 'string' && endTime.includes('T')) {
+          const date = new Date(endTime);
+          endTime = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+        }
+        
+        // If endTime is undefined/null, calculate it based on service duration
+        if (!endTime && startTime) {
+          const startDate = new Date(group.startTime);
+          const endDate = new Date(startDate.getTime() + (selectedServiceItem.duration || 30) * 60000);
+          endTime = endDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+        }
+        
+        slotMessage += `${idx + 1}. ${startTime} - ${endTime}\n`;
+      });
+      
+      if (slotGroups.length > 12) {
+        slotMessage += `\n... và ${slotGroups.length - 12} khung giờ khác.\n`;
+      }
+      
+      slotMessage += '\n💡 Chọn khung giờ (1, 2, 3...)';
+      
+      // Save slot groups to context
+      await chatSessionRepo.updateBookingContext(session.sessionId, {
+        isInBookingFlow: true,
+        step: 'SLOT_SELECTION',
+        selectedServiceItem: selectedServiceItem,
+        selectedDentist: selectedDentist,
+        selectedDate: selectedDate,
+        availableSlotGroups: slotGroups
+      });
+      
+      await chatSessionRepo.addMessage(session.sessionId, 'assistant', slotMessage);
+      
+      return res.json({
+        success: true,
+        response: slotMessage,
+        sessionId: session.sessionId,
+        timestamp: new Date().toISOString()
+      });
+      
+    } catch (error) {
+      console.error('❌ Handle slot selection error:', error);
+      
+      const errorResponse = `Xin lỗi, không thể tải khung giờ: ${error.message}. Vui lòng thử lại! 📞`;
+      await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorResponse);
+      
+      return res.json({
+        success: true,
+        response: errorResponse,
+        sessionId: session.sessionId,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+
+  /**
+   * Match slot group selection from user input
+   */
+  async matchSlotGroupSelection(userInput, availableSlotGroups) {
+    if (!availableSlotGroups || availableSlotGroups.length === 0) return null;
+    
+    const input = userInput.trim();
+    
+    // Try match by number
+    const numberMatch = input.match(/^(\d+)$/);
+    if (numberMatch) {
+      const index = parseInt(numberMatch[1]) - 1;
+      if (index >= 0 && index < availableSlotGroups.length) {
+        return availableSlotGroups[index];
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Handle final confirmation
+   */
+  async handleFinalConfirmation(req, res, session, bookingData, userId, authToken) {
+    try {
+      console.log('✅ Showing final confirmation');
+      
+      const { selectedServiceItem, selectedDentist, selectedDate, selectedSlotGroup } = bookingData;
+      
+      // Format confirmation message
+      const dateFormatted = new Date(selectedDate).toLocaleDateString('vi-VN', { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      });
+      
+      let confirmMessage = '📋 **XÁC NHẬN THÔNG TIN ĐẶT LỊCH**\n\n';
+      
+      confirmMessage += `🦷 **Dịch vụ:** ${selectedServiceItem.serviceName}`;
+      if (selectedServiceItem.addOnName) {
+        confirmMessage += ` - ${selectedServiceItem.addOnName}`;
+      }
+      if (selectedServiceItem.isRecommended) {
+        confirmMessage += ' ⭐ (Chỉ định)';
+      }
+      confirmMessage += '\n';
+      
+      if (selectedServiceItem.price > 0) {
+        confirmMessage += `💰 **Giá:** ${selectedServiceItem.price.toLocaleString('vi-VN')}đ\n`;
+      }
+      
+      confirmMessage += `⏱️ **Thời gian dự kiến:** ${selectedServiceItem.duration} phút\n\n`;
+      
+      confirmMessage += `👨‍⚕️ **Nha sĩ:** ${selectedDentist.fullName || selectedDentist.name}\n`;
+      if (selectedDentist.specialization) {
+        confirmMessage += `   📌 Chuyên môn: ${selectedDentist.specialization}\n`;
+      }
+      confirmMessage += '\n';
+      
+      confirmMessage += `📅 **Ngày:** ${dateFormatted}\n`;
+      
+      // Format time properly
+      let startTime = selectedSlotGroup.startTime;
+      let endTime = selectedSlotGroup.endTime;
+      
+      // If startTime is ISO string, convert to HH:mm
+      if (startTime && typeof startTime === 'string' && startTime.includes('T')) {
+        const date = new Date(startTime);
+        startTime = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+      }
+      
+      if (endTime && typeof endTime === 'string' && endTime.includes('T')) {
+        const date = new Date(endTime);
+        endTime = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+      }
+      
+      // Calculate endTime if undefined
+      if (!endTime && startTime) {
+        const startDate = new Date(selectedSlotGroup.startTime);
+        const endDate = new Date(startDate.getTime() + (selectedServiceItem.duration || 30) * 60000);
+        endTime = endDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+      }
+      
+      confirmMessage += `🕐 **Giờ:** ${startTime} - ${endTime}\n\n`;
+      
+      confirmMessage += '💡 Xác nhận đặt lịch? (Có/Không)';
+      
+      // Update context to CONFIRMATION step
+      await chatSessionRepo.updateBookingContext(session.sessionId, {
+        isInBookingFlow: true,
+        step: 'CONFIRMATION',
+        selectedServiceItem: selectedServiceItem,
+        selectedDentist: selectedDentist,
+        selectedDate: selectedDate,
+        selectedSlotGroup: selectedSlotGroup
+      });
+      
+      await chatSessionRepo.addMessage(session.sessionId, 'assistant', confirmMessage);
+      
+      return res.json({
+        success: true,
+        response: confirmMessage,
+        sessionId: session.sessionId,
+        timestamp: new Date().toISOString()
+      });
+      
+    } catch (error) {
+      console.error('❌ Handle final confirmation error:', error);
+      
+      const errorResponse = `Xin lỗi, không thể hiển thị xác nhận: ${error.message}. Vui lòng thử lại! 📞`;
+      await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorResponse);
+      
+      return res.json({
+        success: true,
+        response: errorResponse,
+        sessionId: session.sessionId,
+        timestamp: new Date().toISOString()
       });
     }
   }
