@@ -448,11 +448,11 @@ class RecordService {
       throw new Error('Patient ID is required');
     }
 
-    // Find exam records that haven't been used and have treatment indications
+    // Find exam records with treatment indications (regardless of hasBeenUsed)
+    // Because we only care about individual indication.used status
     const records = await recordRepo.findAll({
       patientId,
-      type: 'exam',
-      hasBeenUsed: false
+      type: 'exam'
     });
 
     // Extract unique unused treatment indications (serviceAddOn)

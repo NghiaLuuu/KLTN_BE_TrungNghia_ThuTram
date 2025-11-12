@@ -42,14 +42,25 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
     
     // Get service info if serviceId provided
     let allowedRoomTypes = null;
+    
     if (serviceId) {
       try {
         const serviceResponse = await axios.get(`${process.env.SERVICE_SERVICE_URL || 'http://localhost:3003'}/api/service/${serviceId}`);
-        allowedRoomTypes = serviceResponse.data?.allowedRoomTypes || null;
-        console.log('🏥 Service allowed room types from API:', allowedRoomTypes);
+        // 🔧 FIX: Service-service trả về { success: true, data: service }
+        const serviceData = serviceResponse.data?.data || serviceResponse.data;
+        
+        allowedRoomTypes = serviceData?.allowedRoomTypes || null;
+        console.log('🏥 Service data from API:', { 
+          serviceId: serviceData?._id, 
+          name: serviceData?.name,
+          allowedRoomTypes 
+        });
+        
+        console.log('🎯 Service duration from query:', serviceDuration, 'minutes');
+        
       } catch (error) {
         console.warn('⚠️ Could not fetch service info:', error.message);
-        console.warn('⚠️ Service filtering will be skipped. Please ensure Service Service is running on port 3003.');
+        console.warn('⚠️ Service filtering will be skipped. Using serviceDuration from query:', serviceDuration);
       }
     }
     
@@ -354,10 +365,24 @@ function hasEnoughConsecutiveSlots(slots, serviceDuration = 15, slotDuration = 1
 
 // 🆕 API 2: Get dentist working dates within maxBookingDays
 // Returns list of dates when dentist has available slots (with enough consecutive slots for service duration)
-async function getDentistWorkingDates(dentistId, serviceDuration = 15) {
+async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId = null) {
   try {
     const Slot = require('../models/slot.model');
     const { ScheduleConfig } = require('../models/scheduleConfig.model');
+    const axios = require('axios');
+    
+    // 🆕 Get service allowedRoomTypes if serviceId provided
+    let allowedRoomTypes = null;
+    if (serviceId) {
+      try {
+        const serviceResponse = await axios.get(`${process.env.SERVICE_SERVICE_URL || 'http://localhost:3003'}/api/service/${serviceId}`);
+        const serviceData = serviceResponse.data?.data || serviceResponse.data;
+        allowedRoomTypes = serviceData?.allowedRoomTypes || null;
+        console.log('🏥 Service allowed room types:', allowedRoomTypes);
+      } catch (error) {
+        console.warn('⚠️ Could not fetch service info:', error.message);
+      }
+    }
     
     // Get schedule config
     const config = await ScheduleConfig.findOne();
@@ -384,7 +409,7 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15) {
       status: 'available',
       isActive: true
     })
-    .select('startTime endTime shiftName status')
+    .select('startTime endTime shiftName status roomId subRoomId') // 🆕 Include roomId
     .sort({ startTime: 1 })
     .lean();
     
@@ -397,7 +422,46 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15) {
       console.log('✅ Query used threshold (ISO):', threshold.toISOString());
     }
     
-    if (slots.length === 0) {
+    // 🆕 Filter slots by roomType if allowedRoomTypes is specified
+    let filteredSlots = slots;
+    if (allowedRoomTypes && allowedRoomTypes.length > 0) {
+      // Load room data from Redis cache
+      const roomMap = new Map();
+      try {
+        const roomsCache = await redisClient.get('rooms_cache');
+        if (roomsCache) {
+          const allRooms = JSON.parse(roomsCache);
+          allRooms.forEach(room => {
+            roomMap.set(room._id, room);
+          });
+          console.log(`✅ Loaded ${allRooms.length} rooms from Redis cache`);
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not load rooms from cache:', error.message);
+      }
+      
+      // Filter slots by roomType
+      filteredSlots = slots.filter(slot => {
+        const roomId = slot.roomId?.toString();
+        if (!roomId) return false;
+        
+        const room = roomMap.get(roomId);
+        if (!room || !room.roomType) {
+          console.log(`⏭️ Skipping slot - room ${roomId} not found or no roomType`);
+          return false;
+        }
+        
+        const isAllowed = allowedRoomTypes.includes(room.roomType);
+        if (!isAllowed) {
+          console.log(`⏭️ Skipping slot - room type "${room.roomType}" not in allowed types`);
+        }
+        return isAllowed;
+      });
+      
+      console.log(`🔍 Filtered slots: ${slots.length} → ${filteredSlots.length} (by roomType)`);
+    }
+    
+    if (filteredSlots.length === 0) {
       return {
         success: true,
         data: {
@@ -416,7 +480,7 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15) {
     // Group slots by date and shift
     const dateMap = new Map();
     
-    slots.forEach(slot => {
+    filteredSlots.forEach(slot => {
       const dateStr = toVNDateOnlyString(slot.startTime);
       
       if (!dateMap.has(dateStr)) {
