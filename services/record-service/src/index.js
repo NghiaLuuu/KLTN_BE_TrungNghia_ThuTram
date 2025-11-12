@@ -48,6 +48,11 @@ async function startEventListeners() {
     await consumeQueue('record_queue', async (message) => {
       if (message.event === 'appointment_checked-in') {
         await handleAppointmentCheckedIn(message);
+      } else if (message.event === 'appointment.service_booked') {
+        // 🆕 Handle appointment.service_booked from appointment-service
+        // Mark treatmentIndications[x].used = true
+        const { handleAppointmentServiceBooked } = require('./utils/eventHandlers');
+        await handleAppointmentServiceBooked(message);
       } else if (message.event === 'appointment.status_changed') {
         // 🔥 NEW: Handle appointment status changes from appointment-service
         // Emit socket to notify queue dashboard

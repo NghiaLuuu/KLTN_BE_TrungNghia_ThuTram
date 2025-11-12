@@ -78,6 +78,15 @@ const treatmentIndicationSchema = new mongoose.Schema({
   usedAt: {
     type: Date
   },
+  usedForAppointmentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Appointment'
+  },
+  usedReason: {
+    type: String,
+    trim: true,
+    maxlength: 200
+  },
   notes: {
     type: String,
     trim: true,

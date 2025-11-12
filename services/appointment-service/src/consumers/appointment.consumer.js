@@ -155,6 +155,28 @@ async function startConsumer() {
             });
           }
 
+          // 🆕 Notify record-service to mark treatment indication as used
+          if (appointment.patientId && appointment.serviceId) {
+            try {
+              await rabbitmqClient.publishToQueue('record_queue', {
+                event: 'appointment.service_booked',
+                timestamp: new Date(),
+                data: {
+                  appointmentId: appointment._id.toString(),
+                  patientId: appointment.patientId.toString(),
+                  serviceId: appointment.serviceId.toString(),
+                  serviceAddOnId: appointment.serviceAddOnId ? appointment.serviceAddOnId.toString() : null,
+                  appointmentDate: appointment.appointmentDate,
+                  reason: 'appointment_created_from_payment'
+                }
+              });
+              console.log('✅ Published appointment.service_booked event to record-service');
+            } catch (eventError) {
+              console.error('⚠️ Failed to publish to record-service:', eventError.message);
+              // Don't throw - appointment already created
+            }
+          }
+
         } catch (error) {
           console.error('❌ Error creating appointment:', error.message);
           throw error;

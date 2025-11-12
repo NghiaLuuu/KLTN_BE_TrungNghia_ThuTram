@@ -198,8 +198,97 @@ async function handleMarkRecordAsUsed(eventData) {
   }
 }
 
+/**
+ * 🆕 Handle appointment.service_booked event (from appointment-service)
+ * Mark treatmentIndications[x].used = true when patient books that indicated service
+ */
+async function handleAppointmentServiceBooked(eventData) {
+  try {
+    const { data } = eventData;
+    const { appointmentId, patientId, serviceId, serviceAddOnId, appointmentDate, reason } = data;
+    
+    console.log(`🔄 [handleAppointmentServiceBooked] Processing:`, {
+      appointmentId,
+      patientId,
+      serviceId,
+      serviceAddOnId
+    });
+    
+    if (!patientId || !serviceId) {
+      console.log(`⚠️ [handleAppointmentServiceBooked] Missing required data: patientId=${patientId}, serviceId=${serviceId}`);
+      return;
+    }
+    
+    // Find all exam records for this patient that have treatmentIndications
+    const examRecords = await Record.find({
+      patientId: patientId,
+      type: 'exam',
+      status: 'completed',
+      'treatmentIndications.0': { $exists: true } // Has at least one indication
+    }).sort({ createdAt: -1 }); // Newest first
+    
+    console.log(`🔍 [handleAppointmentServiceBooked] Found ${examRecords.length} exam records with indications for patient ${patientId}`);
+    
+    let updated = false;
+    
+    // Loop through records to find matching indication
+    for (const record of examRecords) {
+      for (const indication of record.treatmentIndications) {
+        // Check if this indication matches the booked service
+        const serviceMatch = indication.serviceId?.toString() === serviceId.toString();
+        
+        // Handle serviceAddOnId comparison (can be String or ObjectId)
+        let addOnMatch = true; // Default to match if no addon specified
+        if (serviceAddOnId && indication.serviceAddOnId) {
+          // Both exist - compare as strings
+          addOnMatch = indication.serviceAddOnId.toString() === serviceAddOnId.toString();
+        } else if (serviceAddOnId && !indication.serviceAddOnId) {
+          // Appointment has addon but indication doesn't - no match
+          addOnMatch = false;
+        } else if (!serviceAddOnId && indication.serviceAddOnId) {
+          // Indication has addon but appointment doesn't - no match
+          addOnMatch = false;
+        }
+        // else both are null/undefined - match = true
+        
+        if (serviceMatch && addOnMatch && !indication.used) {
+          // Mark as used
+          indication.used = true;
+          indication.usedAt = new Date();
+          indication.usedForAppointmentId = appointmentId;
+          indication.usedReason = reason || 'Đã đặt lịch khám/điều trị';
+          
+          await record.save();
+          
+          console.log(`✅ [handleAppointmentServiceBooked] Marked indication as used:`, {
+            recordId: record._id,
+            recordCode: record.recordCode,
+            indicationId: indication._id,
+            serviceName: indication.serviceName,
+            serviceAddOnName: indication.serviceAddOnName
+          });
+          
+          updated = true;
+          break; // Only mark the first matching indication
+        }
+      }
+      
+      if (updated) break; // Stop searching other records
+    }
+    
+    if (!updated) {
+      console.log(`⚠️ [handleAppointmentServiceBooked] No matching unused indication found for serviceId=${serviceId}, serviceAddOnId=${serviceAddOnId}`);
+    }
+    
+  } catch (error) {
+    console.error('❌ [handleAppointmentServiceBooked] Error:', error);
+    // Don't throw - this is non-critical, appointment already created
+  }
+}
+
 module.exports = {
   handleAppointmentCheckedIn,
   handlePatientInfoResponse,
-  handleMarkRecordAsUsed
+  handleMarkRecordAsUsed,
+  handleAppointmentServiceBooked
 };
