@@ -111,7 +111,16 @@ exports.findServiceAddOnById = async (serviceId, addOnId) => {
   const addOn = service.serviceAddOns.id(addOnId);
   if (!addOn) throw new Error('ServiceAddOn not found');
   
-  return { service, addOn };
+  // ✅ Transform addOn to include effectivePrice
+  const effectivePrice = service.getEffectiveAddOnPrice(addOnId);
+  const addOnWithPrice = {
+    ...addOn.toObject(),
+    basePrice: addOn.price,
+    effectivePrice: effectivePrice,
+    isPriceModified: effectivePrice !== addOn.price
+  };
+  
+  return { service, addOn: addOnWithPrice };
 };
 
 // 🔄 Update hasBeenUsed when service/serviceAddOn is used in appointment
