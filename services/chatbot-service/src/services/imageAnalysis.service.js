@@ -15,9 +15,9 @@ class ImageAnalysisService {
    */
   async analyzeTeethImage(imageBuffer, mimeType, userMessage = '', originalFileName = 'teeth-image.jpg') {
     try {
-      // Upload image to S3 first
+      // Upload image to S3 first (use 'avatars' folder for public access)
       console.log('📤 Uploading image to S3...');
-      const s3ImageUrl = await uploadToS3(imageBuffer, originalFileName, mimeType, 'chatbot-images');
+      const s3ImageUrl = await uploadToS3(imageBuffer, originalFileName, mimeType, 'avatars');
       
       // Convert buffer to base64 for GPT-4 Vision
       const base64Image = imageBuffer.toString('base64');

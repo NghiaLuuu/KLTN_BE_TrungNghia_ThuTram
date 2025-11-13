@@ -13,10 +13,10 @@ const s3 = new AWS.S3({
  * @param {Buffer} fileBuffer - File buffer
  * @param {string} fileName - Original filename
  * @param {string} mimeType - MIME type (image/jpeg, image/png, etc.)
- * @param {string} folder - S3 folder (default: 'chatbot-images')
+ * @param {string} folder - S3 folder (default: 'avatars' for public access)
  * @returns {Promise<string>} - Public URL of uploaded file
  */
-const uploadToS3 = async (fileBuffer, fileName, mimeType, folder = 'chatbot-images') => {
+const uploadToS3 = async (fileBuffer, fileName, mimeType, folder = 'avatars') => {
   const key = `${folder}/${uuidv4()}-${fileName}`;
   const params = {
     Bucket: process.env.AWS_BUCKET_NAME,
