@@ -37,8 +37,8 @@ const adminOnly = authorize(['admin']);
 // ✅ Middleware chỉ cho admin và manager xem staff
 const canViewStaff = authorize(['admin', 'manager']);
 
-// ✅ Middleware cho admin, manager, và receptionist xem patients
-const canViewPatients = authorize(['admin', 'manager', 'receptionist']);
+// ✅ Middleware cho admin, manager, receptionist, và dentist xem patients
+const canViewPatients = authorize(['admin', 'manager', 'receptionist', 'dentist']);
 
 // ✅ Middleware cho update user permissions (sẽ check logic phức tạp hơn ở controller)
 const canUpdateUser = (req, res, next) => {

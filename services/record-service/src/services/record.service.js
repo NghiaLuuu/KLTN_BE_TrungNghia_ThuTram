@@ -464,15 +464,24 @@ class RecordService {
       if (record.treatmentIndications && record.treatmentIndications.length > 0) {
         record.treatmentIndications.forEach(indication => {
           if (!indication.used && indication.serviceId) {
-            const key = indication.serviceId.toString();
+            // 🆕 Create unique key including serviceAddOnId to handle multiple addons for same service
+            const key = indication.serviceAddOnId 
+              ? `${indication.serviceId.toString()}_${indication.serviceAddOnId.toString()}`
+              : indication.serviceId.toString();
+              
             if (!servicesMap.has(key)) {
               servicesMap.set(key, {
                 serviceId: indication.serviceId,
                 serviceName: indication.serviceName,
+                serviceAddOnId: indication.serviceAddOnId || null,
+                serviceAddOnName: indication.serviceAddOnName || null,
+                serviceAddOnPrice: indication.serviceAddOnPrice || null,
+                serviceAddOnUnit: indication.serviceAddOnUnit || null,
+                serviceAddOnDuration: indication.serviceAddOnDuration || null,
                 recordId: record._id,
                 recordCode: record.recordCode,
                 dentistName: record.dentistName,
-                createdAt: record.createdAt,
+                createdDate: record.createdAt,
                 notes: indication.notes || ''
               });
             }
@@ -778,6 +787,70 @@ class RecordService {
       console.error('❌ [getPaymentInfo] Error:', error);
       throw error;
     }
+  }
+
+  // 🆕 Get patients with unused indications for a specific dentist
+  async getPatientsWithUnusedIndications(dentistId) {
+    if (!dentistId) {
+      throw new Error('Dentist ID is required');
+    }
+
+    // Find exam records by this dentist with unused indications
+    const records = await recordRepo.findAll({
+      dentistId,
+      type: 'exam'
+    });
+
+    console.log(`🔍 [getPatientsWithUnusedIndications] Found ${records.length} exam records for dentist ${dentistId}`);
+
+    // Extract unique patients with unused indications
+    const patientsMap = new Map();
+    
+    records.forEach(record => {
+      // ⭐ Skip if patientId is null or undefined
+      if (!record.patientId) {
+        console.warn('⚠️ Record has no patientId:', record._id);
+        return;
+      }
+      
+      if (record.treatmentIndications && record.treatmentIndications.length > 0) {
+        const hasUnusedIndication = record.treatmentIndications.some(ind => !ind.used);
+        
+        if (hasUnusedIndication) {
+          const patientId = record.patientId.toString();
+          
+          // 🐛 Debug log
+          const patientName = record.patientInfo?.name || record.patientName || 'Unknown Patient';
+          console.log('📋 Record:', {
+            recordId: record._id,
+            patientId: record.patientId,
+            patientInfoName: record.patientInfo?.name,
+            recordPatientName: record.patientName,
+            finalPatientName: patientName,
+            hasPatientName: !!patientName
+          });
+          
+          if (!patientsMap.has(patientId)) {
+            patientsMap.set(patientId, {
+              _id: record.patientId, // ⭐ Thêm _id để frontend dễ xử lý
+              patientId: record.patientId,
+              fullName: patientName, // ⭐ Use patientInfo.name or fallback
+              patientName: patientName, // ⭐ Use patientInfo.name or fallback
+              recordId: record._id,
+              recordCode: record.recordCode,
+              createdAt: record.createdAt,
+              unusedIndicationsCount: record.treatmentIndications.filter(ind => !ind.used).length,
+              // ⭐ Note: phone, email sẽ được populate từ frontend nếu cần
+              // hoặc có thể gọi auth-service để lấy thông tin đầy đủ (tốn performance)
+            });
+          }
+        }
+      }
+    });
+
+    const result = Array.from(patientsMap.values());
+    console.log(`✅ [getPatientsWithUnusedIndications] Returning ${result.length} patients:`, result);
+    return result;
   }
 }
 

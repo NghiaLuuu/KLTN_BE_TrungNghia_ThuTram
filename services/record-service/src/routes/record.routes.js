@@ -137,6 +137,15 @@ router.get('/dentist/:dentistId',
   recordController.getByDentist
 );
 
+// 🆕 Get patients with unused indications for a dentist (for walk-in)
+router.get('/dentist/:dentistId/patients-with-unused-indications',
+  authenticate,
+  authorize(['dentist', 'admin', 'manager']),
+  dentistIdValidation,
+  validate,
+  recordController.getPatientsWithUnusedIndications
+);
+
 // Get pending records
 router.get('/status/pending',
   authenticate,

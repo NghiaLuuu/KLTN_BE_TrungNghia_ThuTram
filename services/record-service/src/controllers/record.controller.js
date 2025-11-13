@@ -530,6 +530,31 @@ class RecordController {
       });
     }
   }
+
+  /**
+   * 🆕 Get patients with unused indications for a specific dentist
+   * Used for walk-in appointments - dentist can only see their own patients
+   */
+  async getPatientsWithUnusedIndications(req, res) {
+    try {
+      const { dentistId } = req.params;
+      console.log(`🔍 [getPatientsWithUnusedIndications] Fetching patients for dentist: ${dentistId}`);
+
+      const patients = await recordService.getPatientsWithUnusedIndications(dentistId);
+      
+      res.json({
+        success: true,
+        message: 'Lấy danh sách bệnh nhân thành công',
+        data: patients
+      });
+    } catch (error) {
+      console.error('❌ [getPatientsWithUnusedIndications] Error:', error);
+      res.status(400).json({ 
+        success: false,
+        message: error.message 
+      });
+    }
+  }
 }
 
 module.exports = new RecordController();
