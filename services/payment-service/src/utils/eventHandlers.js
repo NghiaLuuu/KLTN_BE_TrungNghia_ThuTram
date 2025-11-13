@@ -8,16 +8,21 @@ const { publishToQueue } = require('./rabbitmq.client');
 async function handlePaymentCreate(eventData) {
   try {
     const { data } = eventData;
+    const timestamp = new Date().toISOString();
     
-    console.log(`� [handlePaymentCreate] Creating payment for record ${data.recordId}`);
-    console.log('📋 Payment data:', JSON.stringify(data, null, 2));
+    console.log(`\n🔔🔔🔔 [${timestamp}] [handlePaymentCreate] RECEIVED payment.create event`);
+    console.log(`📝 Creating payment for record ${data.recordId} (${data.recordCode})`);
     
     // Check if payment already exists for this record
     const existingPayment = await Payment.findOne({ recordId: data.recordId });
     if (existingPayment) {
-      console.log(`⚠️ [handlePaymentCreate] Payment already exists for record ${data.recordId}: ${existingPayment.paymentCode}`);
+      console.log(`⚠️⚠️⚠️ [handlePaymentCreate] DUPLICATE DETECTED - Payment already exists for record ${data.recordId}: ${existingPayment.paymentCode}`);
+      console.log(`⏭️ Skipping payment creation (duplicate prevention)`);
       return;
     }
+    
+    console.log('✅ No existing payment found - proceeding with creation');
+    console.log('📋 Payment data:', JSON.stringify(data, null, 2));
     
     // 🆕 Fetch deposit from invoice-service (if appointment has invoiceId)
     let depositAmount = 0;

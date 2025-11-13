@@ -59,10 +59,8 @@ class RecordController {
       const userRoles = req.user?.roles || [req.user?.role]; // All roles for checking admin/manager
       const userId = req.user?.userId || req.user?._id;
 
-      console.log('🔍 [DEBUG] req.user:', JSON.stringify(req.user, null, 2));
-      console.log('🔍 [DEBUG] activeRole:', activeRole);
-      console.log('🔍 [DEBUG] userRoles:', userRoles);
-      console.log('🔍 [DEBUG] userId:', userId);
+      // Debug logs commented out for cleaner output
+      // console.log('🔍 [DEBUG] req.user:', JSON.stringify(req.user, null, 2));
 
       // ✅ Filter based on ACTIVE ROLE (role selected at login)
       if (activeRole === 'dentist') {
@@ -85,11 +83,11 @@ class RecordController {
         filters[key] === undefined && delete filters[key]
       );
 
-      console.log('🔍 [DEBUG] Final filters:', JSON.stringify(filters, null, 2));
+      // console.log('🔍 [DEBUG] Final filters:', JSON.stringify(filters, null, 2));
 
       const records = await recordService.getAllRecords(filters);
       
-      console.log('📊 [DEBUG] Records found:', records.length);
+      // console.log('📊 [DEBUG] Records found:', records.length);
       
       res.json({
         success: true,
@@ -209,11 +207,11 @@ class RecordController {
       const { patientId } = req.params;
       const limit = parseInt(req.query.limit) || 10;
       
-      console.log('🔍 [DEBUG] getByPatient - patientId:', patientId, 'limit:', limit);
+      // console.log('🔍 [DEBUG] getByPatient - patientId:', patientId, 'limit:', limit);
       
       const records = await recordService.getRecordsByPatient(patientId, limit);
       
-      console.log('🔍 [DEBUG] getByPatient - Found records:', records.length);
+      // console.log('🔍 [DEBUG] getByPatient - Found records:', records.length);
       
       res.json({
         success: true,
@@ -515,7 +513,7 @@ class RecordController {
   async getPaymentInfo(req, res) {
     try {
       const { id } = req.params; // ✅ Changed from recordId to id
-      console.log(`🔍 [getPaymentInfo] Fetching payment info for record: ${id}`);
+      // console.log(`🔍 [getPaymentInfo] Fetching payment info for record: ${id}`);
 
       const paymentInfo = await recordService.getPaymentInfo(id);
       

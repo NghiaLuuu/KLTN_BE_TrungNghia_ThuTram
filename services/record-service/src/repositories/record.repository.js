@@ -24,7 +24,7 @@ class RecordRepository {
       query.dentistId = mongoose.Types.ObjectId.isValid(filters.dentistId) 
         ? new mongoose.Types.ObjectId(filters.dentistId)
         : filters.dentistId;
-      console.log('🔍 [REPO] dentistId filter:', query.dentistId);
+      // console.log('🔍 [REPO] dentistId filter:', query.dentistId);
     }
 
     // 🔒 Nurse filter: Need to find appointments with this nurseId first
@@ -80,17 +80,17 @@ class RecordRepository {
       ];
     }
 
-    console.log('🔍 [REPO] Final MongoDB query:', JSON.stringify(query, null, 2));
+    // console.log('🔍 [REPO] Final MongoDB query:', JSON.stringify(query, null, 2));
 
     const results = await Record.find(query)
       .sort({ createdAt: -1 });
     
-    console.log('📊 [REPO] Found records:', results.length);
-    console.log('🔍 [DEBUG] About to populate appointment times...');
+    // console.log('📊 [REPO] Found records:', results.length);
+    // console.log('🔍 [DEBUG] About to populate appointment times...');
     
     // 🕐 Populate appointment times (startTime & endTime)
     if (results.length > 0) {
-      console.log('🔍 [DEBUG] results.length > 0, proceeding...');
+      // console.log('🔍 [DEBUG] results.length > 0, proceeding...');
       try {
         const axios = require('axios');
         const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
@@ -102,17 +102,17 @@ class RecordRepository {
           .filter((id, index, self) => self.indexOf(id) === index); // unique
         
         if (appointmentIds.length > 0) {
-          console.log('🕐 Fetching appointment times for', appointmentIds.length, 'appointments');
-          console.log('🕐 Appointment IDs:', appointmentIds);
-          console.log('🕐 URL:', `${APPOINTMENT_SERVICE_URL}/api/appointment/by-ids`);
+          // console.log('🕐 Fetching appointment times for', appointmentIds.length, 'appointments');
+          // console.log('🕐 Appointment IDs:', appointmentIds);
+          // console.log('🕐 URL:', `${APPOINTMENT_SERVICE_URL}/api/appointment/by-ids`);
           
           // Fetch appointments in bulk
           const response = await axios.get(`${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids`, {
             params: { ids: appointmentIds.join(',') }
           });
           
-          console.log('🕐 Response status:', response.status);
-          console.log('🕐 Response data:', JSON.stringify(response.data, null, 2));
+          // console.log('🕐 Response status:', response.status);
+          // console.log('🕐 Response data:', JSON.stringify(response.data, null, 2));
           
           if (response.data.success && response.data.data) {
             const appointmentsMap = {};
@@ -126,7 +126,7 @@ class RecordRepository {
               };
             });
             
-            console.log('🕐 Appointments map:', JSON.stringify(appointmentsMap, null, 2));
+            // console.log('🕐 Appointments map:', JSON.stringify(appointmentsMap, null, 2));
             
             // Add times to records
             results.forEach(record => {
@@ -138,19 +138,19 @@ class RecordRepository {
                   record._doc.appointmentBookingChannel = aptData.bookingChannel;
                   record._doc.appointmentDeposit = aptData.deposit;
                   record._doc.appointmentPaymentStatus = aptData.paymentStatus;
-                  console.log(`✅ Added appointment data to record ${record.recordCode}:`, {
-                    time: `${aptData.startTime} - ${aptData.endTime}`,
-                    channel: aptData.bookingChannel,
-                    deposit: aptData.deposit
-                  });
+                  // console.log(`✅ Added appointment data to record ${record.recordCode}:`, {
+                  //   time: `${aptData.startTime} - ${aptData.endTime}`,
+                  //   channel: aptData.bookingChannel,
+                  //   deposit: aptData.deposit
+                  // });
                 }
               }
             });
             
-            console.log('✅ Added appointment times to records');
+            // console.log('✅ Added appointment times to records');
           }
         } else {
-          console.log('ℹ️ No records with appointmentId found');
+          // console.log('ℹ️ No records with appointmentId found');
         }
       } catch (error) {
         console.error('⚠️ Failed to fetch appointment times:', error.message);

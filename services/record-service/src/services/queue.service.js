@@ -127,17 +127,26 @@ class QueueService {
       appointmentId: completedRecord.appointmentId,
       patientId: completedRecord.patientId,
       patientInfo: completedRecord.patientInfo,
+      // ✅ Required fields for payment validation
+      amount: finalAmount, // Amount to be paid (after deducting deposit)
+      method: 'cash', // Default to cash for offline payments
+      type: 'payment',
+      status: 'pending',
+      // ✅ Additional payment info
       totalAmount,
       depositAmount,
       finalAmount,
-      type: 'payment',
-      status: 'pending',
       processedBy: userId,
       hasDeposit: paymentInfo?.hasDeposit ?? depositAmount > 0,
       bookingChannel: paymentInfo?.bookingChannel || null
     };
 
-    // ✅ Create payment immediately via HTTP to ensure it exists before returning
+    // ⚠️ DEPRECATED: HTTP payment creation - now handled by RabbitMQ event
+    // The payment.create event published above will be handled by payment-service
+    // via RabbitMQ, which has better retry logic and avoids race conditions
+    
+    /* 
+    // ❌ Old HTTP-based payment creation (causes 400 errors due to validation mismatch)
     let createdPayment = null;
     try {
       console.log('💰 [QueueService.completeRecord] Creating payment via HTTP...', paymentData);
@@ -188,10 +197,13 @@ class QueueService {
       console.error('❌ [QueueService.completeRecord] Failed to create payment:', paymentError.message);
       // Don't throw - record is already completed, payment can be created manually
     }
+    */
+
+    console.log('✅ [QueueService.completeRecord] Payment will be created via RabbitMQ event');
 
     return {
       record: completedRecord,
-      payment: createdPayment, // ✅ Return created payment
+      payment: null, // Payment will be created asynchronously via RabbitMQ
       paymentData,
       paymentInfo
     };

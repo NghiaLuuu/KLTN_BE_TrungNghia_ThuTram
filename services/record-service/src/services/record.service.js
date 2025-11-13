@@ -253,7 +253,9 @@ class RecordService {
         console.log(`✅✅✅ Published record.completed event for record ${record.recordCode}. Total cost: ${record.totalCost}đ (including ${record.additionalServices?.length || 0} additional services)`);
         
         // 🆕 Publish payment.create event to payment-service
-        console.log('💰💰💰 [Record Service] About to publish payment.create event');
+        const publishTimestamp = new Date().toISOString();
+        console.log(`\n💰💰💰 [${publishTimestamp}] [Record Service] About to publish payment.create event`);
+        console.log(`📝 Record: ${record.recordCode} (${record._id.toString()})`);
         
         // Calculate deposit deduction (if from online booking)
         let depositDeducted = 0;
@@ -262,7 +264,7 @@ class RecordService {
           // For now, just pass the appointmentId
         }
         
-        await publishToQueue('payment_queue', {
+        await publishToQueue('payment_event_queue', {
           event: 'payment.create',
           data: {
             recordId: record._id.toString(),
@@ -294,7 +296,7 @@ class RecordService {
             createdBy: modifiedBy ? modifiedBy.toString() : null
           }
         });
-        console.log(`✅✅✅ Published payment.create event for record ${record.recordCode} to payment_queue`);
+        console.log(`✅✅✅ Published payment.create event for record ${record.recordCode} to payment_event_queue`);
         
         if (!record.appointmentId) {
           console.warn(`⚠️⚠️⚠️ Record ${record.recordCode} has NO appointmentId - appointment will NOT be updated!`);
@@ -386,13 +388,13 @@ class RecordService {
       throw new Error('Không tìm thấy hồ sơ');
     }
 
-    console.log('🔍 [completeRecord] Record data:', {
-      _id: record._id,
-      recordCode: record.recordCode,
-      appointmentId: record.appointmentId,
-      status: record.status,
-      totalCost: record.totalCost
-    });
+    // console.log('🔍 [completeRecord] Record data:', {
+    //   _id: record._id,
+    //   recordCode: record.recordCode,
+    //   appointmentId: record.appointmentId,
+    //   status: record.status,
+    //   totalCost: record.totalCost
+    // });
 
     // ✅ Kiểm tra các thông tin bắt buộc để tạo invoice
     const errors = [];
@@ -420,9 +422,9 @@ class RecordService {
     }
 
     // ✅ Nếu validate pass, proceed to complete
-    console.log('✅ [completeRecord] Validation passed, updating status to completed...');
+    // console.log('✅ [completeRecord] Validation passed, updating status to completed...');
     const completedRecord = await this.updateRecordStatus(id, 'completed', modifiedBy);
-    console.log('✅ [completeRecord] Record completed successfully:', completedRecord.recordCode);
+    // console.log('✅ [completeRecord] Record completed successfully:', completedRecord.recordCode);
     return completedRecord;
   }
 
@@ -675,7 +677,7 @@ class RecordService {
    */
   async getPaymentInfo(recordId) {
     try {
-      console.log(`🔍 [getPaymentInfo] Starting for record: ${recordId}`);
+      // console.log(`🔍 [getPaymentInfo] Starting for record: ${recordId}`);
       
       // 1. Get record details
       const record = await recordRepo.findById(recordId);
@@ -683,11 +685,11 @@ class RecordService {
         throw new Error('Không tìm thấy hồ sơ');
       }
 
-      console.log(`📋 [getPaymentInfo] Record found:`, {
-        recordCode: record.recordCode,
-        appointmentId: record.appointmentId,
-        totalCost: record.totalCost
-      });
+      // console.log(`📋 [getPaymentInfo] Record found:`, {
+      //   recordCode: record.recordCode,
+      //   appointmentId: record.appointmentId,
+      //   totalCost: record.totalCost
+      // });
 
       // 2. Initialize payment info
       const paymentInfo = {
@@ -704,7 +706,7 @@ class RecordService {
 
       // 3. If no appointment, return immediately
       if (!record.appointmentId) {
-        console.log(`ℹ️ [getPaymentInfo] No appointment linked - no deposit`);
+        // console.log(`ℹ️ [getPaymentInfo] No appointment linked - no deposit`);
         return paymentInfo;
       }
 
@@ -713,7 +715,7 @@ class RecordService {
         const axios = require('axios');
         const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
         
-        console.log(`📞 [getPaymentInfo] Calling appointment-service: ${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids`);
+        // console.log(`📞 [getPaymentInfo] Calling appointment-service: ${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids`);
         
         const appointmentResponse = await axios.get(`${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids`, {
           params: { ids: record.appointmentId }
@@ -723,10 +725,10 @@ class RecordService {
           const appointment = appointmentResponse.data.data[0];
           const invoiceId = appointment.invoiceId;
 
-          console.log(`✅ [getPaymentInfo] Appointment found:`, {
-            appointmentId: record.appointmentId,
-            invoiceId: invoiceId
-          });
+          // console.log(`✅ [getPaymentInfo] Appointment found:`, {
+          //   appointmentId: record.appointmentId,
+          //   invoiceId: invoiceId
+          // });
 
           // 5. If appointment has invoiceId, fetch invoice details
           if (invoiceId) {
@@ -736,7 +738,7 @@ class RecordService {
             try {
               const INVOICE_SERVICE_URL = process.env.INVOICE_SERVICE_URL || 'http://localhost:3008';
               
-              console.log(`📞 [getPaymentInfo] Calling invoice-service: ${INVOICE_SERVICE_URL}/api/invoices/internal/${invoiceId}`);
+              // console.log(`📞 [getPaymentInfo] Calling invoice-service: ${INVOICE_SERVICE_URL}/api/invoices/internal/${invoiceId}`);
               
               const invoiceResponse = await axios.get(`${INVOICE_SERVICE_URL}/api/invoices/internal/${invoiceId}`);
 
@@ -747,12 +749,12 @@ class RecordService {
                 paymentInfo.finalAmount = Math.max(0, paymentInfo.totalCost - paymentInfo.depositAmount);
                 paymentInfo.hasDeposit = paymentInfo.depositAmount > 0;
 
-                console.log(`✅ [getPaymentInfo] Invoice found (Online booking):`, {
-                  invoiceNumber: paymentInfo.invoiceNumber,
-                  depositAmount: paymentInfo.depositAmount,
-                  finalAmount: paymentInfo.finalAmount,
-                  bookingChannel: 'online'
-                });
+                // console.log(`✅ [getPaymentInfo] Invoice found (Online booking):`, {
+                //   invoiceNumber: paymentInfo.invoiceNumber,
+                //   depositAmount: paymentInfo.depositAmount,
+                //   finalAmount: paymentInfo.finalAmount,
+                //   bookingChannel: 'online'
+                // });
               }
             } catch (invoiceError) {
               console.error('⚠️ [getPaymentInfo] Failed to fetch invoice:', invoiceError.message);
@@ -761,7 +763,7 @@ class RecordService {
           } else {
             // ✅ No invoice → Offline booking (walk-in or phone booking without deposit)
             paymentInfo.bookingChannel = 'offline';
-            console.log(`ℹ️ [getPaymentInfo] Appointment has no invoice - Offline booking`);
+            // console.log(`ℹ️ [getPaymentInfo] Appointment has no invoice - Offline booking`);
           }
         }
       } catch (appointmentError) {
@@ -769,7 +771,7 @@ class RecordService {
         // Continue without appointment info
       }
 
-      console.log(`🎯 [getPaymentInfo] Final payment info:`, paymentInfo);
+      // console.log(`🎯 [getPaymentInfo] Final payment info:`, paymentInfo);
       return paymentInfo;
       
     } catch (error) {

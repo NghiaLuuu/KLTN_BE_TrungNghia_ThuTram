@@ -6,17 +6,11 @@ async function startRpcServer() {
   const connection = await amqp.connect(process.env.RABBITMQ_URL);
   const channel = await connection.createChannel();
 
-  const queue = 'payment_queue';
+  const queue = 'payment_rpc_queue'; // ✅ CHANGED: Use separate queue for RPC
 
-  try {
-    await channel.deleteQueue(queue);
-    // ✅ Removed refresh log - too verbose
-  } catch (err) {
-    if (err?.code !== 404) {
-      console.warn(`⚠️ Could not delete queue ${queue}:`, err.message || err);
-    }
-  }
-
+  // ❌ REMOVED: Don't delete queue - causes message loss!
+  // Messages sent before consumer starts will be lost
+  
   await channel.assertQueue(queue, { durable: true });
 
   console.log(`✅ RPC server ready on: ${queue}`);

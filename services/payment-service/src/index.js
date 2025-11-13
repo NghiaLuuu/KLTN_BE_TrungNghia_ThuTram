@@ -256,8 +256,14 @@ async function startEventListeners() {
     await rabbitmqClient.connectRabbitMQ(RABBITMQ_URL);
     
     // Listen for payment.create events from record-service
-    await rabbitmqClient.consumeQueue('payment_queue', async (message) => {
+    let eventCounter = 0;
+    await rabbitmqClient.consumeQueue('payment_event_queue', async (message) => {
+      eventCounter++;
       const { event, data } = message;
+      const timestamp = new Date().toISOString();
+      
+      console.log(`\n📨 [${timestamp}] [Event #${eventCounter}] Received from payment_event_queue: ${event}`);
+      console.log(`📦 RecordId: ${data?.recordId || 'N/A'}, RecordCode: ${data?.recordCode || 'N/A'}`);
       
       if (event === 'payment.create') {
         await handlePaymentCreate(message);
@@ -266,10 +272,12 @@ async function startEventListeners() {
       } else {
         console.warn(`⚠️ Unknown payment event: ${event}`);
       }
+      
+      console.log(`✅ [Event #${eventCounter}] Processing completed for ${event}\n`);
     });
     
     console.log('✅ RabbitMQ event listeners started');
-    console.log('   - Listening on: payment_queue');
+    console.log('   - Listening on: payment_event_queue (async events)');
   } catch (error) {
     console.error('❌ Failed to start event listeners:', error);
   }

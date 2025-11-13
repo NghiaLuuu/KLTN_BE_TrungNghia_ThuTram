@@ -75,7 +75,7 @@ function emitToRoom(roomId, date, event, data) {
     timestamp: new Date().toISOString()
   });
   
-  console.log(`📤 Emitted ${event} to ${roomKey}:`, data);
+  // console.log(`📤 Emitted ${event} to ${roomKey}:`, data);
 }
 
 /**
@@ -98,7 +98,7 @@ function emitRecordStatusChange(record) {
  * Emit queue update
  */
 function emitQueueUpdate(roomId, date, message = 'Hàng đợi đã cập nhật') {
-  console.log('🔔 [emitQueueUpdate] Called with:', { roomId, date, message });
+  // console.log('🔔 [emitQueueUpdate] Called with:', { roomId, date, message });
   
   if (!io) {
     console.error('❌ [emitQueueUpdate] Socket.IO not initialized!');
@@ -107,7 +107,7 @@ function emitQueueUpdate(roomId, date, message = 'Hàng đợi đã cập nhật
   
   const roomKey = `room:${roomId}:${date}`;
   const clients = io.sockets.adapter.rooms.get(roomKey);
-  console.log(`👥 [emitQueueUpdate] Clients in ${roomKey}:`, clients ? clients.size : 0);
+  // console.log(`👥 [emitQueueUpdate] Clients in ${roomKey}:`, clients ? clients.size : 0);
   
   emitToRoom(roomId, date, 'queue:updated', { message });
 }
