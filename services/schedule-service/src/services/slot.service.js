@@ -3819,6 +3819,9 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
       console.error('⚠️ Failed to log operation (operation completed successfully):', logError.message);
     }
 
+    // 🆕 Count patients affected (from email notifications)
+    const patientEmailCount = emailNotifications.filter(e => e.role === 'patient').length;
+    
     return {
       success: true,
       matchedCount: result.matchedCount,
@@ -3838,7 +3841,7 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
         action: e.action
       })),
       message: result.modifiedCount > 0 
-        ? `${isActive ? 'Bật' : 'Tắt'} thành công ${result.modifiedCount} slots${slotsAlreadyInState.length > 0 ? ` (${slotsAlreadyInState.length} slot đã ở trạng thái này)` : ''}${cancelledAppointments.length > 0 ? `, đã hủy ${cancelledAppointments.length} lịch hẹn` : ' (không có bệnh nhân)'}`
+        ? `${isActive ? 'Bật' : 'Tắt'} thành công ${result.modifiedCount} slots${slotsAlreadyInState.length > 0 ? ` (${slotsAlreadyInState.length} slot đã ở trạng thái này)` : ''}${patientEmailCount > 0 ? `, đã thông báo ${patientEmailCount} bệnh nhân` : ' (không có bệnh nhân)'}`
         : `Tất cả ${slotIds.length} slots đã ở trạng thái ${isActive ? 'bật' : 'tắt'}`
     };
   } catch (error) {
