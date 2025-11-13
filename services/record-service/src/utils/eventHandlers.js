@@ -207,12 +207,13 @@ async function handleAppointmentServiceBooked(eventData) {
     const { data } = eventData;
     const { appointmentId, patientId, serviceId, serviceAddOnId, appointmentDate, reason } = data;
     
-    console.log(`🔄 [handleAppointmentServiceBooked] Processing:`, {
+    console.log(`📥 [handleAppointmentServiceBooked] Received event:`, JSON.stringify({
       appointmentId,
       patientId,
       serviceId,
-      serviceAddOnId
-    });
+      serviceAddOnId,
+      reason
+    }, null, 2));
     
     if (!patientId || !serviceId) {
       console.log(`⚠️ [handleAppointmentServiceBooked] Missing required data: patientId=${patientId}, serviceId=${serviceId}`);
@@ -228,6 +229,22 @@ async function handleAppointmentServiceBooked(eventData) {
     }).sort({ createdAt: -1 }); // Newest first
     
     console.log(`🔍 [handleAppointmentServiceBooked] Found ${examRecords.length} exam records with indications for patient ${patientId}`);
+    
+    if (examRecords.length > 0) {
+      console.log(`📋 [handleAppointmentServiceBooked] Records:`, examRecords.map(r => ({
+        recordId: r._id,
+        recordCode: r.recordCode,
+        indicationsCount: r.treatmentIndications.length,
+        indications: r.treatmentIndications.map(ind => ({
+          indicationId: ind._id,
+          serviceId: ind.serviceId?.toString(),
+          serviceName: ind.serviceName,
+          serviceAddOnId: ind.serviceAddOnId?.toString(),
+          serviceAddOnName: ind.serviceAddOnName,
+          used: ind.used
+        }))
+      })));
+    }
     
     let updated = false;
     

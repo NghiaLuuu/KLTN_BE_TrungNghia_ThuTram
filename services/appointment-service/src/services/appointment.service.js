@@ -820,7 +820,7 @@ class AppointmentService {
       
       const {
         patientId, patientInfo, serviceId, serviceAddOnId,
-        dentistId, slotIds, date, notes, paymentMethod
+        dentistId, slotIds, date, notes, paymentMethod, examRecordId
       } = appointmentData;
       
       // Validate slots available and get slot details (query once, reuse result)
@@ -885,6 +885,7 @@ class AppointmentService {
         bookedAt: new Date(),
         bookedBy: currentUser.userId || currentUser._id, // ⭐ Support both userId and _id
         bookedByRole: currentUser.role,
+        examRecordId: examRecordId || null, // 🆕 Store exam record ID
         notes: notes || ''
       });
       
@@ -917,6 +918,37 @@ class AppointmentService {
       } catch (queueError) {
         console.warn('⚠️ Could not publish service event (RabbitMQ may be down):', queueError.message);
         // Don't throw - allow appointment creation to continue
+      }
+      
+      // 🆕 Publish event to record-service to mark treatment indication as used
+      // This should happen AFTER check-in to ensure record is created first
+      if (patientId && serviceId) {
+        try {
+          const eventData = {
+            event: 'appointment.service_booked',
+            timestamp: new Date(),
+            data: {
+              appointmentId: appointment._id,
+              patientId: patientId,
+              serviceId: serviceId,
+              serviceAddOnId: serviceAddOnId || null,
+              appointmentDate: appointmentDate,
+              reason: 'offline_appointment_created'
+            }
+          };
+          
+          console.log('📤 Publishing appointment.service_booked event:', JSON.stringify(eventData, null, 2));
+          
+          await publishToQueue('record_queue', eventData);
+          
+          console.log('✅ Published appointment.service_booked event to record-service');
+        } catch (eventError) {
+          console.error('⚠️ Failed to publish to record-service:', eventError.message);
+          console.error('Event data:', { patientId, serviceId, serviceAddOnId });
+          // Don't throw - appointment already created
+        }
+      } else {
+        console.warn('⚠️ Skipping appointment.service_booked event - missing patientId or serviceId:', { patientId, serviceId });
       }
       
       // Publish event to create invoice (non-blocking)
