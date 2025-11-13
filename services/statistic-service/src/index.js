@@ -5,9 +5,11 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 
-connectDB();
 const connectDB = require('./config/db');
 const redisClient = require('./config/redis.config');
+
+// Connect to database
+connectDB();
 
 // Import routes
 const statisticRoutes = require('./routes/statistic.routes');

@@ -12,7 +12,8 @@ const {
   serviceStatsValidation,
   revenueStatsValidation,
   patientStatsValidation,
-  staffStatsValidation
+  staffStatsValidation,
+  clinicUtilizationValidation
 } = require('../validations/statistic.validation');
 
 // ============ PUBLIC ROUTES ============
@@ -83,6 +84,13 @@ router.get('/schedule',
   dateRangeValidation,
   validate,
   statisticController.getScheduleStats
+);
+
+router.get('/clinic-utilization',
+  requireAdminOrManager,
+  clinicUtilizationValidation,
+  validate,
+  statisticController.getClinicUtilizationStats
 );
 
 // ============ EXPORT & UTILITY FUNCTIONS ============

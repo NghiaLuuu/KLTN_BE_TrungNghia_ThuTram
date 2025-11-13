@@ -64,14 +64,19 @@ class StatisticController {
    */
   async getRevenueStats(req, res) {
     try {
-      const { startDate, endDate, groupBy = 'day', compareWithPrevious, period } = req.query;
+      const { startDate, endDate, groupBy = 'day', compareWithPrevious, period, dentistId, serviceId } = req.query;
       
       const dateRange = DateUtils.parseDateRange(startDate, endDate, period || 'month');
+      
+      const filters = {};
+      if (dentistId) filters.dentistId = dentistId;
+      if (serviceId) filters.serviceId = serviceId;
       
       const stats = await statisticService.getRevenueStatistics(
         dateRange.startDate,
         dateRange.endDate,
-        groupBy
+        groupBy,
+        filters
       );
       
       // Add comparison if requested
@@ -80,7 +85,8 @@ class StatisticController {
         const prevStats = await statisticService.getRevenueStatistics(
           prevRange.startDate,
           prevRange.endDate,
-          groupBy
+          groupBy,
+          filters
         );
         
         stats.comparison = {
@@ -233,6 +239,38 @@ class StatisticController {
       res.status(500).json({
         success: false,
         message: error.message || 'Lỗi khi lấy thống kê lịch trình'
+      });
+    }
+  }
+
+  /**
+   * Get clinic utilization statistics (slot-based)
+   */
+  async getClinicUtilizationStats(req, res) {
+    try {
+      const { startDate, endDate, roomIds, timeRange = 'month', shiftName } = req.query;
+      
+      const dateRange = DateUtils.parseDateRange(startDate, endDate, timeRange);
+      const roomIdArray = roomIds ? (Array.isArray(roomIds) ? roomIds : roomIds.split(',')) : [];
+      
+      const stats = await statisticService.getClinicUtilizationStatistics(
+        dateRange.startDate,
+        dateRange.endDate,
+        roomIdArray,
+        timeRange,
+        shiftName
+      );
+      
+      res.json({
+        success: true,
+        message: 'Lấy thống kê hiệu suất phòng khám thành công',
+        data: stats
+      });
+    } catch (error) {
+      console.error('Clinic utilization stats error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Lỗi khi lấy thống kê hiệu suất phòng khám'
       });
     }
   }

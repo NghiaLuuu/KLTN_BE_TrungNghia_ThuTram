@@ -69,6 +69,14 @@ const revenueStatsValidation = [
     .optional()
     .isBoolean()
     .withMessage('compareWithPrevious phải là boolean'),
+  query('dentistId')
+    .optional()
+    .isMongoId()
+    .withMessage('dentistId phải là ObjectId hợp lệ'),
+  query('serviceId')
+    .optional()
+    .isMongoId()
+    .withMessage('serviceId phải là ObjectId hợp lệ'),
   ...dateRangeValidation
 ];
 
@@ -98,6 +106,33 @@ const staffStatsValidation = [
   ...dateRangeValidation
 ];
 
+// Validation cho thống kê hiệu suất phòng khám
+const clinicUtilizationValidation = [
+  query('startDate')
+    .optional()
+    .isISO8601()
+    .withMessage('startDate phải là ngày hợp lệ (ISO 8601)'),
+  query('endDate')
+    .optional()
+    .isISO8601()
+    .withMessage('endDate phải là ngày hợp lệ (ISO 8601)'),
+  query('roomIds')
+    .optional()
+    .custom((value) => {
+      if (typeof value === 'string') return true;
+      if (Array.isArray(value)) return true;
+      throw new Error('roomIds phải là string hoặc array');
+    }),
+  query('timeRange')
+    .optional()
+    .isIn(['day', 'month', 'quarter', 'year'])
+    .withMessage('timeRange phải là: day, month, quarter, year'),
+  query('shiftName')
+    .optional()
+    .isIn(['Ca Sáng', 'Ca Chiều', 'Ca Tối'])
+    .withMessage('shiftName không hợp lệ')
+];
+
 module.exports = {
   validate,
   dateRangeValidation,
@@ -106,5 +141,6 @@ module.exports = {
   serviceStatsValidation,
   revenueStatsValidation,
   patientStatsValidation,
-  staffStatsValidation
+  staffStatsValidation,
+  clinicUtilizationValidation
 };

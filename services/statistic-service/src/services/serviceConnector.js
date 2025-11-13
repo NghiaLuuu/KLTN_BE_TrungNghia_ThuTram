@@ -26,19 +26,25 @@ class ServiceConnector {
   /**
    * Get revenue statistics from invoice service
    */
-  static async getRevenueStats(startDate, endDate, groupBy = 'month') {
+  static async getRevenueStats(startDate, endDate, groupBy = 'month', filters = {}) {
     try {
       const message = {
-        action: 'getRevenueStatistics',
-        payload: {
+        method: 'getRevenueStatistics',
+        params: {
           startDate,
           endDate,
-          groupBy
+          groupBy,
+          ...filters
         }
       };
 
-      const result = await rabbitClient.request('invoice_queue', message);
-      return result.data || null;
+      const result = await rabbitClient.request('invoice-service_rpc_queue', message);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to get revenue stats');
+      }
+      
+      return result.result || null;
     } catch (error) {
       console.error('Error getting revenue stats:', error);
       throw new Error('Không thể lấy thống kê doanh thu');
@@ -51,15 +57,20 @@ class ServiceConnector {
   static async getServiceStats(startDate, endDate) {
     try {
       const message = {
-        action: 'getServiceStatistics',
-        payload: {
+        method: 'getServiceStatistics',
+        params: {
           startDate,
           endDate
         }
       };
 
-      const result = await rabbitClient.request('invoice_queue', message);
-      return result.data || null;
+      const result = await rabbitClient.request('invoice-service_rpc_queue', message);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to get service stats');
+      }
+      
+      return result.result || null;
     } catch (error) {
       console.error('Error getting service stats:', error);
       throw new Error('Không thể lấy thống kê dịch vụ');
@@ -125,6 +136,35 @@ class ServiceConnector {
     } catch (error) {
       console.error('Error getting schedule stats:', error);
       throw new Error('Không thể lấy thống kê lịch trình');
+    }
+  }
+
+  /**
+   * Get slot utilization statistics from schedule service
+   */
+  static async getSlotUtilizationStats(startDate, endDate, roomIds = [], timeRange = 'month', shiftName = null) {
+    try {
+      const message = {
+        action: 'getUtilizationStatistics',
+        payload: {
+          startDate,
+          endDate,
+          roomIds,
+          timeRange,
+          shiftName
+        }
+      };
+
+      const result = await rabbitClient.request('schedule_queue', message);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to get utilization statistics');
+      }
+      
+      return result.data || null;
+    } catch (error) {
+      console.error('Error getting slot utilization stats:', error);
+      throw new Error('Không thể lấy thống kê hiệu suất phòng khám');
     }
   }
 

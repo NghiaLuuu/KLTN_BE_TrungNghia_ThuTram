@@ -168,6 +168,173 @@ async function startRpcServer() {
           }
           break;
 
+        case 'getUtilizationStatistics':
+          try {
+            const { startDate, endDate, roomIds, timeRange, shiftName } = payload;
+            
+            // Build query
+            const query = {
+              isActive: true,
+              startTime: { 
+                $gte: new Date(startDate), 
+                $lte: new Date(endDate) 
+              }
+            };
+            
+            if (roomIds && Array.isArray(roomIds) && roomIds.length > 0) {
+              const mongoose = require('mongoose');
+              // Filter valid ObjectIds
+              const validRoomIds = roomIds.filter(id => mongoose.Types.ObjectId.isValid(id));
+              if (validRoomIds.length > 0) {
+                query.roomId = { $in: validRoomIds.map(id => mongoose.Types.ObjectId(id)) };
+              }
+            }
+            
+            if (shiftName) {
+              query.shiftName = shiftName;
+            }
+            
+            // Get slots
+            const Slot = require('../models/slot.model');
+            const slots = await Slot.find(query).lean();
+            
+            // Calculate metrics
+            const totalSlots = slots.length;
+            const bookedSlots = slots.filter(s => s.appointmentId).length;
+            const emptySlots = totalSlots - bookedSlots;
+            const utilizationRate = totalSlots > 0 ? parseFloat(((bookedSlots / totalSlots) * 100).toFixed(2)) : 0;
+            
+            // Group by room
+            const byRoomMap = {};
+            slots.forEach(slot => {
+              const roomId = slot.roomId.toString();
+              if (!byRoomMap[roomId]) {
+                byRoomMap[roomId] = { total: 0, booked: 0, empty: 0 };
+              }
+              byRoomMap[roomId].total++;
+              if (slot.appointmentId) {
+                byRoomMap[roomId].booked++;
+              } else {
+                byRoomMap[roomId].empty++;
+              }
+            });
+            
+            const byRoom = Object.entries(byRoomMap).map(([roomId, stats]) => {
+              const utilRate = stats.total > 0 ? parseFloat(((stats.booked / stats.total) * 100).toFixed(2)) : 0;
+              
+              // Calculate avgSlotsPerDay (include both start and end dates)
+              // Use UTC to avoid DST issues
+              const start = new Date(startDate);
+              const end = new Date(endDate);
+              const daysDiff = Math.round((Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()) - 
+                                          Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) / 
+                                         (1000 * 60 * 60 * 24)) + 1;
+              const avgSlots = stats.total / daysDiff;
+              
+              return {
+                roomId,
+                totalSlots: stats.total,
+                bookedSlots: stats.booked,
+                emptySlots: stats.empty,
+                utilizationRate: utilRate,
+                avgSlotsPerDay: parseFloat(avgSlots.toFixed(2))
+              };
+            });
+            
+            // Group by shift
+            const byShiftMap = {
+              'Ca Sáng': { total: 0, booked: 0, empty: 0 },
+              'Ca Chiều': { total: 0, booked: 0, empty: 0 },
+              'Ca Tối': { total: 0, booked: 0, empty: 0 }
+            };
+            
+            slots.forEach(slot => {
+              if (byShiftMap[slot.shiftName]) {
+                byShiftMap[slot.shiftName].total++;
+                if (slot.appointmentId) {
+                  byShiftMap[slot.shiftName].booked++;
+                } else {
+                  byShiftMap[slot.shiftName].empty++;
+                }
+              }
+            });
+            
+            // Convert byShift to object format for FE compatibility
+            const byShift = {};
+            Object.entries(byShiftMap).forEach(([shift, stats]) => {
+              byShift[shift] = {
+                total: stats.total,
+                booked: stats.booked,
+                empty: stats.empty,
+                rate: stats.total > 0 ? parseFloat(((stats.booked / stats.total) * 100).toFixed(2)) : 0
+              };
+            });
+            
+            // Generate timeline based on timeRange
+            const timeline = [];
+            const byDateMap = {};
+            
+            slots.forEach(slot => {
+              let dateKey;
+              const slotDate = new Date(slot.startTime);
+              
+              if (timeRange === 'day') {
+                dateKey = slotDate.toISOString().split('T')[0]; // YYYY-MM-DD
+              } else if (timeRange === 'month') {
+                dateKey = `${slotDate.getFullYear()}-${String(slotDate.getMonth() + 1).padStart(2, '0')}`; // YYYY-MM
+              } else if (timeRange === 'quarter') {
+                const quarter = Math.floor(slotDate.getMonth() / 3) + 1;
+                dateKey = `${slotDate.getFullYear()}-Q${quarter}`; // YYYY-Q1
+              } else if (timeRange === 'year') {
+                dateKey = String(slotDate.getFullYear()); // YYYY
+              } else {
+                // Default to day format if timeRange is invalid
+                dateKey = slotDate.toISOString().split('T')[0];
+              }
+              
+              if (!byDateMap[dateKey]) {
+                byDateMap[dateKey] = { total: 0, booked: 0 };
+              }
+              byDateMap[dateKey].total++;
+              if (slot.appointmentId) {
+                byDateMap[dateKey].booked++;
+              }
+            });
+            
+            // Convert to array and sort by date
+            Object.entries(byDateMap).forEach(([date, stats]) => {
+              timeline.push({
+                date,
+                totalSlots: stats.total,
+                bookedSlots: stats.booked,
+                utilizationRate: stats.total > 0 ? parseFloat(((stats.booked / stats.total) * 100).toFixed(2)) : 0
+              });
+            });
+            timeline.sort((a, b) => a.date.localeCompare(b.date));
+            
+            response = {
+              success: true,
+              data: {
+                summary: { 
+                  totalSlots, 
+                  bookedSlots, 
+                  emptySlots, 
+                  utilizationRate
+                },
+                byRoom,
+                byShift,
+                timeline
+              }
+            };
+          } catch (err) {
+            console.error('Failed to get utilization statistics:', err);
+            response = { 
+              success: false, 
+              error: err.message 
+            };
+          }
+          break;
+
         default:
           response = { error: `Unknown action: ${action}` };
       }

@@ -104,9 +104,17 @@ class DateUtils {
    */
   static parseDateRange(startDate, endDate, defaultPeriod = 'month') {
     if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
+      // Validate date range
+      if (start > end) {
+        throw new Error('startDate không thể sau endDate');
+      }
+      
       return {
-        startDate: new Date(startDate),
-        endDate: new Date(endDate)
+        startDate: start,
+        endDate: end
       };
     }
 

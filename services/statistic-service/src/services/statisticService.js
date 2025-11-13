@@ -118,19 +118,20 @@ class StatisticService {
   /**
    * Get revenue and financial statistics
    */
-  async getRevenueStatistics(startDate, endDate, groupBy = 'day') {
+  async getRevenueStatistics(startDate, endDate, groupBy = 'day', filters = {}) {
     const cacheKey = CacheUtils.generateKey('revenue', { 
       startDate: startDate.toISOString(), 
       endDate: endDate.toISOString(), 
-      groupBy 
+      groupBy,
+      ...filters
     });
 
     return await CacheUtils.getOrSet(cacheKey, async () => {
       try {
         const [revenueStats, serviceStats, paymentStats] = await Promise.allSettled([
-          ServiceConnector.getRevenueStats(startDate, endDate, groupBy),
+          ServiceConnector.getRevenueStats(startDate, endDate, groupBy, filters),
           ServiceConnector.getServiceStats(startDate, endDate),
-          ServiceConnector.getPaymentStats(startDate, endDate)
+          ServiceConnector.getPaymentStats(startDate, endDate, filters)
         ]);
 
         const revenue = this.getValue(revenueStats, null, {});
@@ -139,6 +140,7 @@ class StatisticService {
 
         return {
           period: { startDate, endDate, groupBy },
+          filters,
           summary: {
             totalRevenue: revenue.totalAmount || 0,
             totalInvoices: revenue.totalInvoices || 0,
@@ -313,6 +315,60 @@ class StatisticService {
     }, 1800);
   }
 
+  /**
+   * Get clinic utilization statistics (slot-based)
+   */
+  async getClinicUtilizationStatistics(startDate, endDate, roomIds = [], timeRange = 'month', shiftName = null) {
+    const cacheKey = CacheUtils.generateKey('clinic-utilization', {
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      roomIds: roomIds?.join(','),
+      timeRange,
+      shiftName
+    });
+
+    return await CacheUtils.getOrSet(cacheKey, async () => {
+      try {
+        // Get slot stats from schedule-service
+        const slotStats = await ServiceConnector.getSlotUtilizationStats(
+          startDate,
+          endDate,
+          roomIds,
+          timeRange,
+          shiftName
+        );
+
+        if (!slotStats) {
+          return this.getEmptyUtilizationStats();
+        }
+
+        return {
+          period: { startDate, endDate, timeRange },
+          summary: slotStats.summary,
+          byRoom: slotStats.byRoom,
+          byShift: slotStats.byShift,
+          timeline: slotStats.timeline || []
+        };
+      } catch (error) {
+        console.error('Clinic utilization error:', error);
+        throw new Error('Không thể lấy thống kê hiệu suất phòng khám');
+      }
+    }, 1800);
+  }
+
+  /**
+   * Generate timeline data for utilization
+   */
+  generateUtilizationTimeline(startDate, endDate, timeRange) {
+    const timeline = [];
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    // For now, return empty timeline - can be enhanced later
+    // This would require fetching slot data grouped by date
+    return timeline;
+  }
+
   // Helper methods
   getValue(promiseResult, path, defaultValue) {
     if (promiseResult.status === 'fulfilled' && promiseResult.value) {
@@ -377,6 +433,15 @@ class StatisticService {
       shiftDistribution: {},
       staffAllocation: {},
       averageUtilizationRate: 0
+    };
+  }
+
+  getEmptyUtilizationStats() {
+    return {
+      summary: { totalSlots: 0, bookedSlots: 0, emptySlots: 0, utilizationRate: 0 },
+      byRoom: [],
+      byShift: {},
+      timeline: []
     };
   }
 }
