@@ -1906,6 +1906,36 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
     ]);
     const dentist = users.find(u => u._id === dentistId);
     
+    // 🆕 Fetch appointments for slots with appointmentId (same as getRoomCalendar)
+    const axios = require('axios');
+    const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
+    const appointmentsMap = {}; // Map appointmentId -> appointment data
+    
+    const slotsWithAppointments = slots.filter(s => s.appointmentId);
+    if (slotsWithAppointments.length > 0) {
+      const uniqueAppointmentIds = [...new Set(slotsWithAppointments.map(s => s.appointmentId.toString()))];
+      
+      try {
+        const appointmentResponse = await axios.get(
+          `${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids`,
+          { 
+            params: { ids: uniqueAppointmentIds.join(',') },
+            timeout: 5000
+          }
+        );
+        
+        if (appointmentResponse.data?.success) {
+          const appointments = appointmentResponse.data.data || [];
+          console.log(`✅ Dentist calendar fetched ${appointments.length}/${uniqueAppointmentIds.length} appointments`);
+          appointments.forEach(apt => {
+            appointmentsMap[apt._id.toString()] = apt;
+          });
+        }
+      } catch (appointmentError) {
+        console.error('⚠️ Dentist calendar: Could not fetch appointments:', appointmentError.message);
+      }
+    }
+    
     // Group slots by date and shift
     const calendar = {};
     const appointmentCounts = {}; // Track unique appointments
@@ -2045,7 +2075,16 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
           room: roomInfo,
           subRoom: subRoomInfo,
           slotStatus: slot.status,
-          appointmentId: slot.appointmentId || null
+          appointmentId: slot.appointmentId || null,
+          // 🆕 Add patient info if appointment exists (same as getRoomCalendar)
+          patientInfo: slot.appointmentId && appointmentsMap[slot.appointmentId.toString()] 
+            ? {
+                name: appointmentsMap[slot.appointmentId.toString()].patientInfo?.name || 'N/A',
+                phone: appointmentsMap[slot.appointmentId.toString()].patientInfo?.phone || '',
+                email: appointmentsMap[slot.appointmentId.toString()].patientInfo?.email || '',
+                patientId: appointmentsMap[slot.appointmentId.toString()].patientId || null
+              }
+            : null
         });
       }
     }
@@ -2428,6 +2467,36 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 0,
     ]);
     const nurse = users.find(u => u._id === nurseId);
     
+    // 🆕 Fetch appointments for slots with appointmentId (same as getRoomCalendar)
+    const axios = require('axios');
+    const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
+    const appointmentsMap = {}; // Map appointmentId -> appointment data
+    
+    const slotsWithAppointments = slots.filter(s => s.appointmentId);
+    if (slotsWithAppointments.length > 0) {
+      const uniqueAppointmentIds = [...new Set(slotsWithAppointments.map(s => s.appointmentId.toString()))];
+      
+      try {
+        const appointmentResponse = await axios.get(
+          `${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids`,
+          { 
+            params: { ids: uniqueAppointmentIds.join(',') },
+            timeout: 5000
+          }
+        );
+        
+        if (appointmentResponse.data?.success) {
+          const appointments = appointmentResponse.data.data || [];
+          console.log(`✅ Nurse calendar fetched ${appointments.length}/${uniqueAppointmentIds.length} appointments`);
+          appointments.forEach(apt => {
+            appointmentsMap[apt._id.toString()] = apt;
+          });
+        }
+      } catch (appointmentError) {
+        console.error('⚠️ Nurse calendar: Could not fetch appointments:', appointmentError.message);
+      }
+    }
+    
     // Group slots by date and shift
     const calendar = {};
     const appointmentCounts = {}; // Track unique appointments
@@ -2567,7 +2636,16 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 0,
           room: roomInfo,
           subRoom: subRoomInfo,
           slotStatus: slot.status,
-          appointmentId: slot.appointmentId || null
+          appointmentId: slot.appointmentId || null,
+          // 🆕 Add patient info if appointment exists (same as getRoomCalendar)
+          patientInfo: slot.appointmentId && appointmentsMap[slot.appointmentId.toString()] 
+            ? {
+                name: appointmentsMap[slot.appointmentId.toString()].patientInfo?.name || 'N/A',
+                phone: appointmentsMap[slot.appointmentId.toString()].patientInfo?.phone || '',
+                email: appointmentsMap[slot.appointmentId.toString()].patientInfo?.email || '',
+                patientId: appointmentsMap[slot.appointmentId.toString()].patientId || null
+              }
+            : null
         });
       }
     }
