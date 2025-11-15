@@ -59,6 +59,13 @@ jobs:
             echo "🧹 Cleaning up old images..."
             docker system prune -f
             
+            echo "🔧 Updating Nginx configuration..."
+            cd ~/dental-clinic
+            if [ -f nginx/setup-nginx.sh ]; then
+              chmod +x nginx/setup-nginx.sh
+              ./nginx/setup-nginx.sh
+            fi
+            
             echo "✅ Deployment completed!"
           EOF
       
