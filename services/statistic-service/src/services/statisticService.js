@@ -337,41 +337,31 @@ class StatisticService {
    * Get clinic utilization statistics (slot-based)
    */
   async getClinicUtilizationStatistics(startDate, endDate, roomIds = [], timeRange = 'month', shiftName = null) {
-    const cacheKey = CacheUtils.generateKey('clinic-utilization', {
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-      roomIds: roomIds?.join(','),
-      timeRange,
-      shiftName
-    });
+    try {
+      // Get slot stats from schedule-service
+      const slotStats = await ServiceConnector.getSlotUtilizationStats(
+        startDate,
+        endDate,
+        roomIds,
+        timeRange,
+        shiftName
+      );
 
-    return await CacheUtils.getOrSet(cacheKey, async () => {
-      try {
-        // Get slot stats from schedule-service
-        const slotStats = await ServiceConnector.getSlotUtilizationStats(
-          startDate,
-          endDate,
-          roomIds,
-          timeRange,
-          shiftName
-        );
-
-        if (!slotStats) {
-          return this.getEmptyUtilizationStats();
-        }
-
-        return {
-          period: { startDate, endDate, timeRange },
-          summary: slotStats.summary,
-          byRoom: slotStats.byRoom,
-          byShift: slotStats.byShift,
-          timeline: slotStats.timeline || []
-        };
-      } catch (error) {
-        console.error('Clinic utilization error:', error);
-        throw new Error('Không thể lấy thống kê hiệu suất phòng khám');
+      if (!slotStats) {
+        return this.getEmptyUtilizationStats();
       }
-    }, 1800);
+
+      return {
+        period: { startDate, endDate, timeRange },
+        summary: slotStats.summary,
+        byRoom: slotStats.byRoom,
+        byShift: slotStats.byShift,
+        timeline: slotStats.timeline || []
+      };
+    } catch (error) {
+      console.error('Clinic utilization error:', error);
+      throw new Error('Không thể lấy thống kê hiệu suất phòng khám');
+    }
   }
 
   /**

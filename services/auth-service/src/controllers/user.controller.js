@@ -517,6 +517,32 @@ exports.getUserById = async (req, res) => {
   }
 };
 
+// 🆕 Get users by IDs for statistics enrichment
+exports.getUsersByIds = async (req, res) => {
+  try {
+    const { userIds } = req.body;
+    
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'userIds phải là mảng không rỗng'
+      });
+    }
+
+    const users = await userService.getUsersByIds(userIds);
+    
+    res.status(200).json({
+      success: true,
+      users
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 
 
 

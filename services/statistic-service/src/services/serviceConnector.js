@@ -180,7 +180,8 @@ class ServiceConnector {
         }
       };
 
-      const result = await rabbitClient.request('schedule_queue', message);
+      // Increase timeout to 60s for large slot queries
+      const result = await rabbitClient.request('schedule_queue', message, 60000);
       
       if (!result.success) {
         throw new Error(result.error || 'Failed to get utilization statistics');

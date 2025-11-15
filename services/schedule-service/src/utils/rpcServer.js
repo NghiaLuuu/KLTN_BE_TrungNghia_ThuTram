@@ -171,6 +171,7 @@ async function startRpcServer() {
         case 'getUtilizationStatistics':
           try {
             const { startDate, endDate, roomIds, timeRange, shiftName } = payload;
+            console.log('🔍 getUtilizationStatistics request:', { startDate, endDate, roomIds, timeRange, shiftName });
             
             // Build query
             const query = {
@@ -196,7 +197,10 @@ async function startRpcServer() {
             
             // Get slots
             const Slot = require('../models/slot.model');
+            console.log('📊 Querying slots with:', query);
+            const slotsStart = Date.now();
             const slots = await Slot.find(query).lean();
+            console.log(`✅ Found ${slots.length} slots in ${Date.now() - slotsStart}ms`);
             
             // Calculate metrics
             const totalSlots = slots.length;

@@ -357,6 +357,25 @@ exports.getUserById = async (currentUser, userId) => {
   return user;
 };
 
+// 🆕 Get users by IDs for batch queries
+exports.getUsersByIds = async (userIds) => {
+  const User = require('../models/user.model');
+  const mongoose = require('mongoose');
+  
+  // Filter valid ObjectIds
+  const validIds = userIds.filter(id => mongoose.Types.ObjectId.isValid(id));
+  
+  if (validIds.length === 0) {
+    return [];
+  }
+  
+  const users = await User.find({ 
+    _id: { $in: validIds } 
+  }).select('_id fullName name email phoneNumber role roles avatar').lean();
+  
+  return users;
+};
+
 // 🆕 DELETE OPERATIONS - Chỉ xóa khi chưa được sử dụng
 exports.deleteUser = async (currentUser, userId) => {
   const currentUserRoles = currentUser.roles || [getCurrentRole(currentUser)];

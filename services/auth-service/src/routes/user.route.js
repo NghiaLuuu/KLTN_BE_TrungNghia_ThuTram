@@ -28,6 +28,9 @@ router.get('/all-patient', authMiddleware, canViewPatients, userController.getAl
 // 🆕 Get all users cache (for schedule-service to get emails)
 router.get('/cache/all', userController.getAllUsersCache);
 
+// 🆕 Get users by IDs (for statistics enrichment)
+router.post('/by-ids', userController.getUsersByIds);
+
 // 🆕 Reset password về mặc định
 router.post('/:id/reset-password', authMiddleware, userController.resetUserPasswordToDefault);
 
