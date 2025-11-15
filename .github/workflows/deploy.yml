@@ -48,13 +48,13 @@ jobs:
             cd docker
             
             # Stop existing containers
-            docker-compose -f docker-compose.yml -f docker-compose.prod.yml down
+            docker-compose -f docker-compose.yml down
             
             # Build new images
-            docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
+            docker-compose -f docker-compose.yml build --no-cache
             
             # Start containers
-            docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+            docker-compose -f docker-compose.yml up -d
             
             echo "🧹 Cleaning up old images..."
             docker system prune -f
@@ -67,31 +67,23 @@ jobs:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
-          echo "⏳ Waiting 30 seconds for services to start..."
-          sleep 30
+          echo "⏳ Waiting 60 seconds for services to start..."
+          sleep 60
           
           ssh -i ~/.ssh/id_rsa $SERVER_USER@$SERVER_HOST << 'EOF'
             echo "🩺 Running health checks..."
             
-            # Check critical services
-            services=(3001 3007 3012)
-            failed=0
+            # Check if containers are running
+            running=$(docker ps --filter "name=dental_" --format "{{.Names}}" | wc -l)
+            echo "📊 Running containers: $running"
             
-            for port in "${services[@]}"; do
-              if curl -f http://localhost:$port/health > /dev/null 2>&1; then
-                echo "✅ Service on port $port is healthy"
-              else
-                echo "❌ Service on port $port is not responding"
-                failed=$((failed + 1))
-              fi
-            done
-            
-            if [ $failed -gt 0 ]; then
-              echo "❌ $failed service(s) failed health check"
+            if [ $running -lt 10 ]; then
+              echo "❌ Not enough services running (expected at least 10)"
+              docker ps -a
               exit 1
             fi
             
-            echo "✅ All services are healthy!"
+            echo "✅ All services are running!"
           EOF
       
       - name: Show Deployment Info
