@@ -88,6 +88,8 @@ services:
     restart: unless-stopped
     ports:
       - "3002:3002"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=3002
@@ -109,6 +111,8 @@ services:
     restart: unless-stopped
     ports:
       - "3005:3005"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=3005
@@ -130,6 +134,8 @@ services:
     restart: unless-stopped
     ports:
       - "3006:3006"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=3006
@@ -151,6 +157,8 @@ services:
     restart: unless-stopped
     ports:
       - "3010:3010"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=3010
@@ -172,6 +180,8 @@ services:
     restart: unless-stopped
     ports:
       - "3009:3009"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=3009
@@ -193,6 +203,8 @@ services:
     restart: unless-stopped
     ports:
       - "3003:3003"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=3003
@@ -214,6 +226,8 @@ services:
     restart: unless-stopped
     ports:
       - "3008:3008"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=3008
@@ -235,6 +249,8 @@ services:
     restart: unless-stopped
     ports:
       - "3007:3007"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=3007
@@ -256,6 +272,8 @@ services:
     restart: unless-stopped
     ports:
       - "3011:3011"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=3011
@@ -277,6 +295,8 @@ services:
     restart: unless-stopped
     ports:
       - "3013:3013"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=3013
