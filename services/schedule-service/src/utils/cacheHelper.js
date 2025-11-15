@@ -54,20 +54,15 @@ async function getCachedRooms() {
     return cache.rooms.data;
   }
   
-  // Fetch from Redis
+  // Fetch from Redis (room-service maintains this cache)
   const roomsCache = await redisClient.get('rooms_cache');
   let rooms = roomsCache ? JSON.parse(roomsCache) : [];
   
-  // If still empty, fetch from DB
+  // ⚠️ If Redis cache is empty, room-service needs to refresh it
+  // No fallback to direct DB query - schedule-service shouldn't query room DB
   if (rooms.length === 0) {
-    const Room = require('../models/room.model');
-    const roomsFromDB = await Room.find({ isActive: true }).lean();
-    rooms = roomsFromDB.map(r => ({
-      _id: r._id.toString(),
-      name: r.name,
-      hasSubRooms: r.hasSubRooms,
-      subRooms: r.subRooms || []
-    }));
+    console.warn('⚠️ rooms_cache is empty in Redis. Room-service should refresh the cache.');
+    return [];
   }
   
   // Update memory cache
