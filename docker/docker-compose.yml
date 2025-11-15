@@ -267,28 +267,6 @@ services:
     networks:
       - dental-network
 
-  chat-service:
-    build:
-      context: ../services/chat-service
-      dockerfile: Dockerfile
-    container_name: dental_chat_service
-    restart: unless-stopped
-    ports:
-      - "3012:3012"
-    environment:
-      - NODE_ENV=production
-      - PORT=3012
-      - MONGODB_URI=mongodb://admin:password123@mongodb:27017/dental_clinic_chat?authSource=admin
-      - REDIS_URL=redis://:redis123@redis:6379
-      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
-      - JWT_SECRET=${JWT_SECRET:-your_jwt_secret_key_here}
-    depends_on:
-      - mongodb
-      - redis
-      - rabbitmq
-    networks:
-      - dental-network
-
   chatbot-service:
     build:
       context: ../services/chatbot-service
