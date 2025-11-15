@@ -1,4 +1,5 @@
 const Appointment = require('../models/appointment.model');
+const appointmentRepo = require('../repositories/appointment.repository');
 const redisClient = require('../utils/redis.client');
 const { publishToQueue } = require('../utils/rabbitmq.client');
 const rpcClient = require('../utils/rpcClient');
@@ -884,7 +885,7 @@ class AppointmentService {
         status: 'confirmed', // ⭐ Start with confirmed, then check-in
         bookedAt: new Date(),
         bookedBy: currentUser.userId || currentUser._id, // ⭐ Support both userId and _id
-        bookedByRole: currentUser.role,
+        bookedByRole: currentUser.activeRole || currentUser.role || (Array.isArray(currentUser.roles) ? currentUser.roles[0] : 'staff'),
         examRecordId: examRecordId || null, // 🆕 Store exam record ID
         notes: notes || ''
       });
@@ -1334,6 +1335,18 @@ class AppointmentService {
       }));
     } catch (error) {
       console.error('❌ Error getting appointments by IDs:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * ✅ Get booking channel statistics (Online vs Offline)
+   */
+  async getBookingChannelStats(startDate, endDate, groupBy = 'day') {
+    try {
+      return await appointmentRepo.getBookingChannelStats(startDate, endDate, groupBy);
+    } catch (error) {
+      console.error('❌ Error getting booking channel stats:', error);
       throw error;
     }
   }

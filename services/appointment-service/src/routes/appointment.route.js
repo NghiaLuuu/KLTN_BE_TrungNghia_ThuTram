@@ -137,6 +137,13 @@ router.get('/queue/stats',
   queueController.getQueueStats
 );
 
+// ✅ Get booking channel statistics (Online vs Offline)
+router.get('/booking-channel-stats',
+  authenticate,
+  authorize(['admin', 'manager']),
+  appointmentController.getBookingChannelStats
+);
+
 // Trigger auto-start (for testing/manual trigger)
 router.post('/queue/auto-start',
   authenticate,

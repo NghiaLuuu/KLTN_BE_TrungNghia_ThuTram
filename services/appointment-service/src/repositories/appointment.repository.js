@@ -253,6 +253,159 @@ class AppointmentRepository {
     };
   }
 
+  /**
+   * ✅ Get booking channel statistics (Online vs Offline)
+   */
+  async getBookingChannelStats(startDate, endDate, groupBy = 'day') {
+    try {
+      const matchStage = {
+        createdAt: { $gte: startDate, $lte: endDate },
+        status: 'completed', // ✅ Only count completed appointments
+        bookedByRole: { $exists: true, $ne: null } // ✅ Only count appointments with bookedByRole
+      };
+
+      // 1. Get summary by channel
+      const channelStats = await Appointment.aggregate([
+        { $match: matchStage },
+        {
+          $group: {
+            _id: '$bookedByRole',
+            count: { $sum: 1 },
+            completed: {
+              $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+            }
+          }
+        }
+      ]);
+
+      console.log('📊 Channel stats:', channelStats);
+
+      // Calculate online vs offline
+      const onlineCount = channelStats.find(s => s._id === 'patient')?.count || 0;
+      const offlineStats = channelStats.filter(s => s._id !== 'patient' && s._id !== null);
+      const offlineCount = offlineStats.reduce((sum, s) => sum + s.count, 0);
+      const total = onlineCount + offlineCount;
+
+      const onlineCompleted = channelStats.find(s => s._id === 'patient')?.completed || 0;
+      const offlineCompleted = offlineStats.reduce((sum, s) => sum + s.completed, 0);
+
+      // 2. Get offline breakdown by role
+      const offlineByRole = await Appointment.aggregate([
+        { 
+          $match: { 
+            ...matchStage,
+            bookedByRole: { $ne: 'patient', $exists: true, $ne: null } 
+          } 
+        },
+        {
+          $group: {
+            _id: '$bookedByRole',
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } }
+      ]);
+
+      console.log('📊 Offline by role:', offlineByRole);
+
+    // 3. Get trends by period
+    let groupByDateFormat;
+    if (groupBy === 'month') {
+      groupByDateFormat = { $dateToString: { format: '%Y-%m', date: '$createdAt' } };
+    } else if (groupBy === 'year') {
+      groupByDateFormat = { $dateToString: { format: '%Y', date: '$createdAt' } };
+    } else {
+      groupByDateFormat = { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } };
+    }
+
+    const trends = await Appointment.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: {
+            date: groupByDateFormat,
+            role: '$bookedByRole'
+          },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { '_id.date': 1 } }
+    ]);
+
+    // Transform trends data
+    const trendsByDate = {};
+    trends.forEach(t => {
+      const date = t._id.date;
+      if (!trendsByDate[date]) {
+        trendsByDate[date] = { date, online: 0, offline: 0 };
+      }
+      if (t._id.role === 'patient') {
+        trendsByDate[date].online += t.count;
+      } else {
+        trendsByDate[date].offline += t.count;
+      }
+    });
+
+    // 4. Get top staff (offline bookings only)
+    const topStaff = await Appointment.aggregate([
+      { 
+        $match: { 
+          ...matchStage,
+          bookedByRole: { $ne: 'patient' },
+          bookedBy: { $exists: true }
+        } 
+      },
+      {
+        $group: {
+          _id: {
+            staffId: '$bookedBy',
+            role: '$bookedByRole'
+          },
+          count: { $sum: 1 },
+          completed: {
+            $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+          }
+        }
+      },
+      { $sort: { count: -1 } },
+      { $limit: 30 }
+    ]);
+
+      console.log('📊 Top staff:', topStaff.length, 'staff members');
+
+      return {
+        summary: {
+          total,
+          online: {
+            count: onlineCount,
+            percentage: total > 0 ? parseFloat(((onlineCount / total) * 100).toFixed(1)) : 0,
+            completionRate: onlineCount > 0 ? parseFloat(((onlineCompleted / onlineCount) * 100).toFixed(1)) : 0
+          },
+          offline: {
+            count: offlineCount,
+            percentage: total > 0 ? parseFloat(((offlineCount / total) * 100).toFixed(1)) : 0,
+            completionRate: offlineCount > 0 ? parseFloat(((offlineCompleted / offlineCount) * 100).toFixed(1)) : 0
+          }
+        },
+        offlineByRole: offlineByRole.map(item => ({
+          role: item._id,
+          count: item.count,
+          percentage: offlineCount > 0 ? parseFloat(((item.count / offlineCount) * 100).toFixed(1)) : 0
+        })),
+        trends: Object.values(trendsByDate),
+        topStaff: topStaff.map(item => ({
+          staffId: item._id.staffId ? item._id.staffId.toString() : null,
+          role: item._id.role,
+          count: item.count,
+          completionRate: item.count > 0 ? parseFloat(((item.completed / item.count) * 100).toFixed(1)) : 0
+        })).filter(s => s.staffId) // Remove null staffIds
+      };
+    } catch (error) {
+      console.error('❌ Error in getBookingChannelStats:', error);
+      throw error;
+    }
+  }
+
   async getDailySchedule(date, dentistId = null) {
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);

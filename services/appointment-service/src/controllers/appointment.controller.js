@@ -314,6 +314,40 @@ class AppointmentController {
       res.status(500).json({ success: false, message: error.message });
     }
   }
+
+  /**
+   * ✅ Get booking channel statistics (Online vs Offline)
+   */
+  async getBookingChannelStats(req, res) {
+    try {
+      const { startDate, endDate, groupBy = 'day' } = req.query;
+
+      if (!startDate || !endDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'startDate and endDate are required'
+        });
+      }
+
+      const stats = await appointmentService.getBookingChannelStats(
+        new Date(startDate),
+        new Date(endDate),
+        groupBy
+      );
+
+      res.json({
+        success: true,
+        message: 'Lấy thống kê kênh đặt hẹn thành công',
+        data: stats
+      });
+    } catch (error) {
+      console.error('getBookingChannelStats error:', error);
+      res.status(500).json({ 
+        success: false, 
+        message: error.message || 'Lỗi khi lấy thống kê kênh đặt hẹn'
+      });
+    }
+  }
 }
 
 module.exports = new AppointmentController();
