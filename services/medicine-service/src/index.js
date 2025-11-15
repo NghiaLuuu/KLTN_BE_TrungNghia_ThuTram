@@ -16,8 +16,25 @@ const medicineRoutes = require('./routes/medicine.routes');
 const app = express();
 app.use(express.json());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN,
-  credentials: true
+  origin: function(origin, callback) {
+    if (!origin) return callback(null, true);
+    const allowedOrigins = [
+      process.env.FRONTEND_URL,
+      process.env.CORS_ORIGIN,
+      'http://localhost:5173',
+      'http://localhost:3000'
+    ].filter(Boolean);
+    if (allowedOrigins.some(allowed => allowed.split(',').includes(origin))) {
+      callback(null, true);
+    } else if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 app.use(express.urlencoded({ extended: true }));
 
