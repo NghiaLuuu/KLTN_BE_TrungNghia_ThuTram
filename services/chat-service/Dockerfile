@@ -15,4 +15,4 @@ COPY . .
 EXPOSE 3012
 
 # Start the application
-CMD ["npm", "start"]
+CMD ["node", "src/index.js"]
