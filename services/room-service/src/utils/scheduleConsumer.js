@@ -5,11 +5,41 @@ const roomService = require('../services/room.service');
 let channel;
 let connection;
 
-async function connectRabbit() {
+async function connectRabbit(retries = 5, delay = 3000) {
   if (!connection) {
-    connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://localhost');
-    channel = await connection.createChannel();
-    console.log('✅ RabbitMQ connected for schedule consumer');
+    for (let i = 0; i < retries; i++) {
+      try {
+        console.log(`🔄 Attempting RabbitMQ connection (${i + 1}/${retries})...`);
+        connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://localhost');
+        channel = await connection.createChannel();
+        console.log('✅ RabbitMQ connected for schedule consumer');
+        
+        // Handle connection errors
+        connection.on('error', (err) => {
+          console.error('❌ RabbitMQ connection error:', err.message);
+          connection = null;
+          channel = null;
+        });
+        
+        connection.on('close', () => {
+          console.log('⚠️ RabbitMQ connection closed, will reconnect on next use');
+          connection = null;
+          channel = null;
+        });
+        
+        return channel;
+      } catch (error) {
+        console.error(`❌ RabbitMQ connection attempt ${i + 1} failed:`, error.message);
+        
+        if (i < retries - 1) {
+          const waitTime = delay * Math.pow(2, i); // Exponential backoff
+          console.log(`⏳ Retrying in ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        } else {
+          throw new Error(`Failed to connect to RabbitMQ after ${retries} attempts`);
+        }
+      }
+    }
   }
   return channel;
 }
