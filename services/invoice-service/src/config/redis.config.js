@@ -8,11 +8,18 @@ class RedisClient {
 
   async connect() {
     try {
+      // Support both REDIS_URL (production) and REDIS_HOST/PORT (development)
+      const redisConfig = process.env.REDIS_URL 
+        ? { url: process.env.REDIS_URL }
+        : {
+            host: process.env.REDIS_HOST || 'localhost',
+            port: process.env.REDIS_PORT || 6379,
+            password: process.env.REDIS_PASSWORD || undefined,
+            db: process.env.REDIS_DB || 0,
+          };
+
       this.client = redis.createClient({
-        host: process.env.REDIS_HOST || 'localhost',
-        port: process.env.REDIS_PORT || 6379,
-        password: process.env.REDIS_PASSWORD || undefined,
-        db: process.env.REDIS_DB || 0,
+        ...redisConfig,
         retry_strategy: (options) => {
           if (options.error && options.error.code === 'ECONNREFUSED') {
             console.log('Redis server refused connection');
