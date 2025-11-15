@@ -4,7 +4,7 @@ const amqp = require('amqplib');
 let channel;
 let connection;
 
-async function connectRabbit(retries = 5, delay = 2000) {
+async function connectRabbit(retries = 10, delay = 2000) {
   if (!channel) {
     for (let i = 0; i < retries; i++) {
       try {

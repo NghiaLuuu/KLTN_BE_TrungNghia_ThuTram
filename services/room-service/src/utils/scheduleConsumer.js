@@ -5,7 +5,7 @@ const roomService = require('../services/room.service');
 let channel;
 let connection;
 
-async function connectRabbit(retries = 5, delay = 3000) {
+async function connectRabbit(retries = 10, delay = 2000) {
   if (!connection) {
     for (let i = 0; i < retries; i++) {
       try {

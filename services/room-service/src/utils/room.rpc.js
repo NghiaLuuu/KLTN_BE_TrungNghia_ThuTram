@@ -2,7 +2,7 @@
 const amqp = require('amqplib');
 const roomRepo = require('../repositories/room.repository'); // repo để lấy room từ DB
 
-async function startRpcServer(retries = 5, delay = 3000) {
+async function startRpcServer(retries = 10, delay = 2000) {
   let connection;
   
   for (let i = 0; i < retries; i++) {
