@@ -869,7 +869,7 @@ exports.getLockedSlots = async (req, res) => {
       .select('_id roomId subRoomId dentistIds date startTime endTime lockedAt lockedBy')
       .lean();
 
-    console.log(`📊 Found ${lockedSlots.length} locked slots`);
+    
 
     return res.status(200).json({
       success: true,

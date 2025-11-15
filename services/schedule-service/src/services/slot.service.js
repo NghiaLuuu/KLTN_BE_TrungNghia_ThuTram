@@ -421,13 +421,7 @@ async function assignStaffToSpecificSlots({
       startTime: { $gt: vietnamNow } // Only allow assigning to future slots
     });
 
-    console.log(`📊 Found ${slots.length} slots out of ${slotIds.length} requested`);
-    console.log('🔍 Slot details:', slots.map(s => ({
-      _id: s._id,
-      dentist: s.dentist,
-      nurse: s.nurse,
-      isMongooseDoc: typeof s.save === 'function'
-    })));
+    
 
     if (slots.length === 0) {
       throw new Error('Không tìm thấy slot nào hợp lệ để phân công (có thể đã qua hoặc không tồn tại)');
@@ -619,13 +613,7 @@ async function reassignStaffToSpecificSlots({
       startTime: { $gt: vietnamNow } // Only allow reassigning future slots
     });
 
-    console.log(`📊 Found ${slots.length} slots out of ${slotIds.length} requested`);
-    console.log('🔍 Slots with old staff:', slots.map(s => ({
-      _id: s._id,
-      dentist: s.dentist,
-      nurse: s.nurse,
-      startTime: s.startTime
-    })));
+    
 
     if (slots.length === 0) {
       throw new Error(`Không tìm thấy slot nào được phân công cho ${role === 'dentist' ? 'nha sĩ' : 'y tá'} cũ (có thể đã qua hoặc không tồn tại)`);
@@ -2263,7 +2251,7 @@ async function reassignStaffToSlots({
       throw new Error(`Không tìm thấy slot nào có ${role === 'dentist' ? 'nha sĩ' : 'y tá'} cũ (${oldStaffId}) được phân công`);
     }
 
-    console.log(`📊 Found ${slotsWithOldStaff.length}/${slots.length} slots with old staff assigned`);
+    
 
     // Check for time conflicts with new staff
     const minStart = new Date(Math.min(...slotsWithOldStaff.map(s => new Date(s.startTime).getTime())));
@@ -3070,14 +3058,14 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
       filteredSlots = slots.filter(slot => {
         const roomId = slot.roomId?.toString();
         if (!roomId) {
-          console.log(`⏭️ Skipping slot ${slot._id} - no roomId`);
+          // console.log(`⏭️ Skipping slot ${slot._id} - no roomId`);
           return false;
         }
         
         const room = roomMap.get(roomId);
         if (!room || !room.roomType) {
-          console.log(`⏭️ Skipping slot ${slot._id} - room ${roomId} not found or no roomType`);
-          // Debug: show available room IDs
+          // console.log(`⏭️ Skipping slot ${slot._id} - room ${roomId} not found or no roomType`);
+          // // Debug: show available room IDs
           if (!room) {
             const availableIds = Array.from(roomMap.keys()).slice(0, 3);
             console.log(`   Available room IDs in cache (sample): ${availableIds.join(', ')}`);
@@ -3087,7 +3075,7 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
         
         const isAllowed = allowedRoomTypes.includes(room.roomType);
         if (!isAllowed) {
-          console.log(`⏭️ Skipping slot ${slot._id} - room "${room.name}" type "${room.roomType}" not in allowed types [${allowedRoomTypes.join(', ')}]`);
+          // console.log(`⏭️ Skipping slot ${slot._id} - room "${room.name}" type "${room.roomType}" not in allowed types [${allowedRoomTypes.join(', ')}]`);
         } else {
           console.log(`✅ Keeping slot ${slot._id} - room "${room.name}" type "${room.roomType}" matches allowed types`);
         }
@@ -3967,7 +3955,7 @@ async function disableAllDaySlots(date, reason, currentUser) {
       throw new Error('Không tìm thấy slot nào trong ngày này');
     }
     
-    console.log(`📊 Found ${slots.length} slots across all rooms to disable`);
+    
     
     // Get unique room IDs for cache invalidation
     const affectedRoomIds = [...new Set(slots.map(s => s.roomId?.toString()).filter(Boolean))];
@@ -4600,7 +4588,6 @@ async function enableAllDaySlots(date, reason, currentUser) {
       throw new Error('Không tìm thấy slot nào đã tắt trong ngày này');
     }
     
-    console.log(`📊 Found ${slots.length} disabled slots across all rooms to enable`);
     
     // Get unique room IDs for cache invalidation
     const affectedRoomIds = [...new Set(slots.map(s => s.roomId?.toString()).filter(Boolean))];

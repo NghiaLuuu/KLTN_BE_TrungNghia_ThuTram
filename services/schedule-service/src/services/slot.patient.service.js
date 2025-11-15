@@ -143,7 +143,7 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
         .populate('scheduleId') // Populate schedule to get roomId, subRoomId
         .lean();
         
-        console.log(`📊 Found ${availableSlots.length} available slots for dentist within maxBookingDays (${maxBookingDays} days)`);
+        
         
         if (availableSlots.length > 0) {
           const firstSlot = availableSlots[0];
@@ -198,17 +198,17 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
           // ✅ STRICT: Check if room type is allowed (if allowedRoomTypes is specified)
           if (allowedRoomTypes && allowedRoomTypes.length > 0) {
             if (!roomData) {
-              console.log(`⏭️ Skipping slot ${i} - room ${firstSlotRoomId} not found in cache`);
+              // console.log(`⏭️ Skipping slot ${i} - room ${firstSlotRoomId} not found in cache`);
               continue;
             }
             
             if (!roomData.roomType) {
-              console.log(`⏭️ Skipping slot ${i} - room ${firstSlotRoomId} has no roomType`);
+              // console.log(`⏭️ Skipping slot ${i} - room ${firstSlotRoomId} has no roomType`);
               continue;
             }
             
             if (!allowedRoomTypes.includes(roomData.roomType)) {
-              console.log(`⏭️ Skipping slot ${i} - room type "${roomData.roomType}" not in allowed types:`, allowedRoomTypes);
+              // console.log(`⏭️ Skipping slot ${i} - room type "${roomData.roomType}" not in allowed types:`, allowedRoomTypes);
               continue; // Skip this slot group
             }
             
@@ -447,13 +447,13 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
         
         const room = roomMap.get(roomId);
         if (!room || !room.roomType) {
-          console.log(`⏭️ Skipping slot - room ${roomId} not found or no roomType`);
+          // console.log(`⏭️ Skipping slot - room ${roomId} not found or no roomType`);
           return false;
         }
         
         const isAllowed = allowedRoomTypes.includes(room.roomType);
         if (!isAllowed) {
-          console.log(`⏭️ Skipping slot - room type "${room.roomType}" not in allowed types`);
+          // console.log(`⏭️ Skipping slot - room type "${room.roomType}" not in allowed types`);
         }
         return isAllowed;
       });

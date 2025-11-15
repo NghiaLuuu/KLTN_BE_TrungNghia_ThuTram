@@ -236,7 +236,7 @@ async function checkConflictsForSlots({ slots }) {
     .select('_id dentist nurse startTime endTime date shiftName roomId subRoomId')
     .lean();
     
-    console.log(`📊 Found ${allOverlappingSlots.length} potentially overlapping slots`);
+    
     
     // ⭐⭐ CRITICAL FIX: Loại bỏ các slot đang được chọn khỏi danh sách conflict
     // Chỉ giữ lại các slot KHÁC với slot đang chọn
@@ -5144,7 +5144,7 @@ exports.generateRoomSchedule = async ({
         const slotsByShift = {};
         
         if (!isSubRoomSelected) {
-          console.log(`⏭️ Skipping slot generation for unselected subroom ${currentSubRoomId}`);
+          // console.log(`⏭️ Skipping slot generation for unselected subroom ${currentSubRoomId}`);
           // Không sinh slots, nhưng vẫn tạo schedule với isGenerated=false
         } else {
           // Generate slots CHỈ cho các ca được chọn
@@ -8168,7 +8168,7 @@ const enableShiftsAndSubRooms = async (scheduleId, shifts = [], subRoomIds = [])
       year
     });
 
-    console.log(`📊 Found ${allSchedules.length} schedules for this room in ${month}/${year}`);
+    
 
     let totalUpdatedShifts = 0;
     let totalUpdatedSubRooms = 0;
