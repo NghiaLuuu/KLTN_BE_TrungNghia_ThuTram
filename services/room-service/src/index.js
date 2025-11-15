@@ -7,8 +7,14 @@ const roomRoutes = require('./routes/room.route');
 const cors = require('cors');
 const startRpcServer = require('./utils/room.rpc');
 const { startScheduleConsumer } = require('./utils/scheduleConsumer');
+const roomService = require('./services/room.service');
 
-connectDB();
+// Initialize database and cache
+(async () => {
+  await connectDB();
+  // Initialize room cache after DB connection
+  await roomService.initRoomCache();
+})();
 
 // Start RabbitMQ RPC server
 startRpcServer().catch(console.error);

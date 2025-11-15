@@ -430,4 +430,8 @@ exports.markSubRoomAsUsed = async (roomId, subRoomId) => {
   return room;
 };
 
+// Export initRoomCache for manual initialization
+exports.initRoomCache = initRoomCache;
+
+// Auto-initialize cache on service start (fallback)
 initRoomCache().catch(err => console.error('❌ Không thể tải bộ nhớ đệm phòng:', err));
