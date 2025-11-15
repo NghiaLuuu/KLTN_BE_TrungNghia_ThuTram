@@ -153,7 +153,7 @@ exports.getAllStaff = async (options = {}) => {
     ];
   }
   if (role) {
-    criteria.role = role;
+    criteria.roles = { $in: [role] }; // ✅ Fix: roles is array, use $in operator
   }
   
   const [users, total] = await Promise.all([

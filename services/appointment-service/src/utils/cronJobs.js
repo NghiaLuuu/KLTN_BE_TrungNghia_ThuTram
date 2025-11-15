@@ -43,7 +43,7 @@ function startCleanupExpiredLocksCron() {
       });
 
       if (expiredSlots.length === 0) {
-        console.log('✅ [Cron] No expired slot locks found');
+        // console.log('✅ [Cron] No expired slot locks found');
         return;
       }
 

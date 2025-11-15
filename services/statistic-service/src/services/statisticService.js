@@ -77,22 +77,26 @@ class StatisticService {
    * Get detailed appointment statistics
    */
   async getAppointmentStatistics(startDate, endDate, filters = {}) {
+    // Ensure dates are Date objects
+    const start = startDate instanceof Date ? startDate : new Date(startDate);
+    const end = endDate instanceof Date ? endDate : new Date(endDate);
+    
     const cacheKey = CacheUtils.generateKey('appointments', { 
-      startDate: startDate.toISOString(), 
-      endDate: endDate.toISOString(), 
+      startDate: start.toISOString(), 
+      endDate: end.toISOString(), 
       ...filters 
     });
 
     return await CacheUtils.getOrSet(cacheKey, async () => {
       try {
-        const stats = await ServiceConnector.getAppointmentStats(startDate, endDate, filters);
+        const stats = await ServiceConnector.getAppointmentStats(start, end, filters);
         
         if (!stats) {
           return this.getEmptyAppointmentStats();
         }
 
         return {
-          period: { startDate, endDate },
+          period: { startDate: start, endDate: end },
           summary: {
             total: stats.total || 0,
             pending: stats.pending || 0,
@@ -116,43 +120,45 @@ class StatisticService {
   }
 
   /**
-   * Get revenue and financial statistics
+   * Get revenue statistics with breakdown by service and payment method
    */
   async getRevenueStatistics(startDate, endDate, groupBy = 'day', filters = {}) {
+    // Ensure dates are Date objects
+    const start = startDate instanceof Date ? startDate : new Date(startDate);
+    const end = endDate instanceof Date ? endDate : new Date(endDate);
+    
     const cacheKey = CacheUtils.generateKey('revenue', { 
-      startDate: startDate.toISOString(), 
-      endDate: endDate.toISOString(), 
+      startDate: start.toISOString(), 
+      endDate: end.toISOString(), 
       groupBy,
       ...filters
     });
 
     return await CacheUtils.getOrSet(cacheKey, async () => {
       try {
-        const [revenueStats, serviceStats, paymentStats] = await Promise.allSettled([
-          ServiceConnector.getRevenueStats(startDate, endDate, groupBy, filters),
-          ServiceConnector.getServiceStats(startDate, endDate),
-          ServiceConnector.getPaymentStats(startDate, endDate, filters)
-        ]);
+        // Get revenue stats from invoice-service with all filters
+        const revenueStats = await ServiceConnector.getRevenueStats(start, end, groupBy, filters);
 
-        const revenue = this.getValue(revenueStats, null, {});
-        const services = this.getValue(serviceStats, null, []);
-        const payments = this.getValue(paymentStats, null, {});
+        if (!revenueStats) {
+          return this.getEmptyRevenueStats();
+        }
 
+        // Return the data structure expected by frontend
         return {
-          period: { startDate, endDate, groupBy },
+          period: revenueStats.period || { startDate: start, endDate: end, groupBy },
           filters,
           summary: {
-            totalRevenue: revenue.totalAmount || 0,
-            totalInvoices: revenue.totalInvoices || 0,
-            averageInvoiceValue: revenue.averageValue || 0,
-            paidAmount: payments.totalPaid || 0,
-            pendingAmount: payments.totalPending || 0,
-            paymentRate: payments.paymentRate || 0
+            totalRevenue: revenueStats.summary?.totalRevenue || 0,
+            totalInvoices: revenueStats.summary?.totalInvoices || 0,
+            averageInvoiceValue: revenueStats.summary?.averageValue || 0,
+            paidAmount: revenueStats.summary?.paidAmount || 0,
+            pendingAmount: revenueStats.summary?.pendingAmount || 0,
+            paymentRate: revenueStats.summary?.paymentRate || 0
           },
-          trends: revenue.trends || [],
-          byService: services || [],
-          byPaymentMethod: payments.byMethod || {},
-          topServices: (services || []).slice(0, 10)
+          trends: revenueStats.trends || [],
+          byDentist: revenueStats.byDentist || [],
+          byService: revenueStats.byService || [],
+          rawDetails: revenueStats.rawDetails || [] // ✅ Add rawDetails for cross-filtering
         };
       } catch (error) {
         console.error('Revenue statistics error:', error);
@@ -165,22 +171,26 @@ class StatisticService {
    * Get patient statistics
    */
   async getPatientStatistics(startDate, endDate, filters = {}) {
+    // Ensure dates are Date objects
+    const start = startDate instanceof Date ? startDate : new Date(startDate);
+    const end = endDate instanceof Date ? endDate : new Date(endDate);
+    
     const cacheKey = CacheUtils.generateKey('patients', { 
-      startDate: startDate.toISOString(), 
-      endDate: endDate.toISOString(), 
+      startDate: start.toISOString(), 
+      endDate: end.toISOString(), 
       ...filters 
     });
 
     return await CacheUtils.getOrSet(cacheKey, async () => {
       try {
-        const patientStats = await ServiceConnector.getPatientStats(startDate, endDate, filters);
+        const patientStats = await ServiceConnector.getPatientStats(start, end, filters);
         
         if (!patientStats) {
           return this.getEmptyPatientStats();
         }
 
         return {
-          period: { startDate, endDate },
+          period: { startDate: start, endDate: end },
           summary: {
             totalPatients: patientStats.totalPatients || 0,
             newPatients: patientStats.newPatients || 0,
@@ -239,15 +249,19 @@ class StatisticService {
    * Get service performance statistics
    */
   async getServiceStatistics(startDate, endDate, filters = {}) {
+    // Ensure dates are Date objects
+    const start = startDate instanceof Date ? startDate : new Date(startDate);
+    const end = endDate instanceof Date ? endDate : new Date(endDate);
+    
     const cacheKey = CacheUtils.generateKey('services', { 
-      startDate: startDate.toISOString(), 
-      endDate: endDate.toISOString(), 
+      startDate: start.toISOString(), 
+      endDate: end.toISOString(), 
       ...filters 
     });
 
     return await CacheUtils.getOrSet(cacheKey, async () => {
       try {
-        const serviceStats = await ServiceConnector.getServiceStats(startDate, endDate);
+        const serviceStats = await ServiceConnector.getServiceStats(start, end);
         
         if (!serviceStats || !Array.isArray(serviceStats)) {
           return this.getEmptyServiceStats();
@@ -257,7 +271,7 @@ class StatisticService {
         const totalServices = serviceStats.reduce((sum, service) => sum + (service.totalServices || 0), 0);
 
         return {
-          period: { startDate, endDate },
+          period: { startDate: start, endDate: end },
           summary: {
             totalServices: totalServices,
             totalRevenue: totalRevenue,
@@ -287,22 +301,26 @@ class StatisticService {
    * Get schedule and room utilization statistics
    */
   async getScheduleStatistics(startDate, endDate, filters = {}) {
+    // Ensure dates are Date objects
+    const start = startDate instanceof Date ? startDate : new Date(startDate);
+    const end = endDate instanceof Date ? endDate : new Date(endDate);
+    
     const cacheKey = CacheUtils.generateKey('schedule', { 
-      startDate: startDate.toISOString(), 
-      endDate: endDate.toISOString(), 
+      startDate: start.toISOString(), 
+      endDate: end.toISOString(), 
       ...filters 
     });
 
     return await CacheUtils.getOrSet(cacheKey, async () => {
       try {
-        const scheduleStats = await ServiceConnector.getScheduleStats(startDate, endDate, filters);
+        const scheduleStats = await ServiceConnector.getScheduleStats(start, end, filters);
         
         if (!scheduleStats) {
           return this.getEmptyScheduleStats();
         }
 
         return {
-          period: { startDate, endDate },
+          period: { startDate: start, endDate: end },
           roomUtilization: scheduleStats.roomUtilization || [],
           shiftDistribution: scheduleStats.shiftDistribution || {},
           staffAllocation: scheduleStats.staffAllocation || {},
@@ -399,6 +417,22 @@ class StatisticService {
       byService: [],
       completionRate: 0,
       averageWaitTime: 0
+    };
+  }
+
+  getEmptyRevenueStats() {
+    return {
+      summary: {
+        totalRevenue: 0,
+        totalInvoices: 0,
+        averageInvoiceValue: 0,
+        paidAmount: 0,
+        pendingAmount: 0,
+        paymentRate: 0
+      },
+      trends: [],
+      byDentist: [],
+      byService: []
     };
   }
 

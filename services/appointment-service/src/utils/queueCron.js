@@ -14,7 +14,7 @@ function setupQueueCronJobs() {
     try {
       // Placeholder for future queue management tasks
       // Example: Check for overdue appointments, send reminders, etc.
-      console.log('⏰ [Cron] Queue check running...');
+      // console.log('⏰ [Cron] Queue check running...');
     } catch (error) {
       console.error('❌ [Cron] Queue check failed:', error);
     }

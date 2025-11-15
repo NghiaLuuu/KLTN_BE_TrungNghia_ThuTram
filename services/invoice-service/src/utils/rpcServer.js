@@ -185,7 +185,13 @@ class InvoiceRPCServer {
           break;
 
         case 'getRevenueStatistics':
-          response.result = await invoiceService.getRevenueStats(params.startDate, params.endDate);
+          response.result = await invoiceService.getRevenueStats(
+            params.startDate,
+            params.endDate,
+            params.groupBy,
+            params.dentistId,
+            params.serviceId
+          );
           response.success = true;
           break;
 

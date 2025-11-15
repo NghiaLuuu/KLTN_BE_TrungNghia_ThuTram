@@ -28,6 +28,18 @@ exports.findById = async (id) => {
   return await User.findOne({ _id: id, deletedAt: null }); 
 };
 
+// 🆕 Find multiple users by IDs
+exports.findByIds = async (ids) => {
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return [];
+  }
+  
+  return await User.find({ 
+    _id: { $in: ids }, 
+    deletedAt: null 
+  }).select('-password -refreshTokens');
+};
+
 exports.saveUser = (user) => user.save();
 
 // 🆕 CREATE USER (thêm mới)

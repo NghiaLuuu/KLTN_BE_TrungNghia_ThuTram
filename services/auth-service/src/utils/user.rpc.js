@@ -37,6 +37,19 @@ async function startRpcServer() {
       if (action === 'getUserById') {
         const user = await userRepo.getUserById(payload.userId);
         response = user || null;
+      } else if (action === 'getUsersByIds') {
+        // 🆕 Get multiple users by IDs
+        const { userIds } = payload;
+        console.log(`📥 [Auth RPC] getUsersByIds request for ${userIds?.length || 0} users:`, userIds);
+        
+        if (!userIds || !Array.isArray(userIds)) {
+          response = { error: 'userIds must be an array' };
+          console.error('❌ [Auth RPC] Invalid userIds:', userIds);
+        } else {
+          const users = await userRepo.findByIds(userIds);
+          console.log(`✅ [Auth RPC] Found ${users?.length || 0} users`);
+          response = users || [];
+        }
       } else if (action === 'markUserAsUsed') {
         const updatedUser = await userRepo.markUserAsUsed(payload.userId);
         

@@ -333,14 +333,18 @@ class InvoiceService {
   // ============ STATISTICS & REPORTING ============
   async getInvoiceStatistics(startDate, endDate, groupBy = 'day') {
     try {
-      const cacheKey = `stats:invoices:${startDate.toISOString()}:${endDate.toISOString()}:${groupBy}`;
+      // Convert to Date if received as string from RabbitMQ
+      const start = startDate instanceof Date ? startDate : new Date(startDate);
+      const end = endDate instanceof Date ? endDate : new Date(endDate);
+      
+      const cacheKey = `stats:invoices:${start.toISOString()}:${end.toISOString()}:${groupBy}`;
       
       const cached = await this.redis.get(cacheKey);
       if (cached) {
         return JSON.parse(cached);
       }
 
-      const stats = await invoiceRepo.getInvoiceStatistics(startDate, endDate, groupBy);
+      const stats = await invoiceRepo.getInvoiceStatistics(start, end, groupBy);
       
       // Cache for longer time as stats don't change frequently
       await this.redis.setex(cacheKey, 1800, JSON.stringify(stats)); // 30 minutes
@@ -352,18 +356,23 @@ class InvoiceService {
     }
   }
 
-  async getRevenueStats(startDate, endDate) {
+  async getRevenueStats(startDate, endDate, groupBy = 'day', dentistId = null, serviceId = null) {
     try {
-      const cacheKey = `stats:revenue:${startDate.toISOString()}:${endDate.toISOString()}`;
+      // Convert to Date if received as string from RabbitMQ
+      const start = startDate instanceof Date ? startDate : new Date(startDate);
+      const end = endDate instanceof Date ? endDate : new Date(endDate);
       
-      const cached = await this.redis.get(cacheKey);
-      if (cached) {
-        return JSON.parse(cached);
-      }
+      // ❌ CACHE DISABLED - Always fetch fresh data for accurate statistics
+      // const cacheKey = `stats:revenue:${start.toISOString()}:${end.toISOString()}:${groupBy}:${dentistId || 'all'}:${serviceId || 'all'}`;
+      // const cached = await this.redis.get(cacheKey);
+      // if (cached) {
+      //   return JSON.parse(cached);
+      // }
 
-      const stats = await invoiceRepo.getRevenueStats(startDate, endDate);
+      const stats = await invoiceRepo.getRevenueStats(start, end, groupBy, dentistId, serviceId);
       
-      await this.redis.setex(cacheKey, 1800, JSON.stringify(stats));
+      // ❌ CACHE DISABLED
+      // await this.redis.setex(cacheKey, 1800, JSON.stringify(stats));
 
       return stats;
     } catch (error) {

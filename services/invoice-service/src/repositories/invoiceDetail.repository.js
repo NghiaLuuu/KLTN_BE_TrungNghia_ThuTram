@@ -1,4 +1,5 @@
 const { InvoiceDetail, ServiceType, ServiceCategory, ToothType } = require("../models/invoiceDetail.model");
+const { enrichDentistData } = require("../utils/userHelper");
 
 class InvoiceDetailRepository {
   // ============ CREATE METHODS ============
@@ -267,6 +268,302 @@ class InvoiceDetailRepository {
   }
 
   // ============ STATISTICS METHODS ============
+  
+  /**
+   * Get revenue summary statistics
+   */
+  async getRevenueSummary(startDate, endDate, filters = {}) {
+    const matchFilter = {
+      completedDate: { $gte: startDate, $lte: endDate },
+      status: 'completed',
+      isActive: true,
+      ...filters
+    };
+
+    const result = await InvoiceDetail.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: '$totalPrice' },
+          totalInvoices: { $sum: 1 },
+          averageValue: { $avg: '$totalPrice' }
+        }
+      }
+    ]);
+
+    if (result.length === 0) {
+      return {
+        totalRevenue: 0,
+        totalInvoices: 0,
+        averageValue: 0,
+        paidAmount: 0,
+        pendingAmount: 0,
+        paymentRate: 0
+      };
+    }
+
+    const summary = result[0];
+    
+    // For now, assume all completed invoiceDetails are paid
+    // In a real scenario, you'd need to check the invoice status
+    return {
+      totalRevenue: summary.totalRevenue || 0,
+      totalInvoices: summary.totalInvoices || 0,
+      averageValue: summary.averageValue || 0,
+      paidAmount: summary.totalRevenue || 0,
+      pendingAmount: 0,
+      paymentRate: 100
+    };
+  }
+
+  /**
+   * Get revenue trends grouped by time period
+   */
+  async getRevenueTrends(startDate, endDate, groupBy = 'day', filters = {}) {
+    const matchFilter = {
+      completedDate: { $gte: startDate, $lte: endDate },
+      status: 'completed',
+      isActive: true,
+      ...filters
+    };
+
+    let groupStage = {};
+    
+    switch (groupBy) {
+      case 'day':
+        groupStage = {
+          _id: {
+            $dateToString: {
+              format: '%Y-%m-%d',
+              date: '$completedDate'
+            }
+          }
+        };
+        break;
+      case 'month':
+        groupStage = {
+          _id: {
+            $dateToString: {
+              format: '%Y-%m',
+              date: '$completedDate'
+            }
+          }
+        };
+        break;
+      case 'quarter':
+        groupStage = {
+          _id: {
+            $concat: [
+              'Q',
+              {
+                $toString: {
+                  $ceil: {
+                    $divide: [{ $month: '$completedDate' }, 3]
+                  }
+                }
+              },
+              '-',
+              { $toString: { $year: '$completedDate' } }
+            ]
+          }
+        };
+        break;
+      case 'year':
+        groupStage = {
+          _id: {
+            $dateToString: {
+              format: '%Y',
+              date: '$completedDate'
+            }
+          }
+        };
+        break;
+      default:
+        groupStage = { _id: null };
+    }
+
+    groupStage.revenue = { $sum: '$totalPrice' };
+    groupStage.count = { $sum: 1 };
+
+    const trends = await InvoiceDetail.aggregate([
+      { $match: matchFilter },
+      { $group: groupStage },
+      { $sort: { '_id': 1 } },
+      {
+        $project: {
+          _id: 0,
+          date: '$_id',
+          revenue: 1,
+          count: 1
+        }
+      }
+    ]);
+
+    return trends;
+  }
+
+  /**
+   * Get revenue breakdown by dentist
+   */
+  async getRevenueByDentist(startDate, endDate, filters = {}) {
+    console.log('\n========== GET REVENUE BY DENTIST ==========');
+    
+    const matchFilter = {
+      completedDate: { $gte: startDate, $lte: endDate },
+      status: 'completed',
+      isActive: true,
+      dentistId: { $exists: true, $ne: null },
+      ...filters
+    };
+
+    console.log('🔍 [getRevenueByDentist] Match filter:', JSON.stringify(matchFilter, null, 2));
+
+    const byDentist = await InvoiceDetail.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: '$dentistId',
+          totalRevenue: { $sum: '$totalPrice' },
+          appointmentCount: { $addToSet: '$invoiceId' },
+          serviceCount: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          dentistId: { $toString: '$_id' },
+          totalRevenue: 1,
+          appointmentCount: { $size: '$appointmentCount' },
+          serviceCount: 1,
+          avgRevenuePerAppointment: {
+            $cond: {
+              if: { $gt: [{ $size: '$appointmentCount' }, 0] },
+              then: { 
+                $floor: { $divide: ['$totalRevenue', { $size: '$appointmentCount' }] }
+              },
+              else: 0
+            }
+          }
+        }
+      },
+      { $sort: { totalRevenue: -1 } }
+    ]);
+
+    console.log('📊 [getRevenueByDentist] Aggregation result:', JSON.stringify(byDentist, null, 2));
+
+    if (byDentist.length === 0) {
+      console.warn('⚠️ [getRevenueByDentist] No dentist data found with current filters');
+      return [];
+    }
+
+    console.log(`✅ [getRevenueByDentist] Returning ${byDentist.length} dentist(s) (enrichment done in frontend)`);
+
+    // ❌ REMOVED RPC ENRICHMENT - Frontend sẽ enrich với data từ /api/user/all-staff
+    return byDentist;
+  }
+
+  /**
+   * Get revenue breakdown by service
+   */
+  async getRevenueByService(startDate, endDate, filters = {}) {
+    const matchFilter = {
+      completedDate: { $gte: startDate, $lte: endDate },
+      status: 'completed',
+      isActive: true,
+      ...filters
+    };
+
+    const byService = await InvoiceDetail.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: '$serviceId',
+          serviceName: { $first: '$serviceInfo.name' },
+          serviceType: { $first: '$serviceInfo.type' },
+          totalRevenue: { $sum: '$totalPrice' },
+          totalCount: { $sum: '$quantity' }
+        }
+      },
+      {
+        $match: {
+          totalRevenue: { $gt: 0 } // ✅ Chỉ lấy services có doanh thu > 0
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          serviceId: { $toString: '$_id' },
+          serviceName: 1,
+          serviceType: 1,
+          totalRevenue: 1,
+          totalCount: 1,
+          avgRevenuePerService: {
+            $cond: {
+              if: { $gt: ['$totalCount', 0] },
+              then: { $divide: ['$totalRevenue', '$totalCount'] },
+              else: 0
+            }
+          }
+        }
+      },
+      { $sort: { totalRevenue: -1 } }
+    ]);
+
+    return byService.map(item => ({
+      ...item,
+      avgRevenuePerService: Math.floor(item.avgRevenuePerService)
+    }));
+  }
+
+  /**
+   * ✅ Get raw revenue details with both dentistId and serviceId
+   * For frontend cross-filtering when both filters are applied
+   */
+  async getRawRevenueDetails(startDate, endDate, filters = {}) {
+    const matchFilter = {
+      completedDate: { $gte: startDate, $lte: endDate },
+      status: 'completed',
+      isActive: true,
+      dentistId: { $exists: true, $ne: null },
+      ...filters
+    };
+
+    console.log('🔍 getRawRevenueDetails matchFilter:', JSON.stringify(matchFilter));
+
+    const rawDetails = await InvoiceDetail.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: {
+            dentistId: '$dentistId',
+            serviceId: '$serviceId'
+          },
+          revenue: { $sum: '$totalPrice' },
+          count: { $sum: '$quantity' },
+          invoices: { $addToSet: '$invoiceId' }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          dentistId: { $toString: '$_id.dentistId' },
+          serviceId: { $toString: '$_id.serviceId' },
+          revenue: 1,
+          count: 1,
+          invoiceCount: { $size: '$invoices' }
+        }
+      }
+    ]);
+
+    console.log('📊 getRawRevenueDetails result:', rawDetails.length, 'items');
+    if (rawDetails.length > 0) {
+      console.log('Sample:', rawDetails[0]);
+    }
+
+    return rawDetails;
+  }
+
   async getServiceStatistics(startDate, endDate) {
     return await InvoiceDetail.aggregate([
       {

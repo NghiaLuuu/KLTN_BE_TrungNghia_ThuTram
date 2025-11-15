@@ -303,62 +303,82 @@ class InvoiceRepository {
     return stats;
   }
 
-  async getRevenueStats(startDate, endDate) {
-    const stats = await Invoice.aggregate([
-      {
-        $match: {
-          issueDate: { $gte: startDate, $lte: endDate },
-          isActive: true,
-          status: { $ne: InvoiceStatus.CANCELLED }
+  async getRevenueStats(startDate, endDate, groupBy = 'day', dentistId = null, serviceId = null) {
+    const InvoiceDetailRepo = require('./invoiceDetail.repository');
+    const { getServiceAddOnIds } = require('../utils/serviceHelper');
+    
+    // Build filters for InvoiceDetail aggregation
+    const filters = {
+      completedDate: { $gte: startDate, $lte: endDate },
+      status: 'completed',
+      isActive: true
+    };
+    
+    if (dentistId) {
+      const mongoose = require('mongoose');
+      filters.dentistId = mongoose.Types.ObjectId.isValid(dentistId) 
+        ? new mongoose.Types.ObjectId(dentistId) 
+        : dentistId;
+    }
+    
+    // 🆕 If serviceId is provided, get all serviceAddOn IDs and filter by them
+    if (serviceId) {
+      const serviceInfo = await getServiceAddOnIds(serviceId);
+      
+      if (serviceInfo.hasAddOns && serviceInfo.addOns.length > 0) {
+        // Filter by serviceAddOn IDs (which are stored as serviceId in InvoiceDetail)
+        const mongoose = require('mongoose');
+        const addOnIds = serviceInfo.addOns
+          .map(addon => addon._id)
+          .filter(id => id && mongoose.Types.ObjectId.isValid(id))
+          .map(id => new mongoose.Types.ObjectId(id));
+        
+        if (addOnIds.length > 0) {
+          filters.serviceId = { $in: addOnIds };
+          console.log(`🔍 Filtering by ${addOnIds.length} serviceAddOns of parent service ${serviceId}`);
+        } else {
+          // No valid addOn IDs, filter by parent serviceId
+          filters.serviceId = mongoose.Types.ObjectId.isValid(serviceId) 
+            ? new mongoose.Types.ObjectId(serviceId) 
+            : serviceId;
         }
-      },
-      {
-        $group: {
-          _id: null,
-          totalRevenue: {
-            $sum: {
-              $cond: [{ $eq: ['$status', InvoiceStatus.PAID] }, '$totalAmount', 0]
-            }
-          },
-          pendingRevenue: {
-            $sum: {
-              $cond: [
-                { $in: ['$status', [InvoiceStatus.PENDING, InvoiceStatus.PARTIAL_PAID]] },
-                '$totalAmount',
-                0
-              ]
-            }
-          },
-          totalInvoices: { $sum: 1 },
-          paidInvoices: {
-            $sum: {
-              $cond: [{ $eq: ['$status', InvoiceStatus.PAID] }, 1, 0]
-            }
-          },
-          overdueInvoices: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $lt: ['$dueDate', new Date()] },
-                    { $in: ['$status', [InvoiceStatus.PENDING, InvoiceStatus.PARTIAL_PAID]] }
-                  ]
-                },
-                1,
-                0
-              ]
-            }
-          }
-        }
+      } else {
+        // No addOns or error, filter by parent serviceId directly
+        const mongoose = require('mongoose');
+        filters.serviceId = mongoose.Types.ObjectId.isValid(serviceId) 
+          ? new mongoose.Types.ObjectId(serviceId) 
+          : serviceId;
       }
+    }
+
+    // Get summary, trends, byDentist, byService, and rawDetails in parallel
+    const [summary, trends, byDentist, byService, rawDetails] = await Promise.all([
+      InvoiceDetailRepo.getRevenueSummary(startDate, endDate, filters),
+      InvoiceDetailRepo.getRevenueTrends(startDate, endDate, groupBy, filters),
+      InvoiceDetailRepo.getRevenueByDentist(startDate, endDate, filters),
+      InvoiceDetailRepo.getRevenueByService(startDate, endDate, filters),
+      // ✅ Thêm raw details có cả dentistId và serviceId để FE filter chéo
+      InvoiceDetailRepo.getRawRevenueDetails(startDate, endDate, filters)
     ]);
 
-    return stats[0] || {
-      totalRevenue: 0,
-      pendingRevenue: 0,
-      totalInvoices: 0,
-      paidInvoices: 0,
-      overdueInvoices: 0
+    console.log('✅ getRevenueStats returning:', {
+      hasRawDetails: !!rawDetails,
+      rawDetailsLength: rawDetails?.length,
+      byDentistLength: byDentist?.length,
+      byServiceLength: byService?.length
+    });
+
+    return {
+      period: {
+        startDate,
+        endDate,
+        groupBy
+      },
+      summary,
+      trends,
+      byDentist,
+      byService,
+      rawDetails // ✅ Array of { dentistId, serviceId, revenue, count }
     };
   }
 

@@ -6,11 +6,15 @@ class ServiceConnector {
    */
   static async getAppointmentStats(startDate, endDate, filters = {}) {
     try {
+      // Convert to Date objects if they're strings
+      const start = startDate instanceof Date ? startDate : new Date(startDate);
+      const end = endDate instanceof Date ? endDate : new Date(endDate);
+      
       const message = {
         action: 'getStatistics',
         payload: {
-          startDate,
-          endDate,
+          startDate: start,
+          endDate: end,
           ...filters
         }
       };
@@ -26,15 +30,20 @@ class ServiceConnector {
   /**
    * Get revenue statistics from invoice service
    */
-  static async getRevenueStats(startDate, endDate, groupBy = 'month', filters = {}) {
+  static async getRevenueStats(startDate, endDate, groupBy = 'day', filters = {}) {
     try {
+      // Convert to Date objects if they're strings
+      const start = startDate instanceof Date ? startDate : new Date(startDate);
+      const end = endDate instanceof Date ? endDate : new Date(endDate);
+      
       const message = {
         method: 'getRevenueStatistics',
         params: {
-          startDate,
-          endDate,
+          startDate: start,
+          endDate: end,
           groupBy,
-          ...filters
+          dentistId: filters.dentistId || null,
+          serviceId: filters.serviceId || null
         }
       };
 
@@ -56,11 +65,15 @@ class ServiceConnector {
    */
   static async getServiceStats(startDate, endDate) {
     try {
+      // Convert to Date objects if they're strings
+      const start = startDate instanceof Date ? startDate : new Date(startDate);
+      const end = endDate instanceof Date ? endDate : new Date(endDate);
+      
       const message = {
         method: 'getServiceStatistics',
         params: {
-          startDate,
-          endDate
+          startDate: start,
+          endDate: end
         }
       };
 
@@ -82,11 +95,15 @@ class ServiceConnector {
    */
   static async getPaymentStats(startDate, endDate, filters = {}) {
     try {
+      // Convert to Date objects if they're strings
+      const start = startDate instanceof Date ? startDate : new Date(startDate);
+      const end = endDate instanceof Date ? endDate : new Date(endDate);
+      
       const message = {
         action: 'getPaymentStatistics',
         payload: {
-          startDate,
-          endDate,
+          startDate: start,
+          endDate: end,
           ...filters
         }
       };
@@ -122,11 +139,15 @@ class ServiceConnector {
    */
   static async getScheduleStats(startDate, endDate, filters = {}) {
     try {
+      // Convert to Date objects if they're strings
+      const start = startDate instanceof Date ? startDate : new Date(startDate);
+      const end = endDate instanceof Date ? endDate : new Date(endDate);
+      
       const message = {
         action: 'getScheduleStatistics',
         payload: {
-          startDate,
-          endDate,
+          startDate: start,
+          endDate: end,
           ...filters
         }
       };
@@ -144,11 +165,15 @@ class ServiceConnector {
    */
   static async getSlotUtilizationStats(startDate, endDate, roomIds = [], timeRange = 'month', shiftName = null) {
     try {
+      // Convert to Date objects if they're strings
+      const start = startDate instanceof Date ? startDate : new Date(startDate);
+      const end = endDate instanceof Date ? endDate : new Date(endDate);
+      
       const message = {
         action: 'getUtilizationStatistics',
         payload: {
-          startDate,
-          endDate,
+          startDate: start,
+          endDate: end,
           roomIds,
           timeRange,
           shiftName
