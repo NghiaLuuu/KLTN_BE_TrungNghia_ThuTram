@@ -18,10 +18,33 @@ connectDB().then(async () => {
 
 const app = express();
 app.use(express.json());
+
+// CORS configuration with multiple origins support
 app.use(cors({
-  origin: process.env.CORS_ORIGIN,
-  credentials: true
+  origin: function(origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, etc)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      process.env.FRONTEND_URL,
+      process.env.CORS_ORIGIN,
+      'http://localhost:5173',
+      'http://localhost:3000'
+    ].filter(Boolean); // Remove undefined values
+    
+    if (allowedOrigins.some(allowed => allowed.split(',').includes(origin))) {
+      callback(null, true);
+    } else if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
