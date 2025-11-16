@@ -325,7 +325,7 @@ exports.addSubRoom = async (roomId, count = 1) => {
   
   // Gửi event cho schedule service
   try {
-    const addedIds = newSubRooms.map(sr => room.subRooms[room.subRooms.length - count + newSubRooms.indexOf(sr)]._id.toString());
+    const addedIds = newSubRooms.map((sr, index) => room.subRooms[room.subRooms.length - count + index]._id.toString());
     await publishToQueue('schedule_queue', {
       action: 'subRoomAdded',
       payload: {
