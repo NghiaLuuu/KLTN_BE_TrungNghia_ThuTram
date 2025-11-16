@@ -173,14 +173,26 @@ async function startRpcServer() {
             const { startDate, endDate, roomIds, timeRange, shiftName } = payload;
             console.log('🔍 getUtilizationStatistics request:', { startDate, endDate, roomIds, timeRange, shiftName });
             
+            // Parse dates to ensure we include the full day range
+            const startDateObj = new Date(startDate);
+            startDateObj.setHours(0, 0, 0, 0); // Start of day
+            
+            const endDateObj = new Date(endDate);
+            endDateObj.setHours(23, 59, 59, 999); // End of day
+            
             // Build query
             const query = {
               isActive: true,
               startTime: { 
-                $gte: new Date(startDate), 
-                $lte: new Date(endDate) 
+                $gte: startDateObj, 
+                $lte: endDateObj 
               }
             };
+            
+            console.log('📅 Date filter:', {
+              startDate: startDateObj.toISOString(),
+              endDate: endDateObj.toISOString()
+            });
             
             if (roomIds && Array.isArray(roomIds) && roomIds.length > 0) {
               const mongoose = require('mongoose');
@@ -189,6 +201,7 @@ async function startRpcServer() {
               if (validRoomIds.length > 0) {
                 query.roomId = { $in: validRoomIds.map(id => mongoose.Types.ObjectId(id)) };
               }
+              console.log('🏠 Filtering by rooms:', validRoomIds);
             }
             
             if (shiftName) {
@@ -197,10 +210,21 @@ async function startRpcServer() {
             
             // Get slots
             const Slot = require('../models/slot.model');
-            console.log('📊 Querying slots with:', query);
+            console.log('📊 Querying slots with:', JSON.stringify(query, null, 2));
             const slotsStart = Date.now();
             const slots = await Slot.find(query).lean();
             console.log(`✅ Found ${slots.length} slots in ${Date.now() - slotsStart}ms`);
+            
+            // Log sample slots for debugging
+            if (slots.length > 0) {
+              console.log('📌 Sample slot:', {
+                startTime: slots[0].startTime,
+                roomId: slots[0].roomId,
+                shiftName: slots[0].shiftName,
+                status: slots[0].status,
+                appointmentId: slots[0].appointmentId
+              });
+            }
             
             // Calculate metrics
             const totalSlots = slots.length;

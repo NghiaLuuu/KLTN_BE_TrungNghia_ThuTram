@@ -23,7 +23,7 @@ function startCleanupExpiredLocksCron() {
       const now = new Date();
       const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
 
-      console.log('🔍 [Cron] Checking for expired slot locks...');
+      // console.log('🔍 [Cron] Checking for expired slot locks...');
 
       // Call schedule-service to get all locked slots
       const scheduleServiceUrl = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';

@@ -34,43 +34,66 @@ class RabbitMQClient {
     ];
 
     for (const queue of queues) {
-      try {
-        await this.channel.deleteQueue(queue);
-        console.log(`♻️ Refreshing RabbitMQ queue ${queue} before asserting`);
-      } catch (err) {
-        if (err?.code !== 404) {
-          console.warn(`⚠️ Could not delete queue ${queue} during refresh:`, err.message || err);
-        }
-      }
-
+      // ✅ DON'T delete queues - other services may be consuming them
+      // Just assert to ensure they exist
       await this.channel.assertQueue(queue, { durable: true });
     }
   }
 
   async request(queue, message, timeout = 30000) {
     return new Promise(async (resolve, reject) => {
+      let timeoutHandle;
+      let consumerTag;
+      
       try {
         const correlationId = this.generateUuid();
         const replyQueue = await this.channel.assertQueue('', { exclusive: true });
 
-        this.channel.consume(replyQueue.queue, (msg) => {
-          if (msg.properties.correlationId === correlationId) {
-            resolve(JSON.parse(msg.content.toString()));
-            this.channel.ack(msg);
+        // Setup timeout
+        timeoutHandle = setTimeout(() => {
+          // Cleanup consumer if timeout occurs
+          if (consumerTag) {
+            this.channel.cancel(consumerTag).catch(err => {
+              console.error('Failed to cancel consumer:', err.message);
+            });
+          }
+          reject(new Error('RPC request timeout'));
+        }, timeout);
+
+        // Consume response
+        const consumer = await this.channel.consume(replyQueue.queue, (msg) => {
+          if (msg && msg.properties.correlationId === correlationId) {
+            clearTimeout(timeoutHandle);
+            
+            try {
+              const response = JSON.parse(msg.content.toString());
+              this.channel.ack(msg);
+              
+              // Cancel consumer after receiving response
+              if (consumerTag) {
+                this.channel.cancel(consumerTag).catch(err => {
+                  console.error('Failed to cancel consumer:', err.message);
+                });
+              }
+              
+              resolve(response);
+            } catch (error) {
+              reject(new Error('Failed to parse RPC response: ' + error.message));
+            }
           }
         }, { noAck: false });
+        
+        consumerTag = consumer.consumerTag;
 
+        // Send request
         this.channel.sendToQueue(queue, Buffer.from(JSON.stringify(message)), {
           correlationId: correlationId,
           replyTo: replyQueue.queue,
           expiration: timeout.toString()
         });
 
-        setTimeout(() => {
-          reject(new Error('RPC request timeout'));
-        }, timeout);
-
       } catch (error) {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
         reject(error);
       }
     });

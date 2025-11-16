@@ -34,8 +34,8 @@ class QueueService {
         .sort({ roomId: 1, subroomId: 1, startTime: 1 })
         .lean();
 
-      console.log(`📊 [QueueService] Found ${appointments.length} appointments for queue`);
-      console.log(`🔍 [QueueService] Query:`, JSON.stringify(query, null, 2));
+      // console.log(`📊 [QueueService] Found ${appointments.length} appointments for queue`);
+      // console.log(`🔍 [QueueService] Query:`, JSON.stringify(query, null, 2));
       
       // Debug: Log first few appointments
       if (appointments.length > 0) {
