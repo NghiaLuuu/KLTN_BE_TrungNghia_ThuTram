@@ -101,15 +101,21 @@ class RabbitMQClient {
             const data = JSON.parse(msg.content.toString());
             console.log(`📥 Received from ${queueName}`);
             
-            // Process message
-            await handler(data);
+            // Process message - handler should return true to ack, false to requeue
+            const shouldAck = await handler(data, msg);
             
-            // Acknowledge message
-            channel.ack(msg);
+            if (shouldAck !== false) {
+              // Acknowledge message (default behavior)
+              channel.ack(msg);
+            } else {
+              // Requeue message for another consumer to handle
+              console.log(`🔄 Requeuing message for another consumer`);
+              channel.nack(msg, false, true); // requeue = true
+            }
           } catch (error) {
             console.error(`❌ Error processing ${queueName}:`, error.message);
             
-            // Reject and requeue message (or send to dead letter queue)
+            // Reject and don't requeue on error (send to DLQ)
             channel.nack(msg, false, false);
           }
         }

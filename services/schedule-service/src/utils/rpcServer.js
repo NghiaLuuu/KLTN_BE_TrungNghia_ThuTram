@@ -28,7 +28,7 @@ async function startRpcServer() {
       // 🔍 Check if this is an EVENT message (has 'event' field)
       // Events should be handled by event consumer, not RPC server
       if (data.event) {
-        console.log(`📨 [RPC Server] Received event: ${data.event} - Rejecting for event consumer to handle`);
+        console.log(`📨 [RPC Server] Received event: ${data.event} - Requeuing for event consumer`);
         channel.nack(msg, false, true); // Requeue for event consumer
         return;
       }
@@ -37,8 +37,8 @@ async function startRpcServer() {
       const { action, payload } = data;
       
       if (!action) {
-        console.warn('⚠️ [RPC Server] Message has no action or event field, ignoring');
-        channel.ack(msg);
+        console.warn('⚠️ [RPC Server] Message has no action or event field, requeuing');
+        channel.nack(msg, false, true); // Requeue instead of ack
         return;
       }
 
@@ -199,7 +199,7 @@ async function startRpcServer() {
               // Filter valid ObjectIds
               const validRoomIds = roomIds.filter(id => mongoose.Types.ObjectId.isValid(id));
               if (validRoomIds.length > 0) {
-                query.roomId = { $in: validRoomIds.map(id => mongoose.Types.ObjectId(id)) };
+                query.roomId = { $in: validRoomIds.map(id => new mongoose.Types.ObjectId(id)) };
               }
               console.log('🏠 Filtering by rooms:', validRoomIds);
             }
@@ -208,12 +208,72 @@ async function startRpcServer() {
               query.shiftName = shiftName;
             }
             
-            // Get slots
+            // Get slots - OPTIMIZED: select only needed fields
             const Slot = require('../models/slot.model');
             console.log('📊 Querying slots with:', JSON.stringify(query, null, 2));
             const slotsStart = Date.now();
-            const slots = await Slot.find(query).lean();
-            console.log(`✅ Found ${slots.length} slots in ${Date.now() - slotsStart}ms`);
+            
+            // 🔍 DEBUG: Check query execution plan
+            try {
+              const explainResult = await Slot.find(query).explain('executionStats');
+              console.log('🔍 Query Execution Plan:', {
+                executionTimeMillis: explainResult.executionStats.executionTimeMillis,
+                totalDocsExamined: explainResult.executionStats.totalDocsExamined,
+                totalKeysExamined: explainResult.executionStats.totalKeysExamined,
+                nReturned: explainResult.executionStats.nReturned,
+                indexUsed: explainResult.executionStats.executionStages?.indexName || 
+                          explainResult.queryPlanner?.winningPlan?.inputStage?.indexName || 
+                          'NO INDEX'
+              });
+            } catch (explainError) {
+              console.error('❌ Error getting query plan:', explainError.message);
+            }
+            
+            // ✅ Optimize: Select only needed fields
+            // Try v2 index first, fallback to v1 if not found
+            let slots;
+            try {
+              slots = await Slot.find(query)
+                .hint('utilization_stats_query_v2')
+                .select('roomId startTime shiftName appointmentId')
+                .lean()
+                .maxTimeMS(30000);
+            } catch (hintError) {
+              // Fallback to old index name if v2 doesn't exist yet
+              console.warn('⚠️ Index v2 not found, using v1:', hintError.message);
+              slots = await Slot.find(query)
+                .hint('utilization_stats_query')
+                .select('roomId startTime shiftName appointmentId')
+                .lean()
+                .maxTimeMS(30000);
+            }
+            
+            const queryTime = Date.now() - slotsStart;
+            console.log(`✅ Found ${slots.length} slots in ${queryTime}ms`);
+            
+            // ⚡ Early return if no slots found
+            if (slots.length === 0) {
+              console.log('⚠️ No slots found in date range');
+              response = {
+                success: true,
+                data: {
+                  summary: { 
+                    totalSlots: 0, 
+                    bookedSlots: 0, 
+                    emptySlots: 0, 
+                    utilizationRate: 0
+                  },
+                  byRoom: [],
+                  byShift: {
+                    'Ca Sáng': { total: 0, booked: 0, empty: 0, rate: 0 },
+                    'Ca Chiều': { total: 0, booked: 0, empty: 0, rate: 0 },
+                    'Ca Tối': { total: 0, booked: 0, empty: 0, rate: 0 }
+                  },
+                  timeline: []
+                }
+              };
+              break;
+            }
             
             // Log sample slots for debugging
             if (slots.length > 0) {
@@ -221,7 +281,6 @@ async function startRpcServer() {
                 startTime: slots[0].startTime,
                 roomId: slots[0].roomId,
                 shiftName: slots[0].shiftName,
-                status: slots[0].status,
                 appointmentId: slots[0].appointmentId
               });
             }

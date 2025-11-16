@@ -169,6 +169,14 @@ class ServiceConnector {
       const start = startDate instanceof Date ? startDate : new Date(startDate);
       const end = endDate instanceof Date ? endDate : new Date(endDate);
       
+      console.log('🔍 [ServiceConnector] Calling getSlotUtilizationStats:', {
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+        roomIds: roomIds.length,
+        timeRange,
+        shiftName
+      });
+      
       const message = {
         action: 'getUtilizationStatistics',
         payload: {
@@ -180,8 +188,12 @@ class ServiceConnector {
         }
       };
 
-      // Increase timeout to 60s for large slot queries
-      const result = await rabbitClient.request('schedule_queue', message, 60000);
+      // Increase timeout to 90s for large slot queries and slow networks
+      const rpcStart = Date.now();
+      const result = await rabbitClient.request('schedule_queue', message, 90000);
+      const rpcTime = Date.now() - rpcStart;
+      
+      console.log(`✅ [ServiceConnector] RPC completed in ${rpcTime}ms`);
       
       if (!result.success) {
         throw new Error(result.error || 'Failed to get utilization statistics');
@@ -189,7 +201,23 @@ class ServiceConnector {
       
       return result.data || null;
     } catch (error) {
-      console.error('Error getting slot utilization stats:', error);
+      console.error('❌ [ServiceConnector] Error getting slot utilization stats:', error.message);
+      
+      // Return empty data instead of throwing to prevent UI crash
+      if (error.message.includes('timeout')) {
+        console.warn('⚠️ RPC timeout - returning empty utilization data');
+        return {
+          summary: { totalSlots: 0, bookedSlots: 0, emptySlots: 0, utilizationRate: 0 },
+          byRoom: [],
+          byShift: {
+            'Ca Sáng': { total: 0, booked: 0, empty: 0, rate: 0 },
+            'Ca Chiều': { total: 0, booked: 0, empty: 0, rate: 0 },
+            'Ca Tối': { total: 0, booked: 0, empty: 0, rate: 0 }
+          },
+          timeline: []
+        };
+      }
+      
       throw new Error('Không thể lấy thống kê hiệu suất phòng khám');
     }
   }

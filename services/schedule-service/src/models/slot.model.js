@@ -113,6 +113,12 @@ slotSchema.index({ nurse: 1, shiftName: 1, isActive: 1, startTime: 1 });
 // Appointment lookup
 slotSchema.index({ appointmentId: 1 });
 
+// ⚡ Utilization statistics query optimization
+// Order: equality → $in → range → additional fields
+slotSchema.index({ isActive: 1, roomId: 1, startTime: 1, shiftName: 1 }, {
+  name: 'utilization_stats_query_v2'
+});
+
 // General queries - Updated for status field
 slotSchema.index({ status: 1, startTime: 1, isActive: 1 });
 slotSchema.index({ roomId: 1, status: 1, startTime: 1 });

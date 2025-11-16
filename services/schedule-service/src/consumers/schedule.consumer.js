@@ -7,11 +7,21 @@ const slotRepository = require('../repositories/slot.repository');
 async function startConsumer() {
   try {
     await rabbitmqClient.consumeFromQueue('schedule_queue', async (message) => {
-      console.log('📥 [Schedule Consumer] Received event:', {
+      console.log('📥 [Schedule Consumer] Received message:', {
+        hasEvent: !!message.event,
+        hasAction: !!message.action,
         event: message.event,
+        action: message.action,
         timestamp: new Date().toISOString()
       });
 
+      // ⚠️ IMPORTANT: Return false to requeue RPC requests for rpcServer to handle
+      if (message.action) {
+        console.log('⏭️ [Schedule Consumer] Requeuing RPC request for rpcServer');
+        return false; // NACK and requeue for rpcServer
+      }
+
+      // Only handle EVENT messages (not RPC requests)
       if (message.event === 'slot.update_status') {
         const { slotIds, status, reservationId, appointmentId } = message.data;
 

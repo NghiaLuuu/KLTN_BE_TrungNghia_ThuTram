@@ -248,10 +248,41 @@ class StatisticController {
    */
   async getClinicUtilizationStats(req, res) {
     try {
-      const { startDate, endDate, roomIds, timeRange = 'month', shiftName } = req.query;
+      console.log('🔍 [Controller] Raw req.query:', req.query);
+      
+      // ⚠️ IMPORTANT: Express doesn't parse roomIds[] as array automatically
+      // We need to handle both 'roomIds' and 'roomIds[]' keys
+      const roomIdsRaw = req.query.roomIds || req.query['roomIds[]'];
+      const { startDate, endDate, timeRange = 'month', shiftName } = req.query;
+      
+      console.log('🏥 [Controller] Received clinic utilization request:', {
+        startDate,
+        endDate,
+        roomIdsRaw,
+        roomIdsType: typeof roomIdsRaw,
+        roomIdsIsArray: Array.isArray(roomIdsRaw),
+        timeRange,
+        shiftName
+      });
       
       const dateRange = DateUtils.parseDateRange(startDate, endDate, timeRange);
-      const roomIdArray = roomIds ? (Array.isArray(roomIds) ? roomIds : roomIds.split(',')) : [];
+      
+      // Parse roomIds - handle both single value and array
+      let roomIdArray = [];
+      if (roomIdsRaw) {
+        if (Array.isArray(roomIdsRaw)) {
+          roomIdArray = roomIdsRaw;
+        } else if (typeof roomIdsRaw === 'string') {
+          // Could be comma-separated or single ID
+          roomIdArray = roomIdsRaw.includes(',') ? roomIdsRaw.split(',') : [roomIdsRaw];
+        }
+      }
+      
+      console.log('🔧 [Controller] Parsed params:', {
+        dateRange,
+        roomIdArray,
+        roomIdArrayLength: roomIdArray.length
+      });
       
       const stats = await statisticService.getClinicUtilizationStatistics(
         dateRange.startDate,
