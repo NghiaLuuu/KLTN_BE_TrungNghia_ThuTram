@@ -5,8 +5,9 @@ const ROOM_CACHE_KEY = 'rooms_cache';
 
 async function initRoomCache() {
   const rooms = await roomRepo.getAllRooms();
-  await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms));
-  console.log(`✅ Đã tải bộ nhớ đệm phòng: ${rooms.length} phòng`);
+  // Set cache với TTL 1 giờ (3600s) để tránh bị evict nhưng vẫn auto-refresh
+  await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms), { EX: 3600 });
+  console.log(`✅ Đã tải bộ nhớ đệm phòng: ${rooms.length} phòng (TTL: 1h)`);
 }
 
 // 🆕 Helper: Tự động cập nhật isActive của room dựa trên trạng thái subrooms
@@ -33,8 +34,9 @@ async function updateRoomActiveStatusBasedOnSubRooms(room) {
 
 async function refreshRoomCache() {
   const rooms = await roomRepo.getAllRooms();
-  await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms));
-  console.log(`♻ Đã làm mới bộ nhớ đệm phòng: ${rooms.length} phòng`);
+  // Set cache với TTL 1 giờ
+  await redis.set(ROOM_CACHE_KEY, JSON.stringify(rooms), { EX: 3600 });
+  console.log(`♻ Đã làm mới bộ nhớ đệm phòng: ${rooms.length} phòng (TTL: 1h)`);
 }
 
 exports.createRoom = async (data) => {

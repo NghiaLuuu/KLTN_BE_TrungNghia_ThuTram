@@ -59,10 +59,8 @@ app.use(cors({
       process.env.CORS_ORIGIN,
       'http://localhost:5173',
       'http://localhost:3000'
-    ].filter(Boolean);
-    if (allowedOrigins.some(allowed => allowed.split(',').includes(origin))) {
-      callback(null, true);
-    } else if (allowedOrigins.includes(origin)) {
+    ].filter(Boolean).flatMap(o => o.split(',').map(s => s.trim())).filter(Boolean);
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));

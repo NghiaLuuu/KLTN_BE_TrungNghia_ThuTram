@@ -25,18 +25,23 @@ app.use(cors({
     // Allow requests with no origin (mobile apps, Postman, etc)
     if (!origin) return callback(null, true);
     
+    // Build flattened allowed origins list
     const allowedOrigins = [
       process.env.FRONTEND_URL,
       process.env.CORS_ORIGIN,
       'http://localhost:5173',
       'http://localhost:3000'
-    ].filter(Boolean); // Remove undefined values
+    ]
+      .filter(Boolean) // Remove undefined
+      .flatMap(o => o.split(',').map(s => s.trim())) // Split comma-separated origins
+      .filter(Boolean); // Remove empty strings
     
-    if (allowedOrigins.some(allowed => allowed.split(',').includes(origin))) {
-      callback(null, true);
-    } else if (allowedOrigins.includes(origin)) {
+    // Check if origin is allowed
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.warn(`⚠️ CORS blocked origin: ${origin}`);
+      console.log(`   Allowed origins: ${allowedOrigins.join(', ')}`);
       callback(new Error('Not allowed by CORS'));
     }
   },

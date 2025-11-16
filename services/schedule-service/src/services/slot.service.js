@@ -231,14 +231,67 @@ async function getAvailableShifts() {
   }
 }
 
-// Helper: Get room information
+// Helper: Get room information with auto-rebuild fallback
 async function getRoomInfo(roomId) {
   try {
-    const cached = await redisClient.get('rooms_cache');
-    if (!cached) throw new Error('rooms_cache không tồn tại');
+    let cached = await redisClient.get('rooms_cache');
+    
+    // 🔄 AUTO-REBUILD: Nếu cache miss, rebuild từ room-service
+    if (!cached) {
+      console.warn('⚠️ rooms_cache không tồn tại - đang rebuild từ room-service...');
+      try {
+        const rebuildResult = await sendRpcRequest('room_queue', {
+          action: 'rebuildRoomCache'
+        }, 10000);
+        
+        if (rebuildResult && rebuildResult.success) {
+          console.log('✅ Đã rebuild rooms_cache thành công');
+          cached = await redisClient.get('rooms_cache');
+        }
+      } catch (rebuildError) {
+        console.error('❌ Không thể rebuild cache:', rebuildError.message);
+        // Fallback: Query trực tiếp từ room-service
+        try {
+          const roomData = await sendRpcRequest('room_queue', {
+            action: 'getRoomById',
+            payload: { roomId: roomId.toString() }
+          }, 5000);
+          
+          if (roomData && roomData.success) {
+            console.log('✅ Lấy thông tin phòng trực tiếp từ room-service');
+            return roomData.data;
+          }
+        } catch (fallbackError) {
+          throw new Error(`Không thể lấy thông tin phòng (cache miss + rebuild failed): ${fallbackError.message}`);
+        }
+      }
+    }
+    
+    if (!cached) {
+      throw new Error('rooms_cache vẫn không tồn tại sau khi rebuild');
+    }
+    
     const rooms = JSON.parse(cached);
     const room = rooms.find(r => r._id.toString() === roomId.toString());
-    if (!room) throw new Error('Không tìm thấy phòng trong cache');
+    
+    if (!room) {
+      // Thử refresh cache và query lại
+      console.warn(`⚠️ Không tìm thấy room ${roomId} trong cache - đang refresh...`);
+      await sendRpcRequest('room_queue', { action: 'rebuildRoomCache' }, 5000);
+      
+      const refreshedCached = await redisClient.get('rooms_cache');
+      if (refreshedCached) {
+        const refreshedRooms = JSON.parse(refreshedCached);
+        const refreshedRoom = refreshedRooms.find(r => r._id.toString() === roomId.toString());
+        if (refreshedRoom) {
+          console.log('✅ Tìm thấy room sau khi refresh cache');
+          return refreshedRoom;
+        }
+      }
+      
+      throw new Error(`Không tìm thấy phòng ${roomId} trong cache (đã refresh)`);
+    }
+    
     return room;
   } catch (error) {
     throw new Error(`Không thể lấy thông tin phòng: ${error.message}`);

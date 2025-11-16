@@ -47,7 +47,14 @@ async function startRpcServer(retries = 10, delay = 2000) {
         try {
           if (action === 'getRoomById') {
             const room = await roomRepo.findById(payload.roomId);
-            response = room || null;
+            response = { success: true, data: room };
+          } else if (action === 'rebuildRoomCache') {
+            // 🔄 Rebuild rooms_cache trong Redis
+            const redis = require('./redis.client');
+            const rooms = await roomRepo.getAllRooms();
+            await redis.set('rooms_cache', JSON.stringify(rooms));
+            console.log(`✅ Đã rebuild rooms_cache: ${rooms.length} phòng`);
+            response = { success: true, count: rooms.length };
           } else if (action === 'markRoomAsUsed') {
             console.log('📥 Received markRoomAsUsed payload:', JSON.stringify(payload));
             
