@@ -229,6 +229,13 @@ const appointmentSchema = new Schema({
     type: String,
     trim: true,
     maxlength: 300
+  },
+  
+  // Email Reminder
+  reminderEmailSent: {
+    type: Boolean,
+    default: false,
+    index: true
   }
 }, {
   timestamps: true,
@@ -242,6 +249,13 @@ appointmentSchema.index({ dentistId: 1, appointmentDate: 1 });
 appointmentSchema.index({ status: 1, appointmentDate: 1 });
 appointmentSchema.index({ paymentId: 1 });
 appointmentSchema.index({ appointmentDate: 1 });
+// ⚡ Compound index for reminder email cron (highly optimized)
+appointmentSchema.index({ 
+  reminderEmailSent: 1, 
+  bookedByRole: 1, 
+  status: 1, 
+  appointmentDate: 1 
+});
 
 // Virtual: Check if appointment is today
 appointmentSchema.virtual('isToday').get(function() {

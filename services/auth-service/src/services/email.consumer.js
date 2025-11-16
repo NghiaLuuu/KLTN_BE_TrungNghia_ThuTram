@@ -148,6 +148,57 @@ Hotline: ${process.env.HOTLINE || '1900-xxxx'}
   return { subject, text };
 };
 
+// 🆕 Email template for appointment reminder (1 day before)
+const createAppointmentReminderEmail = (appointment) => {
+  const date = formatDate(appointment.appointmentDate);
+  const startTime = appointment.startTime;
+  const endTime = appointment.endTime;
+
+  const subject = '[NHẮC LỊCH HẸN] Lịch Khám Sắp Tới - Smile Dental';
+
+  const roomInfo = appointment.subroomName 
+    ? `${appointment.roomName} - ${appointment.subroomName}`
+    : appointment.roomName;
+
+  const serviceInfo = appointment.serviceAddOnName
+    ? `${appointment.serviceName} - ${appointment.serviceAddOnName}`
+    : appointment.serviceName;
+
+  const text = `
+Kính gửi ${appointment.patientName},
+
+Đây là email nhắc nhở về lịch khám sắp tới của bạn tại Smile Dental.
+
+📅 THÔNG TIN LỊCH KHÁM:
+- Mã lịch hẹn: ${appointment.appointmentCode}
+- Ngày khám: ${date}
+- Thời gian: ${startTime} - ${endTime}
+- Bác sĩ: ${appointment.dentistName}
+- Dịch vụ: ${serviceInfo}
+- Phòng khám: ${roomInfo}
+
+⏰ THỜI GIAN:
+Lịch khám của bạn sẽ diễn ra trong vòng 24 giờ tới. Vui lòng đến đúng giờ để được phục vụ tốt nhất.
+
+📋 LƯU Ý:
+- Đến trước 15 phút để làm thủ tục
+- Mang theo giấy tờ tùy thân
+- Nếu cần hủy/đổi lịch, vui lòng thông báo trước ít nhất 2 giờ
+
+📞 LIÊN HỆ:
+- Hotline: ${process.env.HOTLINE || '1900-xxxx'}
+- Email: ${process.env.EMAIL_FROM}
+- Website: ${process.env.FRONTEND_URL || 'https://smiledental.com'}
+
+Chúng tôi rất mong được phục vụ bạn!
+
+Trân trọng,
+Đội ngũ Smile Dental
+`;
+
+  return { subject, text };
+};
+
 // Message handler
 const handleEmailNotification = async (message) => {
   try {
@@ -226,6 +277,26 @@ const handleEmailNotification = async (message) => {
       
       if (metadata) {
         console.log(`📝 Metadata: Action ${metadata.action}, Affected slots: ${metadata.affectedSlots}, Unique appointments: ${metadata.uniqueAppointments}`);
+      }
+    } else if (type === 'appointment_reminder') {
+      // 🆕 Handle appointment reminder (1 day before)
+      try {
+        const { patientId, appointment } = message;
+        
+        if (!appointment || !appointment.patientEmail) {
+          console.warn('⚠️ Missing appointment or patientEmail');
+          return;
+        }
+
+        const { subject, text } = createAppointmentReminderEmail(appointment);
+
+        await sendEmail(appointment.patientEmail, subject, text);
+        
+        console.log(`✅ Reminder email sent to: ${appointment.patientEmail} for ${appointment.appointmentCode}`);
+
+      } catch (emailError) {
+        console.error(`❌ Failed to send reminder email:`, emailError.message);
+        throw emailError; // Re-throw to nack the message
       }
     } else {
       console.warn(`⚠️ Unknown message type: ${type}`);
