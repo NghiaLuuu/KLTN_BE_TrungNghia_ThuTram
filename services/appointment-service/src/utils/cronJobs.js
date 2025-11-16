@@ -94,13 +94,15 @@ function startReminderEmailCron() {
       const oneDayLater = new Date(now.getTime() + 24 * 60 * 60 * 1000); // +24 hours
       
       console.log(`🔍 [Cron Reminder] Checking appointments... (${now.toLocaleString('vi-VN')})`);
-      console.log(`   Time range: ${now.toLocaleString('vi-VN')} -> ${oneDayLater.toLocaleString('vi-VN')}`);
+      console.log(`   Looking for appointments within next 24 hours`);
       
       // Find online appointments (bookedByRole = 'patient') that:
       // - Have patientId
-      // - Start time within 24 hours
+      // - appointmentDate is TODAY or TOMORROW (we'll filter exact time later)
       // - Status is confirmed or checked-in
       // - Haven't sent reminder email yet
+      const twoDaysLater = new Date(now.getTime() + 48 * 60 * 60 * 1000); // +48h buffer for date comparison
+      
       const appointments = await Appointment.find({
         bookedByRole: 'patient',
         patientId: { $ne: null, $exists: true },
@@ -108,25 +110,45 @@ function startReminderEmailCron() {
         reminderEmailSent: false,
         appointmentDate: {
           $gte: now,
-          $lte: oneDayLater
+          $lte: twoDaysLater // Get 2 days buffer, will filter by exact time below
         }
       }).select('_id appointmentCode patientId patientInfo appointmentDate startTime endTime dentistName serviceName serviceAddOnName roomName subroomName').lean();
 
-      console.log(`📊 [Cron Reminder] Found ${appointments.length} appointments matching criteria`);
+      // Filter appointments by exact start time (appointmentDate + startTime)
+      const filteredAppointments = appointments.filter(apt => {
+        // Combine appointmentDate + startTime to get exact start datetime
+        const [hours, minutes] = apt.startTime.split(':').map(Number);
+        const appointmentStartTime = new Date(apt.appointmentDate);
+        appointmentStartTime.setHours(hours, minutes, 0, 0);
+        
+        // Check if appointment start time is within 24 hours from now
+        const timeDiff = appointmentStartTime - now;
+        const isWithin24Hours = timeDiff > 0 && timeDiff <= 24 * 60 * 60 * 1000;
+        
+        return isWithin24Hours;
+      });
+
+      console.log(`📊 [Cron Reminder] Found ${filteredAppointments.length}/${appointments.length} appointments within 24h`);
       
-      if (appointments.length === 0) {
+      if (filteredAppointments.length === 0) {
         return;
       }
 
-      console.log(`📧 [Cron Reminder] Processing ${appointments.length} appointments...`);
-      appointments.forEach((apt, idx) => {
-        console.log(`   ${idx + 1}. ${apt.appointmentCode} - ${apt.patientInfo.name} (${apt.patientInfo.email}) - ${new Date(apt.appointmentDate).toLocaleString('vi-VN')} ${apt.startTime}`);
+      console.log(`📧 [Cron Reminder] Processing ${filteredAppointments.length} appointments...`);
+      filteredAppointments.forEach((apt, idx) => {
+        const [hours, minutes] = apt.startTime.split(':').map(Number);
+        const startDateTime = new Date(apt.appointmentDate);
+        startDateTime.setHours(hours, minutes, 0, 0);
+        const hoursUntil = ((startDateTime - now) / (1000 * 60 * 60)).toFixed(1);
+        
+        console.log(`   ${idx + 1}. ${apt.appointmentCode} - ${apt.patientInfo.name} (${apt.patientInfo.email})`);
+        console.log(`      Start: ${startDateTime.toLocaleString('vi-VN')} (in ${hoursUntil}h)`);
       });
 
       // Send event to auth-service to send emails
       const rabbitmqClient = require('./rabbitmq.client');
       
-      for (const apt of appointments) {
+      for (const apt of filteredAppointments) {
         try {
           console.log(`   📤 Sending reminder for ${apt.appointmentCode}...`);
           
@@ -161,7 +183,7 @@ function startReminderEmailCron() {
         }
       }
       
-      console.log(`🎉 [Cron Reminder] Completed processing ${appointments.length} appointments`);
+      console.log(`🎉 [Cron Reminder] Completed processing ${filteredAppointments.length} appointments`);
 
     } catch (error) {
       console.error('❌ [Cron Reminder] Error in reminder email job:', error.message || error);

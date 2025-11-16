@@ -24,7 +24,7 @@ async function publishToQueue(queueName, message) {
     ch.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
       persistent: true
     });
-    console.log(`📤 Published to ${queueName}:`, message.event || message.action);
+    console.log(`📤 Published to ${queueName}:`, message.type || message.event || message.action || 'message');
   } catch (error) {
     console.error(`❌ Failed to publish to ${queueName}:`, error);
     throw error;
@@ -48,7 +48,7 @@ async function consumeQueue(queueName, handler) {
       if (msg) {
         try {
           const content = JSON.parse(msg.content.toString());
-          console.log(`📥 Received from ${queueName}:`, content.event || content.action);
+          console.log(`📥 Received from ${queueName}:`, content.type || content.event || content.action || 'message');
           
           await handler(content);
           
