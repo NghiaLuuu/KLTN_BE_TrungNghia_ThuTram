@@ -3395,9 +3395,12 @@ async function generateSlotsAndSave(scheduleId, subRoomId, selectedShifts, slotD
 
 // ✅ Tạo schedule
 exports.createSchedule = async (data) => {
-  const roomCache = await redisClient.get('rooms_cache');
-  if (!roomCache) throw new Error('Không tìm thấy bộ nhớ đệm phòng');
-  const rooms = JSON.parse(roomCache);
+  // 🔄 Use getCachedRooms with auto-rebuild
+  const { getCachedRooms } = require('../utils/cacheHelper');
+  const rooms = await getCachedRooms();
+  if (rooms.length === 0) {
+    throw new Error('Không thể lấy danh sách phòng từ cache');
+  }
   const room = rooms.find(r => r._id.toString() === data.roomId.toString());
   if (!room) throw new Error('Không tìm thấy phòng');
   if (!room.isActive) throw new Error(`Phòng ${room._id} hiện không hoạt động`);
@@ -3523,10 +3526,12 @@ exports.updateSchedule = async (id, data) => {
   // 1️⃣ Xóa tất cả slot cũ
   await slotRepo.deleteMany({ scheduleId: schedule._id });
 
-    // 2️⃣ Lấy room từ cache
-    const roomCache = await redisClient.get('rooms_cache');
-    if (!roomCache) throw new Error('Không tìm thấy bộ nhớ đệm phòng');
-    const rooms = JSON.parse(roomCache);
+    // 2️⃣ Lấy room từ cache với auto-rebuild
+    const { getCachedRooms } = require('../utils/cacheHelper');
+    const rooms = await getCachedRooms();
+    if (rooms.length === 0) {
+      throw new Error('Không thể lấy danh sách phòng từ cache');
+    }
     const room = rooms.find(r => r._id.toString() === schedule.roomId.toString());
 
     // 3️⃣ Sinh slot mới cho tất cả subRoom
@@ -4394,10 +4399,12 @@ exports.createQuarterlySchedule = async (data) => {
     );
   }
 
-  // Lấy thông tin phòng từ cache
-  const roomCache = await redisClient.get('rooms_cache');
-  if (!roomCache) throw new Error('Không tìm thấy bộ nhớ đệm phòng');
-  const rooms = JSON.parse(roomCache);
+  // Lấy thông tin phòng từ cache với auto-rebuild
+  const { getCachedRooms } = require('../utils/cacheHelper');
+  const rooms = await getCachedRooms();
+  if (rooms.length === 0) {
+    throw new Error('Không thể lấy danh sách phòng từ cache');
+  }
   const room = rooms.find(r => r._id.toString() === roomId.toString());
   if (!room) throw new Error('Không tìm thấy phòng');
   if (!room.isActive) throw new Error(`Phòng ${room._id} hiện không hoạt động`);
@@ -5936,12 +5943,12 @@ exports.addMissingShifts = async ({
     console.log(`   selectedShifts: ${JSON.stringify(selectedShifts)}`);
     console.log(`   partialStartDate: ${partialStartDate}`);
 
-    // 1. Get room info from cache
-    const roomCache = await redisClient.get('rooms_cache');
-    if (!roomCache) {
-      throw new Error('Không tìm thấy thông tin phòng trong cache');
+    // 1. Get room info from cache với auto-rebuild
+    const { getCachedRooms } = require('../utils/cacheHelper');
+    const rooms = await getCachedRooms();
+    if (rooms.length === 0) {
+      throw new Error('Không thể lấy danh sách phòng từ cache');
     }
-    const rooms = JSON.parse(roomCache);
     const room = rooms.find(r => r._id.toString() === roomId.toString());
     if (!room) {
       throw new Error('Không tìm thấy phòng');

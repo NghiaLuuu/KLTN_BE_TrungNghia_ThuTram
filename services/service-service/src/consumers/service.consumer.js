@@ -89,7 +89,7 @@ async function startConsumer() {
           // Refresh cache
           try {
             const allServices = await serviceRepository.listServices(0, 1000);
-            await redis.set('services_cache', JSON.stringify(allServices), 3600);
+            await redis.set('services_cache', JSON.stringify(allServices), { EX: 3600 });
             console.log('✅ [Service Consumer] Cache refreshed');
           } catch (cacheError) {
             console.error('⚠️ [Service Consumer] Cache refresh failed:', cacheError.message);

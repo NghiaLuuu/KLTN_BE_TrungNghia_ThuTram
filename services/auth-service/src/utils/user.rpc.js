@@ -37,6 +37,13 @@ async function startRpcServer() {
       if (action === 'getUserById') {
         const user = await userRepo.getUserById(payload.userId);
         response = user || null;
+      } else if (action === 'rebuildUserCache') {
+        // 🔄 Rebuild users_cache in Redis
+        console.log('📥 [Auth RPC] Rebuilding users_cache...');
+        const users = await userRepo.listUsers();
+        await redis.set('users_cache', JSON.stringify(users), { EX: 3600 }); // 1h TTL
+        console.log(`✅ [Auth RPC] Rebuilt users_cache: ${users.length} users`);
+        response = { success: true, count: users.length };
       } else if (action === 'getUsersByIds') {
         // 🆕 Get multiple users by IDs
         const { userIds } = payload;
@@ -56,7 +63,7 @@ async function startRpcServer() {
         // 🔄 Refresh users cache to reflect the change
         try {
           const users = await userRepo.listUsers();
-          await redis.set('users_cache', JSON.stringify(users));
+          await redis.set('users_cache', JSON.stringify(users), { EX: 3600 }); // 1h TTL
           console.log(`♻️ Refreshed users cache after marking user ${payload.userId} as used`);
         } catch (cacheErr) {
           console.warn('Failed to refresh users cache:', cacheErr.message);

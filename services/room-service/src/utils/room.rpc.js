@@ -52,7 +52,7 @@ async function startRpcServer(retries = 10, delay = 2000) {
             // 🔄 Rebuild rooms_cache trong Redis
             const redis = require('./redis.client');
             const rooms = await roomRepo.getAllRooms();
-            await redis.set('rooms_cache', JSON.stringify(rooms));
+            await redis.set('rooms_cache', JSON.stringify(rooms), { EX: 3600 }); // 1h TTL
             console.log(`✅ Đã rebuild rooms_cache: ${rooms.length} phòng`);
             response = { success: true, count: rooms.length };
           } else if (action === 'markRoomAsUsed') {

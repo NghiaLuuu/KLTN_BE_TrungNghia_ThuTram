@@ -13,7 +13,7 @@ const cache = {
 
 /**
  * Get users from memory cache or Redis
- * ⚡ Uses auth-service's Redis cache (users_cache) - no direct DB query
+ * ⚡ Uses auth-service's Redis cache (users_cache) with auto-rebuild fallback
  * @returns {Promise<Array>} Array of user objects from auth-service cache
  */
 async function getCachedUsers() {
@@ -25,14 +25,34 @@ async function getCachedUsers() {
   }
   
   // Fetch from Redis (auth-service maintains this cache)
-  const usersCache = await redisClient.get('users_cache');
+  let usersCache = await redisClient.get('users_cache');
   let users = usersCache ? JSON.parse(usersCache) : [];
   
-  // ⚠️ If Redis cache is empty, auth-service needs to refresh it
-  // No fallback to direct DB query - rely on auth-service cache
+  // 🔄 AUTO-REBUILD: If Redis cache is empty, rebuild from auth-service
   if (users.length === 0) {
-    console.warn('⚠️ users_cache is empty in Redis. Auth-service should refresh the cache.');
-    return [];
+    console.warn('⚠️ users_cache is empty in Redis - attempting auto-rebuild...');
+    try {
+      const { sendRpcRequest } = require('./rabbitmq.client');
+      const rebuildResult = await sendRpcRequest('auth_queue', {
+        action: 'rebuildUserCache'
+      }, 10000);
+      
+      if (rebuildResult && rebuildResult.success) {
+        console.log('✅ Auto-rebuild users_cache successful');
+        usersCache = await redisClient.get('users_cache');
+        users = usersCache ? JSON.parse(usersCache) : [];
+      } else {
+        console.error('❌ Auto-rebuild users_cache failed:', rebuildResult?.error || 'Unknown error');
+      }
+    } catch (rebuildError) {
+      console.error('❌ Could not rebuild users_cache:', rebuildError.message);
+    }
+    
+    // Still empty after rebuild attempt
+    if (users.length === 0) {
+      console.error('❌ users_cache still empty after rebuild attempt');
+      return [];
+    }
   }
   
   // Update memory cache
@@ -44,6 +64,7 @@ async function getCachedUsers() {
 
 /**
  * Get rooms from memory cache or Redis
+ * ⚡ Uses room-service's Redis cache (rooms_cache) with auto-rebuild fallback
  * @returns {Promise<Array>} Array of room objects
  */
 async function getCachedRooms() {
@@ -55,14 +76,34 @@ async function getCachedRooms() {
   }
   
   // Fetch from Redis (room-service maintains this cache)
-  const roomsCache = await redisClient.get('rooms_cache');
+  let roomsCache = await redisClient.get('rooms_cache');
   let rooms = roomsCache ? JSON.parse(roomsCache) : [];
   
-  // ⚠️ If Redis cache is empty, room-service needs to refresh it
-  // No fallback to direct DB query - schedule-service shouldn't query room DB
+  // 🔄 AUTO-REBUILD: If Redis cache is empty, rebuild from room-service
   if (rooms.length === 0) {
-    console.warn('⚠️ rooms_cache is empty in Redis. Room-service should refresh the cache.');
-    return [];
+    console.warn('⚠️ rooms_cache is empty in Redis - attempting auto-rebuild...');
+    try {
+      const { sendRpcRequest } = require('./rabbitmq.client');
+      const rebuildResult = await sendRpcRequest('room_queue', {
+        action: 'rebuildRoomCache'
+      }, 10000);
+      
+      if (rebuildResult && rebuildResult.success) {
+        console.log('✅ Auto-rebuild rooms_cache successful');
+        roomsCache = await redisClient.get('rooms_cache');
+        rooms = roomsCache ? JSON.parse(roomsCache) : [];
+      } else {
+        console.error('❌ Auto-rebuild rooms_cache failed:', rebuildResult?.error || 'Unknown error');
+      }
+    } catch (rebuildError) {
+      console.error('❌ Could not rebuild rooms_cache:', rebuildError.message);
+    }
+    
+    // Still empty after rebuild attempt
+    if (rooms.length === 0) {
+      console.error('❌ rooms_cache still empty after rebuild attempt');
+      return [];
+    }
   }
   
   // Update memory cache

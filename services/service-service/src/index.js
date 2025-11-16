@@ -5,9 +5,23 @@ const express = require('express');
 const connectDB = require('./config/db');
 const rabbitmqClient = require('./utils/rabbitmq.client');
 const { startConsumer } = require('./consumers/service.consumer');
+const { initServiceCache } = require('./services/service.service');
 
 // Connect to MongoDB
-connectDB();
+connectDB().then(async () => {
+  // Initialize service cache
+  await initServiceCache();
+  
+  // 🔄 CACHE WARMUP: Refresh cache mỗi 5 phút để tránh expire
+  setInterval(async () => {
+    try {
+      console.log('🔄 Scheduled service cache warmup...');
+      await initServiceCache();
+    } catch (error) {
+      console.error('❌ Service cache warmup failed:', error.message);
+    }
+  }, 5 * 60 * 1000); // 5 phút
+});
 
 // Connect to RabbitMQ
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';

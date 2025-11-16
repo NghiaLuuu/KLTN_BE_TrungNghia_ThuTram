@@ -354,8 +354,28 @@ class AppointmentService {
   
   async getDentistInfo(dentistId) {
     try {
-      const cached = await redisClient.get('users_cache');
-      if (!cached) throw new Error('users_cache not found');
+      let cached = await redisClient.get('users_cache');
+      
+      // 🔄 AUTO-REBUILD: If cache miss, try to rebuild via RPC
+      if (!cached) {
+        console.warn('⚠️ users_cache not found - attempting rebuild...');
+        try {
+          const { sendRpcRequest } = require('../utils/rabbitmq.client');
+          const rebuildResult = await sendRpcRequest('auth_queue', {
+            action: 'rebuildUserCache'
+          }, 5000);
+          
+          if (rebuildResult && rebuildResult.success) {
+            cached = await redisClient.get('users_cache');
+          }
+        } catch (rebuildError) {
+          console.error('❌ Failed to rebuild users_cache:', rebuildError.message);
+        }
+        
+        if (!cached) {
+          throw new Error('users_cache not found after rebuild attempt');
+        }
+      }
       
       const users = JSON.parse(cached);
       const dentist = users.find(u => u._id.toString() === dentistId.toString());

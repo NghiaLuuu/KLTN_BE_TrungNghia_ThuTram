@@ -27,7 +27,7 @@ const markHolidayAsUsed = async (holidayId) => {
       console.log(`✅ Đã đánh dấu ngày nghỉ "${holiday.name}" đã được sử dụng`);
       
       // Update cache
-      try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig)); } catch (e) {}
+      try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig), { EX: 3600 }); } catch (e) {}
     }
   } catch (error) {
     console.error('Error marking holiday as used:', error);
@@ -71,7 +71,7 @@ exports.getConfig = async () => {
   if (cfg) {
     try { 
       // Cache as JSON for other services that only need data
-      await redis.set(CACHE_KEY, JSON.stringify(cfg)); 
+      await redis.set(CACHE_KEY, JSON.stringify(cfg), { EX: 3600 }); // 1h TTL
     } catch (e) {}
   }
   return cfg; // Return Mongoose document with methods
@@ -113,7 +113,7 @@ exports.initializeConfig = async () => {
   await config.save();
   
   try { 
-    await redis.set(CACHE_KEY, JSON.stringify(config)); 
+    await redis.set(CACHE_KEY, JSON.stringify(config), { EX: 3600 }); // 1h TTL 
   } catch (e) {
     console.warn('Cache set failed:', e.message);
   }
@@ -150,7 +150,7 @@ exports.initializeConfig = async () => {
     console.log(`✅ Đã tạo ${defaultRecurringHolidays.length} ngày nghỉ cố định mặc định (isActive=false)`);
     
     try {
-      await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig));
+      await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig), { EX: 3600 });
     } catch (e) {
       console.warn('Holiday cache set failed:', e.message);
     }
@@ -166,7 +166,7 @@ exports.checkConfigExists = async () => {
 
 exports.updateConfig = async (data) => {
   const updated = await ScheduleConfig.updateSingleton(data);
-  try { await redis.set(CACHE_KEY, JSON.stringify(updated)); } catch (e) {}
+  try { await redis.set(CACHE_KEY, JSON.stringify(updated), { EX: 3600 }); } catch (e) {}
   return updated;
 };
 
@@ -186,16 +186,23 @@ exports.getHolidays = async () => {
     const cached = await redis.get(HOLIDAY_CACHE_KEY);
     if (cached) return JSON.parse(cached);
   } catch (err) {
-    // ignore cache errors
+    console.warn('⚠️ HOLIDAY_CACHE_KEY read error:', err.message);
   }
 
+  // 🔄 AUTO-REBUILD: Cache miss, load from DB
+  console.warn('⚠️ HOLIDAY_CACHE_KEY empty - rebuilding...');
   let holidayConfig = await HolidayConfig.findOne();
   if (!holidayConfig) {
     holidayConfig = new HolidayConfig({});
     await holidayConfig.save();
   }
 
-  try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig)); } catch (e) {}
+  try { 
+    await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig), { EX: 3600 }); 
+    console.log('✅ Rebuilt HOLIDAY_CACHE_KEY');
+  } catch (e) {
+    console.error('❌ Failed to rebuild HOLIDAY_CACHE_KEY:', e.message);
+  }
   return holidayConfig;
 };
 
@@ -260,7 +267,7 @@ exports.addHoliday = async (holiday) => {
 
   console.log(`✅ Đã tạo ngày nghỉ "${h.name}"`);
 
-  try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig)); } catch (e) {}
+  try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig), { EX: 3600 }); } catch (e) {}
   return holidayConfig;
 };
 
@@ -378,7 +385,7 @@ exports.addHolidays = async (holidays) => {
   // Save if there are any successfully created holidays
   if (createdHolidays.length > 0) {
     await holidayConfig.save();
-    try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig)); } catch (e) {}
+    try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig), { EX: 3600 }); } catch (e) {}
   }
 
   return {
@@ -436,7 +443,7 @@ exports.removeHoliday = async (holidayId) => {
 
   console.log(`✅ Đã xóa ngày nghỉ "${holidayToRemove.name}"`);
 
-  try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig)); } catch (e) {}
+  try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig), { EX: 3600 }); } catch (e) {}
   return holidayConfig;
 };
 
@@ -518,7 +525,7 @@ exports.updateHolidayById = async (holidayId, updates) => {
         await holidayConfig.save();
         // ✅ Update Redis cache
         try { 
-          await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig)); 
+          await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig), { EX: 3600 }); 
           console.log('✅ Updated holiday cache after toggle');
         } catch (e) {
           console.warn('⚠️ Failed to update holiday cache:', e.message);
@@ -568,7 +575,7 @@ exports.updateHolidayById = async (holidayId, updates) => {
   }
 
   await holidayConfig.save();
-  try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig)); } catch (e) {}
+  try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig), { EX: 3600 }); } catch (e) {}
   return holidayConfig;
 };
 
@@ -692,7 +699,7 @@ exports.autoInitializeDefaults = async () => {
       await config.save();
       
       try { 
-        await redis.set(CACHE_KEY, JSON.stringify(config)); 
+        await redis.set(CACHE_KEY, JSON.stringify(config), { EX: 3600 }); // 1h TTL 
       } catch (e) {
         console.warn('⚠️  Cache set failed:', e.message);
       }
@@ -735,7 +742,7 @@ exports.autoInitializeDefaults = async () => {
       console.log(`✅ Created ${defaultRecurringHolidays.length} default recurring holidays (all inactive)`);
       
       try {
-        await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig));
+        await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig), { EX: 3600 });
       } catch (e) {
         console.warn('⚠️  Holiday cache set failed:', e.message);
       }

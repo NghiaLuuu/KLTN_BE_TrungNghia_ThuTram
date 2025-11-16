@@ -7,8 +7,8 @@ const SERVICE_CACHE_KEY = 'services_cache';
 
 async function initServiceCache() {
   const services = await serviceRepo.listServices();
-  await redis.set(SERVICE_CACHE_KEY, JSON.stringify(services));
-  console.log(`✅ Đã tải bộ nhớ đệm dịch vụ: ${services.length} dịch vụ`);
+  await redis.set(SERVICE_CACHE_KEY, JSON.stringify(services), { EX: 3600 }); // 1h TTL
+  console.log(`✅ Đã tải bộ nhớ đệm dịch vụ: ${services.length} dịch vụ (TTL: 1h)`);
 }
 
 // ===== SERVICE OPERATIONS =====
@@ -264,13 +264,21 @@ exports.getServiceAddOnById = async (serviceId, addOnId) => {
  */
 exports.checkServiceUsage = async (serviceIds) => {
   // Get from cache first
-  const cachedData = await redis.get(SERVICE_CACHE_KEY);
+  let cachedData = await redis.get(SERVICE_CACHE_KEY);
   let services = [];
   
   if (cachedData) {
     services = JSON.parse(cachedData);
   } else {
+    // 🔄 AUTO-REBUILD: Cache miss, load from DB and rebuild cache
+    console.warn('⚠️ SERVICE_CACHE_KEY empty - rebuilding...');
     services = await serviceRepo.listServices();
+    try {
+      await redis.set(SERVICE_CACHE_KEY, JSON.stringify(services), { EX: 3600 });
+      console.log(`✅ Rebuilt SERVICE_CACHE_KEY: ${services.length} services`);
+    } catch (cacheErr) {
+      console.error('❌ Failed to rebuild SERVICE_CACHE_KEY:', cacheErr.message);
+    }
   }
   
   // Filter services that need to be marked as used
@@ -561,9 +569,12 @@ exports.removeTemporaryPrice = async (serviceId) => {
 
 async function refreshServiceCache() {
   const services = await serviceRepo.listServices();
-  await redis.set(SERVICE_CACHE_KEY, JSON.stringify(services));
-  console.log(`♻ Đã làm mới bộ nhớ đệm dịch vụ: ${services.length} dịch vụ`);
+  await redis.set(SERVICE_CACHE_KEY, JSON.stringify(services), { EX: 3600 }); // 1h TTL
+  console.log(`♻ Đã làm mới bộ nhớ đệm dịch vụ: ${services.length} dịch vụ (TTL: 1h)`);
 }
+
+// Export for scheduled warmup
+exports.initServiceCache = initServiceCache;
 
 // Load cache ban đầu khi service khởi động
 initServiceCache().catch(err => console.error('❌ Không thể tải bộ nhớ đệm dịch vụ:', err));

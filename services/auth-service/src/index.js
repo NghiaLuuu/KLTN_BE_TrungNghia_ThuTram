@@ -8,12 +8,26 @@ const userRoutes = require('./routes/user.route');
 const startRPCServer = require('./utils/user.rpc'); 
 const { startEmailConsumer } = require('./services/email.consumer'); // 🆕 Email consumer
 const initAdminUser = require('./utils/initAdmin'); // 🆕 Admin initialization
+const { initUserCache } = require('./services/user.service'); // 🆕 Cache initialization
 const cors = require('cors');
 
 // Connect to database and initialize admin user
 connectDB().then(async () => {
   // Initialize default admin user after DB connection
   await initAdminUser();
+  
+  // Initialize user cache
+  await initUserCache();
+  
+  // 🔄 CACHE WARMUP: Refresh cache mỗi 5 phút để tránh expire
+  setInterval(async () => {
+    try {
+      console.log('🔄 Scheduled user cache warmup...');
+      await initUserCache();
+    } catch (error) {
+      console.error('❌ User cache warmup failed:', error.message);
+    }
+  }, 5 * 60 * 1000); // 5 phút
 });
 
 const app = express();

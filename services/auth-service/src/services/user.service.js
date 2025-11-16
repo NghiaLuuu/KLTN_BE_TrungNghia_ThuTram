@@ -21,10 +21,10 @@ async function initUserCache() {
     await redis.del(DENTIST_CACHE_KEY);
     await redis.del('dentists_public');
     
-    // Load fresh cache
+    // Load fresh cache with TTL
     const users = await userRepo.listUsers();
-    await redis.set(USER_CACHE_KEY, JSON.stringify(users));
-    console.log(`✅ Cache người dùng đã được tải: ${users.length} người dùng`);
+    await redis.set(USER_CACHE_KEY, JSON.stringify(users), { EX: 3600 }); // 1h TTL
+    console.log(`✅ Cache người dùng đã được tải: ${users.length} người dùng (TTL: 1h)`);
   } catch (err) {
     console.error('❌ Lỗi khi tải cache người dùng:', err);
   }
@@ -33,7 +33,7 @@ async function initUserCache() {
 async function refreshUserCache() {
   try {
     const users = await userRepo.listUsers();
-    await redis.set(USER_CACHE_KEY, JSON.stringify(users));
+    await redis.set(USER_CACHE_KEY, JSON.stringify(users), { EX: 3600 }); // 1h TTL
 
     // pick available repo method (compatibility)
     const getDentists = userRepo.getDentistsWithDescription
@@ -45,7 +45,7 @@ async function refreshUserCache() {
       }));
 
     const dentists = await getDentists();
-    await redis.set(DENTIST_CACHE_KEY, JSON.stringify(dentists));
+    await redis.set(DENTIST_CACHE_KEY, JSON.stringify(dentists), { EX: 3600 }); // 1h TTL
 
     // ✅ Clear public dentists cache (used by getDentistsForPatients)
     await redis.del('dentists_public');
@@ -1056,9 +1056,11 @@ exports.batchDeleteCertificates = async (currentUser, userId, { certificateIds }
 
 // 🆕 PUBLIC API: Get dentists with certificates for patient selection
 exports.getDentistsForPatients = async () => {
-  const cached = await redis.get('dentists_public');
+  let cached = await redis.get('dentists_public');
   if (cached) return JSON.parse(cached);
 
+  // 🔄 AUTO-REBUILD: Cache miss, load from DB
+  console.warn('⚠️ dentists_public cache empty - rebuilding...');
   const dentists = await userRepo.getDentistsWithCertificates();
   
   const formattedDentists = dentists.map(dentist => ({
@@ -1075,7 +1077,12 @@ exports.getDentistsForPatients = async () => {
     }
   }));
 
-  await redis.set('dentists_public', JSON.stringify(formattedDentists), 'EX', 3600); // cache 1 hour
+  try {
+    await redis.set('dentists_public', JSON.stringify(formattedDentists), { EX: 3600 }); // cache 1 hour
+    console.log(`✅ Rebuilt dentists_public cache: ${formattedDentists.length} dentists`);
+  } catch (cacheErr) {
+    console.error('❌ Failed to rebuild dentists_public cache:', cacheErr.message);
+  }
   return formattedDentists;
 };
 
@@ -1237,6 +1244,9 @@ exports.resetUserPasswordToDefault = async (userId, resetBy) => {
     isFirstLogin: true
   };
 };
+
+// Export initUserCache for external use
+module.exports.initUserCache = initUserCache;
 
 // Initialize cache on startup
 initUserCache().catch(err => console.error('❌ Lỗi khi tải cache người dùng:', err));

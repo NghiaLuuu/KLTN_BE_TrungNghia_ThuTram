@@ -384,9 +384,11 @@ async function markEntitiesAsUsed({ roomId, subRoomId, dentistIds, nurseIds }) {
 // Helper: Validate staff IDs against Redis users cache
 async function validateStaffIds(dentistIds, nurseIds) {
   try {
-    const cached = await redisClient.get('users_cache');
-    if (!cached) throw new Error('users_cache không tồn tại');
-    const users = JSON.parse(cached);
+    // 🔄 Use getCachedUsers with auto-rebuild
+    const users = await getCachedUsers();
+    if (users.length === 0) {
+      throw new Error('Không thể lấy danh sách người dùng từ cache');
+    }
     
     // Validate dentist IDs - 🔥 Support multi-role system
     for (const dentistId of dentistIds) {
