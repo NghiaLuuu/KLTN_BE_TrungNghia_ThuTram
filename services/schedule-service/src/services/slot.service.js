@@ -1148,6 +1148,9 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
     
     console.log('🔍 Users cache loaded:', users.length, 'users');
     
+    // ⚡ PERFORMANCE: Create Map for O(1) lookup
+    const usersMap = new Map(users.map(u => [u._id?.toString(), u]));
+    
     const slotsWithStaffInfo = slots.map(slot => {
       // Handle dentist/nurse as array or single ObjectId
       let dentist = null;
@@ -1155,21 +1158,21 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
       
       if (Array.isArray(slot.dentist) && slot.dentist.length > 0) {
         // Array case: get first dentist for display
-        dentist = users.find(u => u._id?.toString() === slot.dentist[0].toString());
+        dentist = usersMap.get(slot.dentist[0].toString());
         console.log('🔍 Looking for dentist:', slot.dentist[0].toString(), 'Found:', !!dentist);
       } else if (slot.dentist) {
         // Legacy single ObjectId case
-        dentist = users.find(u => u._id?.toString() === slot.dentist.toString());
+        dentist = usersMap.get(slot.dentist.toString());
         console.log('🔍 Looking for dentist (single):', slot.dentist.toString(), 'Found:', !!dentist);
       }
       
       if (Array.isArray(slot.nurse) && slot.nurse.length > 0) {
         // Array case: get first nurse for display
-        nurse = users.find(u => u._id?.toString() === slot.nurse[0].toString());
+        nurse = usersMap.get(slot.nurse[0].toString());
         console.log('🔍 Looking for nurse:', slot.nurse[0].toString(), 'Found:', !!nurse);
       } else if (slot.nurse) {
         // Legacy single ObjectId case
-        nurse = users.find(u => u._id?.toString() === slot.nurse.toString());
+        nurse = usersMap.get(slot.nurse.toString());
         console.log('🔍 Looking for nurse (single):', slot.nurse.toString(), 'Found:', !!nurse);
       }
       
@@ -1390,6 +1393,10 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
       getCachedRooms()
     ]);
     
+    // ⚡ PERFORMANCE: Create Map for O(1) lookup instead of O(n) find
+    const usersMap = new Map(users.map(u => [u._id?.toString(), u]));
+    const roomsMap = new Map(rooms.map(r => [r._id?.toString(), r]));
+    
     // 🆕 Fetch appointments for slots with appointmentId
     const axios = require('axios');
     const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
@@ -1422,22 +1429,26 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
     
     // Group slots by date and shift
     const calendar = {};
-    const appointmentCounts = {}; // Track unique appointments
+    const appointmentCounts = {}; // Track unique appointments per date
+    const shiftAppointmentCounts = {}; // ⚡ NEW: Track appointments per date+shift
     const staffStats = {}; // Track staff frequency by date and shift
+    
+    // ⚡ PERFORMANCE: Cache time format options (reused 1320*2 times)
+    const timeFormatOptions = {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit'
+    };
     
     console.log(`🔍 [getRoomCalendar] Starting to group ${slots.length} slots...`);
     
-    for (const slot of slots) {
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
       // Convert to Vietnam date
       const slotDateVN = new Date(slot.startTime).toLocaleDateString('en-CA', {
         timeZone: 'Asia/Ho_Chi_Minh'
       });
-      
-      // 🔍 DEBUG: Log shift name for first few slots
-      const slotIndex = slots.indexOf(slot);
-      if (slotIndex < 5) {
-        console.log(`🔍 [getRoomCalendar] Slot #${slotIndex}: date=${slotDateVN}, shiftName="${slot.shiftName}"`);
-      }
       
       if (!calendar[slotDateVN]) {
         calendar[slotDateVN] = {
@@ -1451,6 +1462,11 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
           totalSlots: 0
         };
         appointmentCounts[slotDateVN] = new Set();
+        shiftAppointmentCounts[slotDateVN] = {
+          'Ca Sáng': new Set(),
+          'Ca Chiều': new Set(),
+          'Ca Tối': new Set()
+        };
         staffStats[slotDateVN] = {
           'Ca Sáng': { dentists: {}, nurses: {} },
           'Ca Chiều': { dentists: {}, nurses: {} },
@@ -1460,6 +1476,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
       
       const shift = calendar[slotDateVN].shifts[slot.shiftName];
       const shiftStats = staffStats[slotDateVN][slot.shiftName];
+      const shiftAppointments = shiftAppointmentCounts[slotDateVN]?.[slot.shiftName];
       
       // 🔍 DEBUG: Log when shift is undefined
       if (!shift || !shiftStats) {
@@ -1472,13 +1489,14 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
         });
       }
       
-      if (shift && shiftStats) {
+      if (shift && shiftStats && shiftAppointments) {
         shift.totalSlots++;
         calendar[slotDateVN].totalSlots++;
         
-        // Count unique appointments
+        // Count unique appointments (for day and shift)
         if (slot.appointmentId && slot.status === 'booked') {
           appointmentCounts[slotDateVN].add(slot.appointmentId.toString());
+          shiftAppointments.add(slot.appointmentId.toString()); // ⚡ Track shift appointments here
         }
         
         // Track staff frequency for statistics
@@ -1517,12 +1535,8 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
           slotId: slot._id.toString(),
           startTime: slot.startTime,
           endTime: slot.endTime,
-          startTimeVN: new Date(slot.startTime).toLocaleTimeString('en-GB', { 
-            timeZone: 'Asia/Ho_Chi_Minh', hour12: false, hour: '2-digit', minute: '2-digit'
-          }),
-          endTimeVN: new Date(slot.endTime).toLocaleTimeString('en-GB', { 
-            timeZone: 'Asia/Ho_Chi_Minh', hour12: false, hour: '2-digit', minute: '2-digit'
-          }),
+          startTimeVN: new Date(slot.startTime).toLocaleTimeString('en-GB', timeFormatOptions),
+          endTimeVN: new Date(slot.endTime).toLocaleTimeString('en-GB', timeFormatOptions),
           isActive: slot.isActive !== false, // 🆕 Add isActive field
           dentist: [],
           nurse: [],
@@ -1547,7 +1561,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
         if (Array.isArray(slot.dentist) && slot.dentist.length > 0) {
           slot.dentist.forEach(dentistId => {
             if (dentistId) {
-              const user = users.find(u => u._id?.toString() === dentistId.toString());
+              const user = usersMap.get(dentistId.toString()); // ⚡ O(1) lookup
               if (user) {
                 slotDetail.dentist.push({
                   id: user._id,
@@ -1559,7 +1573,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
             }
           });
         } else if (slot.dentist) {
-          const user = users.find(u => u._id?.toString() === slot.dentist.toString());
+          const user = usersMap.get(slot.dentist.toString()); // ⚡ O(1) lookup
           if (user) {
             slotDetail.dentist.push({
               id: user._id,
@@ -1574,7 +1588,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
         if (Array.isArray(slot.nurse) && slot.nurse.length > 0) {
           slot.nurse.forEach(nurseId => {
             if (nurseId) {
-              const user = users.find(u => u._id?.toString() === nurseId.toString());
+              const user = usersMap.get(nurseId.toString()); // ⚡ O(1) lookup
               if (user) {
                 slotDetail.nurse.push({
                   id: user._id,
@@ -1586,7 +1600,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
             }
           });
         } else if (slot.nurse) {
-          const user = users.find(u => u._id?.toString() === slot.nurse.toString());
+          const user = usersMap.get(slot.nurse.toString()); // ⚡ O(1) lookup
           if (user) {
             slotDetail.nurse.push({
               id: user._id,
@@ -1628,17 +1642,8 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
           const shiftStat = dayStats[shiftName];
           
           if (shift && shiftStat) {
-            // Count appointments for this shift
-            const shiftAppointmentIds = new Set();
-            for (const slot of slots) {
-              const slotDateVN = new Date(slot.startTime).toLocaleDateString('en-CA', {
-                timeZone: 'Asia/Ho_Chi_Minh'
-              });
-              if (slotDateVN === dateStr && slot.shiftName === shiftName && slot.status === 'booked' && slot.appointmentId) {
-                shiftAppointmentIds.add(slot.appointmentId.toString());
-              }
-            }
-            shift.appointmentCount = shiftAppointmentIds.size;
+            // ⚡ OPTIMIZED: Use pre-calculated shift appointment counts (no loop!)
+            shift.appointmentCount = shiftAppointmentCounts[dateStr]?.[shiftName]?.size || 0;
             
             // Find most frequent dentist and nurse
             let mostFrequentDentist = null;
@@ -1647,7 +1652,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
             if (Object.keys(shiftStat.dentists).length > 0) {
               const topDentistId = Object.entries(shiftStat.dentists)
                 .reduce((a, b) => a[1] > b[1] ? a : b)[0];
-              const topDentist = users.find(u => u._id === topDentistId);
+              const topDentist = usersMap.get(topDentistId);
               if (topDentist) {
                 mostFrequentDentist = {
                   id: topDentistId,
@@ -1662,7 +1667,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
             if (Object.keys(shiftStat.nurses).length > 0) {
               const topNurseId = Object.entries(shiftStat.nurses)
                 .reduce((a, b) => a[1] > b[1] ? a : b)[0];
-              const topNurse = users.find(u => u._id === topNurseId);
+              const topNurse = usersMap.get(topNurseId);
               if (topNurse) {
                 mostFrequentNurse = {
                   id: topNurseId,
@@ -1690,7 +1695,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
       : buildShiftOverviewFromConfig(scheduleConfig);
     
     // Get room and subroom names from cache
-    const roomFromCache = rooms.find(r => r._id === roomId);
+    const roomFromCache = roomsMap.get(roomId?.toString());
     let subRoomInfo = null;
     let roomInfo = {
       id: roomId,
@@ -1947,7 +1952,12 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
       getCachedUsers(),
       getCachedRooms()
     ]);
-    const dentist = users.find(u => u._id === dentistId);
+    
+    // ⚡ PERFORMANCE: Create Map for O(1) lookup instead of O(n) find
+    const usersMap = new Map(users.map(u => [u._id?.toString(), u]));
+    const roomsMap = new Map(rooms.map(r => [r._id?.toString(), r]));
+    
+    const dentist = usersMap.get(dentistId);
     
     // 🆕 Fetch appointments for slots with appointmentId (same as getRoomCalendar)
     const axios = require('axios');
@@ -2034,7 +2044,7 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
         let dentistInfo = [];
         if (Array.isArray(slot.dentist) && slot.dentist.length > 0) {
           dentistInfo = slot.dentist.map(dentistId => {
-            const d = users.find(u => u._id === dentistId.toString());
+            const d = usersMap.get(dentistId.toString());
             return d ? {
               id: d._id,
               fullName: d.fullName || d.name,
@@ -2042,7 +2052,7 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
             } : null;
           }).filter(Boolean);
         } else if (slot.dentist) {
-          const d = users.find(u => u._id === slot.dentist.toString());
+          const d = usersMap.get(slot.dentist.toString());
           if (d) {
             dentistInfo = [{
               id: d._id,
@@ -2056,7 +2066,7 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
         let nurseInfo = [];
         if (Array.isArray(slot.nurse) && slot.nurse.length > 0) {
           nurseInfo = slot.nurse.map(nurseId => {
-            const n = users.find(u => u._id === nurseId.toString());
+            const n = usersMap.get(nurseId.toString());
             return n ? {
               id: n._id,
               fullName: n.fullName || n.name,
@@ -2064,7 +2074,7 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
             } : null;
           }).filter(Boolean);
         } else if (slot.nurse) {
-          const n = users.find(u => u._id === slot.nurse.toString());
+          const n = usersMap.get(slot.nurse.toString());
           if (n) {
             nurseInfo = [{
               id: n._id,
@@ -2075,7 +2085,7 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
         }
         
         // Get room/subroom info
-        const room = rooms.find(r => r._id === slot.roomId);
+        const room = roomsMap.get(slot.roomId?.toString());
         let roomInfo = null;
         let subRoomInfo = null;
         
@@ -2201,7 +2211,7 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
                 .reduce((a, b) => a[1] > b[1] ? a : b)[0];
               
               const [roomId, subRoomId] = topRoomKey.split('_');
-              const room = rooms.find(r => r._id === roomId);
+              const room = roomsMap.get(roomId);
               
               if (room) {
                 mostFrequentRoom = {
@@ -2508,7 +2518,12 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 0,
       getCachedUsers(),
       getCachedRooms()
     ]);
-    const nurse = users.find(u => u._id === nurseId);
+    
+    // ⚡ PERFORMANCE: Create Map for O(1) lookup instead of O(n) find
+    const usersMap = new Map(users.map(u => [u._id?.toString(), u]));
+    const roomsMap = new Map(rooms.map(r => [r._id?.toString(), r]));
+    
+    const nurse = usersMap.get(nurseId);
     
     // 🆕 Fetch appointments for slots with appointmentId (same as getRoomCalendar)
     const axios = require('axios');
@@ -2595,7 +2610,7 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 0,
         let dentistInfo = [];
         if (Array.isArray(slot.dentist) && slot.dentist.length > 0) {
           dentistInfo = slot.dentist.map(dentistId => {
-            const d = users.find(u => u._id === dentistId.toString());
+            const d = usersMap.get(dentistId.toString());
             return d ? {
               id: d._id,
               fullName: d.fullName || d.name,
@@ -2603,7 +2618,7 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 0,
             } : null;
           }).filter(Boolean);
         } else if (slot.dentist) {
-          const d = users.find(u => u._id === slot.dentist.toString());
+          const d = usersMap.get(slot.dentist.toString());
           if (d) {
             dentistInfo = [{
               id: d._id,
@@ -2617,7 +2632,7 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 0,
         let nurseInfo = [];
         if (Array.isArray(slot.nurse) && slot.nurse.length > 0) {
           nurseInfo = slot.nurse.map(nurseId => {
-            const n = users.find(u => u._id === nurseId.toString());
+            const n = usersMap.get(nurseId.toString());
             return n ? {
               id: n._id,
               fullName: n.fullName || n.name,
@@ -2625,7 +2640,7 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 0,
             } : null;
           }).filter(Boolean);
         } else if (slot.nurse) {
-          const n = users.find(u => u._id === slot.nurse.toString());
+          const n = usersMap.get(slot.nurse.toString());
           if (n) {
             nurseInfo = [{
               id: n._id,
@@ -2636,7 +2651,7 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 0,
         }
         
         // Get room/subroom info
-        const room = rooms.find(r => r._id === slot.roomId);
+        const room = roomsMap.get(slot.roomId?.toString());
         let roomInfo = null;
         let subRoomInfo = null;
         
@@ -2762,7 +2777,7 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 0,
                 .reduce((a, b) => a[1] > b[1] ? a : b)[0];
               
               const [roomId, subRoomId] = topRoomKey.split('_');
-              const room = rooms.find(r => r._id === roomId);
+              const room = roomsMap.get(roomId);
               
               if (room) {
                 mostFrequentRoom = {
@@ -2866,7 +2881,11 @@ async function getRoomSlotDetailsFuture({ roomId, subRoomId = null, date, shiftN
     // Get rooms cache to check if room has subrooms
     const roomsCache = await redisClient.get('rooms_cache');
     const rooms = roomsCache ? JSON.parse(roomsCache) : [];
-    const room = rooms.find(r => r._id === roomId);
+    
+    // ⚡ PERFORMANCE: Create Map for O(1) lookup
+    const roomsMap = new Map(rooms.map(r => [r._id?.toString(), r]));
+    
+    const room = roomsMap.get(roomId?.toString());
     
     if (!room) {
       throw new Error('Không tìm thấy phòng');
@@ -2934,15 +2953,18 @@ async function getRoomSlotDetailsFuture({ roomId, subRoomId = null, date, shiftN
     // ⚡ OPTIMIZED: Get cached users
     const users = await getCachedUsers();
     
+    // ⚡ PERFORMANCE: Create Map for O(1) lookup
+    const usersMap = new Map(users.map(u => [u._id?.toString(), u]));
+    
     // Format slot details (same as getRoomSlotDetails)
     const slotDetails = slots.map(slot => {
       const dentist = Array.isArray(slot.dentist) && slot.dentist.length > 0
-        ? users.find(u => u._id === slot.dentist[0].toString())
-        : slot.dentist ? users.find(u => u._id === slot.dentist.toString()) : null;
+        ? usersMap.get(slot.dentist[0].toString())
+        : slot.dentist ? usersMap.get(slot.dentist.toString()) : null;
       
       const nurse = Array.isArray(slot.nurse) && slot.nurse.length > 0
-        ? users.find(u => u._id === slot.nurse[0].toString())
-        : slot.nurse ? users.find(u => u._id === slot.nurse.toString()) : null;
+        ? usersMap.get(slot.nurse[0].toString())
+        : slot.nurse ? usersMap.get(slot.nurse.toString()) : null;
 
       const hasDentist = Array.isArray(slot.dentist) ? slot.dentist.length > 0 : Boolean(slot.dentist);
       const hasNurse = Array.isArray(slot.nurse) ? slot.nurse.length > 0 : Boolean(slot.nurse);
@@ -3085,6 +3107,10 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
       getCachedUsers(),
       getCachedRooms()
     ]);
+    
+    // ⚡ PERFORMANCE: Create Map for O(1) lookup
+    const usersMap = new Map(users.map(u => [u._id?.toString(), u]));
+    const roomsMap = new Map(rooms.map(r => [r._id?.toString(), r]));
 
     // 🏥 Load room data from Redis cache for roomType filtering
     const roomMap = new Map();
@@ -3141,8 +3167,8 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
     console.log(`🔍 Filtered ${filteredSlots.length}/${slots.length} slots by roomType`);
 
     const slotDetails = filteredSlots.map(slot => {
-      const nurse = slot.nurse ? users.find(u => u._id === slot.nurse) : null;
-      const room = rooms.find(r => r._id === slot.roomId);
+      const nurse = slot.nurse ? usersMap.get(slot.nurse?.toString()) : null;
+      const room = roomsMap.get(slot.roomId?.toString());
       let roomInfo = room ? { id: room._id, name: room.name } : { id: slot.roomId, name: 'Phòng không xác định' };
       
       if (slot.subRoomId && room && room.subRooms) {
@@ -3264,10 +3290,14 @@ async function getNurseSlotDetailsFuture({ nurseId, date, shiftName }) {
       getCachedUsers(),
       getCachedRooms()
     ]);
+    
+    // ⚡ PERFORMANCE: Create Map for O(1) lookup
+    const usersMap = new Map(users.map(u => [u._id?.toString(), u]));
+    const roomsMap = new Map(rooms.map(r => [r._id?.toString(), r]));
 
     const slotDetails = slots.map(slot => {
-      const dentist = slot.dentist ? users.find(u => u._id === slot.dentist) : null;
-      const room = rooms.find(r => r._id === slot.roomId);
+      const dentist = slot.dentist ? usersMap.get(slot.dentist?.toString()) : null;
+      const room = roomsMap.get(slot.roomId?.toString());
       let roomInfo = room ? { id: room._id, name: room.name } : { id: slot.roomId, name: 'Phòng không xác định' };
       
       if (slot.subRoomId && room && room.subRooms) {
