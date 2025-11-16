@@ -126,66 +126,8 @@ const createRecordValidation = [
 const updateRecordValidation = [
   param('id')
     .isMongoId()
-    .withMessage('Record ID không hợp lệ'),
-  
-  body('serviceId')
-    .optional()
-    .isMongoId()
-    .withMessage('Service ID không hợp lệ'),
-  
-  body('serviceName')
-    .optional()
-    .isLength({ min: 2, max: 200 })
-    .withMessage('Tên dịch vụ phải từ 2 đến 200 ký tự')
-    .trim(),
-  
-  body('dentistId')
-    .optional()
-    .isMongoId()
-    .withMessage('Dentist ID không hợp lệ'),
-  
-  body('dentistName')
-    .optional()
-    .isLength({ min: 2, max: 100 })
-    .withMessage('Tên nha sĩ phải từ 2 đến 100 ký tự')
-    .trim(),
-  
-  body('diagnosis')
-    .optional()
-    .isLength({ max: 1000 })
-    .withMessage('Chẩn đoán không được quá 1000 ký tự')
-    .trim(),
-  
-  body('indications')
-    .optional()
-    .isArray()
-    .withMessage('Indications phải là mảng'),
-  
-  body('notes')
-    .optional()
-    .isLength({ max: 1000 })
-    .withMessage('Ghi chú không được quá 1000 ký tự')
-    .trim(),
-  
-  body('quantity')
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage('Số lượng phải là số nguyên dương'),
-  
-  body('priority')
-    .optional()
-    .isIn(['low', 'normal', 'high', 'urgent'])
-    .withMessage('Mức độ ưu tiên không hợp lệ'),
-  
-  body('totalCost')
-    .optional()
-    .isFloat({ min: 0 })
-    .withMessage('Tổng chi phí phải là số không âm'),
-  
-  body('paymentStatus')
-    .optional()
-    .isIn(['unpaid', 'partial', 'paid'])
-    .withMessage('Trạng thái thanh toán không hợp lệ')
+    .withMessage('Record ID không hợp lệ')
+  // ✅ No field validation - accept any data
 ];
 
 const recordIdValidation = [
@@ -224,52 +166,8 @@ const updateStatusValidation = [
 const addPrescriptionValidation = [
   param('id')
     .isMongoId()
-    .withMessage('Record ID không hợp lệ'),
-  
-  body('prescription.medicines')
-    .isArray({ min: 1 })
-    .withMessage('Phải có ít nhất một loại thuốc'),
-  
-  body('prescription.medicines.*.medicineId')
-    .isMongoId()
-    .withMessage('Medicine ID không hợp lệ'),
-  
-  body('prescription.medicines.*.medicineName')
-    .notEmpty()
-    .withMessage('Tên thuốc là bắt buộc')
-    .isLength({ min: 2, max: 200 })
-    .withMessage('Tên thuốc phải từ 2 đến 200 ký tự')
-    .trim(),
-  
-  body('prescription.medicines.*.dosage')
-    .notEmpty()
-    .withMessage('Liều lượng là bắt buộc')
-    .isLength({ min: 1, max: 100 })
-    .withMessage('Liều lượng không được quá 100 ký tự')
-    .trim(),
-  
-  body('prescription.medicines.*.duration')
-    .notEmpty()
-    .withMessage('Thời gian dùng thuốc là bắt buộc')
-    .isLength({ min: 1, max: 100 })
-    .withMessage('Thời gian dùng thuốc không được quá 100 ký tự')
-    .trim(),
-  
-  body('prescription.medicines.*.quantity')
-    .isInt({ min: 1 })
-    .withMessage('Số lượng phải là số nguyên dương'),
-  
-  body('prescription.medicines.*.note')
-    .optional()
-    .isLength({ max: 200 })
-    .withMessage('Ghi chú thuốc không được quá 200 ký tự')
-    .trim(),
-  
-  body('prescription.notes')
-    .optional()
-    .isLength({ max: 500 })
-    .withMessage('Ghi chú đơn thuốc không được quá 500 ký tự')
-    .trim()
+    .withMessage('Record ID không hợp lệ')
+  // ✅ No validation - accept empty or incomplete prescription data
 ];
 
 const updateTreatmentIndicationValidation = [

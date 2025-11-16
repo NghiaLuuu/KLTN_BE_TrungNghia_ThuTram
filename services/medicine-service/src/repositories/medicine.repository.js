@@ -23,22 +23,30 @@ class MedicineRepository {
     if (filters.search) {
       query.$or = [
         { name: { $regex: filters.search, $options: 'i' } },
-        { ingredient: { $regex: filters.search, $options: 'i' } },
-        { description: { $regex: filters.search, $options: 'i' } }
+        { category: { $regex: filters.search, $options: 'i' } }
       ];
     }
     
-    let queryBuilder = Medicine.find(query).sort({ name: 1 });
+    // Get total count
+    const total = await Medicine.countDocuments(query);
     
-    if (filters.skip) {
-      queryBuilder = queryBuilder.skip(filters.skip);
-    }
+    // Build query with pagination
+    const page = filters.page || 1;
+    const limit = filters.limit || 20;
+    const skip = filters.skip || (page - 1) * limit;
     
-    if (filters.limit) {
-      queryBuilder = queryBuilder.limit(filters.limit);
-    }
+    const data = await Medicine.find(query)
+      .sort({ name: 1 })
+      .skip(skip)
+      .limit(limit);
     
-    return await queryBuilder;
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    };
   }
 
   async update(id, data) {

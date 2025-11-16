@@ -8,47 +8,16 @@ const createMedicineValidation = [
     .withMessage('Tên thuốc phải từ 2 đến 200 ký tự')
     .trim(),
   
-  body('dosage')
+  body('unit')
     .notEmpty()
-    .withMessage('Liều dùng là bắt buộc')
-    .isLength({ min: 2, max: 100 })
-    .withMessage('Liều dùng phải từ 2 đến 100 ký tự')
-    .trim(),
-  
-  body('ingredient')
-    .optional()
-    .isLength({ max: 300 })
-    .withMessage('Thành phần không được quá 300 ký tự')
-    .trim(),
+    .withMessage('Đơn vị là bắt buộc')
+    .isIn(['viên', 'vỉ', 'hộp', 'ống', 'lọ', 'gói', 'tuýp', 'chai', 'kg', 'g'])
+    .withMessage('Đơn vị không hợp lệ'),
   
   body('category')
     .optional()
     .isIn(['thuốc giảm đau', 'kháng sinh', 'thuốc bôi', 'thuốc súc miệng', 'vitamin', 'khác'])
-    .withMessage('Danh mục không hợp lệ'),
-  
-  body('description')
-    .optional()
-    .isLength({ max: 1000 })
-    .withMessage('Mô tả không được quá 1000 ký tự')
-    .trim(),
-  
-  body('instructions')
-    .optional()
-    .isLength({ max: 1000 })
-    .withMessage('Hướng dẫn sử dụng không được quá 1000 ký tự')
-    .trim(),
-  
-  body('contraindications')
-    .optional()
-    .isLength({ max: 1000 })
-    .withMessage('Chống chỉ định không được quá 1000 ký tự')
-    .trim(),
-  
-  body('sideEffects')
-    .optional()
-    .isLength({ max: 1000 })
-    .withMessage('Tác dụng phụ không được quá 1000 ký tự')
-    .trim()
+    .withMessage('Danh mục không hợp lệ')
 ];
 
 const updateMedicineValidation = [
@@ -62,46 +31,15 @@ const updateMedicineValidation = [
     .withMessage('Tên thuốc phải từ 2 đến 200 ký tự')
     .trim(),
   
-  body('dosage')
+  body('unit')
     .optional()
-    .isLength({ min: 2, max: 100 })
-    .withMessage('Liều dùng phải từ 2 đến 100 ký tự')
-    .trim(),
-  
-  body('ingredient')
-    .optional()
-    .isLength({ max: 300 })
-    .withMessage('Thành phần không được quá 300 ký tự')
-    .trim(),
+    .isIn(['viên', 'vỉ', 'hộp', 'ống', 'lọ', 'gói', 'tuýp', 'chai', 'kg', 'g'])
+    .withMessage('Đơn vị không hợp lệ'),
   
   body('category')
     .optional()
     .isIn(['thuốc giảm đau', 'kháng sinh', 'thuốc bôi', 'thuốc súc miệng', 'vitamin', 'khác'])
-    .withMessage('Danh mục không hợp lệ'),
-  
-  body('description')
-    .optional()
-    .isLength({ max: 1000 })
-    .withMessage('Mô tả không được quá 1000 ký tự')
-    .trim(),
-  
-  body('instructions')
-    .optional()
-    .isLength({ max: 1000 })
-    .withMessage('Hướng dẫn sử dụng không được quá 1000 ký tự')
-    .trim(),
-  
-  body('contraindications')
-    .optional()
-    .isLength({ max: 1000 })
-    .withMessage('Chống chỉ định không được quá 1000 ký tự')
-    .trim(),
-  
-  body('sideEffects')
-    .optional()
-    .isLength({ max: 1000 })
-    .withMessage('Tác dụng phụ không được quá 1000 ký tự')
-    .trim()
+    .withMessage('Danh mục không hợp lệ')
 ];
 
 const medicineIdValidation = [

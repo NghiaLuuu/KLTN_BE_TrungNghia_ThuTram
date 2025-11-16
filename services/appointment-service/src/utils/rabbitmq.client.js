@@ -24,7 +24,7 @@ async function publishToQueue(queueName, message) {
     ch.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
       persistent: true
     });
-    console.log(`📤 Published to ${queueName}:`, message.type || message.event || message.action || 'message');
+    // Silent - no log spam
   } catch (error) {
     console.error(`❌ Failed to publish to ${queueName}:`, error);
     throw error;

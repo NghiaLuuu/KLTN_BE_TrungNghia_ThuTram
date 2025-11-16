@@ -11,25 +11,35 @@ const prescribedMedicineSchema = new mongoose.Schema({
     type: String, 
     required: true // Store medicine name for historical record
   },
-  dosage: { 
+  unit: {
+    type: String,
+    required: true, // Store unit (viên, ống, lọ, etc.)
+    trim: true
+  },
+  category: {
+    type: String,
+    required: false, // Store category for reference
+    trim: true
+  },
+  dosageInstruction: { 
     type: String, 
-    required: true,
+    required: true, // How to take: "1 viên x 3 lần/ngày sau ăn"
     trim: true
   },
   duration: { 
     type: String, 
-    required: true,
+    required: true, // Duration: "5 ngày", "1 tuần"
     trim: true
+  },
+  quantity: {
+    type: Number,
+    required: true, // Total quantity prescribed
+    min: 1
   },
   note: { 
     type: String,
     trim: true,
     maxlength: 200
-  },
-  quantity: {
-    type: Number,
-    required: true,
-    min: 1
   }
 }, { _id: true });
 

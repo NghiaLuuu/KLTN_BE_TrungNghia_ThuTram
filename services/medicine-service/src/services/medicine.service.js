@@ -6,8 +6,11 @@ const CACHE_TTL = 300; // 5 minutes
 class MedicineService {
   async addMedicine(data) {
     // Validate required fields
-    if (!data.name || !data.dosage) {
-      throw new Error('Tên thuốc và liều dùng là bắt buộc');
+    if (!data.name) {
+      throw new Error('Tên thuốc là bắt buộc');
+    }
+    if (!data.unit) {
+      throw new Error('Đơn vị là bắt buộc');
     }
 
     // Check for duplicate name
@@ -41,15 +44,15 @@ class MedicineService {
       console.warn('Cache get failed:', error.message);
     }
 
-    const medicines = await medicineRepo.findAll(filters);
+    const result = await medicineRepo.findAll(filters);
     
     try {
-      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(medicines));
+      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(result));
     } catch (error) {
       console.warn('Cache set failed:', error.message);
     }
 
-    return medicines;
+    return result;
   }
 
   async getMedicineById(id) {
@@ -88,7 +91,10 @@ class MedicineService {
     
     // Clear cache
     try {
-      await redis.del('medicines:*');
+      const keys = await redis.keys('medicines:*');
+      if (keys.length > 0) {
+        await redis.del(keys);
+      }
     } catch (error) {
       console.warn('Failed to clear medicine cache:', error.message);
     }
@@ -105,7 +111,10 @@ class MedicineService {
     
     // Clear cache
     try {
-      await redis.del('medicines:*');
+      const keys = await redis.keys('medicines:*');
+      if (keys.length > 0) {
+        await redis.del(keys);
+      }
     } catch (error) {
       console.warn('Failed to clear medicine cache:', error.message);
     }
@@ -122,7 +131,10 @@ class MedicineService {
     
     // Clear cache
     try {
-      await redis.del('medicines:*');
+      const keys = await redis.keys('medicines:*');
+      if (keys.length > 0) {
+        await redis.del(keys);
+      }
     } catch (error) {
       console.warn('Failed to clear medicine cache:', error.message);
     }
@@ -132,16 +144,15 @@ class MedicineService {
 
   async searchMedicine(query, options = {}) {
     if (!query || query.trim() === '') {
-      return [];
+      return { data: [], total: 0, page: 1, limit: 20, totalPages: 0 };
     }
 
     const { page = 1, limit = 20 } = options;
-    const skip = (page - 1) * limit;
 
     return await medicineRepo.findAll({ 
       search: query.trim(),
       isActive: true,
-      skip,
+      page,
       limit
     });
   }

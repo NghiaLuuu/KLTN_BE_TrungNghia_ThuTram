@@ -33,12 +33,15 @@ class MedicineController {
 
   async list(req, res) {
     try {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 20;
+      
       const filters = {
         isActive: req.query.isActive !== undefined ? req.query.isActive === 'true' : undefined,
         category: req.query.category,
         search: req.query.search,
-        page: parseInt(req.query.page) || 1,
-        limit: parseInt(req.query.limit) || 20
+        page,
+        limit
       };
 
       // Remove undefined values
@@ -46,11 +49,14 @@ class MedicineController {
         filters[key] === undefined && delete filters[key]
       );
 
-      const medicines = await medicineService.listMedicines(filters);
+      const result = await medicineService.listMedicines(filters);
       res.json({
         success: true,
-        data: medicines,
-        total: medicines.length
+        data: result.data,
+        total: result.total,
+        page: result.page,
+        limit: result.limit,
+        totalPages: result.totalPages
       });
     } catch (error) {
       res.status(500).json({ 
@@ -146,11 +152,14 @@ class MedicineController {
   async search(req, res) {
     try {
       const { q, page = 1, limit = 20 } = req.query;
-      const medicines = await medicineService.searchMedicine(q || "", { page: parseInt(page), limit: parseInt(limit) });
+      const result = await medicineService.searchMedicine(q || "", { page: parseInt(page), limit: parseInt(limit) });
       res.json({
         success: true,
-        data: medicines,
-        total: medicines.length
+        data: result.data,
+        total: result.total,
+        page: result.page,
+        limit: result.limit,
+        totalPages: result.totalPages
       });
     } catch (error) {
       res.status(500).json({ 

@@ -7,40 +7,18 @@ const medicineSchema = new mongoose.Schema({
     trim: true,
     unique: true
   },
-  ingredient: { 
-    type: String,
-    trim: true
-  },
-  dosage: { 
+  unit: { 
     type: String,
     trim: true,
-    required: true
+    required: true,
+    enum: ['viên', 'vỉ', 'hộp', 'ống', 'lọ', 'gói', 'tuýp', 'chai', 'kg', 'g'],
+    default: 'viên'
   },
   category: { 
     type: String,
     trim: true,
     enum: ['thuốc giảm đau', 'kháng sinh', 'thuốc bôi', 'thuốc súc miệng', 'vitamin', 'khác'],
     default: 'khác'
-  },
-  description: { 
-    type: String,
-    trim: true,
-    maxlength: 1000
-  },
-  instructions: { 
-    type: String,
-    trim: true,
-    maxlength: 1000
-  },
-  contraindications: { 
-    type: String,
-    trim: true,
-    maxlength: 1000
-  },
-  sideEffects: { 
-    type: String,
-    trim: true,
-    maxlength: 1000
   },
   isActive: { 
     type: Boolean, 

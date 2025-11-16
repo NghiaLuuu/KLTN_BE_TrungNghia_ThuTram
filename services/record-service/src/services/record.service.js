@@ -349,16 +349,8 @@ class RecordService {
       throw new Error('Record ID is required');
     }
 
-    if (!prescription || !prescription.medicines || prescription.medicines.length === 0) {
-      throw new Error('Prescription phải có ít nhất một loại thuốc');
-    }
-
-    // Validate medicines
-    for (const medicine of prescription.medicines) {
-      if (!medicine.medicineId || !medicine.medicineName || !medicine.dosage || !medicine.duration || !medicine.quantity) {
-        throw new Error('Thông tin thuốc không đầy đủ');
-      }
-    }
+    // ✅ No validation - accept empty or incomplete data
+    // If prescription is empty or has no medicines, still update
 
     const record = await recordRepo.addPrescription(id, prescription, prescribedBy);
 
