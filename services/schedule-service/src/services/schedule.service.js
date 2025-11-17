@@ -609,7 +609,7 @@ async function getHolidaySnapshot(scheduleStartDate, scheduleEndDate) {
         dayOfWeek: holiday.dayOfWeek,
         note: holiday.note || ''
       });
-    } else if (!holiday.isRecurring) {
+    } else if (!holiday.isRecurring && holiday.isActive) {
       // Kiểm tra ngày nghỉ không cố định có nằm trong khoảng thời gian tạo lịch không
       const holidayStart = new Date(holiday.startDate);
       const holidayEnd = new Date(holiday.endDate);

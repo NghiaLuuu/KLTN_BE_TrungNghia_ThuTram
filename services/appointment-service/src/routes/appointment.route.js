@@ -16,14 +16,8 @@ const {
   availableSlotsValidation
 } = require('../validations/reserve.validation');
 
-// Get all appointments (Admin/Manager/Receptionist only)
-router.get('/', 
-  authenticate, 
-  authorize(['admin', 'manager', 'receptionist']),
-  appointmentController.getAllAppointments
-);
-
 // 🆕 Get appointments by IDs (for schedule-service - internal use)
+// ⚠️ MUST be BEFORE '/' route to avoid path conflict
 router.get('/by-ids',
   appointmentController.getByIds
 );
@@ -31,6 +25,13 @@ router.get('/by-ids',
 // 🆕 Cancel appointment (internal - for schedule-service when disabling slots)
 router.post('/internal/cancel/:id',
   appointmentController.cancelInternal
+);
+
+// Get all appointments (Admin/Manager/Receptionist only)
+router.get('/', 
+  authenticate, 
+  authorize(['admin', 'manager', 'receptionist']),
+  appointmentController.getAllAppointments
 );
 
 // Get available slot groups
