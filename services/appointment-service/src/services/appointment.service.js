@@ -916,6 +916,19 @@ class AppointmentService {
     
     console.log(`✅ [Admin Cancel] Appointment ${appointmentCode} cancelled by ${staffRole}`);
 
+    // 🔥 Release slots back to available
+    if (appointment.slotIds && appointment.slotIds.length > 0) {
+      try {
+        await serviceClient.bulkUpdateSlots(appointment.slotIds, {
+          status: 'available',
+          appointmentId: null
+        });
+        console.log(`🔓 [Admin Cancel] Released ${appointment.slotIds.length} slots back to available`);
+      } catch (slotError) {
+        console.warn('⚠️ Failed to release slots:', slotError.message);
+      }
+    }
+
     // 🔥 1. Send email to patient if email exists
     if (patientEmail) {
       try {
