@@ -5040,19 +5040,42 @@ async function logAppointmentCancellation({
   slotIds,
   startTime,
   endTime,
-  patientInfo,
+  shiftName,
+  patientId,
+  patientName,
+  patientEmail,
+  patientPhone,
   dentistId,
   dentistName,
   roomId,
   roomName,
+  paymentInfo,
+  invoiceInfo,
   cancelledBy,
-  reason,
-  cancelledAt
+  cancelledByName,
+  cancelledByRole,
+  cancelledAt,
+  reason
 }) {
   try {
     const DayClosure = require('../models/dayClosure.model');
+    const Slot = require('../models/slot.model');
     
     console.log(`📝 [Log Cancellation] Creating DayClosure record for appointment ${appointmentCode}`);
+    
+    // 🔥 Get shiftName from slot if not provided and slotIds exist
+    let actualShiftName = shiftName;
+    if ((!shiftName || shiftName === 'N/A') && slotIds && slotIds.length > 0) {
+      try {
+        const firstSlot = await Slot.findById(slotIds[0]).lean();
+        if (firstSlot && firstSlot.shiftName) {
+          actualShiftName = firstSlot.shiftName;
+          console.log(`✅ [Log Cancellation] Got shiftName from slot: ${actualShiftName}`);
+        }
+      } catch (slotError) {
+        console.warn('⚠️ [Log Cancellation] Could not fetch slot for shiftName:', slotError.message);
+      }
+    }
     
     // Parse date to match format
     const targetDate = new Date(appointmentDate);
@@ -5073,21 +5096,25 @@ async function logAppointmentCancellation({
       appointmentId,
       appointmentDate: targetDate,
       cancelledAt: cancelledAt || new Date(),
+      shiftName: actualShiftName || 'N/A',
       startTime: startTime,
       endTime: endTime,
-      patientId: patientInfo?.patientId || null,
-      patientName: patientInfo?.name || 'N/A',
-      patientEmail: patientInfo?.email || null,
-      patientPhone: patientInfo?.phone || null,
+      patientId: patientId || null,
+      patientName: patientName || 'N/A',
+      patientEmail: patientEmail || null,
+      patientPhone: patientPhone || null,
       roomId: roomId || null,
       roomName: roomName || 'N/A',
       dentists: dentistId ? [{
         dentistId: dentistId,
-        dentistName: dentistName || 'N/A'
+        dentistName: dentistName || 'N/A',
+        dentistEmail: null
       }] : [],
       nurses: [],
-      emailSent: !!patientInfo?.email,
-      emailSentAt: patientInfo?.email ? new Date() : null
+      paymentInfo: paymentInfo || undefined,
+      invoiceInfo: invoiceInfo || undefined,
+      emailSent: !!patientEmail,
+      emailSentAt: patientEmail ? new Date() : null
     };
     
     if (dayClosureRecord) {
@@ -5096,11 +5123,11 @@ async function logAppointmentCancellation({
       
       dayClosureRecord.cancelledAppointments.push(cancelledAppointmentEntry);
       dayClosureRecord.stats.appointmentsCancelledCount = (dayClosureRecord.stats.appointmentsCancelledCount || 0) + 1;
-      dayClosureRecord.stats.emailsSentCount = (dayClosureRecord.stats.emailsSentCount || 0) + (patientInfo?.email ? 1 : 0);
+      dayClosureRecord.stats.emailsSentCount = (dayClosureRecord.stats.emailsSentCount || 0) + (patientEmail ? 1 : 0);
       
       // Update reason if provided
       if (reason && reason !== dayClosureRecord.reason) {
-        dayClosureRecord.reason = reason;
+        dayClosureRecord.reason = `${dayClosureRecord.reason}; ${reason}`;
       }
       
       await dayClosureRecord.save();
@@ -5114,23 +5141,27 @@ async function logAppointmentCancellation({
         action: 'disable',
         dateFrom: startOfDay,
         dateTo: endOfDay,
-        reason: reason || 'Hủy appointment',
+        criteria: {
+          slotIds: slotIds || []
+        },
+        reason: reason || 'Hủy appointment bởi staff',
         closureType: 'other',
         stats: {
           totalSlotsDisabled: slotIds?.length || 0,
           appointmentsCancelledCount: 1,
-          emailsSentCount: patientInfo?.email ? 1 : 0
+          affectedRoomsCount: roomId ? 1 : 0,
+          emailsSentCount: patientEmail ? 1 : 0
         },
         affectedRooms: roomId ? [{
           roomId,
           roomName: roomName || 'N/A',
-          slotsDisabledCount: slotIds?.length || 0
+          slotsDisabled: slotIds?.length || 0
         }] : [],
         cancelledAppointments: [cancelledAppointmentEntry],
         closedBy: {
-          userId: cancelledBy.userId,
-          userName: cancelledBy.role || 'Staff',
-          userRole: cancelledBy.role || 'staff'
+          userId: cancelledBy,
+          userName: cancelledByName || 'Staff',
+          userRole: cancelledByRole || 'staff'
         },
         status: 'active'
       });

@@ -60,6 +60,62 @@ class StatisticController {
   }
 
   /**
+   * 📊 Get appointment status statistics (completed, cancelled, no-show)
+   * For pie chart visualization
+   */
+  async getAppointmentStatusStats(req, res) {
+    try {
+      const { startDate, endDate, groupBy = 'day', dentistId, roomId } = req.query;
+      
+      console.log('🎯 [Controller] getAppointmentStatusStats request:', {
+        startDate,
+        endDate,
+        groupBy,
+        dentistId,
+        roomId
+      });
+      
+      if (!startDate || !endDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'startDate và endDate là bắt buộc'
+        });
+      }
+
+      const dateRange = DateUtils.parseDateRange(startDate, endDate);
+      const filters = {};
+      
+      if (dentistId) filters.dentistId = dentistId;
+      if (roomId) filters.roomId = roomId;
+      
+      console.log('🎯 [Controller] Calling statisticService.getAppointmentStatusStatistics');
+      console.time('⏱️ [Controller] Total API time');
+      
+      const stats = await statisticService.getAppointmentStatusStatistics(
+        dateRange.startDate,
+        dateRange.endDate,
+        groupBy,
+        filters
+      );
+      
+      console.timeEnd('⏱️ [Controller] Total API time');
+      console.log('✅ [Controller] Sending response');
+      
+      res.json({
+        success: true,
+        message: 'Lấy thống kê trạng thái lịch hẹn thành công',
+        data: stats
+      });
+    } catch (error) {
+      console.error('❌ [Controller] Appointment status stats error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Lỗi khi lấy thống kê trạng thái lịch hẹn'
+      });
+    }
+  }
+
+  /**
    * Get revenue statistics
    */
   async getRevenueStats(req, res) {

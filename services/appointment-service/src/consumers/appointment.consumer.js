@@ -14,15 +14,214 @@ async function generateAppointmentCode(date) {
 
 /**
  * Start consuming messages from appointment_queue
+ * ✅ FIXED: Support both RPC requests (with replyTo) and event messages
  */
 async function startConsumer() {
   try {
-    await rabbitmqClient.consumeFromQueue('appointment_queue', async (message) => {
-      console.log('📥 [Appointment Consumer] Received event:', {
-        event: message.event,
-        timestamp: new Date().toISOString()
-      });
+    const channel = rabbitmqClient.getChannel();
+    await channel.assertQueue('appointment_queue', { durable: true });
+    await channel.prefetch(1);
+    
+    console.log('👂 [Appointment Consumer] Listening to appointment_queue...');
+    
+    channel.consume('appointment_queue', async (msg) => {
+      if (!msg) return;
+      
+      try {
+        const message = JSON.parse(msg.content.toString());
+        
+        console.log('📥 [Appointment Consumer] Received message:', {
+          event: message.event,
+          action: message.action,
+          hasReplyTo: !!msg.properties.replyTo,
+          timestamp: new Date().toISOString()
+        });
 
+        let response = null;
+
+        // ============ RPC REQUESTS ============
+        // Handle RPC requests (action-based)
+        if (message.action) {
+          console.log('🔧 [RPC] Processing action:', message.action);
+
+          try {
+          if (message.action === 'getAppointmentStatusStats') {
+            // Get appointment status statistics using aggregation (FAST!)
+            const { startDate, endDate, dentistId, roomId, groupBy = 'day' } = message.payload || {};
+            
+            console.log('📊 [RPC] getAppointmentStatusStats:', { startDate, endDate, dentistId, roomId, groupBy });
+            console.time('⏱️ [RPC] getAppointmentStatusStats query time');
+
+            const Appointment = require('../models/appointment.model');
+            
+            // Build match filters
+            const matchStage = {
+              appointmentDate: {
+                $gte: new Date(startDate),
+                $lte: new Date(endDate)
+              }
+            };
+
+            if (dentistId) matchStage.dentistId = dentistId;
+            if (roomId) matchStage.roomId = roomId;
+
+            // 1. Get status summary (count by status)
+            const statusStats = await Appointment.aggregate([
+              { $match: matchStage },
+              {
+                $group: {
+                  _id: '$status',
+                  count: { $sum: 1 }
+                }
+              }
+            ]);
+
+            console.log('📊 Status stats:', statusStats);
+
+            // 2. Get timeline data grouped by period
+            let groupByDateFormat;
+            if (groupBy === 'month') {
+              groupByDateFormat = { $dateToString: { format: '%Y-%m', date: '$appointmentDate' } };
+            } else if (groupBy === 'year') {
+              groupByDateFormat = { $dateToString: { format: '%Y', date: '$appointmentDate' } };
+            } else {
+              groupByDateFormat = { $dateToString: { format: '%Y-%m-%d', date: '$appointmentDate' } };
+            }
+
+            const timeline = await Appointment.aggregate([
+              { $match: matchStage },
+              {
+                $group: {
+                  _id: {
+                    date: groupByDateFormat,
+                    status: '$status'
+                  },
+                  count: { $sum: 1 }
+                }
+              },
+              { $sort: { '_id.date': 1 } }
+            ]);
+
+            // 3. Get stats by dentist
+            const byDentist = await Appointment.aggregate([
+              { 
+                $match: { 
+                  ...matchStage,
+                  dentistId: { $exists: true, $ne: null }
+                } 
+              },
+              {
+                $group: {
+                  _id: {
+                    dentistId: '$dentistId',
+                    dentistName: '$dentistName',
+                    status: '$status'
+                  },
+                  count: { $sum: 1 }
+                }
+              },
+              { $sort: { count: -1 } }
+            ]);
+
+            console.timeEnd('⏱️ [RPC] getAppointmentStatusStats query time');
+            console.log(`✅ [RPC] Aggregated ${statusStats.length} status groups, ${timeline.length} timeline points, ${byDentist.length} dentist stats`);
+            
+            response = {
+              success: true,
+              data: {
+                statusStats,
+                timeline,
+                byDentist
+              }
+            };
+          }
+
+          if (message.action === 'getAppointmentsInRange') {
+            // Get appointments in date range for statistics
+            const { startDate, endDate, dentistId, roomId } = message.payload || {};
+            
+            console.log('📊 [RPC] getAppointmentsInRange:', { startDate, endDate, dentistId, roomId });
+            console.time('⏱️ [RPC] getAppointmentsInRange query time');
+
+            const filters = {
+              appointmentDate: {
+                $gte: new Date(startDate),
+                $lte: new Date(endDate)
+              }
+            };
+
+            if (dentistId) filters.dentistId = dentistId;
+            if (roomId) filters.roomId = roomId;
+
+            // 🔥 OPTIMIZED: Use direct query with .select() to only get needed fields
+            const Appointment = require('../models/appointment.model');
+            const appointments = await Appointment.find(filters)
+              .select('appointmentCode appointmentDate startTime endTime status dentistId dentistName roomId roomName patientInfo patientId serviceName totalAmount createdAt')
+              .sort({ appointmentDate: 1 })
+              .limit(10000)
+              .lean()
+              .exec();
+            
+            console.timeEnd('⏱️ [RPC] getAppointmentsInRange query time');
+            console.log(`✅ [RPC] Returning ${appointments.length} appointments`);
+            
+            response = {
+              success: true,
+              data: appointments
+            };
+          }
+
+          if (message.action === 'getStatistics') {
+            // Existing statistics handler
+            const { startDate, endDate } = message.payload || {};
+            const filters = {
+              appointmentDate: {
+                $gte: new Date(startDate),
+                $lte: new Date(endDate)
+              }
+            };
+            // findAll returns { appointments, total, page, pages }
+            const result = await appointmentRepository.findAll(filters, { limit: 10000 });
+            const appointments = result.appointments || [];
+            
+            response = {
+              success: true,
+              data: {
+                total: appointments.length,
+                completed: appointments.filter(a => a.status === 'completed').length,
+                cancelled: appointments.filter(a => a.status === 'cancelled').length,
+                totalUniquePatients: new Set(appointments.map(a => a.patientId?.toString())).size
+              }
+            };
+          }
+
+          // Return error for unknown actions
+          if (!response) {
+            response = {
+              success: false,
+              error: `Unknown action: ${message.action}`
+            };
+          }
+        } catch (rpcError) {
+          console.error('❌ [RPC] Error:', rpcError);
+          response = {
+            success: false,
+            error: rpcError.message
+          };
+        }
+        
+        // ✅ Send RPC response back to caller
+        if (msg.properties.replyTo) {
+          channel.sendToQueue(
+            msg.properties.replyTo,
+            Buffer.from(JSON.stringify(response)),
+            { correlationId: msg.properties.correlationId }
+          );
+          console.log('✅ [RPC] Response sent to:', msg.properties.replyTo);
+        }
+      }
+
+      // ============ EVENT MESSAGES ============
       if (message.event === 'payment.completed') {
         const { reservationId, paymentId, paymentCode, amount, appointmentData } = message.data;
 
@@ -313,6 +512,14 @@ async function startConsumer() {
           // Don't throw - record already updated
         }
       }
+      
+      // ✅ Acknowledge message after processing
+      channel.ack(msg);
+      
+    } catch (error) {
+      console.error('❌ [Consumer] Error processing message:', error);
+      channel.nack(msg, false, false); // Don't requeue
+    }
     });
 
     console.log('👂 [Appointment Consumer] Listening to appointment_queue...');

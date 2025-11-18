@@ -256,6 +256,78 @@ class ServiceConnector {
       ageDistribution: appointmentData.ageDistribution || {}
     };
   }
+
+  /**
+   * 📊 Get appointments in date range (for status statistics)
+   * Returns array of appointments with status information
+   */
+  static async getAppointmentStatusStats(startDate, endDate, filters = {}) {
+    try {
+      const start = startDate instanceof Date ? startDate : new Date(startDate);
+      const end = endDate instanceof Date ? endDate : new Date(endDate);
+      
+      console.log('📞 [ServiceConnector] Requesting appointment status stats from appointment-service:', {
+        startDate: start,
+        endDate: end,
+        filters
+      });
+      console.time('⏱️ [ServiceConnector] RPC getAppointmentStatusStats time');
+
+      const message = {
+        action: 'getAppointmentStatusStats',
+        payload: {
+          startDate: start,
+          endDate: end,
+          ...filters
+        }
+      };
+
+      // Use 60s timeout for large date ranges
+      const result = await rabbitClient.request('appointment_queue', message, 60000);
+      
+      console.timeEnd('⏱️ [ServiceConnector] RPC getAppointmentStatusStats time');
+      console.log('✅ [ServiceConnector] Received aggregated stats');
+      
+      return result.data || { statusStats: [], timeline: [], byDentist: [] };
+    } catch (error) {
+      console.error('❌ [ServiceConnector] Error getting appointment status stats:', error);
+      throw new Error('Không thể lấy thống kê trạng thái lịch hẹn');
+    }
+  }
+
+  static async getAppointmentsInRange(startDate, endDate, filters = {}) {
+    try {
+      const start = startDate instanceof Date ? startDate : new Date(startDate);
+      const end = endDate instanceof Date ? endDate : new Date(endDate);
+      
+      console.log('📞 [ServiceConnector] Requesting appointments from appointment-service:', {
+        startDate: start,
+        endDate: end,
+        filters
+      });
+      console.time('⏱️ [ServiceConnector] RPC request time');
+
+      const message = {
+        action: 'getAppointmentsInRange',
+        payload: {
+          startDate: start,
+          endDate: end,
+          ...filters
+        }
+      };
+
+      // 🔥 OPTIMIZED: Add 60s timeout for large date ranges
+      const result = await rabbitClient.request('appointment_queue', message, 60000);
+      
+      console.timeEnd('⏱️ [ServiceConnector] RPC request time');
+      console.log(`✅ [ServiceConnector] Received ${result.data?.length || 0} appointments`);
+      
+      return result.data || [];
+    } catch (error) {
+      console.error('❌ [ServiceConnector] Error getting appointments in range:', error);
+      throw new Error('Không thể lấy danh sách lịch hẹn');
+    }
+  }
 }
 
 module.exports = ServiceConnector;

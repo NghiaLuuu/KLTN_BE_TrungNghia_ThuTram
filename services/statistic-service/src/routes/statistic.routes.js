@@ -39,6 +39,14 @@ router.get('/appointments',
   statisticController.getAppointmentStats
 );
 
+// 📊 Appointment Status Statistics (completed, cancelled, no-show)
+router.get('/appointment-status',
+  requireStaff,
+  dateRangeValidation,
+  validate,
+  statisticController.getAppointmentStatusStats
+);
+
 // ============ REVENUE & FINANCIAL STATISTICS ============
 router.get('/revenue',
   requireAdminOrManager, // Revenue stats only for admin/manager

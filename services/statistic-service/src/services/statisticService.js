@@ -460,6 +460,288 @@ class StatisticService {
     };
   }
 
+  /**
+   * 📊 Get appointment status statistics (completed, cancelled, no-show)
+   * For pie chart and trend visualization
+   * 🔥 OPTIMIZED: Uses MongoDB aggregation instead of loading all appointments
+   */
+  async getAppointmentStatusStatistics(startDate, endDate, groupBy = 'day', filters = {}) {
+    try {
+      console.log('📊 [StatisticService] Getting appointment status stats:', {
+        startDate,
+        endDate,
+        groupBy,
+        filters
+      });
+      console.time('⏱️ [StatisticService] Total getAppointmentStatusStatistics time');
+
+      // 🔥 NEW: Call appointment service to get AGGREGATED stats (not all appointments)
+      console.time('⏱️ [StatisticService] ServiceConnector.getAppointmentStatusStats');
+      const aggregatedData = await ServiceConnector.getAppointmentStatusStats(
+        startDate,
+        endDate,
+        { ...filters, groupBy }
+      );
+      console.timeEnd('⏱️ [StatisticService] ServiceConnector.getAppointmentStatusStats');
+
+      console.log('📊 [StatisticService] Received aggregated stats:', {
+        statusStatsLength: aggregatedData.statusStats?.length,
+        timelineLength: aggregatedData.timeline?.length,
+        byDentistLength: aggregatedData.byDentist?.length
+      });
+
+      const { statusStats, timeline, byDentist } = aggregatedData;
+
+      if (!statusStats || statusStats.length === 0) {
+        return this.getEmptyAppointmentStatusStats();
+      }
+
+      // Transform aggregated status data
+      const statusCounts = {
+        completed: 0,
+        cancelled: 0,
+        'no-show': 0,
+        pending: 0,
+        confirmed: 0,
+        other: 0
+      };
+
+      let total = 0;
+      statusStats.forEach(stat => {
+        const status = stat._id?.toLowerCase();
+        const count = stat.count || 0;
+        total += count;
+
+        if (status === 'completed') {
+          statusCounts.completed = count;
+        } else if (status === 'cancelled') {
+          statusCounts.cancelled = count;
+        } else if (status === 'no-show') {
+          statusCounts['no-show'] = count;
+        } else if (status === 'pending') {
+          statusCounts.pending = count;
+        } else if (status === 'confirmed') {
+          statusCounts.confirmed = count;
+        } else {
+          statusCounts.other += count;
+        }
+      });
+
+      // Calculate percentages
+      const summary = {
+        total,
+        completed: statusCounts.completed,
+        cancelled: statusCounts.cancelled,
+        noShow: statusCounts['no-show'],
+        pending: statusCounts.pending,
+        confirmed: statusCounts.confirmed,
+        other: statusCounts.other,
+        completedRate: total > 0 ? (statusCounts.completed / total) * 100 : 0,
+        cancelledRate: total > 0 ? (statusCounts.cancelled / total) * 100 : 0,
+        noShowRate: total > 0 ? (statusCounts['no-show'] / total) * 100 : 0
+      };
+
+      // Transform timeline data
+      console.time('⏱️ [StatisticService] Transform timeline');
+      const timelineByDate = {};
+      timeline.forEach(item => {
+        const date = item._id.date;
+        const status = item._id.status?.toLowerCase() || 'other';
+        
+        if (!timelineByDate[date]) {
+          timelineByDate[date] = {
+            date,
+            completed: 0,
+            cancelled: 0,
+            'no-show': 0,
+            pending: 0,
+            confirmed: 0,
+            other: 0
+          };
+        }
+
+        if (['completed', 'cancelled', 'no-show', 'pending', 'confirmed'].includes(status)) {
+          timelineByDate[date][status] = item.count;
+        } else {
+          timelineByDate[date].other += item.count;
+        }
+      });
+
+      const transformedTimeline = Object.values(timelineByDate).sort((a, b) => 
+        a.date.localeCompare(b.date)
+      );
+      console.timeEnd('⏱️ [StatisticService] Transform timeline');
+      console.log('📊 [StatisticService] Timeline transformed:', transformedTimeline.length, 'entries');
+
+      // Transform dentist data
+      console.time('⏱️ [StatisticService] Transform byDentist');
+      const dentistMap = {};
+      byDentist.forEach(item => {
+        const dentistId = item._id.dentistId?.toString();
+        if (!dentistId) return;
+
+        if (!dentistMap[dentistId]) {
+          dentistMap[dentistId] = {
+            dentistId,
+            dentistName: item._id.dentistName || 'Unknown',
+            completed: 0,
+            cancelled: 0,
+            'no-show': 0,
+            pending: 0,
+            confirmed: 0,
+            other: 0,
+            total: 0
+          };
+        }
+
+        const status = item._id.status?.toLowerCase() || 'other';
+        const count = item.count || 0;
+
+        dentistMap[dentistId].total += count;
+
+        if (['completed', 'cancelled', 'no-show', 'pending', 'confirmed'].includes(status)) {
+          dentistMap[dentistId][status] = count;
+        } else {
+          dentistMap[dentistId].other += count;
+        }
+      });
+
+      const transformedByDentist = Object.values(dentistMap).sort((a, b) => 
+        b.total - a.total
+      );
+      console.timeEnd('⏱️ [StatisticService] Transform byDentist');
+      console.log('📊 [StatisticService] Dentists transformed:', transformedByDentist.length, 'entries');
+      console.timeEnd('⏱️ [StatisticService] Total getAppointmentStatusStatistics time');
+
+      return {
+        success: true,
+        summary,
+        timeline: transformedTimeline,
+        byDentist: transformedByDentist,
+        filters: {
+          startDate,
+          endDate,
+          groupBy,
+          ...filters
+        }
+      };
+    } catch (error) {
+      console.error('❌ [StatisticService] Error getting appointment status stats:', error);
+      throw new Error('Không thể lấy thống kê trạng thái lịch hẹn: ' + error.message);
+    }
+  }
+
+  /**
+   * Group appointments by time period (day/month/year)
+   */
+  groupAppointmentsByTimePeriod(appointments, groupBy) {
+    const grouped = {};
+
+    appointments.forEach(apt => {
+      const date = new Date(apt.appointmentDate || apt.createdAt);
+      let key;
+
+      if (groupBy === 'month') {
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      } else if (groupBy === 'year') {
+        key = `${date.getFullYear()}`;
+      } else {
+        // Default: day
+        key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      }
+
+      if (!grouped[key]) {
+        grouped[key] = {
+          date: key,
+          total: 0,
+          completed: 0,
+          cancelled: 0,
+          noShow: 0,
+          pending: 0,
+          confirmed: 0
+        };
+      }
+
+      const status = apt.status?.toLowerCase();
+      grouped[key].total++;
+      
+      if (status === 'completed') grouped[key].completed++;
+      else if (status === 'cancelled') grouped[key].cancelled++;
+      else if (status === 'no-show') grouped[key].noShow++;
+      else if (status === 'pending') grouped[key].pending++;
+      else if (status === 'confirmed') grouped[key].confirmed++;
+    });
+
+    // Convert to array and calculate rates
+    return Object.values(grouped)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(item => ({
+        ...item,
+        completedRate: item.total > 0 ? (item.completed / item.total) * 100 : 0,
+        cancelledRate: item.total > 0 ? (item.cancelled / item.total) * 100 : 0,
+        noShowRate: item.total > 0 ? (item.noShow / item.total) * 100 : 0
+      }));
+  }
+
+  /**
+   * Group appointments by dentist
+   */
+  groupAppointmentsByDentist(appointments) {
+    const grouped = {};
+
+    appointments.forEach(apt => {
+      const dentistId = apt.dentistId?._id || apt.dentistId || 'unknown';
+      const dentistName = apt.dentistId?.fullName || apt.dentistName || 'Không xác định';
+
+      if (!grouped[dentistId]) {
+        grouped[dentistId] = {
+          dentistId,
+          dentistName,
+          total: 0,
+          completed: 0,
+          cancelled: 0,
+          noShow: 0
+        };
+      }
+
+      const status = apt.status?.toLowerCase();
+      grouped[dentistId].total++;
+      
+      if (status === 'completed') grouped[dentistId].completed++;
+      else if (status === 'cancelled') grouped[dentistId].cancelled++;
+      else if (status === 'no-show') grouped[dentistId].noShow++;
+    });
+
+    // Convert to array and calculate rates
+    return Object.values(grouped).map(item => ({
+      ...item,
+      completedRate: item.total > 0 ? (item.completed / item.total) * 100 : 0,
+      cancelledRate: item.total > 0 ? (item.cancelled / item.total) * 100 : 0,
+      noShowRate: item.total > 0 ? (item.noShow / item.total) * 100 : 0
+    }));
+  }
+
+  getEmptyAppointmentStatusStats() {
+    return {
+      success: true,
+      summary: {
+        total: 0,
+        completed: 0,
+        cancelled: 0,
+        noShow: 0,
+        pending: 0,
+        confirmed: 0,
+        other: 0,
+        completedRate: 0,
+        cancelledRate: 0,
+        noShowRate: 0
+      },
+      timeline: [],
+      byDentist: [],
+      filters: {}
+    };
+  }
+
   getEmptyUtilizationStats() {
     return {
       summary: { totalSlots: 0, bookedSlots: 0, emptySlots: 0, utilizationRate: 0 },

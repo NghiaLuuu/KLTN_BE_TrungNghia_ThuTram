@@ -1,27 +1,27 @@
 const jwt = require('jsonwebtoken');
 
 const authenticate = (req, res, next) => {
-  console.log('🔍 [Auth Middleware] Headers:', {
-    authorization: req.headers.authorization ? 'Present' : 'Missing',
-    authValue: req.headers.authorization
-  });
+  // console.log('🔍 [Auth Middleware] Headers:', {
+  //   authorization: req.headers.authorization ? 'Present' : 'Missing',
+  //   authValue: req.headers.authorization
+  // });
   
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    console.log('❌ [Auth Middleware] No token provided');
-    return res.status(401).json({ message: 'No token provided' });
-  }
+  // if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  //   console.log('❌ [Auth Middleware] No token provided');
+  //   return res.status(401).json({ message: 'No token provided' });
+  // }
 
   const token = authHeader.split(" ")[1];
-  console.log('🔍 [Auth Middleware] Token:', token.substring(0, 20) + '...');
+  // console.log('🔍 [Auth Middleware] Token:', token.substring(0, 20) + '...');
 
   try {
     const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-    console.log('✅ [Auth Middleware] Token valid, user:', decoded.userId, 'activeRole:', decoded.activeRole);
+    // console.log('✅ [Auth Middleware] Token valid, user:', decoded.userId, 'activeRole:', decoded.activeRole);
     req.user = decoded; // Lưu userId, role,... tùy payload bạn đã ký
     next();
   } catch (err) {
-    console.log('❌ [Auth Middleware] Token verification failed:', err.message);
+    // console.log('❌ [Auth Middleware] Token verification failed:', err.message);
     return res.status(403).json({ message: 'Invalid or expired token' });
   }
 };

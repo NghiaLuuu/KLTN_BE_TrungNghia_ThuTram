@@ -229,6 +229,22 @@ async function startConsumer() {
           });
           throw error; // Will trigger RabbitMQ retry
         }
+      } else if (message.event === 'log_appointment_cancellation') {
+        // 🔥 NEW: Log appointment cancellation to DayClosure
+        const slotService = require('../services/slot.service');
+        
+        console.log('📝 [Schedule Consumer] Processing log_appointment_cancellation:', {
+          appointmentId: message.data?.appointmentId,
+          appointmentCode: message.data?.appointmentCode
+        });
+
+        try {
+          await slotService.logAppointmentCancellation(message.data);
+          console.log('✅ [Schedule Consumer] Logged appointment cancellation to DayClosure');
+        } catch (error) {
+          console.error('❌ [Schedule Consumer] Error logging appointment cancellation:', error.message);
+          // Don't throw - this is audit logging, shouldn't block the flow
+        }
       } else {
         console.log('ℹ️ [Schedule Consumer] Unhandled event type:', message.event);
       }

@@ -832,7 +832,7 @@ class AppointmentService {
    * Admin/Manager/Receptionist cancel appointment
    * No time restrictions - can cancel anytime
    */
-  async adminCancelAppointment(appointmentId, staffId, staffRole, reason) {
+  async adminCancelAppointment(appointmentId, staffId, staffRole, reason, currentUser = null) {
     const appointment = await Appointment.findById(appointmentId)
       .populate('patientId', 'email fullName name phoneNumber');
     
@@ -927,6 +927,47 @@ class AppointmentService {
       } catch (slotError) {
         console.warn('⚠️ Failed to release slots:', slotError.message);
       }
+    }
+
+    // 🔥 Log cancellation to DayClosure (for tracking individual appointment cancellations by staff)
+    try {
+      await publishToQueue('schedule_queue', {
+        event: 'log_appointment_cancellation',
+        data: {
+          appointmentId: appointmentIdStr,
+          appointmentCode: appointmentCode,
+          appointmentDate: appointment.appointmentDate,
+          startTime: appointment.startTime,
+          endTime: appointment.endTime,
+          shiftName: appointment.shiftName || 'N/A',
+          patientId: patientIdStr,
+          patientName: patientName,
+          patientEmail: patientEmail,
+          patientPhone: patientPhone,
+          roomId: appointment.roomId?.toString(),
+          roomName: appointment.roomName,
+          dentistId: appointment.dentistId?.toString(),
+          dentistName: appointment.dentistName,
+          slotIds: appointment.slotIds,
+          paymentInfo: appointment.paymentId ? {
+            paymentId: appointment.paymentId.toString(),
+            status: 'cancelled',
+            amount: appointment.totalAmount
+          } : null,
+          invoiceInfo: appointment.invoiceId ? {
+            invoiceId: appointment.invoiceId.toString(),
+            status: 'cancelled'
+          } : null,
+          cancelledBy: staffId.toString(),
+          cancelledByName: currentUser?.name || currentUser?.fullName || 'Staff',
+          cancelledByRole: staffRole,
+          cancelledAt: cancelledAt,
+          reason: reason || 'Hủy bởi ' + staffRole
+        }
+      });
+      console.log(`📝 [Admin Cancel] Published cancellation log to schedule-service`);
+    } catch (logError) {
+      console.warn('⚠️ Failed to log cancellation to DayClosure:', logError.message);
     }
 
     // 🔥 1. Send email to patient if email exists

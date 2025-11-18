@@ -382,7 +382,12 @@ class AppointmentController {
         appointmentId,
         staffId,
         staffRole,
-        reason
+        reason,
+        {
+          userId: staffId,
+          name: req.user?.fullName || req.user?.name,
+          role: staffRole
+        }
       );
 
       console.log('✅ [adminCancelAppointment] Success');

@@ -334,7 +334,9 @@ async function getAllCancelledPatients(filters = {}) {
           cancelledAt: actualCancelledAt,
           cancelledDate: cancelledDate,
           cancelledReason: record.reason,
-          cancelledBy: record.closedBy?.userName || 'System',
+          cancelledBy: (record.closedBy?.userName && record.closedBy.userName !== 'System') 
+            ? record.closedBy.userName 
+            : 'Admin',
           operationType: record.operationType,
           emailSent: p.emailSent,
           
