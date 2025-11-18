@@ -1056,6 +1056,62 @@ exports.enableAllDaySlots = async (req, res) => {
   }
 };
 
+// 🔥 Log appointment cancellation from appointment-service
+exports.logAppointmentCancellation = async (req, res) => {
+  try {
+    const {
+      appointmentId,
+      appointmentCode,
+      appointmentDate,
+      slotIds,
+      startTime,
+      endTime,
+      patientInfo,
+      dentistId,
+      dentistName,
+      roomId,
+      roomName,
+      cancelledBy,
+      reason,
+      cancelledAt
+    } = req.body;
+    
+    // Validate required fields
+    if (!appointmentId || !appointmentDate || !cancelledBy) {
+      return res.status(400).json({
+        success: false,
+        message: 'appointmentId, appointmentDate và cancelledBy là bắt buộc'
+      });
+    }
+    
+    const slotService = require('../services/slot.service');
+    const result = await slotService.logAppointmentCancellation({
+      appointmentId,
+      appointmentCode,
+      appointmentDate,
+      slotIds: slotIds || [],
+      startTime,
+      endTime,
+      patientInfo,
+      dentistId,
+      dentistName,
+      roomId,
+      roomName,
+      cancelledBy,
+      reason,
+      cancelledAt: cancelledAt || new Date()
+    });
+    
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('[slotController] logAppointmentCancellation error:', error);
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getSlotById: exports.getSlotById,                                // 🆕 NEW
   assignStaffToSlots: exports.assignStaffToSlots,
@@ -1064,6 +1120,7 @@ module.exports = {
   toggleSlotsIsActive: exports.toggleSlotsIsActive,                // 🆕 NEW - Toggle isActive
   disableAllDaySlots: exports.disableAllDaySlots,                  // 🆕 NEW - Emergency closure
   enableAllDaySlots: exports.enableAllDaySlots,                    // 🆕 NEW - Reactivate slots
+  logAppointmentCancellation: exports.logAppointmentCancellation,  // 🔥 NEW - Log appointment cancellation
   updateSlotStaff: exports.updateSlotStaff,
   getSlotsByShiftAndDate: exports.getSlotsByShiftAndDate,
   getRoomCalendar: exports.getRoomCalendar,

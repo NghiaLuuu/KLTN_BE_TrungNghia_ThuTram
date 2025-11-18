@@ -275,9 +275,75 @@ async function startEventListeners() {
       
       console.log(`✅ [Event #${eventCounter}] Processing completed for ${event}\n`);
     });
+
+    // ⭐ Listen for appointment cancellation events
+    await rabbitmqClient.consumeQueue('payment_queue', async (message) => {
+      const { event, data } = message;
+      const timestamp = new Date().toISOString();
+      
+      console.log(`\n📨 [${timestamp}] Received from payment_queue: ${event}`);
+      
+      if (event === 'appointment_cancelled') {
+        const { 
+          appointmentId, 
+          paymentId, 
+          cancelledBy, 
+          cancelledByRole, 
+          cancelReason, 
+          cancelledAt 
+        } = data;
+
+        console.log('🔄 [Payment Service] Processing appointment_cancelled:', {
+          appointmentId,
+          paymentId,
+          cancelReason
+        });
+
+        try {
+          const { Payment, PaymentStatus } = require('./models/payment.model');
+
+          // Find payment by paymentId
+          const payment = await Payment.findById(paymentId);
+          
+          if (!payment) {
+            console.warn('⚠️ [Payment Service] Payment not found:', paymentId);
+            return;
+          }
+
+          // Check if payment can be cancelled
+          if (payment.status === PaymentStatus.CANCELLED) {
+            console.log('ℹ️ [Payment Service] Payment already cancelled:', payment.paymentCode);
+            return;
+          }
+
+          // Update payment status to cancelled
+          payment.status = PaymentStatus.CANCELLED;
+          payment.cancelledAt = cancelledAt || new Date();
+          payment.notes = `${payment.notes || ''}\n\nĐã hủy do appointment bị hủy bởi ${cancelledByRole}: ${cancelReason || 'Không rõ lý do'}`.trim();
+
+          await payment.save();
+
+          console.log('✅ [Payment Service] Payment cancelled:', {
+            paymentId: payment._id.toString(),
+            paymentCode: payment.paymentCode
+          });
+
+        } catch (error) {
+          console.error('❌ [Payment Service] Error cancelling payment:', {
+            error: error.message,
+            paymentId,
+            appointmentId,
+            stack: error.stack
+          });
+        }
+      } else {
+        console.warn(`⚠️ Unknown event in payment_queue: ${event}`);
+      }
+    });
     
     console.log('✅ RabbitMQ event listeners started');
     console.log('   - Listening on: payment_event_queue (async events)');
+    console.log('   - Listening on: payment_queue (cancellation events)');
   } catch (error) {
     console.error('❌ Failed to start event listeners:', error);
   }

@@ -316,6 +316,91 @@ class AppointmentController {
   }
 
   /**
+   * ✅ Request cancellation (for online patients only)
+   * Patient can request cancellation if appointment is >= 1 day away
+   */
+  async requestCancellation(req, res) {
+    try {
+      const { appointmentId } = req.params;
+      const { reason } = req.body;
+      const patientId = req.user?.userId || req.user?._id;
+
+      if (!patientId) {
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Unauthorized' 
+        });
+      }
+
+      const result = await appointmentService.requestCancellation(
+        appointmentId,
+        patientId,
+        reason
+      );
+
+      res.json({
+        success: true,
+        message: 'Yêu cầu hủy phiếu khám đã được gửi. Vui lòng chờ xác nhận từ phòng khám.',
+        data: result
+      });
+    } catch (error) {
+      console.error('requestCancellation error:', error);
+      res.status(400).json({ 
+        success: false, 
+        message: error.message 
+      });
+    }
+  }
+
+  /**
+   * ✅ Admin/Manager/Receptionist cancel appointment
+   * No time restrictions
+   */
+  async adminCancelAppointment(req, res) {
+    try {
+      const { appointmentId } = req.params;
+      const { reason } = req.body;
+      const staffId = req.user?.userId || req.user?._id;
+      const staffRole = req.user?.activeRole || req.user?.role; // ✅ Fix: Read activeRole from JWT token
+
+      console.log('🔍 [adminCancelAppointment] Request received:', {
+        appointmentId,
+        staffId,
+        staffRole,
+        reason: reason?.substring(0, 50)
+      });
+
+      if (!staffId || !staffRole) {
+        console.error('❌ [adminCancelAppointment] Missing auth info:', { staffId, staffRole, user: req.user });
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Unauthorized' 
+        });
+      }
+
+      const result = await appointmentService.adminCancelAppointment(
+        appointmentId,
+        staffId,
+        staffRole,
+        reason
+      );
+
+      console.log('✅ [adminCancelAppointment] Success');
+      res.json({
+        success: true,
+        message: 'Phiếu khám đã được hủy thành công',
+        data: result
+      });
+    } catch (error) {
+      console.error('❌ [adminCancelAppointment] error:', error);
+      res.status(400).json({ 
+        success: false, 
+        message: error.message 
+      });
+    }
+  }
+
+  /**
    * ✅ Get booking channel statistics (Online vs Offline)
    */
   async getBookingChannelStats(req, res) {

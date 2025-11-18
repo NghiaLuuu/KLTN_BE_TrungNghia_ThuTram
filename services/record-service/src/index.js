@@ -68,6 +68,46 @@ async function startEventListeners() {
         // Mark treatmentIndications[x].used = true
         const { handleAppointmentServiceBooked } = require('./utils/eventHandlers');
         await handleAppointmentServiceBooked(message);
+      } else if (message.event === 'delete_records_by_appointment') {
+        // ⭐ Handle delete_records_by_appointment from appointment-service
+        // Delete all records linked to cancelled appointment
+        try {
+          const { data } = message;
+          const { appointmentId, deletedBy, deletedByRole, reason, deletedAt } = data;
+          
+          console.log('🔄 [Record Service] Processing delete_records_by_appointment:', {
+            appointmentId,
+            deletedByRole,
+            reason
+          });
+
+          const Record = require('./models/record.model');
+
+          // Find all records for this appointment
+          const records = await Record.find({ appointmentId: appointmentId });
+
+          if (records.length === 0) {
+            console.log('ℹ️ [Record Service] No records found for appointment:', appointmentId);
+            return;
+          }
+
+          console.log(`📋 [Record Service] Found ${records.length} record(s) to delete`);
+
+          // Delete each record
+          for (const record of records) {
+            await Record.findByIdAndDelete(record._id);
+            console.log(`✅ [Record Service] Deleted record: ${record.recordCode} (ID: ${record._id})`);
+          }
+
+          console.log(`✅ [Record Service] Successfully deleted ${records.length} record(s) for appointment ${appointmentId}`);
+
+        } catch (error) {
+          console.error('❌ [Record Service] Error deleting records:', {
+            error: error.message,
+            appointmentId: message.data?.appointmentId,
+            stack: error.stack
+          });
+        }
       } else if (message.event === 'appointment.status_changed') {
         // 🔥 NEW: Handle appointment status changes from appointment-service
         // Emit socket to notify queue dashboard

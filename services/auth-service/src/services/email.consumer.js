@@ -199,6 +199,67 @@ Trân trọng,
   return { subject, text };
 };
 
+// 🆕 Email template for appointment cancelled by admin
+const createAppointmentCancelledByAdminEmail = (notification) => {
+  const { name, email, appointmentCode, appointmentInfo, cancelledBy, reason, cancelledAt } = notification;
+  
+  const date = formatDate(appointmentInfo.date);
+  const startTime = appointmentInfo.startTime;
+  const endTime = appointmentInfo.endTime;
+  const cancelDate = formatDate(cancelledAt);
+  const cancelTime = formatTime(cancelledAt);
+
+  const subject = '[THÔNG BÁO] Lịch Khám Đã Bị Hủy - Smile Dental';
+
+  const roomInfo = appointmentInfo.subroomName 
+    ? `${appointmentInfo.roomName} - ${appointmentInfo.subroomName}`
+    : appointmentInfo.roomName;
+
+  const serviceInfo = appointmentInfo.serviceAddOnName
+    ? `${appointmentInfo.serviceName} - ${appointmentInfo.serviceAddOnName}`
+    : appointmentInfo.serviceName;
+
+  const text = `
+Kính gửi ${name},
+
+Chúng tôi xin thông báo lịch khám của bạn tại Smile Dental đã bị hủy.
+
+📅 THÔNG TIN LỊCH KHÁM BỊ HỦY:
+- Mã lịch hẹn: ${appointmentCode}
+- Ngày khám: ${date}
+- Thời gian: ${startTime} - ${endTime}
+- Bác sĩ: ${appointmentInfo.dentistName}
+- Dịch vụ: ${serviceInfo}
+- Phòng khám: ${roomInfo}
+
+❗ THÔNG TIN HỦY LỊCH:
+- Hủy bởi: ${cancelledBy === 'admin' ? 'Quản trị viên' : cancelledBy === 'manager' ? 'Quản lý' : 'Lễ tân'}
+- Thời gian hủy: ${cancelDate} ${cancelTime}
+- Lý do: ${reason}
+
+🔄 HƯỚNG DẪN ĐẶT LỊCH MỚI:
+Quý khách vui lòng:
+1. Truy cập website: ${process.env.FRONTEND_URL || 'https://smiledental.com'}
+2. Đặt lại lịch khám trong thời gian phù hợp
+3. Hoặc liên hệ hotline: ${process.env.HOTLINE || '1900-xxxx'} để được hỗ trợ đặt lịch
+
+💰 HOÀN TIỀN (nếu đã thanh toán):
+Chúng tôi sẽ hoàn lại toàn bộ số tiền đã thanh toán trong vòng 3-5 ngày làm việc.
+
+📞 LIÊN HỆ HỖ TRỢ:
+- Hotline: ${process.env.HOTLINE || '1900-xxxx'}
+- Email: ${process.env.EMAIL_FROM}
+- Website: ${process.env.FRONTEND_URL || 'https://smiledental.com'}
+
+Chúng tôi chân thành xin lỗi vì sự bất tiện này và mong được phục vụ bạn trong tương lai.
+
+Trân trọng,
+Đội ngũ Smile Dental
+`;
+
+  return { subject, text };
+};
+
 // Message handler
 const handleEmailNotification = async (message) => {
   try {
@@ -297,6 +358,42 @@ const handleEmailNotification = async (message) => {
       } catch (emailError) {
         console.error(`❌ Failed to send reminder email:`, emailError.message);
         throw emailError; // Re-throw to nack the message
+      }
+    } else if (type === 'appointment_cancelled_by_admin' && Array.isArray(notifications)) {
+      // 🆕 Handle appointment cancelled by admin
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const notification of notifications) {
+        try {
+          const { email } = notification;
+          
+          if (!email) {
+            console.warn('⚠️ Notification missing email, skipping...');
+            failCount++;
+            continue;
+          }
+
+          const { subject, text } = createAppointmentCancelledByAdminEmail(notification);
+
+          await sendEmail(email, subject, text);
+          
+          console.log(`✅ Cancellation email sent to: ${email} for ${notification.appointmentCode}`);
+          successCount++;
+
+          // Add delay to avoid rate limits
+          await new Promise(resolve => setTimeout(resolve, 3000));
+
+        } catch (emailError) {
+          console.error(`❌ Failed to send cancellation email to ${notification.email}:`, emailError.message);
+          failCount++;
+        }
+      }
+
+      console.log(`📊 Cancellation email batch completed: ${successCount} success, ${failCount} failed`);
+      
+      if (metadata) {
+        console.log(`📝 Metadata: Appointment ${metadata.appointmentCode}, Action: ${metadata.action}`);
       }
     } else {
       console.warn(`⚠️ Unknown message type: ${type}`);

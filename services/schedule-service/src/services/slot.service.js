@@ -5029,6 +5029,127 @@ async function enableAllDaySlots(date, reason, currentUser) {
   }
 }
 
+/**
+ * 🔥 Log appointment cancellation to DayClosure for audit trail
+ * Called by appointment-service when admin cancels an appointment
+ */
+async function logAppointmentCancellation({
+  appointmentId,
+  appointmentCode,
+  appointmentDate,
+  slotIds,
+  startTime,
+  endTime,
+  patientInfo,
+  dentistId,
+  dentistName,
+  roomId,
+  roomName,
+  cancelledBy,
+  reason,
+  cancelledAt
+}) {
+  try {
+    const DayClosure = require('../models/dayClosure.model');
+    
+    console.log(`📝 [Log Cancellation] Creating DayClosure record for appointment ${appointmentCode}`);
+    
+    // Parse date to match format
+    const targetDate = new Date(appointmentDate);
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+    
+    // Check if there's an existing DayClosure record for this date with cancellations
+    let dayClosureRecord = await DayClosure.findOne({
+      dateFrom: { $lte: endOfDay },
+      dateTo: { $gte: startOfDay },
+      operationType: 'toggle_individual',
+      status: 'active'
+    });
+    
+    const cancelledAppointmentEntry = {
+      appointmentId,
+      appointmentDate: targetDate,
+      cancelledAt: cancelledAt || new Date(),
+      startTime: startTime,
+      endTime: endTime,
+      patientId: patientInfo?.patientId || null,
+      patientName: patientInfo?.name || 'N/A',
+      patientEmail: patientInfo?.email || null,
+      patientPhone: patientInfo?.phone || null,
+      roomId: roomId || null,
+      roomName: roomName || 'N/A',
+      dentists: dentistId ? [{
+        dentistId: dentistId,
+        dentistName: dentistName || 'N/A'
+      }] : [],
+      nurses: [],
+      emailSent: !!patientInfo?.email,
+      emailSentAt: patientInfo?.email ? new Date() : null
+    };
+    
+    if (dayClosureRecord) {
+      // Update existing record
+      console.log(`📋 Updating existing DayClosure record: ${dayClosureRecord._id}`);
+      
+      dayClosureRecord.cancelledAppointments.push(cancelledAppointmentEntry);
+      dayClosureRecord.stats.appointmentsCancelledCount = (dayClosureRecord.stats.appointmentsCancelledCount || 0) + 1;
+      dayClosureRecord.stats.emailsSentCount = (dayClosureRecord.stats.emailsSentCount || 0) + (patientInfo?.email ? 1 : 0);
+      
+      // Update reason if provided
+      if (reason && reason !== dayClosureRecord.reason) {
+        dayClosureRecord.reason = reason;
+      }
+      
+      await dayClosureRecord.save();
+      console.log(`✅ Updated DayClosure record with new cancellation`);
+    } else {
+      // Create new record
+      console.log(`🆕 Creating new DayClosure record for date ${appointmentDate}`);
+      
+      dayClosureRecord = new DayClosure({
+        operationType: 'toggle_individual',
+        action: 'disable',
+        dateFrom: startOfDay,
+        dateTo: endOfDay,
+        reason: reason || 'Hủy appointment',
+        closureType: 'other',
+        stats: {
+          totalSlotsDisabled: slotIds?.length || 0,
+          appointmentsCancelledCount: 1,
+          emailsSentCount: patientInfo?.email ? 1 : 0
+        },
+        affectedRooms: roomId ? [{
+          roomId,
+          roomName: roomName || 'N/A',
+          slotsDisabledCount: slotIds?.length || 0
+        }] : [],
+        cancelledAppointments: [cancelledAppointmentEntry],
+        closedBy: {
+          userId: cancelledBy.userId,
+          userName: cancelledBy.role || 'Staff',
+          userRole: cancelledBy.role || 'staff'
+        },
+        status: 'active'
+      });
+      
+      await dayClosureRecord.save();
+      console.log(`✅ Created new DayClosure record: ${dayClosureRecord._id}`);
+    }
+    
+    return {
+      success: true,
+      dayClosureId: dayClosureRecord._id,
+      message: 'Đã ghi nhận thông tin hủy appointment vào DayClosure'
+    };
+  } catch (error) {
+    console.error('❌ Error logging appointment cancellation:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   assignStaffToSlots,              // ⭐ NEW: Phân công theo slotIds
   assignStaffToSpecificSlots,      // Phân công cho specific slots
@@ -5038,6 +5159,7 @@ module.exports = {
   toggleSlotsIsActive,             // 🆕 Toggle isActive status of slots
   disableAllDaySlots,              // 🆕 Disable all slots in a day (emergency)
   enableAllDaySlots,               // 🆕 Enable all slots in a day (reactivate)
+  logAppointmentCancellation,      // 🔥 Log appointment cancellation to DayClosure
   updateSlotStaff,                 // Cập nhật nhân sự cho slots
   getSlotsByShiftAndDate,          // Lấy slots theo ca và ngày
   getRoomCalendar,                 // Lịch phòng
@@ -5051,5 +5173,7 @@ module.exports = {
   getAvailableShifts,              // Lấy danh sách ca làm việc
   checkStaffHasSchedule            // Kiểm tra nhân sự có lịch hay không
 };
+
+
 
 

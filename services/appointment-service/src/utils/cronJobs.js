@@ -164,18 +164,83 @@ function startReminderEmailCron() {
 }
 
 /**
+ * Auto mark no-show for confirmed appointments that are 1 day overdue
+ * Runs every 10 minutes
+ */
+function startNoShowCron() {
+  cron.schedule('*/10 * * * *', async () => {
+    try {
+      const now = new Date();
+      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+      // Find appointments with status 'confirmed' that are more than 1 day overdue
+      const appointments = await Appointment.find({
+        status: 'confirmed',
+        appointmentDate: { $lt: oneDayAgo }
+      }).select('_id appointmentCode appointmentDate startTime endTime patientInfo').lean();
+
+      // Filter by exact appointment time (appointmentDate + startTime + endTime)
+      const overdueAppointments = appointments.filter(apt => {
+        const [endHours, endMinutes] = apt.endTime.split(':').map(Number);
+        const appointmentEndTime = new Date(apt.appointmentDate);
+        appointmentEndTime.setHours(endHours, endMinutes, 0, 0);
+        
+        // Check if appointment end time + 1 day < now
+        const oneDayAfterEnd = new Date(appointmentEndTime.getTime() + 24 * 60 * 60 * 1000);
+        
+        return now > oneDayAfterEnd;
+      });
+
+      if (overdueAppointments.length === 0) {
+        return;
+      }
+
+      console.log(`⚠️ [No-Show] Found ${overdueAppointments.length} overdue confirmed appointments`);
+
+      // Update status to no-show
+      const appointmentIds = overdueAppointments.map(apt => apt._id);
+      const result = await Appointment.updateMany(
+        { _id: { $in: appointmentIds } },
+        { 
+          $set: { 
+            status: 'no-show',
+            updatedAt: now
+          } 
+        }
+      );
+
+      console.log(`✅ [No-Show] Marked ${result.modifiedCount} appointments as no-show:`);
+      overdueAppointments.forEach(apt => {
+        console.log(`   - ${apt.appointmentCode} (${apt.appointmentDate.toLocaleDateString()}) - ${apt.patientInfo?.name || 'N/A'}`);
+      });
+
+      // 🔥 Optional: Send notification/email about no-show (future enhancement)
+      // Can publish to RabbitMQ queue for email service to notify staff
+
+    } catch (error) {
+      console.error('❌ [No-Show] Cron error:', error.message);
+      console.error('Stack trace:', error.stack);
+    }
+  });
+
+  console.log('⏰ No-show check cron started (every 10 minutes)');
+}
+
+/**
  * Start essential cron jobs only
  * Note: Auto-progress and auto-complete removed (replaced by Socket.IO)
  */
 function startAllCronJobs() {
   startCleanupExpiredLocksCron();
   startReminderEmailCron();
-  console.log('✅ Essential cron jobs started (cleanup + reminder)');
+  startNoShowCron();
+  console.log('✅ Essential cron jobs started (cleanup + reminder + no-show)');
   console.log('ℹ️  Auto-progress and auto-complete now handled by Socket.IO events');
 }
 
 module.exports = {
   startAllCronJobs,
   startCleanupExpiredLocksCron,
-  startReminderEmailCron
+  startReminderEmailCron,
+  startNoShowCron
 };

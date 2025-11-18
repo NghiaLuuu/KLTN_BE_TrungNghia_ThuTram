@@ -789,24 +789,93 @@ async function startConsumer() {
           console.log(`✅ [Invoice Consumer] Created ${invoiceDetails.length} invoice detail(s) total`);
 
         } catch (error) {
-          console.error('❌ [Invoice Consumer] Error creating invoice for payment.success:', {
-            error: error.message,
-            paymentId,
-            recordId,
-            stack: error.stack
-          });
-          throw error; // Will trigger RabbitMQ retry
-        }
-      } else {
-        console.log('ℹ️ [Invoice Consumer] Unhandled event type:', message.event);
+        console.error('❌ [Invoice Consumer] Error creating invoice for payment.success:', {
+          error: error.message,
+          paymentId,
+          recordId,
+          stack: error.stack
+        });
+        throw error; // Will trigger RabbitMQ retry
       }
-    });
+    } else if (message.event === 'appointment_cancelled') {
+      // ✅ Handle appointment cancellation - update invoice and invoice details to cancelled
+      const { 
+        appointmentId, 
+        invoiceId, 
+        cancelledBy, 
+        cancelledByRole, 
+        cancelReason, 
+        cancelledAt 
+      } = message.data;
 
-    console.log('👂 [Invoice Consumer] Listening to invoice_queue...');
-  } catch (error) {
-    console.error('❌ [Invoice Consumer] Failed to start consumer:', error);
-    throw error;
-  }
+      console.log('🔄 [Invoice Consumer] Processing appointment_cancelled:', {
+        appointmentId,
+        invoiceId,
+        cancelReason
+      });
+
+      try {
+        const { Invoice } = require('../models/invoice.model');
+        const { InvoiceDetail } = require('../models/invoiceDetail.model');
+
+        // Find invoice by invoiceId
+        const invoice = await Invoice.findById(invoiceId);
+        
+        if (!invoice) {
+          console.warn('⚠️ [Invoice Consumer] Invoice not found:', invoiceId);
+          return;
+        }
+
+        // Check if invoice can be cancelled
+        if (invoice.status === 'cancelled') {
+          console.log('ℹ️ [Invoice Consumer] Invoice already cancelled:', invoice.invoiceNumber);
+          return;
+        }
+
+        // Update invoice status to cancelled
+        invoice.status = 'cancelled';
+        invoice.cancelReason = cancelReason || 'Appointment cancelled';
+        invoice.cancelledBy = cancelledBy;
+        invoice.cancelledAt = cancelledAt || new Date();
+        invoice.notes = `${invoice.notes || ''}\n\nĐã hủy bởi ${cancelledByRole}: ${cancelReason || 'Không rõ lý do'}`.trim();
+
+        await invoice.save();
+
+        console.log('✅ [Invoice Consumer] Invoice cancelled:', {
+          invoiceId: invoice._id.toString(),
+          invoiceNumber: invoice.invoiceNumber
+        });
+
+        // Update all invoice details to cancelled
+        const invoiceDetails = await InvoiceDetail.find({ 
+          invoiceId: invoice._id,
+          isActive: true 
+        });
+
+        for (const detail of invoiceDetails) {
+          detail.status = 'cancelled';
+          await detail.save();
+        }
+
+        console.log(`✅ [Invoice Consumer] Updated ${invoiceDetails.length} invoice detail(s) to cancelled`);
+
+      } catch (error) {
+        console.error('❌ [Invoice Consumer] Error cancelling invoice:', {
+          error: error.message,
+          invoiceId,
+          appointmentId,
+          stack: error.stack
+        });
+        throw error;
+      }
+    } else {
+      console.log('ℹ️ [Invoice Consumer] Unhandled event type:', message.event);
+    }
+  });
+
+  console.log('👂 [Invoice Consumer] Listening to invoice_queue...');
+} catch (error) {
+  console.error('❌ [Invoice Consumer] Failed to start consumer:', error);
+  throw error;
 }
-
-module.exports = { startConsumer };
+}module.exports = { startConsumer };

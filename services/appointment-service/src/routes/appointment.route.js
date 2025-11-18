@@ -121,6 +121,19 @@ router.post('/:id/cancel',
   appointmentController.cancel
 );
 
+// ⭐ Request cancellation (for online patients only)
+router.post('/:appointmentId/request-cancellation',
+  authenticate,
+  appointmentController.requestCancellation
+);
+
+// ⭐ Admin/Manager/Receptionist cancel appointment (no time restrictions)
+router.post('/:appointmentId/admin-cancel',
+  authenticate,
+  authorize(['manager', 'admin', 'receptionist']),
+  appointmentController.adminCancelAppointment
+);
+
 // ============================================
 // 🔥 QUEUE MANAGEMENT ROUTES
 // ============================================

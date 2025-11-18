@@ -71,6 +71,9 @@ router.post('/enable-all-day', authMiddleware, slotController.enableAllDaySlots)
 router.post('/disable', authMiddleware, slotController.disableSlots);
 router.post('/enable', authMiddleware, slotController.enableSlots);
 
+// 🆕 Log appointment cancellation (for DayClosure tracking) - internal call from appointment-service
+router.post('/log-cancellation', slotController.logAppointmentCancellation);
+
 // 🆕 Get slot by ID (for inter-service communication)
 // ⚠️ IMPORTANT: This route MUST be last because it's a catch-all pattern
 // Place all specific routes ABOVE this line

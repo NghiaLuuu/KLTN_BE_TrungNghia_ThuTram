@@ -775,6 +775,268 @@ class AppointmentService {
     return appointment;
   }
   
+  /**
+   * Request cancellation for online appointments
+   * Patient can request if appointment is >= 1 day away
+   */
+  async requestCancellation(appointmentId, patientId, reason) {
+    const appointment = await Appointment.findById(appointmentId);
+    
+    if (!appointment) {
+      throw new Error('Không tìm thấy phiếu khám');
+    }
+    
+    // Check if patient owns this appointment
+    if (appointment.patientId.toString() !== patientId.toString()) {
+      throw new Error('Bạn không có quyền yêu cầu hủy phiếu khám này');
+    }
+    
+    // Check if can request cancellation
+    const canRequest = appointment.canRequestCancellation();
+    if (!canRequest.canRequest) {
+      throw new Error(canRequest.reason);
+    }
+    
+    // Update status to pending-cancellation and save reason to notes
+    appointment.status = 'pending-cancellation';
+    appointment.cancellationRequestedAt = new Date();
+    appointment.cancellationRequestedBy = patientId;
+    appointment.cancellationRequestReason = reason || 'Không có lý do';
+    appointment.notes = reason || 'Không có lý do'; // ✅ Save reason to notes field
+    await appointment.save();
+    
+    // 🔥 Publish event for notification
+    try {
+      await publishToQueue('appointment_queue', {
+        event: 'cancellation_requested',
+        data: {
+          appointmentId: appointment._id,
+          appointmentCode: appointment.appointmentCode,
+          patientName: appointment.patientInfo?.name,
+          patientPhone: appointment.patientInfo?.phone,
+          appointmentDate: appointment.appointmentDate,
+          startTime: appointment.startTime,
+          reason: reason || 'Không có lý do'
+        }
+      });
+      
+      console.log(`📡 [Request Cancellation] Published event for ${appointment.appointmentCode}`);
+    } catch (error) {
+      console.warn('⚠️ Failed to publish cancellation request event:', error.message);
+    }
+    
+    return appointment;
+  }
+
+  /**
+   * Admin/Manager/Receptionist cancel appointment
+   * No time restrictions - can cancel anytime
+   */
+  async adminCancelAppointment(appointmentId, staffId, staffRole, reason) {
+    const appointment = await Appointment.findById(appointmentId)
+      .populate('patientId', 'email fullName name phoneNumber');
+    
+    if (!appointment) {
+      throw new Error('Không tìm thấy phiếu khám');
+    }
+    
+    console.log('🔍 [adminCancelAppointment] Appointment data:', {
+      _id: appointment._id,
+      appointmentCode: appointment.appointmentCode,
+      status: appointment.status,
+      patientId: appointment.patientId ? {
+        _id: appointment.patientId._id,
+        email: appointment.patientId.email,
+        fullName: appointment.patientId.fullName
+      } : 'NULL',
+      patientInfo: appointment.patientInfo
+    });
+    
+    // Check if appointment can be cancelled
+    if (appointment.status === 'cancelled') {
+      throw new Error('Phiếu khám đã bị hủy trước đó');
+    }
+    
+    if (appointment.status === 'completed') {
+      throw new Error('Không thể hủy phiếu khám đã hoàn thành');
+    }
+
+    // 🔥 Get patient email for notification
+    let patientEmail = null;
+    let patientName = null;
+    let patientPhone = null;
+    let patientIdStr = null;
+    
+    // Try to get from populated patientId first
+    if (appointment.patientId) {
+      // Check if patientId is populated (object) or just an ObjectId
+      if (typeof appointment.patientId === 'object' && appointment.patientId._id) {
+        patientIdStr = appointment.patientId._id.toString();
+        patientEmail = appointment.patientId.email;
+        patientName = appointment.patientId.fullName || appointment.patientId.name;
+        patientPhone = appointment.patientId.phoneNumber;
+      } else {
+        // Just an ObjectId, not populated
+        patientIdStr = appointment.patientId.toString();
+      }
+    }
+    
+    // Fallback to patientInfo
+    if (!patientEmail && appointment.patientInfo?.email) {
+      patientEmail = appointment.patientInfo.email;
+    }
+    if (!patientName && appointment.patientInfo?.name) {
+      patientName = appointment.patientInfo.name;
+    }
+    if (!patientPhone && appointment.patientInfo?.phone) {
+      patientPhone = appointment.patientInfo.phone;
+    }
+    
+    console.log('📧 [adminCancelAppointment] Extracted patient info:', {
+      patientEmail,
+      patientName,
+      patientPhone,
+      patientIdStr
+    });
+    
+    // Update status to cancelled
+    const cancelledAt = new Date();
+    appointment.status = 'cancelled';
+    appointment.cancellationRequestedAt = cancelledAt;
+    appointment.cancellationRequestedBy = staffId;
+    appointment.cancellationRequestReason = reason || 'Hủy bởi ' + staffRole;
+    appointment.cancelledAt = cancelledAt;
+    appointment.cancelledBy = staffId;
+    appointment.cancellationReason = reason || 'Hủy bởi ' + staffRole;
+    
+    await appointment.save();
+    
+    const appointmentIdStr = appointment._id.toString();
+    const appointmentCode = appointment.appointmentCode;
+    
+    console.log(`✅ [Admin Cancel] Appointment ${appointmentCode} cancelled by ${staffRole}`);
+
+    // 🔥 1. Send email to patient if email exists
+    if (patientEmail) {
+      try {
+        await publishToQueue('email_notifications', {
+          type: 'appointment_cancelled_by_admin',
+          notifications: [{
+            email: patientEmail,
+            name: patientName || 'Bệnh nhân',
+            role: 'patient',
+            appointmentCode: appointmentCode,
+            appointmentInfo: {
+              date: appointment.appointmentDate,
+              startTime: appointment.startTime,
+              endTime: appointment.endTime,
+              serviceName: appointment.serviceName,
+              serviceAddOnName: appointment.serviceAddOnName,
+              dentistName: appointment.dentistName,
+              roomName: appointment.roomName
+            },
+            cancelledBy: staffRole,
+            reason: reason || 'Không rõ lý do',
+            cancelledAt: cancelledAt
+          }],
+          metadata: {
+            appointmentId: appointmentIdStr,
+            appointmentCode: appointmentCode,
+            action: 'cancelled_by_admin'
+          }
+        });
+        console.log(`📧 [Admin Cancel] Queued email to patient: ${patientEmail}`);
+      } catch (emailError) {
+        console.warn('⚠️ Failed to queue patient email:', emailError.message);
+      }
+    } else {
+      console.warn(`⚠️ [Admin Cancel] No patient email found for appointment ${appointmentCode}`);
+    }
+
+    // 🔥 2. Cancel Invoice and InvoiceDetails if exists
+    if (appointment.invoiceId) {
+      try {
+        await publishToQueue('invoice_queue', {
+          event: 'appointment_cancelled',
+          data: {
+            appointmentId: appointmentIdStr,
+            invoiceId: appointment.invoiceId.toString(),
+            cancelledBy: staffId,
+            cancelledByRole: staffRole,
+            cancelReason: reason || 'Hủy bởi ' + staffRole,
+            cancelledAt: cancelledAt
+          }
+        });
+        console.log(`📡 [Admin Cancel] Published invoice cancellation event for invoice ${appointment.invoiceId}`);
+      } catch (error) {
+        console.warn('⚠️ Failed to publish invoice cancellation event:', error.message);
+      }
+    }
+    
+    // 🔥 3. Cancel Payment if exists
+    if (appointment.paymentId) {
+      try {
+        await publishToQueue('payment_queue', {
+          event: 'appointment_cancelled',
+          data: {
+            appointmentId: appointmentIdStr,
+            paymentId: appointment.paymentId.toString(),
+            cancelledBy: staffId,
+            cancelledByRole: staffRole,
+            cancelReason: reason || 'Hủy bởi ' + staffRole,
+            cancelledAt: cancelledAt
+          }
+        });
+        console.log(`📡 [Admin Cancel] Published payment cancellation event for payment ${appointment.paymentId}`);
+      } catch (error) {
+        console.warn('⚠️ Failed to publish payment cancellation event:', error.message);
+      }
+    }
+    
+    // 🔥 4. Delete Records linked to this appointment
+    try {
+      await publishToQueue('record_queue', {
+        event: 'delete_records_by_appointment',
+        data: {
+          appointmentId: appointmentIdStr,
+          deletedBy: staffId,
+          deletedByRole: staffRole,
+          reason: 'Appointment cancelled by ' + staffRole,
+          deletedAt: cancelledAt
+        }
+      });
+      console.log(`📡 [Admin Cancel] Published record deletion event for appointment ${appointmentIdStr}`);
+    } catch (error) {
+      console.warn('⚠️ Failed to publish record deletion event:', error.message);
+    }
+
+    // Note: DayClosure logging removed - only for bulk clinic-initiated slot cancellations
+    
+    // 🔥 5. Publish general appointment cancellation event for notifications
+    try {
+      await publishToQueue('appointment_queue', {
+        event: 'admin_cancelled',
+        data: {
+          appointmentId: appointmentIdStr,
+          appointmentCode: appointmentCode,
+          patientName: patientName,
+          patientPhone: patientPhone,
+          patientEmail: patientEmail,
+          appointmentDate: appointment.appointmentDate,
+          startTime: appointment.startTime,
+          cancelledBy: staffRole,
+          reason: reason || 'Hủy bởi ' + staffRole
+        }
+      });
+      
+      console.log(`📡 [Admin Cancel] Published notification event for ${appointmentCode} by ${staffRole}`);
+    } catch (error) {
+      console.warn('⚠️ Failed to publish admin cancellation notification event:', error.message);
+    }
+    
+    return appointment;
+  }
+  
   async cancel(appointmentId, userId, reason) {
     const appointment = await Appointment.findById(appointmentId);
     if (!appointment) throw new Error('Appointment not found');

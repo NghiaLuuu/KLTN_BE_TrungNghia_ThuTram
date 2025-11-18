@@ -173,7 +173,7 @@ const appointmentSchema = new Schema({
   // Status
   status: {
     type: String,
-    enum: ['confirmed', 'checked-in', 'in-progress', 'completed', 'cancelled', 'no-show'],
+    enum: ['confirmed', 'pending-cancellation', 'checked-in', 'in-progress', 'completed', 'cancelled', 'no-show'],
     default: 'confirmed'
   },
   
@@ -226,6 +226,17 @@ const appointmentSchema = new Schema({
     type: mongoose.Schema.Types.ObjectId
   },
   cancellationReason: {
+    type: String,
+    trim: true,
+    maxlength: 300
+  },
+  cancellationRequestedAt: {
+    type: Date
+  },
+  cancellationRequestedBy: {
+    type: mongoose.Schema.Types.ObjectId
+  },
+  cancellationRequestReason: {
     type: String,
     trim: true,
     maxlength: 300
@@ -344,6 +355,34 @@ appointmentSchema.statics.findByDentist = function(dentistId, filters = {}) {
 // Instance: Check if can be cancelled
 appointmentSchema.methods.canBeCancelled = function() {
   return this.status === 'confirmed' && this.isUpcoming;
+};
+
+// Instance: Check if can request cancellation (for online patients)
+appointmentSchema.methods.canRequestCancellation = function() {
+  // Must be confirmed status and booked online by patient
+  if (this.status !== 'confirmed' || this.bookedByRole !== 'patient') {
+    return { canRequest: false, reason: 'Chỉ bệnh nhân đặt online mới có thể yêu cầu hủy' };
+  }
+  
+  // Calculate time difference
+  const now = new Date();
+  const appointmentDateTime = new Date(this.appointmentDate);
+  
+  // Parse startTime (format: "HH:MM")
+  const [hours, minutes] = this.startTime.split(':').map(Number);
+  appointmentDateTime.setHours(hours, minutes, 0, 0);
+  
+  const timeDiff = appointmentDateTime - now;
+  const oneDayInMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+  
+  if (timeDiff < oneDayInMs) {
+    return { 
+      canRequest: false, 
+      reason: 'Chỉ có thể yêu cầu hủy phiếu khám trước thời gian khám ít nhất 1 ngày' 
+    };
+  }
+  
+  return { canRequest: true };
 };
 
 // Instance: Check if can check-in
