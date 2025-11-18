@@ -1313,7 +1313,9 @@ class ChatbotController {
       // Format date list
       let dateMessage = `✅ Đã chọn nha sĩ: **${selectedDentist.fullName}**\n\n📅 **Ngày làm việc có lịch trống:**\n\n`;
       
-      workingDates.slice(0, 14).forEach((dateItem, idx) => {
+      // Hiển thị tối đa 30 ngày thay vì 14
+      const maxDates = Math.min(workingDates.length, 30);
+      workingDates.slice(0, maxDates).forEach((dateItem, idx) => {
         // Handle both string format and object format
         const dateStr = typeof dateItem === 'string' ? dateItem : (dateItem.date || dateItem);
         const date = new Date(dateStr);
@@ -1323,8 +1325,8 @@ class ChatbotController {
         dateMessage += `${idx + 1}. ${dayName}, ${dateFormatted}\n`;
       });
       
-      if (workingDates.length > 14) {
-        dateMessage += `\n... và ${workingDates.length - 14} ngày khác.\n`;
+      if (workingDates.length > maxDates) {
+        dateMessage += `\n... và ${workingDates.length - maxDates} ngày khác.\n`;
       }
       
       dateMessage += '\n💡 Chọn ngày (1, 2, 3...) hoặc gõ ngày theo định dạng "DD/MM/YYYY"';
@@ -1470,7 +1472,9 @@ class ChatbotController {
       
       let slotMessage = `✅ Đã chọn ngày: **${dateFormatted}**\n\n🕐 **Khung giờ trống:**\n\n`;
       
-      slotGroups.slice(0, 12).forEach((group, idx) => {
+      // Hiển thị tối đa 50 slots thay vì 12
+      const maxSlots = Math.min(slotGroups.length, 50);
+      slotGroups.slice(0, maxSlots).forEach((group, idx) => {
         // Format time properly - handle both string and Date object
         let startTime = group.startTime;
         let endTime = group.endTime;
@@ -1496,8 +1500,8 @@ class ChatbotController {
         slotMessage += `${idx + 1}. ${startTime} - ${endTime}\n`;
       });
       
-      if (slotGroups.length > 12) {
-        slotMessage += `\n... và ${slotGroups.length - 12} khung giờ khác.\n`;
+      if (slotGroups.length > maxSlots) {
+        slotMessage += `\n... và ${slotGroups.length - maxSlots} khung giờ khác.\n`;
       }
       
       slotMessage += '\n💡 Chọn khung giờ (1, 2, 3...)';
