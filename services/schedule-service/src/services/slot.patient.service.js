@@ -388,6 +388,7 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
     const config = await ScheduleConfig.findOne();
     const maxBookingDays = config?.maxBookingDays || 30;
     const slotDuration = config?.slotDurationMinutes || 15;
+
     
     // Calculate date range
     const now = new Date();

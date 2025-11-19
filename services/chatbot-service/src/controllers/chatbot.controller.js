@@ -1300,9 +1300,16 @@ class ChatbotController {
       
       console.log('📦 Working dates response:', datesResponse.data);
       
-      // Extract working dates array from response
+      // Extract working dates array and maxBookingDays from response
       let workingDates = [];
+      let maxBookingDays = 30; // Default fallback
+      
       if (datesResponse.data.success && datesResponse.data.data) {
+        // Extract maxBookingDays from response
+        if (datesResponse.data.data.maxBookingDays) {
+          maxBookingDays = datesResponse.data.data.maxBookingDays;
+        }
+        
         // Check if data contains workingDates array or is directly an array
         if (datesResponse.data.data.workingDates && Array.isArray(datesResponse.data.data.workingDates)) {
           workingDates = datesResponse.data.data.workingDates;
@@ -1327,8 +1334,8 @@ class ChatbotController {
       // Format date list
       let dateMessage = `✅ Đã chọn nha sĩ: **${selectedDentist.fullName}**\n\n📅 **Ngày làm việc có lịch trống:**\n\n`;
       
-      // Hiển thị tối đa 30 ngày thay vì 14
-      const maxDates = Math.min(workingDates.length, 30);
+      // Hiển thị tất cả ngày dựa vào maxBookingDays từ scheduleConfig
+      const maxDates = Math.min(workingDates.length, maxBookingDays);
       workingDates.slice(0, maxDates).forEach((dateItem, idx) => {
         // Handle both string format and object format
         const dateStr = typeof dateItem === 'string' ? dateItem : (dateItem.date || dateItem);
