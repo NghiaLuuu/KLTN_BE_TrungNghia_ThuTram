@@ -1272,6 +1272,11 @@ async function generateSlotsForShiftAllDays({
   let totalSlotsGenerated = 0;
   
   while (currentDayVN.isSameOrBefore(endDayVN, 'day')) {
+    // 🚨 SAFETY: Prevent infinite loop
+    if (dayCount > 400) {
+      console.error('🚨 SAFETY LIMIT: Processed over 400 days in generateSlotsForShiftAllDays!');
+      break;
+    }
     // 🔧 FIX: Bỏ qua các ngày <= hôm nay
     if (currentDayVN.isSameOrBefore(today, 'day')) {
       skippedPastDays++;
@@ -3264,9 +3269,19 @@ async function generateSlotsCore(scheduleId, subRoomId, selectedShifts, slotDura
 
   let skippedPastDays = 0; // Track số ngày quá khứ bị skip
   let currentDayVN = startDayVN.clone();
+  const processedDates = new Set(); // ✅ Fast duplicate detection
+  let loopCount = 0;
 
   // Loop through each day in Vietnam timezone
   while (currentDayVN.isSameOrBefore(endDayVN, 'day')) {
+    loopCount++;
+    
+    // 🚨 SAFETY: Prevent infinite loop
+    if (loopCount > 400) {
+      console.error('🚨 SAFETY LIMIT: Processed over 400 iterations in generateSlotsCore!');
+      break;
+    }
+    
     const dayString = currentDayVN.format('YYYY-MM-DD'); // YYYY-MM-DD format
     
     // 🔧 FIX: Bỏ qua các ngày <= hôm nay (quá khứ và hiện tại)
@@ -3279,11 +3294,12 @@ async function generateSlotsCore(scheduleId, subRoomId, selectedShifts, slotDura
       continue; // Bỏ qua ngày quá khứ/hiện tại
     }
     
-    // 🔍 DEBUG: Phát hiện duplicate trong generateSlotsCore
-    if (slots.filter(s => dayjs(s.date).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD') === dayString).length > 0) {
+    // 🔍 DEBUG: Fast duplicate detection
+    if (processedDates.has(dayString)) {
       console.error(`🚨 BUG DETECTED [generateSlotsCore]: Date ${dayString} already processed! This will create duplicate slots!`);
       break; // Dừng lại để tránh duplicate
     }
+    processedDates.add(dayString);
     
     // 🔹 Skip holidays - don't create slots for holidays
     const isHolidayDay = await isHoliday(new Date(dayString + 'T00:00:00.000Z'));
@@ -6490,7 +6506,6 @@ async function generateSlotsForShift({
 
   console.log(`📅 generateSlotsForShift - Shift: ${shiftName}, Start: ${shiftStart}, End: ${shiftEnd}, Duration: ${slotDuration}min`);
   console.log(`📅 Date range: ${scheduleStartDate.toISOString()} to ${scheduleEndDate.toISOString()}`);
-  console.log(`📅 Holiday snapshot:`, holidaySnapshot);
 
   const slots = [];
   
@@ -6500,17 +6515,23 @@ async function generateSlotsForShift({
   const endDayVN = dayjs(scheduleEndDate).tz('Asia/Ho_Chi_Minh').endOf('day');
   const today = dayjs().tz('Asia/Ho_Chi_Minh').startOf('day');
   
-  console.log(`🔍 Start day VN: ${startDayVN.format('DD/MM/YYYY')}, UTC: ${scheduleStartDate.toISOString()}`);
-  console.log(`🔍 End day VN: ${endDayVN.format('DD/MM/YYYY')}, UTC: ${scheduleEndDate.toISOString()}`);
+  console.log(`🔍 Start day VN: ${startDayVN.format('DD/MM/YYYY')}, End day VN: ${endDayVN.format('DD/MM/YYYY')}, Today: ${today.format('DD/MM/YYYY')}`);
   
   let skippedDays = 0;
   let skippedPastDays = 0;
   let processedDays = 0;
+  const processedDates = new Set(); // ✅ Track processed dates for fast duplicate check
   
   let currentDayVN = startDayVN.clone();
   
   while (currentDayVN.isSameOrBefore(endDayVN, 'day')) {
     processedDays++;
+    
+    // 🚨 SAFETY: Prevent infinite loop
+    if (processedDays > 400) {
+      console.error('🚨 SAFETY LIMIT: Processed over 400 days, stopping to prevent infinite loop!');
+      break;
+    }
     
     const dateStr = currentDayVN.format('YYYY-MM-DD');
     
@@ -6524,11 +6545,12 @@ async function generateSlotsForShift({
       continue; // Bỏ qua ngày quá khứ/hiện tại
     }
     
-    // 🔍 DEBUG: Log ngày đang xử lý để phát hiện duplicate
-    if (slots.filter(s => dayjs(s.date).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD') === dateStr).length > 0) {
+    // 🔍 DEBUG: Fast duplicate detection using Set
+    if (processedDates.has(dateStr)) {
       console.error(`🚨 BUG DETECTED: Date ${dateStr} already processed! This will create duplicate slots!`);
       break; // Dừng lại để tránh duplicate
     }
+    processedDates.add(dateStr);
     
     // 🆕 Kiểm tra holiday - bỏ qua ngày nghỉ
     const currentDateForHolidayCheck = currentDayVN.toDate();
