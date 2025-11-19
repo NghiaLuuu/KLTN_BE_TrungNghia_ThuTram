@@ -6501,16 +6501,23 @@ async function generateSlotsForShift({
   while (currentDate <= endDate) {
     processedDays++;
     
+    const dateStr = currentDate.toISOString().split('T')[0];
+    
     // 🔧 FIX: Bỏ qua các ngày <= hôm nay (quá khứ và hiện tại)
     const currentDayjs = dayjs(currentDate).tz('Asia/Ho_Chi_Minh').startOf('day');
     if (currentDayjs.isSameOrBefore(today, 'day')) {
       skippedPastDays++;
-      const dateStr = currentDate.toISOString().split('T')[0];
       if (skippedPastDays === 1) {
         console.log(`⏭️  Skipping past/current dates (started from ${dateStr})...`);
       }
       currentDate.setUTCDate(currentDate.getUTCDate() + 1);
       continue; // Bỏ qua ngày quá khứ/hiện tại
+    }
+    
+    // 🔍 DEBUG: Log ngày đang xử lý để phát hiện duplicate
+    if (slots.filter(s => s.date.toISOString().split('T')[0] === dateStr).length > 0) {
+      console.error(`🚨 BUG DETECTED: Date ${dateStr} already processed! This will create duplicate slots!`);
+      break; // Dừng lại để tránh duplicate
     }
     
     // 🆕 Kiểm tra holiday - bỏ qua ngày nghỉ
@@ -6520,7 +6527,6 @@ async function generateSlotsForShift({
     
     if (isHolidayDay) {
       skippedDays++;
-      const dateStr = currentDate.toISOString().split('T')[0];
       console.log(`⏭️  Skipping holiday: ${dateStr}`);
       // ✅ FIX: Sử dụng setUTCDate để tăng ngày trong UTC
       currentDate.setUTCDate(currentDate.getUTCDate() + 1);
