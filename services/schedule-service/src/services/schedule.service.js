@@ -1255,37 +1255,37 @@ async function generateSlotsForShiftAllDays({
   scheduleEndDate
 }) {
   const slots = [];
-  const currentDate = new Date(scheduleStartDate);
-  const endDate = new Date(scheduleEndDate);
   
   console.log(`      🔧 generateSlotsForShiftAllDays: ${shiftName}`);
   console.log(`      📆 Date range: ${scheduleStartDate} to ${scheduleEndDate}`);
   console.log(`      ⏰ Shift time: ${shiftStart} - ${shiftEnd}`);
   console.log(`      ⏱️ Slot duration: ${slotDuration} minutes`);
   
-  // 🔧 FIX: Skip past dates logic
+  // ✅ FIX: Dùng dayjs để loop (VN timezone)
+  const startDayVN = dayjs(scheduleStartDate).tz('Asia/Ho_Chi_Minh').startOf('day');
+  const endDayVN = dayjs(scheduleEndDate).tz('Asia/Ho_Chi_Minh').startOf('day');
   const today = dayjs().tz('Asia/Ho_Chi_Minh').startOf('day');
-  let skippedPastDays = 0;
   
+  let currentDayVN = startDayVN.clone();
+  let skippedPastDays = 0;
   let dayCount = 0;
   let totalSlotsGenerated = 0;
   
-  while (currentDate <= endDate) {
+  while (currentDayVN.isSameOrBefore(endDayVN, 'day')) {
     // 🔧 FIX: Bỏ qua các ngày <= hôm nay
-    const currentDayjs = dayjs(currentDate).tz('Asia/Ho_Chi_Minh').startOf('day');
-    if (currentDayjs.isSameOrBefore(today, 'day')) {
+    if (currentDayVN.isSameOrBefore(today, 'day')) {
       skippedPastDays++;
       if (skippedPastDays === 1) {
-        const dateStr = currentDate.toISOString().split('T')[0];
+        const dateStr = currentDayVN.format('YYYY-MM-DD');
         console.log(`      ⏭️  [generateSlotsForShiftAllDays] Skipping past/current dates (started from ${dateStr})...`);
       }
-      currentDate.setDate(currentDate.getDate() + 1);
+      currentDayVN = currentDayVN.add(1, 'day');
       continue; // Bỏ qua ngày quá khứ/hiện tại
     }
     
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth() + 1;
-    const day = currentDate.getDate();
+    const year = currentDayVN.year();
+    const month = currentDayVN.month() + 1;
+    const day = currentDayVN.date();
     
     // Parse shift times (format: "HH:mm")
     const [startHour, startMin] = shiftStart.split(':').map(Number);
@@ -1310,7 +1310,7 @@ async function generateSlotsForShiftAllDays({
         shiftName,
         startTime: new Date(slotStartTime),
         endTime: new Date(slotEndTime),
-        date: new Date(Date.UTC(year, month - 1, day, -7, 0, 0, 0)), // Midnight VN time
+        date: new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0)), // ✅ Midnight UTC (for consistent date storage)
         duration: slotDuration, // 🔧 FIX: Dùng slotDuration thay vì effectiveDuration
         status: 'available'
       });
@@ -1322,8 +1322,8 @@ async function generateSlotsForShiftAllDays({
     
     dayCount++;
     
-    // Move to next day
-    currentDate.setDate(currentDate.getDate() + 1);
+    // ✅ FIX: Move to next day using dayjs
+    currentDayVN = currentDayVN.add(1, 'day');
   }
   
   if (skippedPastDays > 0) {
@@ -3254,39 +3254,42 @@ async function generateSlotsCore(scheduleId, subRoomId, selectedShifts, slotDura
   }
 
   const slots = [];
-  const start = new Date(startDate);
-  const end = new Date(endDate);
   
-  // 🔧 FIX: Skip past dates logic
+  // ✅ FIX: Dùng dayjs để loop (VN timezone)
+  const startDayVN = dayjs(startDate).tz('Asia/Ho_Chi_Minh').startOf('day');
+  const endDayVN = dayjs(endDate).tz('Asia/Ho_Chi_Minh').startOf('day');
   const today = dayjs().tz('Asia/Ho_Chi_Minh').startOf('day');
-  const tomorrow = today.add(1, 'day');
-  
-  // Convert to Vietnam timezone for date calculations
-  const vnStart = new Date(start.getTime() + 7 * 60 * 60 * 1000);
-  const vnEnd = new Date(end.getTime() + 7 * 60 * 60 * 1000);
-  const vnNow = new Date(new Date().getTime() + 7 * 60 * 60 * 1000);
-  const minStart = new Date(vnNow.getTime() + 5 * 60000); // start after 5 minutes
+  const now = dayjs().tz('Asia/Ho_Chi_Minh');
+  const minStart = now.add(5, 'minute'); // start after 5 minutes
 
   let skippedPastDays = 0; // Track số ngày quá khứ bị skip
+  let currentDayVN = startDayVN.clone();
 
   // Loop through each day in Vietnam timezone
-  for (let d = new Date(vnStart); d <= vnEnd; d.setDate(d.getDate() + 1)) {
-    const dayString = d.toISOString().split('T')[0]; // YYYY-MM-DD format
+  while (currentDayVN.isSameOrBefore(endDayVN, 'day')) {
+    const dayString = currentDayVN.format('YYYY-MM-DD'); // YYYY-MM-DD format
     
     // 🔧 FIX: Bỏ qua các ngày <= hôm nay (quá khứ và hiện tại)
-    const currentDayjs = dayjs(dayString).tz('Asia/Ho_Chi_Minh').startOf('day');
-    if (currentDayjs.isSameOrBefore(today, 'day')) {
+    if (currentDayVN.isSameOrBefore(today, 'day')) {
       skippedPastDays++;
       if (skippedPastDays === 1) {
         console.log(`⏭️  [generateSlotsCore] Skipping past/current dates (started from ${dayString})...`);
       }
+      currentDayVN = currentDayVN.add(1, 'day');
       continue; // Bỏ qua ngày quá khứ/hiện tại
+    }
+    
+    // 🔍 DEBUG: Phát hiện duplicate trong generateSlotsCore
+    if (slots.filter(s => dayjs(s.date).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD') === dayString).length > 0) {
+      console.error(`🚨 BUG DETECTED [generateSlotsCore]: Date ${dayString} already processed! This will create duplicate slots!`);
+      break; // Dừng lại để tránh duplicate
     }
     
     // 🔹 Skip holidays - don't create slots for holidays
     const isHolidayDay = await isHoliday(new Date(dayString + 'T00:00:00.000Z'));
     if (isHolidayDay) {
       console.log(`📅 Skipping holiday: ${dayString}`);
+      currentDayVN = currentDayVN.add(1, 'day');
       continue;
     }
     
@@ -3294,30 +3297,27 @@ async function generateSlotsCore(scheduleId, subRoomId, selectedShifts, slotDura
       const [startHour, startMinute] = shift.startTime.split(':').map(Number);
       const [endHour, endMinute] = shift.endTime.split(':').map(Number);
 
-      // Create shift times in Vietnam timezone
-      const shiftStart = new Date(d);
-      shiftStart.setHours(startHour, startMinute, 0, 0);
-
-      const shiftEnd = new Date(d);
-      shiftEnd.setHours(endHour, endMinute, 0, 0);
-
+      // ✅ FIX: Create shift times using dayjs
+      const shiftStart = currentDayVN.clone().hour(startHour).minute(startMinute).second(0).millisecond(0);
+      const shiftEnd = currentDayVN.clone().hour(endHour).minute(endMinute).second(0).millisecond(0);
+      
       // Skip shifts that have completely ended
-      if (shiftEnd <= minStart) continue;
+      if (shiftEnd.isSameOrBefore(minStart)) continue;
 
       // Start slot from max(shiftStart, minStart)
-      let cur = shiftStart > minStart ? new Date(shiftStart) : new Date(minStart);
+      let cur = shiftStart.isAfter(minStart) ? shiftStart.clone() : minStart.clone();
       let slotCreated = false;
 
-      while (cur < shiftEnd) {
-        const next = new Date(cur.getTime() + slotDuration * 60000);
+      while (cur.isBefore(shiftEnd)) {
+        const next = cur.clone().add(slotDuration, 'minute');
 
         // If slot doesn't fit in remaining time → break
-        if (next > shiftEnd) break;
+        if (next.isAfter(shiftEnd)) break;
 
-        // Convert back to UTC for storage
+        // Convert to UTC for storage
         const slotDate = new Date(dayString + 'T00:00:00.000Z');
-        const utcStartTime = new Date(cur.getTime() - 7 * 60 * 60 * 1000);
-        const utcEndTime = new Date(next.getTime() - 7 * 60 * 60 * 1000);
+        const utcStartTime = cur.toDate();
+        const utcEndTime = next.toDate();
 
         slots.push({
           date: slotDate,
@@ -3335,8 +3335,8 @@ async function generateSlotsCore(scheduleId, subRoomId, selectedShifts, slotDura
       }
 
       // If no slot was created in this shift → throw error
-      if (!slotCreated && shiftStart < shiftEnd) {
-        const availableMinutes = Math.floor((shiftEnd - minStart) / 60000);
+      if (!slotCreated && shiftStart.isBefore(shiftEnd)) {
+        const availableMinutes = shiftEnd.diff(minStart, 'minute');
         if (availableMinutes > 0) {
           throw new Error(
             `Không thể tạo slot cho ca ${shift.name} vào ngày ${dayString}. ` +
@@ -3346,6 +3346,9 @@ async function generateSlotsCore(scheduleId, subRoomId, selectedShifts, slotDura
         }
       }
     }
+    
+    // ✅ FIX: Move to next day using dayjs
+    currentDayVN = currentDayVN.add(1, 'day');
   }
 
   if (skippedPastDays > 0) {
@@ -4873,9 +4876,13 @@ exports.generateRoomSchedule = async ({
     // Duyệt qua tất cả các tháng cần tạo
     for (const { month, year: currentYear } of monthsToGenerate) {
       try {
-        // Calculate month date range
+        // ✅ FIX: Calculate month date range correctly
+        // monthStart should be 00:00 VN time of day 1 = 17:00 UTC of PREVIOUS day
+        // monthEnd should be 23:59:59 VN time of last day = 16:59:59 UTC of SAME day
         const monthStart = new Date(Date.UTC(currentYear, month - 1, 1, -7, 0, 0, 0));
         const monthEnd = new Date(Date.UTC(currentYear, month, 0, 16, 59, 59, 999));
+        
+        console.log(`📅 Month ${month}/${currentYear}: ${monthStart.toISOString()} to ${monthEnd.toISOString()}`);
         
         // For first month, use provided startDate if later than month start
         const isFirstMonth = currentYear === effectiveFromYear && month === fromMonth;
@@ -4888,11 +4895,13 @@ exports.generateRoomSchedule = async ({
         }
         
         // 🔧 FIX: Tách biệt ngày bắt đầu SINH SLOT vs ngày bắt đầu LỊCH
+        // scheduleStartDate: Lưu vào DB (metadata)
+        // slotGenerationStartDate: Dùng để sinh slots (có thể khác nếu startDate <= hôm nay)
         const today = dayjs().tz('Asia/Ho_Chi_Minh').startOf('day');
         const tomorrow = today.add(1, 'day');
         const scheduleStartDayjs = dayjs(scheduleStartDate).tz('Asia/Ho_Chi_Minh').startOf('day');
         
-        // ✅ slotGenerationStartDate: Ngày bắt đầu SINH SLOT (có thể khác scheduleStartDate)
+        // ✅ slotGenerationStartDate: Ngày bắt đầu SINH SLOT
         let slotGenerationStartDate = scheduleStartDate;
         
         if (scheduleStartDayjs.isSameOrBefore(today, 'day')) {
@@ -6484,59 +6493,60 @@ async function generateSlotsForShift({
   console.log(`📅 Holiday snapshot:`, holidaySnapshot);
 
   const slots = [];
-  // ✅ FIX: Sử dụng UTC để tránh timezone issue
-  const currentDate = new Date(scheduleStartDate);
-  currentDate.setUTCHours(0, 0, 0, 0); // Normalize to UTC midnight
   
-  const endDate = new Date(scheduleEndDate);
-  endDate.setUTCHours(23, 59, 59, 999); // End of day in UTC
-  
-  // 🔧 FIX: Lấy hôm nay theo giờ VN để so sánh
+  // ✅ FIX CRITICAL: Dùng dayjs để loop qua các ngày (VN timezone)
+  // scheduleStartDate đã được tính đúng (VD: 2025-11-30T17:00:00.000Z = 00:00 VN ngày 01/12)
+  const startDayVN = dayjs(scheduleStartDate).tz('Asia/Ho_Chi_Minh').startOf('day');
+  const endDayVN = dayjs(scheduleEndDate).tz('Asia/Ho_Chi_Minh').endOf('day');
   const today = dayjs().tz('Asia/Ho_Chi_Minh').startOf('day');
   
+  console.log(`🔍 Start day VN: ${startDayVN.format('DD/MM/YYYY')}, UTC: ${scheduleStartDate.toISOString()}`);
+  console.log(`🔍 End day VN: ${endDayVN.format('DD/MM/YYYY')}, UTC: ${scheduleEndDate.toISOString()}`);
+  
   let skippedDays = 0;
-  let skippedPastDays = 0; // 🆕 Track số ngày quá khứ bị skip
+  let skippedPastDays = 0;
   let processedDays = 0;
   
-  while (currentDate <= endDate) {
+  let currentDayVN = startDayVN.clone();
+  
+  while (currentDayVN.isSameOrBefore(endDayVN, 'day')) {
     processedDays++;
     
-    const dateStr = currentDate.toISOString().split('T')[0];
+    const dateStr = currentDayVN.format('YYYY-MM-DD');
     
     // 🔧 FIX: Bỏ qua các ngày <= hôm nay (quá khứ và hiện tại)
-    const currentDayjs = dayjs(currentDate).tz('Asia/Ho_Chi_Minh').startOf('day');
-    if (currentDayjs.isSameOrBefore(today, 'day')) {
+    if (currentDayVN.isSameOrBefore(today, 'day')) {
       skippedPastDays++;
       if (skippedPastDays === 1) {
         console.log(`⏭️  Skipping past/current dates (started from ${dateStr})...`);
       }
-      currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+      currentDayVN = currentDayVN.add(1, 'day');
       continue; // Bỏ qua ngày quá khứ/hiện tại
     }
     
     // 🔍 DEBUG: Log ngày đang xử lý để phát hiện duplicate
-    if (slots.filter(s => s.date.toISOString().split('T')[0] === dateStr).length > 0) {
+    if (slots.filter(s => dayjs(s.date).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD') === dateStr).length > 0) {
       console.error(`🚨 BUG DETECTED: Date ${dateStr} already processed! This will create duplicate slots!`);
       break; // Dừng lại để tránh duplicate
     }
     
     // 🆕 Kiểm tra holiday - bỏ qua ngày nghỉ
+    const currentDateForHolidayCheck = currentDayVN.toDate();
     const isHolidayDay = holidaySnapshot 
-      ? isHolidayFromSnapshot(currentDate, holidaySnapshot)
+      ? isHolidayFromSnapshot(currentDateForHolidayCheck, holidaySnapshot)
       : false;
     
     if (isHolidayDay) {
       skippedDays++;
       console.log(`⏭️  Skipping holiday: ${dateStr}`);
-      // ✅ FIX: Sử dụng setUTCDate để tăng ngày trong UTC
-      currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+      currentDayVN = currentDayVN.add(1, 'day');
       continue; // Bỏ qua ngày nghỉ, không tạo slot
     }
     
-    // ✅ FIX: Lấy year, month, day từ UTC
-    const year = currentDate.getUTCFullYear();
-    const month = currentDate.getUTCMonth() + 1;
-    const day = currentDate.getUTCDate();
+    // ✅ FIX: Lấy year, month, day từ VN timezone
+    const year = currentDayVN.year();
+    const month = currentDayVN.month() + 1; // dayjs month is 0-indexed
+    const day = currentDayVN.date();
     
     // Parse shift times (format: "HH:mm")
     const [startHour, startMin] = shiftStart.split(':').map(Number);
@@ -6576,12 +6586,12 @@ async function generateSlotsForShift({
     }
     
     if (processedDays === 1) {
-      const dateStr = currentDate.toISOString().split('T')[0];
+      const dateStr = currentDayVN.format('YYYY-MM-DD');
       console.log(`📊 First day (${dateStr}): Generated ${slotCount} slots`);
     }
     
-    // ✅ FIX: Move to next day using UTC
-    currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+    // ✅ FIX: Move to next day using dayjs (VN timezone)
+    currentDayVN = currentDayVN.add(1, 'day');
   }
   
   // Log thông tin skip
