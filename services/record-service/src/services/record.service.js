@@ -124,6 +124,94 @@ class RecordService {
       throw new Error('Không tìm thấy hồ sơ');
     }
 
+    // ✅ Collect all services that need to be marked as used
+    const servicesToMark = [];
+
+    // 🔹 Check if main service or serviceAddOn changed
+    const oldServiceId = existingRecord.serviceId?.toString();
+    const oldServiceAddOnId = existingRecord.serviceAddOnId?.toString();
+    const newServiceId = updateData.serviceId?.toString();
+    const newServiceAddOnId = updateData.serviceAddOnId?.toString();
+
+    // Case 1: Service ID changed → mark new service (with its addon if provided)
+    if (newServiceId && newServiceId !== oldServiceId) {
+      servicesToMark.push({
+        serviceId: newServiceId,
+        serviceAddOnId: newServiceAddOnId || null
+      });
+    }
+    // Case 2: Service ID same, but addon changed → mark service with new addon
+    else if (newServiceId && newServiceId === oldServiceId && newServiceAddOnId && newServiceAddOnId !== oldServiceAddOnId) {
+      servicesToMark.push({
+        serviceId: newServiceId,
+        serviceAddOnId: newServiceAddOnId
+      });
+    }
+
+    // 🔹 Check for new treatment indications
+    if (updateData.treatmentIndications && Array.isArray(updateData.treatmentIndications)) {
+      const existingIndicationIds = new Set(
+        (existingRecord.treatmentIndications || [])
+          .filter(ind => ind.serviceId) // ✅ Filter out items without serviceId
+          .map(ind => 
+            ind.serviceId.toString() + '_' + (ind.serviceAddOnId?.toString() || '')
+          )
+      );
+
+      updateData.treatmentIndications.forEach(indication => {
+        if (!indication.serviceId) return; // ✅ Skip if no serviceId
+        
+        const indicationKey = indication.serviceId.toString() + '_' + (indication.serviceAddOnId?.toString() || '');
+        if (!existingIndicationIds.has(indicationKey)) {
+          servicesToMark.push({
+            serviceId: indication.serviceId,
+            serviceAddOnId: indication.serviceAddOnId || null
+          });
+        }
+      });
+    }
+
+    // 🔹 Check for new additional services
+    if (updateData.additionalServices && Array.isArray(updateData.additionalServices)) {
+      const existingAdditionalIds = new Set(
+        (existingRecord.additionalServices || [])
+          .filter(svc => svc.serviceId) // ✅ Filter out items without serviceId
+          .map(svc => 
+            svc.serviceId.toString() + '_' + (svc.serviceAddOnId?.toString() || '')
+          )
+      );
+
+      updateData.additionalServices.forEach(svc => {
+        if (!svc.serviceId) return; // ✅ Skip if no serviceId
+        
+        const svcKey = svc.serviceId.toString() + '_' + (svc.serviceAddOnId?.toString() || '');
+        if (!existingAdditionalIds.has(svcKey)) {
+          servicesToMark.push({
+            serviceId: svc.serviceId,
+            serviceAddOnId: svc.serviceAddOnId || null
+          });
+        }
+      });
+    }
+
+    // ✅ Mark all collected services as used
+    if (servicesToMark.length > 0) {
+      try {
+        await publishToQueue('service_queue', {
+          event: 'service.mark_as_used',
+          data: {
+            services: servicesToMark,
+            recordId: id,
+            reason: 'record_updated'
+          }
+        });
+        console.log(`✅ Published service.mark_as_used for ${servicesToMark.length} services in record ${existingRecord.recordCode}`);
+      } catch (queueError) {
+        console.warn('⚠️ Could not publish service mark_as_used event:', queueError.message);
+        // Don't throw - allow update to continue
+      }
+    }
+
     // ✅ Trust totalCost from FE - DO NOT recalculate
     // FE has full context of all changes (service addon, quantity, additional services)
     // and calculates totalCost correctly before sending to BE
@@ -413,6 +501,59 @@ class RecordService {
       throw new Error(`Không thể hoàn thành hồ sơ:\n- ${errors.join('\n- ')}`);
     }
 
+    // ✅ Mark all services in record as used before completing
+    const servicesToMark = [];
+
+    // Main service
+    if (record.serviceId) {
+      servicesToMark.push({
+        serviceId: record.serviceId.toString(),
+        serviceAddOnId: record.serviceAddOnId ? record.serviceAddOnId.toString() : null
+      });
+    }
+
+    // Treatment indications
+    if (record.treatmentIndications && record.treatmentIndications.length > 0) {
+      record.treatmentIndications.forEach(indication => {
+        if (indication.serviceId) {
+          servicesToMark.push({
+            serviceId: indication.serviceId.toString(),
+            serviceAddOnId: indication.serviceAddOnId ? indication.serviceAddOnId.toString() : null
+          });
+        }
+      });
+    }
+
+    // Additional services
+    if (record.additionalServices && record.additionalServices.length > 0) {
+      record.additionalServices.forEach(svc => {
+        if (svc.serviceId) {
+          servicesToMark.push({
+            serviceId: svc.serviceId.toString(),
+            serviceAddOnId: svc.serviceAddOnId ? svc.serviceAddOnId.toString() : null
+          });
+        }
+      });
+    }
+
+    // Publish event to mark all services as used
+    if (servicesToMark.length > 0) {
+      try {
+        await publishToQueue('service_queue', {
+          event: 'service.mark_as_used',
+          data: {
+            services: servicesToMark,
+            recordId: record._id.toString(),
+            reason: 'record_completed'
+          }
+        });
+        console.log(`✅ Published service.mark_as_used for ${servicesToMark.length} services in completed record ${record.recordCode}`);
+      } catch (queueError) {
+        console.warn('⚠️ Could not publish service mark_as_used event:', queueError.message);
+        // Don't throw - allow completion to continue
+      }
+    }
+
     // ✅ Nếu validate pass, proceed to complete
     // console.log('✅ [completeRecord] Validation passed, updating status to completed...');
     const completedRecord = await this.updateRecordStatus(id, 'completed', modifiedBy);
@@ -571,6 +712,27 @@ class RecordService {
       record.additionalServices = [];
     }
     record.additionalServices.push(newService);
+
+    // ✅ Mark service as used
+    if (serviceId) {
+      try {
+        await publishToQueue('service_queue', {
+          event: 'service.mark_as_used',
+          data: {
+            services: [{
+              serviceId,
+              serviceAddOnId: serviceAddOnId || null
+            }],
+            recordId: recordId,
+            reason: 'additional_service_added'
+          }
+        });
+        console.log(`✅ Published service.mark_as_used for additional service ${serviceName} in record ${record.recordCode}`);
+      } catch (queueError) {
+        console.warn('⚠️ Could not publish service mark_as_used event:', queueError.message);
+        // Don't throw - allow add service to continue
+      }
+    }
 
     // ⚠️ DO NOT recalculate totalCost here
     // FE will send the correct totalCost via updateRecord API
