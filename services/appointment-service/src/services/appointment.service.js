@@ -103,9 +103,24 @@ class AppointmentService {
   }
   
   formatTime(dateTime) {
+    // Slot startTime/endTime are stored as UTC Date in schedule-service
+    // We need to convert to Vietnam timezone (UTC+7) before storing as "HH:MM" string
     const date = new Date(dateTime);
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
+    
+    // Get UTC components
+    const utcHours = date.getUTCHours();
+    const utcMinutes = date.getUTCMinutes();
+    
+    // Convert to Vietnam timezone (UTC+7)
+    let vnHours = utcHours + 7;
+    
+    // Handle day overflow (e.g., 23:00 UTC + 7 = 06:00 next day)
+    if (vnHours >= 24) {
+      vnHours -= 24;
+    }
+    
+    const hours = String(vnHours).padStart(2, '0');
+    const minutes = String(utcMinutes).padStart(2, '0');
     return hours + ':' + minutes;
   }
   
