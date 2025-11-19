@@ -160,6 +160,61 @@ class RabbitMQClient {
     }
   }
 
+  /**
+   * Send RPC request and wait for response
+   * @param {String} queueName - Target queue name
+   * @param {Object} message - Request message
+   * @param {Number} timeout - Timeout in milliseconds (default: 5000)
+   * @returns {Promise<Object>} - Response from consumer
+   */
+  async sendRpcRequest(queueName, message, timeout = 5000) {
+    try {
+      const channel = await this.getChannel();
+      
+      // Create exclusive response queue
+      const { queue: replyQueue } = await channel.assertQueue('', { exclusive: true });
+      const correlationId = this.generateUuid();
+      
+      return new Promise((resolve, reject) => {
+        const timeoutHandle = setTimeout(() => {
+          reject(new Error(`RPC request to ${queueName} timed out after ${timeout}ms`));
+        }, timeout);
+        
+        // Consume response
+        channel.consume(replyQueue, (msg) => {
+          if (msg && msg.properties.correlationId === correlationId) {
+            clearTimeout(timeoutHandle);
+            const response = JSON.parse(msg.content.toString());
+            resolve(response);
+            channel.cancel(msg.fields.consumerTag);
+          }
+        }, { noAck: true });
+        
+        // Send request
+        const messageBuffer = Buffer.from(JSON.stringify(message));
+        channel.sendToQueue(queueName, messageBuffer, {
+          correlationId,
+          replyTo: replyQueue,
+          persistent: true
+        });
+        
+        console.log(`📤 RPC request sent to ${queueName} (correlationId: ${correlationId})`);
+      });
+    } catch (error) {
+      console.error(`[Schedule RabbitMQ] Error sending RPC request to ${queueName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate UUID for correlation ID
+   */
+  generateUuid() {
+    return Math.random().toString(36).substring(2, 15) + 
+           Math.random().toString(36).substring(2, 15) + 
+           Date.now().toString(36);
+  }
+
   async close() {
     try {
       if (this.reconnectTimeout) {
@@ -186,4 +241,8 @@ class RabbitMQClient {
 
 // Export singleton instance
 const rabbitmqClient = new RabbitMQClient();
+
+// Export both instance and sendRpcRequest helper
 module.exports = rabbitmqClient;
+module.exports.sendRpcRequest = (queueName, message, timeout) => 
+  rabbitmqClient.sendRpcRequest(queueName, message, timeout);

@@ -2,6 +2,7 @@ const slotRepo = require('../repositories/slot.repository');
 const scheduleRepo = require('../repositories/schedule.repository');
 const redisClient = require('../utils/redis.client');
 const { publishToQueue } = require('../utils/rabbitClient');
+const { sendRpcRequest } = require('../utils/rabbitmq.client'); // ⚡ Import sendRpcRequest
 const { getVietnamDate, toVietnamTime } = require('../utils/vietnamTime.util');
 const { getCachedUsers, getCachedRooms } = require('../utils/cacheHelper'); // ⚡ NEW
 const mongoose = require('mongoose');
