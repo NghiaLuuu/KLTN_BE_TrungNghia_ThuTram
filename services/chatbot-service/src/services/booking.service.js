@@ -88,6 +88,8 @@ class BookingService {
                       serviceId: indication.serviceId,
                       serviceAddOnId: indication.serviceAddOnId, // The specific addon that was indicated
                       recordId: record._id,
+                      recordDentistId: record.dentistId, // Dentist who examined and created this indication
+                      recordDentistName: record.dentistName,
                       serviceName: indication.serviceName,
                       serviceAddOnName: indication.serviceAddOnName,
                       notes: indication.notes || ''
@@ -161,6 +163,8 @@ class BookingService {
         let recordId = null;
         let recommendationNotes = null;
         let recommendedAddOnId = null; // The specific addon that was indicated
+        let recordDentistId = null; // Dentist who created the indication
+        let recordDentistName = null;
         
         if (isRecommended) {
           const unusedService = unusedServices.find(
@@ -170,6 +174,8 @@ class BookingService {
             recordId = unusedService.recordId;
             recommendationNotes = unusedService.notes;
             recommendedAddOnId = unusedService.serviceAddOnId; // Important: specific addon
+            recordDentistId = unusedService.recordDentistId;
+            recordDentistName = unusedService.recordDentistName;
           }
         }
         
@@ -177,6 +183,8 @@ class BookingService {
           ...service,
           isRecommended,
           recordId, // Will be used to update hasBeenUsed after booking
+          recordDentistId, // Dentist who examined patient
+          recordDentistName,
           recommendationNotes,
           recommendedAddOnId // The specific addon that was indicated by doctor
         };

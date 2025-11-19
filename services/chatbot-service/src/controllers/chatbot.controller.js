@@ -408,7 +408,9 @@ class ChatbotController {
                   duration: indicatedAddon.durationMinutes || 30,
                   isRecommended: true,
                   requireExamFirst: service.requireExamFirst,
-                  recordId: service.recordId
+                  recordId: service.recordId,
+                  recordDentistId: service.recordDentistId,
+                  recordDentistName: service.recordDentistName
                 });
               }
             } else if (service.serviceAddOns && service.serviceAddOns.length > 0) {
@@ -424,7 +426,9 @@ class ChatbotController {
                   duration: addon.durationMinutes || 30,
                   isRecommended: true,
                   requireExamFirst: service.requireExamFirst,
-                  recordId: service.recordId
+                  recordId: service.recordId,
+                  recordDentistId: service.recordDentistId,
+                  recordDentistName: service.recordDentistName
                 });
               });
             } else {
@@ -439,7 +443,9 @@ class ChatbotController {
                 duration: 30,
                 isRecommended: true,
                 requireExamFirst: service.requireExamFirst,
-                recordId: service.recordId
+                recordId: service.recordId,
+                recordDentistId: service.recordDentistId,
+                recordDentistName: service.recordDentistName
               });
             }
           });
@@ -484,7 +490,7 @@ class ChatbotController {
             
             const priceStr = item.price > 0 ? ` - ${item.price.toLocaleString('vi-VN')}đ` : '';
             const durationStr = ` (${item.duration} phút)`;
-            const recommendedTag = item.isRecommended ? ' ⭐ (Chỉ định)' : '';
+            const recommendedTag = item.isRecommended ? ' 🩺 (Dịch vụ chỉ định)' : '';
             
             servicesMessage += `${item.number}. ${displayName}${priceStr}${durationStr}${recommendedTag}\n`;
           });
@@ -1146,7 +1152,15 @@ class ChatbotController {
       
       dentists.slice(0, 10).forEach((dentist, idx) => {
         dentistMessage += `${idx + 1}. ${dentist.fullName || dentist.name}`;
-        if (dentist.specialization) {
+        
+        // Check if this dentist is the one who examined and created the indication
+        const isRecordDentist = selectedItem.recordDentistId && 
+          dentist._id && 
+          dentist._id.toString() === selectedItem.recordDentistId.toString();
+        
+        if (isRecordDentist) {
+          dentistMessage += ` 👨‍⚕️ (Nha sĩ đã khám)`;
+        } else if (dentist.specialization) {
           dentistMessage += ` (${dentist.specialization})`;
         }
         if (dentist.nearestSlot) {
