@@ -79,6 +79,27 @@ class RecordService {
 
     const record = await recordRepo.create(recordData);
 
+    // ✅ Mark the main service as used when creating record
+    if (serviceId) {
+      try {
+        await publishToQueue('service_queue', {
+          event: 'service.mark_as_used',
+          data: {
+            services: [{
+              serviceId: serviceId,
+              serviceAddOnId: data.serviceAddOnId || null
+            }],
+            recordId: record._id.toString(),
+            reason: 'record_created'
+          }
+        });
+        console.log(`✅ Published service.mark_as_used for new record ${record.recordCode}`);
+      } catch (queueError) {
+        console.warn('⚠️ Could not publish service mark_as_used event:', queueError.message);
+        // Don't throw - record already created
+      }
+    }
+
     console.log("✅ Record created:", record);
     return record;
   }
@@ -140,12 +161,16 @@ class RecordService {
         serviceAddOnId: newServiceAddOnId || null
       });
     }
-    // Case 2: Service ID same, but addon changed → mark service with new addon
-    else if (newServiceId && newServiceId === oldServiceId && newServiceAddOnId && newServiceAddOnId !== oldServiceAddOnId) {
-      servicesToMark.push({
-        serviceId: newServiceId,
-        serviceAddOnId: newServiceAddOnId
-      });
+    // Case 2: Service ID same (or not provided), but addon changed → mark service with new addon
+    // Note: FE may not send serviceId when only changing addon, so use existing serviceId
+    else if (newServiceAddOnId && newServiceAddOnId !== oldServiceAddOnId) {
+      const serviceIdToMark = newServiceId || oldServiceId; // Use new or fall back to old
+      if (serviceIdToMark) {
+        servicesToMark.push({
+          serviceId: serviceIdToMark,
+          serviceAddOnId: newServiceAddOnId
+        });
+      }
     }
 
     // 🔹 Check for new treatment indications
