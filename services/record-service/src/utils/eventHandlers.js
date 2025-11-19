@@ -40,7 +40,7 @@ async function handleAppointmentCheckedIn(eventData) {
       subroomName: data.subroomName || null,
       status: 'pending', // ✅ Record chờ khám cho tới khi bác sĩ bắt đầu
       priority: 'normal',
-      totalCost: 0,
+      totalCost: (data.servicePrice || 0) + (data.serviceAddOnPrice || 0), // ✅ Calculate initial totalCost from service + addon
       createdBy: data.createdBy || data.dentistId // Use createdBy from appointment or fallback to dentistId
     };
     
