@@ -341,7 +341,8 @@ class AppointmentService {
                 serviceType: service.type,
                 serviceDuration: service.duration || service.durationMinutes || 30, // ⭐ Support both field names
                 serviceAddOnName: addOn.name,
-                servicePrice: addOn.price
+                servicePrice: 0, // Service price (not addon price)
+                serviceAddOnPrice: addOn.price // ✅ AddOn price
               };
             }
           } else {
@@ -351,7 +352,8 @@ class AppointmentService {
               serviceType: service.type,
               serviceDuration: service.duration || service.durationMinutes || 30,
               serviceAddOnName: null,
-              servicePrice: service.price || 0
+              servicePrice: service.price || 0,
+              serviceAddOnPrice: 0 // ✅ No addon
             };
           }
         }
@@ -694,7 +696,7 @@ class AppointmentService {
           serviceAddOnId: appointment.serviceAddOnId ? appointment.serviceAddOnId.toString() : null,
           serviceAddOnName: appointment.serviceAddOnName || null,
           serviceAddOnPrice: appointment.serviceAddOnPrice || 0, // ✅ Giá dịch vụ con
-          totalAmount: appointment.totalAmount || appointment.servicePrice || 0, // ✅ Tổng tiền
+          totalAmount: appointment.totalAmount || ((appointment.servicePrice || 0) + (appointment.serviceAddOnPrice || 0)), // ✅ Tổng tiền
           serviceType: appointment.serviceType,
           bookingChannel,
           dentistId: appointment.dentistId.toString(),
@@ -1221,6 +1223,7 @@ class AppointmentService {
         serviceAddOnName: serviceInfo.serviceAddOnName,
         serviceDuration: serviceInfo.serviceDuration,
         servicePrice: serviceInfo.servicePrice,
+        serviceAddOnPrice: serviceInfo.serviceAddOnPrice || 0, // ✅ Add serviceAddOnPrice
         dentistId,
         dentistName: dentistInfo.name,
         slotIds,
@@ -1232,7 +1235,7 @@ class AppointmentService {
         subroomId: subRoomId || null,
         subroomName: roomInfo.subroomName,
         paymentId: null, // Will be created later if needed
-        totalAmount: serviceInfo.servicePrice,
+        totalAmount: (serviceInfo.servicePrice || 0) + (serviceInfo.serviceAddOnPrice || 0), // ✅ Total = service + addon
         status: 'confirmed', // ⭐ Start with confirmed, then check-in
         bookedAt: new Date(),
         bookedBy: currentUser.userId || currentUser._id, // ⭐ Support both userId and _id

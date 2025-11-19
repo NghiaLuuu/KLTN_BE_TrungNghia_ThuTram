@@ -84,6 +84,12 @@ const appointmentSchema = new Schema({
     min: 0,
     default: 0
   },
+  serviceAddOnPrice: {
+    type: Number,
+    required: false,
+    min: 0,
+    default: 0
+  },
   
   // Dentist Assignment
   dentistId: {
