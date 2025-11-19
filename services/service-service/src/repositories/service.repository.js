@@ -35,10 +35,14 @@ exports.findByName = async (name) => {
 
 // ===== LIST AND SEARCH =====
 exports.listServices = async (skip = 0, limit = 10) => {
-  return await Service.find()
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(limit);
+  const query = Service.find().sort({ createdAt: -1 }).skip(skip);
+  
+  // Nếu limit = 0, lấy tất cả (không giới hạn)
+  if (limit > 0) {
+    query.limit(limit);
+  }
+  
+  return await query;
 };
 
 exports.countServices = async () => {

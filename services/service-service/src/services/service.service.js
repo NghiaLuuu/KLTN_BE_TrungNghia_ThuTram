@@ -6,7 +6,8 @@ const { uploadToS3, deleteFromS3 } = require('./s3.service');
 const SERVICE_CACHE_KEY = 'services_cache';
 
 async function initServiceCache() {
-  const services = await serviceRepo.listServices();
+  // Lấy TẤT CẢ dịch vụ (không giới hạn) để cache
+  const services = await serviceRepo.listServices(0, 0); // skip=0, limit=0 = lấy tất cả
   await redis.set(SERVICE_CACHE_KEY, JSON.stringify(services), { EX: 3600 }); // 1h TTL
   console.log(`✅ Đã tải bộ nhớ đệm dịch vụ: ${services.length} dịch vụ (TTL: 1h)`);
 }
@@ -568,7 +569,8 @@ exports.removeTemporaryPrice = async (serviceId) => {
 };
 
 async function refreshServiceCache() {
-  const services = await serviceRepo.listServices();
+  // Lấy TẤT CẢ dịch vụ (không giới hạn) để cache
+  const services = await serviceRepo.listServices(0, 0); // skip=0, limit=0 = lấy tất cả
   await redis.set(SERVICE_CACHE_KEY, JSON.stringify(services), { EX: 3600 }); // 1h TTL
   console.log(`♻ Đã làm mới bộ nhớ đệm dịch vụ: ${services.length} dịch vụ (TTL: 1h)`);
 }

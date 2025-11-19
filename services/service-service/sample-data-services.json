@@ -1,0 +1,596 @@
+[
+  {
+    "name": "Khám tổng quát",
+    "type": "exam",
+    "description": "Khám tổng quát răng miệng, kiểm tra sức khỏe răng miệng toàn diện, tư vấn phương án điều trị",
+    "requireExamFirst": false,
+    "allowedRoomTypes": ["CONSULTATION"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Khám và tư vấn cơ bản",
+        "price": 100000,
+        "durationMinutes": 30,
+        "unit": "Lần",
+        "description": "Khám tổng quát răng miệng, tư vấn cơ bản về tình trạng răng",
+        "isActive": true
+      },
+      {
+        "name": "Khám và tư vấn chuyên sâu",
+        "price": 200000,
+        "durationMinutes": 45,
+        "unit": "Lần",
+        "description": "Khám chi tiết, tư vấn phương án điều trị đầy đủ, lập kế hoạch điều trị",
+        "isActive": true
+      }
+    ]
+  },
+  {
+    "name": "Chụp X-quang",
+    "type": "exam",
+    "description": "Chụp X-quang răng để chẩn đoán chính xác tình trạng răng miệng",
+    "requireExamFirst": false,
+    "allowedRoomTypes": ["X_RAY"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Chụp X-quang răng đơn",
+        "price": 50000,
+        "durationMinutes": 15,
+        "unit": "Răng",
+        "description": "Chụp X-quang một răng cụ thể",
+        "isActive": true
+      },
+      {
+        "name": "Chụp X-quang toàn cảnh",
+        "price": 200000,
+        "durationMinutes": 20,
+        "unit": "Lần",
+        "description": "Chụp X-quang toàn bộ răng miệng (Panoramic)",
+        "isActive": true
+      },
+      {
+        "name": "Chụp CT Cone Beam 3D",
+        "price": 800000,
+        "durationMinutes": 30,
+        "unit": "Lần",
+        "description": "Chụp CT 3D để chẩn đoán chính xác, lập kế hoạch phẫu thuật implant",
+        "isActive": true
+      }
+    ]
+  },
+  {
+    "name": "Lấy cao răng",
+    "type": "treatment",
+    "description": "Lấy cao răng, vệ sinh răng miệng chuyên sâu",
+    "requireExamFirst": true,
+    "allowedRoomTypes": ["GENERAL_TREATMENT"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Lấy cao răng thường",
+        "price": 300000,
+        "durationMinutes": 45,
+        "unit": "Lần",
+        "description": "Lấy cao răng bằng máy siêu âm, đánh bóng răng",
+        "isActive": true
+      },
+      {
+        "name": "Lấy cao răng sâu",
+        "price": 500000,
+        "durationMinutes": 60,
+        "unit": "Lần",
+        "description": "Lấy cao răng dưới nướu, điều trị viêm nướu",
+        "isActive": true
+      }
+    ]
+  },
+  {
+    "name": "Trám răng",
+    "type": "treatment",
+    "description": "Điều trị sâu răng hoặc răng sứt mẻ bằng vật liệu Composite chất lượng cao, khôi phục hình dạng và chức năng tự nhiên của răng",
+    "requireExamFirst": true,
+    "allowedRoomTypes": ["GENERAL_TREATMENT"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Trám Composite cơ bản",
+        "price": 200000,
+        "durationMinutes": 30,
+        "unit": "Răng",
+        "description": "Trám các lỗ sâu nhỏ bằng Composite tiêu chuẩn",
+        "isActive": true
+      },
+      {
+        "name": "Trám Composite cao cấp",
+        "price": 350000,
+        "durationMinutes": 45,
+        "unit": "Răng",
+        "description": "Trám bằng Composite cao cấp, thẩm mỹ cao, màu răng tự nhiên",
+        "isActive": true
+      },
+      {
+        "name": "Phục hồi Inlay/Onlay",
+        "price": 1500000,
+        "durationMinutes": 90,
+        "unit": "Răng",
+        "description": "Phục hồi răng bằng kỹ thuật Inlay/Onlay, độ bền cao, phù hợp với răng sâu lớn hoặc cần phục hồi chắc chắn",
+        "isActive": true
+      }
+    ]
+  },
+  {
+    "name": "Nhổ răng",
+    "type": "treatment",
+    "description": "Nhổ răng thường và răng khôn",
+    "requireExamFirst": true,
+    "allowedRoomTypes": ["SURGERY", "GENERAL_TREATMENT"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Nhổ răng sữa",
+        "price": 100000,
+        "durationMinutes": 15,
+        "unit": "Răng",
+        "description": "Nhổ răng sữa cho trẻ em",
+        "isActive": true
+      },
+      {
+        "name": "Nhổ răng thường",
+        "price": 200000,
+        "durationMinutes": 30,
+        "unit": "Răng",
+        "description": "Nhổ răng vĩnh viễn thông thường",
+        "isActive": true
+      },
+      {
+        "name": "Nhổ răng khôn hàm trên mọc thẳng",
+        "price": 500000,
+        "durationMinutes": 40,
+        "unit": "Răng",
+        "description": "Nhổ răng khôn hàm trên mọc thẳng, dễ tiếp cận",
+        "isActive": true
+      },
+      {
+        "name": "Nhổ răng khôn hàm dưới mọc thẳng",
+        "price": 700000,
+        "durationMinutes": 50,
+        "unit": "Răng",
+        "description": "Nhổ răng khôn hàm dưới mọc thẳng, phức tạp hơn hàm trên",
+        "isActive": true
+      },
+      {
+        "name": "Nhổ răng khôn hàm trên mọc lệch/ngầm",
+        "price": 1200000,
+        "durationMinutes": 75,
+        "unit": "Răng",
+        "description": "Nhổ răng khôn hàm trên mọc lệch hoặc mọc ngầm, cần phẫu thuật",
+        "isActive": true
+      },
+      {
+        "name": "Nhổ răng khôn hàm dưới mọc lệch/ngầm",
+        "price": 2000000,
+        "durationMinutes": 120,
+        "unit": "Răng",
+        "description": "Nhổ răng khôn hàm dưới mọc lệch hoặc mọc ngầm, phẫu thuật phức tạp nhất",
+        "isActive": true
+      }
+    ]
+  },
+  {
+    "name": "Điều trị tủy răng",
+    "type": "treatment",
+    "description": "Điều trị tủy răng (nội nha) cho răng bị nhiễm trùng hoặc tổn thương tủy",
+    "requireExamFirst": true,
+    "allowedRoomTypes": ["GENERAL_TREATMENT"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Điều trị tủy răng 1 ống tủy",
+        "price": 800000,
+        "durationMinutes": 60,
+        "unit": "Răng",
+        "description": "Điều trị tủy răng có 1 ống tủy (răng cửa)",
+        "isActive": true
+      },
+      {
+        "name": "Điều trị tủy răng 2 ống tủy",
+        "price": 1200000,
+        "durationMinutes": 90,
+        "unit": "Răng",
+        "description": "Điều trị tủy răng có 2 ống tủy (răng hàm nhỏ)",
+        "isActive": true
+      },
+      {
+        "name": "Điều trị tủy răng 3-4 ống tủy",
+        "price": 1800000,
+        "durationMinutes": 120,
+        "unit": "Răng",
+        "description": "Điều trị tủy răng có 3-4 ống tủy (răng hàm lớn)",
+        "isActive": true
+      }
+    ]
+  },
+  {
+    "name": "Bọc răng sứ",
+    "type": "treatment",
+    "description": "Bọc răng sứ để phục hồi chức năng và thẩm mỹ răng",
+    "requireExamFirst": true,
+    "allowedRoomTypes": ["GENERAL_TREATMENT", "COSMETIC"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Răng sứ Kim loại thường",
+        "price": 1500000,
+        "durationMinutes": 90,
+        "unit": "Răng",
+        "description": "Răng sứ kim loại cơ bản, độ bền tốt",
+        "isActive": true
+      },
+      {
+        "name": "Răng sứ Titan",
+        "price": 2500000,
+        "durationMinutes": 90,
+        "unit": "Răng",
+        "description": "Răng sứ titan, sinh học tốt, không gây dị ứng",
+        "isActive": true
+      },
+      {
+        "name": "Răng sứ Zirconia",
+        "price": 4000000,
+        "durationMinutes": 90,
+        "unit": "Răng",
+        "description": "Răng sứ Zirconia cao cấp, thẩm mỹ tự nhiên",
+        "isActive": true
+      },
+      {
+        "name": "Răng sứ Emax",
+        "price": 5500000,
+        "durationMinutes": 90,
+        "unit": "Răng",
+        "description": "Răng sứ Emax cao cấp nhất, độ trong suốt tự nhiên",
+        "isActive": true
+      }
+    ]
+  },
+  {
+    "name": "Cấy ghép Implant",
+    "type": "treatment",
+    "description": "Cấy ghép implant để thay thế răng đã mất",
+    "requireExamFirst": true,
+    "allowedRoomTypes": ["SURGERY"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Implant phổ thông",
+        "price": 8000000,
+        "durationMinutes": 90,
+        "unit": "Trụ",
+        "description": "Trụ implant phổ thông, chất lượng tốt",
+        "isActive": true
+      },
+      {
+        "name": "Implant cao cấp (Hàn Quốc)",
+        "price": 12000000,
+        "durationMinutes": 120,
+        "unit": "Trụ",
+        "description": "Trụ implant Hàn Quốc (Osstem, Dentium)",
+        "isActive": true
+      },
+      {
+        "name": "Implant cao cấp (Mỹ/Châu Âu)",
+        "price": 20000000,
+        "durationMinutes": 120,
+        "unit": "Trụ",
+        "description": "Trụ implant cao cấp (Nobel, Straumann)",
+        "isActive": true
+      },
+      {
+        "name": "Ghép xương kèm implant",
+        "price": 5000000,
+        "durationMinutes": 60,
+        "unit": "Lần",
+        "description": "Ghép xương để chuẩn bị cho cấy implant",
+        "isActive": true
+      }
+    ]
+  },
+  {
+    "name": "Niềng răng",
+    "type": "treatment",
+    "description": "Niềng răng chỉnh nha để cải thiện khớp cắn và thẩm mỹ",
+    "requireExamFirst": true,
+    "allowedRoomTypes": ["ORTHODONTIC"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Niềng răng mắc cài kim loại",
+        "price": 25000000,
+        "durationMinutes": 120,
+        "unit": "Hàm",
+        "description": "Niềng răng mắc cài kim loại truyền thống (Chi phí trọn gói)",
+        "isActive": true
+      },
+      {
+        "name": "Niềng răng mắc cài sứ",
+        "price": 35000000,
+        "durationMinutes": 120,
+        "unit": "Hàm",
+        "description": "Niềng răng mắc cài sứ, thẩm mỹ hơn (Chi phí trọn gói)",
+        "isActive": true
+      },
+      {
+        "name": "Niềng răng mắc cài tự buộc",
+        "price": 45000000,
+        "durationMinutes": 120,
+        "unit": "Hàm",
+        "description": "Niềng răng mắc cài tự buộc, giảm thời gian điều trị (Chi phí trọn gói)",
+        "isActive": true
+      },
+      {
+        "name": "Niềng răng trong suốt Invisalign",
+        "price": 80000000,
+        "durationMinutes": 120,
+        "unit": "Hàm",
+        "description": "Niềng răng trong suốt cao cấp Invisalign (Chi phí trọn gói)",
+        "isActive": true
+      },
+      {
+        "name": "Tái khám định kỳ niềng răng",
+        "price": 200000,
+        "durationMinutes": 30,
+        "unit": "Lần",
+        "description": "Tái khám, điều chỉnh lực niềng định kỳ hàng tháng",
+        "isActive": true
+      }
+    ]
+  },
+  {
+  "name": "Tẩy trắng răng",
+  "type": "treatment",
+  "description": "Dịch vụ tẩy trắng răng giúp cải thiện màu sắc và độ sáng của răng",
+  "requireExamFirst": true,
+  "allowedRoomTypes": ["COSMETIC", "GENERAL_TREATMENT"],
+  "isActive": true,
+  "serviceAddOns": [
+    {
+      "name": "Tẩy trắng răng tiêu chuẩn",
+      "price": 3000000,
+      "durationMinutes": 60,
+      "unit": "Lần",
+      "description": "Tẩy trắng răng bằng phương pháp tiêu chuẩn (máng hoặc đèn tùy chỉ định)",
+      "isActive": true
+    },
+    {
+      "name": "Tẩy trắng răng Laser",
+      "price": 5000000,
+      "durationMinutes": 120,
+      "unit": "Lần",
+      "description": "Tẩy trắng răng bằng công nghệ Laser cao cấp",
+      "isActive": true
+    }
+  ]
+},
+  {
+    "name": "Dán Veneer sứ",
+    "type": "treatment",
+    "description": "Dán mặt dán sứ Veneer để cải thiện thẩm mỹ răng",
+    "requireExamFirst": true,
+    "allowedRoomTypes": ["COSMETIC"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Veneer Composite",
+        "price": 1500000,
+        "durationMinutes": 60,
+        "unit": "Răng",
+        "description": "Dán veneer bằng composite, thực hiện trực tiếp",
+        "isActive": true
+      },
+      {
+        "name": "Veneer sứ Feldspathic",
+        "price": 4000000,
+        "durationMinutes": 90,
+        "unit": "Răng",
+        "description": "Veneer sứ truyền thống, thẩm mỹ tốt",
+        "isActive": true
+      },
+      {
+        "name": "Veneer sứ Emax",
+        "price": 7000000,
+        "durationMinutes": 90,
+        "unit": "Răng",
+        "description": "Veneer sứ Emax cao cấp, độ trong suốt tự nhiên",
+        "isActive": true
+      }
+    ]
+  },
+  {
+    "name": "Làm cầu răng",
+    "type": "treatment",
+    "description": "Làm cầu răng để thay thế răng đã mất",
+    "requireExamFirst": true,
+    "allowedRoomTypes": ["GENERAL_TREATMENT", "COSMETIC"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Cầu răng sứ kim loại",
+        "price": 1200000,
+        "durationMinutes": 90,
+        "unit": "Răng",
+        "description": "Cầu răng sứ kim loại (tính theo từng răng trong cầu)",
+        "isActive": true
+      },
+      {
+        "name": "Cầu răng sứ Zirconia",
+        "price": 3500000,
+        "durationMinutes": 90,
+        "unit": "Răng",
+        "description": "Cầu răng sứ Zirconia cao cấp (tính theo từng răng trong cầu)",
+        "isActive": true
+      }
+    ]
+  },
+  {
+    "name": "Phục hồi răng trẻ em",
+    "type": "treatment",
+    "description": "Điều trị và phục hồi răng cho trẻ em",
+    "requireExamFirst": true,
+    "allowedRoomTypes": ["PEDIATRIC", "GENERAL_TREATMENT"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Bôi Fluor phòng ngừa sâu răng",
+        "price": 100000,
+        "durationMinutes": 15,
+        "unit": "Lần",
+        "description": "Bôi fluor để phòng ngừa sâu răng cho trẻ",
+        "isActive": true
+      },
+      {
+        "name": "Trám kín hố rãnh",
+        "price": 150000,
+        "durationMinutes": 20,
+        "unit": "Răng",
+        "description": "Trám kín hố rãnh để phòng ngừa sâu răng",
+        "isActive": true
+      },
+      {
+        "name": "Hàn răng sữa",
+        "price": 150000,
+        "durationMinutes": 30,
+        "unit": "Răng",
+        "description": "Hàn trám răng sữa bị sâu",
+        "isActive": true
+      },
+      {
+        "name": "Điều trị tủy răng sữa",
+        "price": 500000,
+        "durationMinutes": 45,
+        "unit": "Răng",
+        "description": "Điều trị tủy răng sữa bị nhiễm trùng",
+        "isActive": true
+      }
+    ]
+  },
+  {
+    "name": "Điều trị nướu và nha chu",
+    "type": "treatment",
+    "description": "Điều trị các bệnh lý về nướu và nha chu",
+    "requireExamFirst": true,
+    "allowedRoomTypes": ["GENERAL_TREATMENT"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Điều trị viêm nướu",
+        "price": 300000,
+        "durationMinutes": 45,
+        "unit": "Lần",
+        "description": "Vệ sinh, điều trị viêm nướu cấp tính",
+        "isActive": true
+      },
+      {
+        "name": "Cạo vôi dưới nướu (1 vùng)",
+        "price": 500000,
+        "durationMinutes": 60,
+        "unit": "Lần",
+        "description": "Cạo vôi răng sâu dưới nướu một vùng (1/4 hàm)",
+        "isActive": true
+      },
+      {
+        "name": "Phẫu thuật nướu",
+        "price": 2000000,
+        "durationMinutes": 90,
+        "unit": "Lần",
+        "description": "Phẫu thuật cắt nướu, tạo hình nướu",
+        "isActive": true
+      },
+      {
+        "name": "Ghép nướu",
+        "price": 5000000,
+        "durationMinutes": 120,
+        "unit": "Răng",
+        "description": "Ghép mô nướu để che phủ chân răng bị lộ",
+        "isActive": true
+      }
+    ]
+  },
+  {
+    "name": "Phẫu thuật hàm mặt",
+    "type": "treatment",
+    "description": "Các phẫu thuật về hàm mặt và chỉnh hình",
+    "requireExamFirst": true,
+    "allowedRoomTypes": ["SURGERY"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Cắt chỉ nha khoa",
+        "price": 100000,
+        "durationMinutes": 15,
+        "unit": "Lần",
+        "description": "Cắt chỉ sau phẫu thuật",
+        "isActive": true
+      },
+      {
+        "name": "Phẫu thuật cắt u nang nhỏ",
+        "price": 2000000,
+        "durationMinutes": 60,
+        "unit": "Lần",
+        "description": "Cắt bỏ u, nang nhỏ trong khoang miệng",
+        "isActive": true
+      },
+      {
+        "name": "Phẫu thuật cắt chỉ môi",
+        "price": 1500000,
+        "durationMinutes": 45,
+        "unit": "Lần",
+        "description": "Cắt chỉ môi khi bị dính chặt vào nướu",
+        "isActive": true
+      },
+      {
+        "name": "Phẫu thuật chỉnh hàm lệch",
+        "price": 50000000,
+        "durationMinutes": 240,
+        "unit": "Lần",
+        "description": "Phẫu thuật chỉnh hình hàm lệch, móm, hô nặng",
+        "isActive": true
+      }
+    ]
+  },
+
+  
+  {
+    "name": "Làm răng giả tháo lắp",
+    "type": "treatment",
+    "description": "Làm hàm răng giả tháo lắp (hàm di động)",
+    "requireExamFirst": true,
+    "allowedRoomTypes": ["GENERAL_TREATMENT", "LAB"],
+    "isActive": true,
+    "serviceAddOns": [
+      {
+        "name": "Hàm giả tháo lắp toàn hàm nhựa",
+        "price": 3000000,
+        "durationMinutes": 120,
+        "unit": "Hàm",
+        "description": "Hàm giả tháo lắp toàn bộ bằng nhựa (hàm trên hoặc hàm dưới)",
+        "isActive": true
+      },
+      {
+        "name": "Hàm giả tháo lắp một phần",
+        "price": 2000000,
+        "durationMinutes": 90,
+        "unit": "Cái",
+        "description": "Hàm giả tháo lắp một phần (từ 1-5 răng)",
+        "isActive": true
+      },
+      {
+        "name": "Hàm giả khung kim loại",
+        "price": 8000000,
+        "durationMinutes": 120,
+        "unit": "Hàm",
+        "description": "Hàm giả có khung kim loại, độ bền cao, khít hơn",
+        "isActive": true
+      }
+    ]
+  }
+]
