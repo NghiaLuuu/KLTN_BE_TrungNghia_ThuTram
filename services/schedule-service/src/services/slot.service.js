@@ -520,12 +520,24 @@ async function assignStaffToSpecificSlots({
     // Update all slots with the assigned staff
     let updatedCount = 0;
     const updatedSlots = [];
+    
+    // 🆕 Cache room info to avoid multiple getRoomInfo calls
+    const roomInfoCache = new Map();
+    
+    async function getCachedRoomInfo(roomId) {
+      const key = roomId.toString();
+      if (!roomInfoCache.has(key)) {
+        const roomInfo = await getRoomInfo(roomId);
+        roomInfoCache.set(key, roomInfo);
+      }
+      return roomInfoCache.get(key);
+    }
 
     for (const slot of slots) {
       let hasChanges = false;
 
-      // Get room info once for this slot
-      const room = await getRoomInfo(slot.roomId);
+      // Get room info once for this slot (with caching)
+      const room = await getCachedRoomInfo(slot.roomId);
       const hasSubRooms = room.subRooms && room.subRooms.length > 0;
 
       console.log(`\n🔄 Processing slot ${slot._id}:`);
