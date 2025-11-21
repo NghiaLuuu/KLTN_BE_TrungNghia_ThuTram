@@ -253,6 +253,22 @@ exports.deleteServiceAddOn = async (serviceId, addOnId) => {
   return { message: "Đã xóa dịch vụ bổ sung thành công" };
 };
 
+exports.updateAllAddonsDuration = async (serviceId, durationMinutes) => {
+  const service = await serviceRepo.getServiceById(serviceId);
+  
+  if (!service) {
+    throw new Error('Không tìm thấy dịch vụ');
+  }
+
+  // 🔹 Cập nhật thời gian cho tất cả add-ons
+  const updatedService = await serviceRepo.updateAllAddonsDuration(serviceId, durationMinutes);
+  
+  // 🔹 Refresh cache
+  await refreshServiceCache();
+  
+  return updatedService;
+};
+
 exports.getServiceAddOnById = async (serviceId, addOnId) => {
   return await serviceRepo.findServiceAddOnById(serviceId, addOnId);
 };

@@ -250,6 +250,32 @@ exports.deleteServiceAddOn = async (req, res) => {
   }
 };
 
+exports.updateAllAddonsDuration = async (req, res) => {
+  if (!isManagerOrAdmin(req.user)) {
+    return res.status(403).json({ message: 'Chỉ quản lý hoặc admin mới được phép' });
+  }
+
+  try {
+    const { durationMinutes } = req.body;
+    
+    if (!durationMinutes || durationMinutes <= 0) {
+      return res.status(400).json({ message: 'Thời gian phải lớn hơn 0' });
+    }
+
+    const service = await serviceService.updateAllAddonsDuration(
+      req.params.serviceId, 
+      durationMinutes
+    );
+    res.json({ 
+      success: true,
+      message: `Đã cập nhật thời gian thành ${durationMinutes} phút cho tất cả tùy chọn`, 
+      data: service 
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message || 'Không thể cập nhật thời gian' });
+  }
+};
+
 exports.getServiceAddOnById = async (req, res) => {
   try {
     const { service, addOn } = await serviceService.getServiceAddOnById(

@@ -40,6 +40,8 @@ router.post('/mark-as-used', serviceController.markServicesAsUsed);
 // ===== SERVICE ADD-ON ROUTES =====
 // Protected routes (require admin/manager)
 router.post('/:serviceId/addons', authMiddleware, upload.single('image'), serviceController.addServiceAddOn);
+// ⚠️ IMPORTANT: Đặt route cụ thể 'duration' TRƯỚC các route có param :addOnId để tránh conflict
+router.patch('/:serviceId/addons/duration', authMiddleware, serviceController.updateAllAddonsDuration);
 router.put('/:serviceId/addons/:addOnId', authMiddleware, upload.single('image'), serviceController.updateServiceAddOn);
 router.patch('/:serviceId/addons/:addOnId/toggle', authMiddleware, serviceController.toggleServiceAddOnStatus);
 router.delete('/:serviceId/addons/:addOnId', authMiddleware, serviceController.deleteServiceAddOn);

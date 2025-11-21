@@ -108,6 +108,14 @@ exports.deleteServiceAddOn = async (serviceId, addOnId) => {
   );
 };
 
+exports.updateAllAddonsDuration = async (serviceId, durationMinutes) => {
+  return await Service.findByIdAndUpdate(
+    serviceId,
+    { $set: { 'serviceAddOns.$[].durationMinutes': durationMinutes } },
+    { new: true, runValidators: true }
+  );
+};
+
 exports.findServiceAddOnById = async (serviceId, addOnId) => {
   const service = await Service.findById(serviceId);
   if (!service) throw new Error('Service not found');
