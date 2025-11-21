@@ -254,7 +254,7 @@ exports.deleteServiceAddOn = async (serviceId, addOnId) => {
 };
 
 exports.updateAllAddonsDuration = async (serviceId, durationMinutes) => {
-  const service = await serviceRepo.getServiceById(serviceId);
+  const service = await serviceRepo.findById(serviceId);
   
   if (!service) {
     throw new Error('Không tìm thấy dịch vụ');
