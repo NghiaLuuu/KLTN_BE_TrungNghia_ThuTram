@@ -90,9 +90,9 @@ async function handleGetServiceAddOn({ serviceId, serviceAddOnId }) {
     
     console.log(`✅ [RPC Handler] getServiceAddOn result:`, {
       serviceName: result.service?.name,
-      serviceType: result.service?.serviceType,
+      serviceType: result.service?.type, // ⭐ Service model uses 'type' field
       addOnName: result.addOn?.name,
-      addOnDuration: result.addOn?.duration
+      addOnDuration: result.addOn?.durationMinutes || result.addOn?.duration // ⭐ ServiceAddOn uses 'durationMinutes'
     });
     
     // Return format that RPC client expects: { result: { service, addOn } }

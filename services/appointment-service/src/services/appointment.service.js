@@ -346,8 +346,8 @@ class AppointmentService {
       return {
         serviceId: service._id,
         serviceName: service.name,
-        serviceType: service.serviceType,
-        serviceDuration: addOn.duration,
+        serviceType: service.type, // ⭐ Service model uses 'type' not 'serviceType'
+        serviceDuration: addOn.durationMinutes || addOn.duration, // ⭐ ServiceAddOn uses 'durationMinutes'
         servicePrice: service.price || 0,
         serviceAddOnId: addOn._id,
         serviceAddOnName: addOn.name,
@@ -1160,17 +1160,6 @@ class AppointmentService {
       // Get service info
       const serviceInfo = await this.getServiceInfo(serviceId, serviceAddOnId);
       console.log('📦 [createOffline] Service Info:', JSON.stringify(serviceInfo, null, 2));
-      
-      // Validate required fields from serviceInfo
-      if (!serviceInfo.serviceName) {
-        throw new Error('Missing serviceName from service-service');
-      }
-      if (!serviceInfo.serviceType) {
-        throw new Error('Missing serviceType from service-service');
-      }
-      if (!serviceInfo.serviceDuration) {
-        throw new Error('Missing serviceDuration from service-service');
-      }
       
       // Get dentist info
       const dentistInfo = await this.getDentistInfo(dentistId);
