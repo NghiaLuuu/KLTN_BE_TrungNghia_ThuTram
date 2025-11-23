@@ -69,5 +69,6 @@ async function consumeFromQueue(queueName, handler) {
 module.exports = { 
   connectRabbitMQ, 
   getChannel,
-  consumeFromQueue
+  consumeFromQueue,
+  get channel() { return channel; }
 };

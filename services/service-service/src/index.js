@@ -6,6 +6,7 @@ const connectDB = require('./config/db');
 const rabbitmqClient = require('./utils/rabbitmq.client');
 const { startConsumer } = require('./consumers/service.consumer');
 const { initServiceCache } = require('./services/service.service');
+const { initRpcServer } = require('./utils/rpc.server');
 
 // Connect to MongoDB
 connectDB().then(async () => {
@@ -28,6 +29,15 @@ const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
 rabbitmqClient.connectRabbitMQ(RABBITMQ_URL)
   .then(() => {
     console.log('✅ RabbitMQ connection established');
+    
+    // Initialize RPC Server
+    const channel = rabbitmqClient.channel;
+    if (channel) {
+      initRpcServer(channel).catch(err => {
+        console.error('❌ Failed to initialize RPC Server:', err);
+      });
+    }
+    
     // Start consumer after RabbitMQ is connected
     return startConsumer();
   })
