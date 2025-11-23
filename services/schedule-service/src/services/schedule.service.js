@@ -524,7 +524,7 @@ function toObjectIdString(value) {
   return String(value);
 }
 
-async function getRoomByIdFromCache(roomId) {
+async function getRoomById(roomId) {
   try {
     const { sendRpcRequest } = require('../utils/rabbitmq.client');
     const roomData = await sendRpcRequest('room_queue', {
@@ -959,7 +959,7 @@ async function generateQuarterScheduleForSingleRoom(roomId, quarter, year) {
     if (!room) {
       // Room might be newly created, try direct API call
       console.log(`⚠️ Room ${roomId} không tìm thấy, thử gọi API trực tiếp...`);
-      room = await getRoomByIdFromCache(roomId);
+      room = await getRoomById(roomId);
     }
       
     if (!room) {
@@ -1505,7 +1505,7 @@ async function getSchedulesByRoom(roomId, startDate, endDate) {
   
   // Lấy tên room từ API
   try {
-    const room = await getRoomByIdFromCache(roomId);
+    const room = await getRoomById(roomId);
     
     // Thêm roomName vào mỗi schedule
     const schedulesWithRoomName = schedules.map(schedule => ({
@@ -1678,7 +1678,7 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
     const roomsInfo = await Promise.all(
       roomIds.map(async (roomId) => {
         try {
-          const roomInfo = await getRoomByIdFromCache(roomId);
+          const roomInfo = await getRoomById(roomId);
           if (!roomInfo) {
             console.warn(`⚠️ Room ${roomId} not found in cache`);
             return null;
@@ -2017,7 +2017,7 @@ async function generateBulkRoomSchedules ({
     const roomsInfo = await Promise.all(
       roomIds.map(async (roomId) => {
         try {
-          const roomInfo = await getRoomByIdFromCache(roomId);
+          const roomInfo = await getRoomById(roomId);
           return { roomId, roomInfo };
         } catch (error) {
           console.error(`❌ Error getting room ${roomId}:`, error);
@@ -4799,9 +4799,14 @@ exports.generateRoomSchedule = async ({
       throw new Error('Không tìm thấy cấu hình lịch làm việc. Vui lòng tạo cấu hình trước.');
     }
 
-    const roomInfo = await getRoomByIdFromCache(roomId);
+    let roomInfo = await getRoomById(roomId);
     if (!roomInfo) {
-      throw new Error(`Không tìm thấy thông tin phòng ${roomId} trong cache`);
+      console.warn(`⚠️ Không tìm thấy thông tin phòng ${roomId} từ RPC, retry lần 2...`);
+      // Retry 1 lần nữa với timeout dài hơn
+      roomInfo = await getRoomById(roomId);
+      if (!roomInfo) {
+        throw new Error(`Không thể lấy thông tin phòng ${roomId} sau 2 lần thử. Vui lòng kiểm tra room-service.`);
+      }
     }
 
     const roomHasSubRooms = roomInfo.hasSubRooms === true && Array.isArray(roomInfo.subRooms) && roomInfo.subRooms.length > 0;
@@ -5416,7 +5421,7 @@ exports.getRoomSchedulesWithShifts = async (roomId, subRoomId = null, month = nu
     schedules.sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
     
     // 🆕 Get room info to check for subrooms
-    const roomInfo = await getRoomByIdFromCache(roomId);
+    const roomInfo = await getRoomById(roomId);
     const roomHasSubRooms = roomInfo?.hasSubRooms === true && Array.isArray(roomInfo.subRooms) && roomInfo.subRooms.length > 0;
     
     // 🆕 Get current date for expiration check
@@ -8304,6 +8309,7 @@ const enableShiftsAndSubRooms = async (scheduleId, shifts = [], subRoomIds = [])
 // Export function
 module.exports.enableShiftsAndSubRooms = enableShiftsAndSubRooms;
 exports.enableShiftsAndSubRooms = enableShiftsAndSubRooms;
+
 
 
 
