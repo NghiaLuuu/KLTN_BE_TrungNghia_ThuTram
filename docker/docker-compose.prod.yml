@@ -2,10 +2,9 @@ version: '3.8'
 
 # Production overrides for secure deployment
 services:
-  # Infrastructure services - bind to localhost only for security
+  # Infrastructure services - internal network only (no external binding needed)
   mongodb:
-    ports:
-      - "127.0.0.1:27017:27017"  # Only localhost access
+    # Remove port binding - only accessible via Docker network
     restart: always
     deploy:
       resources:
@@ -22,8 +21,7 @@ services:
         max-file: "3"
 
   redis:
-    ports:
-      - "127.0.0.1:6379:6379"  # Only localhost access
+    # Remove port binding - only accessible via Docker network
     restart: always
     deploy:
       resources:
@@ -40,9 +38,7 @@ services:
         max-file: "3"
 
   rabbitmq:
-    ports:
-      - "127.0.0.1:5672:5672"
-      - "127.0.0.1:15672:15672"  # Management UI - localhost only
+    # Remove port binding - only accessible via Docker network
     restart: always
     deploy:
       resources:
@@ -58,10 +54,9 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Microservices - bind to localhost, use reverse proxy
+  # Microservices - internal network only, accessed via nginx reverse proxy
   auth-service:
-    ports:
-      - "127.0.0.1:3001:3001"
+    # Remove port binding - accessed via nginx
     restart: always
     deploy:
       resources:
@@ -81,8 +76,7 @@ services:
         max-file: "3"
 
   room-service:
-    ports:
-      - "127.0.0.1:3002:3002"
+    # Remove port binding - accessed via nginx
     restart: always
     deploy:
       resources:
@@ -102,8 +96,7 @@ services:
         max-file: "3"
 
   service-service:
-    ports:
-      - "127.0.0.1:3003:3003"
+    # Remove port binding - accessed via nginx
     restart: always
     deploy:
       resources:
@@ -123,8 +116,7 @@ services:
         max-file: "3"
 
   schedule-service:
-    ports:
-      - "127.0.0.1:3005:3005"
+    # Remove port binding - accessed via nginx
     restart: always
     deploy:
       resources:
@@ -144,8 +136,7 @@ services:
         max-file: "3"
 
   appointment-service:
-    ports:
-      - "127.0.0.1:3006:3006"
+    # Remove port binding - accessed via nginx
     restart: always
     deploy:
       resources:
@@ -165,8 +156,7 @@ services:
         max-file: "3"
 
   payment-service:
-    ports:
-      - "127.0.0.1:3007:3007"
+    # Remove port binding - accessed via nginx
     restart: always
     deploy:
       resources:
@@ -186,8 +176,7 @@ services:
         max-file: "3"
 
   invoice-service:
-    ports:
-      - "127.0.0.1:3008:3008"
+    # Remove port binding - accessed via nginx
     restart: always
     deploy:
       resources:
@@ -207,8 +196,7 @@ services:
         max-file: "3"
 
   medicine-service:
-    ports:
-      - "127.0.0.1:3009:3009"
+    # Remove port binding - accessed via nginx
     restart: always
     deploy:
       resources:
@@ -228,8 +216,7 @@ services:
         max-file: "3"
 
   record-service:
-    ports:
-      - "127.0.0.1:3010:3010"
+    # Remove port binding - accessed via nginx
     restart: always
     deploy:
       resources:
@@ -249,8 +236,7 @@ services:
         max-file: "3"
 
   statistic-service:
-    ports:
-      - "127.0.0.1:3011:3011"
+    # Remove port binding - accessed via nginx
     restart: always
     deploy:
       resources:
@@ -270,8 +256,7 @@ services:
         max-file: "3"
 
   chatbot-service:
-    ports:
-      - "127.0.0.1:3013:3013"
+    # Remove port binding - accessed via nginx
     restart: always
     deploy:
       resources:
