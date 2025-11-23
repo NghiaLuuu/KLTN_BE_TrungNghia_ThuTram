@@ -68,10 +68,26 @@ app.use(cors({
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 
-// Khởi chạy RPC Server
-startRPCServer()
-  .then(() => console.log('✅ User RPC server started'))
-  .catch(err => console.error('❌ Failed to start User RPC server:', err));
+// Khởi chạy RPC Server với retry
+async function startRpcServerWithRetry(retries = 5, delay = 5000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await startRPCServer();
+      console.log('✅ User RPC server started');
+      return;
+    } catch (err) {
+      console.error(`❌ Failed to start User RPC server (attempt ${i + 1}/${retries}):`, err.message);
+      if (i < retries - 1) {
+        console.log(`⏳ Retrying in ${delay/1000}s...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay = Math.min(delay * 1.5, 30000); // Exponential backoff, max 30s
+      }
+    }
+  }
+  console.error('❌ User RPC server failed to start after all retries');
+}
+
+startRpcServerWithRetry();
 
 // 🆕 Khởi chạy Email Consumer
 startEmailConsumer()

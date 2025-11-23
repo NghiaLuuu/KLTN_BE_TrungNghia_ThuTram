@@ -29,6 +29,12 @@ services:
       - redis_data:/data
     networks:
       - dental-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   rabbitmq:
     image: rabbitmq:3.12-management
@@ -45,10 +51,11 @@ services:
     networks:
       - dental-network
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 30s
-      timeout: 30s
-      retries: 3
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
 
   # Microservices
   auth-service:
@@ -72,7 +79,7 @@ services:
       mongodb:
         condition: service_started
       redis:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     networks:
@@ -103,7 +110,7 @@ services:
       mongodb:
         condition: service_started
       redis:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     networks:
@@ -129,7 +136,7 @@ services:
       mongodb:
         condition: service_started
       redis:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     networks:
@@ -155,7 +162,7 @@ services:
       mongodb:
         condition: service_started
       redis:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     networks:
@@ -181,7 +188,7 @@ services:
       mongodb:
         condition: service_started
       redis:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     networks:
@@ -207,7 +214,7 @@ services:
       mongodb:
         condition: service_started
       redis:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     networks:
@@ -233,7 +240,7 @@ services:
       mongodb:
         condition: service_started
       redis:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     networks:
@@ -259,7 +266,7 @@ services:
       mongodb:
         condition: service_started
       redis:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     networks:
@@ -285,7 +292,7 @@ services:
       mongodb:
         condition: service_started
       redis:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     networks:
@@ -311,7 +318,7 @@ services:
       mongodb:
         condition: service_started
       redis:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     networks:
@@ -337,7 +344,7 @@ services:
       mongodb:
         condition: service_started
       redis:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     networks:
