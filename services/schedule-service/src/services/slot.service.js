@@ -3703,6 +3703,20 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
           }
           
           if (patientEmail) {
+            // 🔧 FIX: Convert slot time to VN timezone (UTC+7)
+            const startDate = typeof representativeSlot.startTime === 'string' 
+              ? new Date(representativeSlot.startTime) 
+              : representativeSlot.startTime;
+            const endDate = typeof representativeSlot.endTime === 'string' 
+              ? new Date(representativeSlot.endTime) 
+              : representativeSlot.endTime;
+            
+            const vnStartDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+            const startTimeStr = `${String(vnStartDate.getHours()).padStart(2, '0')}:${String(vnStartDate.getMinutes()).padStart(2, '0')}`;
+            
+            const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+            const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+            
             emailNotifications.push({
           email: patientEmail,
           name: patientName,
@@ -3711,8 +3725,8 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
           slotInfo: {
             date: representativeSlot.date,
             shiftName: representativeSlot.shiftName,
-            startTime: representativeSlot.startTime,
-            endTime: representativeSlot.endTime,
+            startTime: startTimeStr, // ⭐ Now in VN time
+            endTime: endTimeStr, // ⭐ Now in VN time
             slotCount: appointmentSlots.length
           },
           action: isActive ? 'enabled' : 'disabled',
@@ -3733,6 +3747,20 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
           dentistIds.forEach(dentistId => {
             const dentist = usersCache.find(u => u._id.toString() === dentistId);
             if (dentist && dentist.email) {
+              // 🔧 FIX: Convert slot time to VN timezone (UTC+7)
+              const startDate = typeof representativeSlot.startTime === 'string' 
+                ? new Date(representativeSlot.startTime) 
+                : representativeSlot.startTime;
+              const endDate = typeof representativeSlot.endTime === 'string' 
+                ? new Date(representativeSlot.endTime) 
+                : representativeSlot.endTime;
+              
+              const vnStartDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+              const startTimeStr = `${String(vnStartDate.getHours()).padStart(2, '0')}:${String(vnStartDate.getMinutes()).padStart(2, '0')}`;
+              
+              const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+              const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+              
               emailNotifications.push({
                 email: dentist.email,
                 name: dentist.name,
@@ -3740,8 +3768,8 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
                 slotInfo: {
                   date: representativeSlot.date,
                   shiftName: representativeSlot.shiftName,
-                  startTime: representativeSlot.startTime,
-                  endTime: representativeSlot.endTime,
+                  startTime: startTimeStr, // ⭐ Now in VN time
+                  endTime: endTimeStr, // ⭐ Now in VN time
                   slotCount: appointmentSlots.length
                 },
                 action: isActive ? 'enabled' : 'disabled',
@@ -3763,6 +3791,20 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
           nurseIds.forEach(nurseId => {
             const nurse = usersCache.find(u => u._id.toString() === nurseId);
             if (nurse && nurse.email) {
+              // 🔧 FIX: Convert slot time to VN timezone (UTC+7)
+              const startDate = typeof representativeSlot.startTime === 'string' 
+                ? new Date(representativeSlot.startTime) 
+                : representativeSlot.startTime;
+              const endDate = typeof representativeSlot.endTime === 'string' 
+                ? new Date(representativeSlot.endTime) 
+                : representativeSlot.endTime;
+              
+              const vnStartDate = new Date(startDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+              const startTimeStr = `${String(vnStartDate.getHours()).padStart(2, '0')}:${String(vnStartDate.getMinutes()).padStart(2, '0')}`;
+              
+              const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+              const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
+              
               emailNotifications.push({
                 email: nurse.email,
                 name: nurse.name,
@@ -3770,8 +3812,8 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
                 slotInfo: {
                   date: representativeSlot.date,
                   shiftName: representativeSlot.shiftName,
-                  startTime: representativeSlot.startTime,
-                  endTime: representativeSlot.endTime,
+                  startTime: startTimeStr, // ⭐ Now in VN time
+                  endTime: endTimeStr, // ⭐ Now in VN time
                   slotCount: appointmentSlots.length
                 },
                 action: isActive ? 'enabled' : 'disabled',
