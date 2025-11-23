@@ -16,6 +16,9 @@ async function startRpcServer(retries = 10, delay = 2000) {
       // ⚠️ REMOVED deleteQueue() to avoid conflicts with multiple instances
       // Queue should be persistent, only consumers change
       await channel.assertQueue(queue, { durable: true });
+      
+      // ⚡ Set prefetch to 1 - process one message at a time to prevent split handling
+      await channel.prefetch(1);
 
       console.log(`✅ Room RPC server listening on queue: ${queue}`);
       
@@ -34,7 +37,25 @@ async function startRpcServer(retries = 10, delay = 2000) {
           return;
         }
 
-        const { action, payload } = JSON.parse(msg.content.toString());
+        // Parse message content with error handling
+        let action, payload;
+        try {
+          const parsed = JSON.parse(msg.content.toString());
+          action = parsed.action;
+          payload = parsed.payload;
+        } catch (parseError) {
+          console.error('❌ [Room RPC] Failed to parse message:', parseError.message);
+          channel.nack(msg, false, false); // Reject without requeue
+          return;
+        }
+        
+        // Validate RPC request has replyTo
+        if (!msg.properties.replyTo) {
+          console.warn('⚠️ [Room RPC] Message missing replyTo, ignoring...');
+          channel.ack(msg);
+          return;
+        }
+        
         let response;
 
         try {
