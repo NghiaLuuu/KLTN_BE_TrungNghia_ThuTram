@@ -88,7 +88,14 @@ async function handleGetServiceAddOn({ serviceId, serviceAddOnId }) {
       throw new Error('Service or ServiceAddOn not found');
     }
     
-    // Return format that RPC client expects: { result: data } or just data
+    console.log(`✅ [RPC Handler] getServiceAddOn result:`, {
+      serviceName: result.service?.name,
+      serviceType: result.service?.serviceType,
+      addOnName: result.addOn?.name,
+      addOnDuration: result.addOn?.duration
+    });
+    
+    // Return format that RPC client expects: { result: { service, addOn } }
     return {
       result: result
     };
