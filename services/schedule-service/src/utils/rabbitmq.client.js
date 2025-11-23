@@ -242,7 +242,7 @@ class RabbitMQClient {
 // Export singleton instance
 const rabbitmqClient = new RabbitMQClient();
 
-// Export both instance and sendRpcRequest helper
+// Export both instance and sendRpcRequest helper (bind để tránh đệ quy vô hạn)
+const boundSendRpcRequest = rabbitmqClient.sendRpcRequest.bind(rabbitmqClient);
 module.exports = rabbitmqClient;
-module.exports.sendRpcRequest = (queueName, message, timeout) => 
-  rabbitmqClient.sendRpcRequest(queueName, message, timeout);
+module.exports.sendRpcRequest = boundSendRpcRequest;
