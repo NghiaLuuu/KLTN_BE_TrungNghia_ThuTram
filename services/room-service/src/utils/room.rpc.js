@@ -13,15 +13,8 @@ async function startRpcServer(retries = 10, delay = 2000) {
 
       const queue = 'room_queue';
 
-      try {
-        await channel.deleteQueue(queue);
-        console.log(`♻️ Refreshing RabbitMQ queue ${queue} before asserting`);
-      } catch (err) {
-        if (err?.code !== 404) {
-          console.warn(`⚠️ Could not delete queue ${queue} during refresh:`, err.message || err);
-        }
-      }
-
+      // ⚠️ REMOVED deleteQueue() to avoid conflicts with multiple instances
+      // Queue should be persistent, only consumers change
       await channel.assertQueue(queue, { durable: true });
 
       console.log(`✅ Room RPC server listening on queue: ${queue}`);

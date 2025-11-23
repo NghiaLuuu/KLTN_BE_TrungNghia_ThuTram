@@ -10,16 +10,8 @@ async function startRpcServer() {
 
   const queue = 'auth_queue';
 
-  // Ensure queue is recreated with the latest durability config
-  try {
-    await channel.deleteQueue(queue);
-    console.log(`♻️ Refreshing RabbitMQ queue ${queue} before asserting`);
-  } catch (err) {
-    if (err?.code !== 404) {
-      console.warn(`⚠️ Could not delete queue ${queue} during refresh:`, err.message || err);
-    }
-  }
-
+  // ⚠️ REMOVED deleteQueue() to avoid conflicts with multiple instances
+  // Queue should be persistent, only consumers change
   await channel.assertQueue(queue, { durable: true });
 
   console.log(`✅ Auth RPC server listening on queue: ${queue}`);
