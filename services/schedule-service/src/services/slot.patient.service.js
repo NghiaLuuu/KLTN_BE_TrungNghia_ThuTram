@@ -157,34 +157,36 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
           continue;
         }
         
-        // Fetch room information for all unique roomIds from Redis cache
+        // Fetch room information for all unique roomIds from room-service API
         const uniqueRoomIds = [...new Set(availableSlots.map(s => s.roomId.toString()))];
         console.log('🏥 Unique room IDs:', uniqueRoomIds);
         
-        // Fetch room details from Redis cache (rooms_cache)
+        // Fetch room details from room-service API
         const roomMap = new Map();
         try {
-          const roomsCache = await redisClient.get('rooms_cache');
-          if (!roomsCache) {
-            console.warn('⚠️ rooms_cache not found in Redis. Room filtering will be skipped.');
+          const { sendRpcRequest } = require('../utils/rabbitmq.client');
+          const roomsData = await sendRpcRequest('room_queue', { action: 'getAllRooms' }, 5000);
+          
+          if (!roomsData || !roomsData.success) {
+            console.warn('⚠️ Could not get rooms from API. Room filtering will be skipped.');
           } else {
-            const allRooms = JSON.parse(roomsCache);
-            console.log(`✅ Loaded ${allRooms.length} rooms from Redis cache`);
+            const allRooms = roomsData.data;
+            console.log(`✅ Loaded ${allRooms.length} rooms from room-service API`);
             
             // Build room map for quick lookup
             uniqueRoomIds.forEach(roomId => {
               const room = allRooms.find(r => r._id === roomId);
               if (room) {
                 roomMap.set(roomId, room);
-                console.log(`✅ Found room ${roomId} in cache: ${room.name}, type: ${room.roomType}`);
+                console.log(`✅ Found room ${roomId}: ${room.name}, type: ${room.roomType}`);
               } else {
-                console.warn(`⚠️ Room ${roomId} not found in cache`);
+                console.warn(`⚠️ Room ${roomId} not found`);
               }
             });
           }
         } catch (error) {
-          console.error('❌ Error reading rooms_cache from Redis:', error.message);
-          // Continue without room filtering if Redis is unavailable
+          console.error('❌ Error getting rooms from API:', error.message);
+          // Continue without room filtering if API is unavailable
         }
         
         // Find first valid consecutive slot group with proper roomType filtering
@@ -426,19 +428,21 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
     // 🆕 Filter slots by roomType if allowedRoomTypes is specified
     let filteredSlots = slots;
     if (allowedRoomTypes && allowedRoomTypes.length > 0) {
-      // Load room data from Redis cache
+      // Load room data from room-service API
       const roomMap = new Map();
       try {
-        const roomsCache = await redisClient.get('rooms_cache');
-        if (roomsCache) {
-          const allRooms = JSON.parse(roomsCache);
+        const { sendRpcRequest } = require('../utils/rabbitmq.client');
+        const roomsData = await sendRpcRequest('room_queue', { action: 'getAllRooms' }, 5000);
+        
+        if (roomsData && roomsData.success) {
+          const allRooms = roomsData.data;
           allRooms.forEach(room => {
             roomMap.set(room._id, room);
           });
-          console.log(`✅ Loaded ${allRooms.length} rooms from Redis cache`);
+          console.log(`✅ Loaded ${allRooms.length} rooms from room-service API`);
         }
       } catch (error) {
-        console.warn('⚠️ Could not load rooms from cache:', error.message);
+        console.warn('⚠️ Could not load rooms from API:', error.message);
       }
       
       // Filter slots by roomType

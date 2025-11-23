@@ -50,15 +50,18 @@ class QueueService {
         );
       }
 
-      // 🔥 Load rooms from Redis cache (populated by room-service)
+      // 🔥 Load rooms from room-service API (no more Redis cache)
       const roomDataMap = new Map();
       const subroomDataMap = new Map();
       
       try {
-        const roomsCacheStr = await redisClient.get('rooms_cache');
+        const { sendRpcRequest } = require('../utils/rabbitmq.client');
+        const roomsResult = await sendRpcRequest('room_queue', {
+          action: 'getAllRooms'
+        }, 5000);
         
-        if (roomsCacheStr) {
-          const roomsCache = JSON.parse(roomsCacheStr);
+        if (roomsResult && roomsResult.success && Array.isArray(roomsResult.data)) {
+          const roomsCache = roomsResult.data;
           
           // Build maps for quick lookup
           roomsCache.forEach(room => {
@@ -74,12 +77,12 @@ class QueueService {
             }
           });
           
-          console.log(`🏠 [QueueService] Loaded ${roomDataMap.size} rooms, ${subroomDataMap.size} subrooms from Redis cache`);
+          console.log(`🏠 [QueueService] Loaded ${roomDataMap.size} rooms, ${subroomDataMap.size} subrooms from room-service API`);
         } else {
-          console.warn('⚠️ [QueueService] rooms_cache not found in Redis');
+          console.warn('⚠️ [QueueService] Could not get rooms from room-service API');
         }
-      } catch (cacheError) {
-        console.error('❌ [QueueService] Error loading rooms from cache:', cacheError.message);
+      } catch (apiError) {
+        console.error('❌ [QueueService] Error loading rooms from API:', apiError.message);
       }
 
       // ✅ Group by room + subroom (nếu có subroom thì tách riêng)

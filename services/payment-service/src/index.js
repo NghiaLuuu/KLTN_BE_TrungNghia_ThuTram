@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 
 const connectDB = require('./config/db');
 const paymentRoutes = require('./routes/payment.route');
+const stripeRoutes = require('./routes/stripe.route');
 const startRpcServer = require('./utils/rpcServer');
 const rabbitmqClient = require('./utils/rabbitmq.client');
 const redisSubscriber = require('./utils/redis.subscriber'); // ✅ NEW
@@ -174,6 +175,7 @@ app.get('/health', async (req, res) => {
 
 // API Routes
 app.use('/api/payments', paymentRoutes);
+app.use('/api/payments/stripe', stripeRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

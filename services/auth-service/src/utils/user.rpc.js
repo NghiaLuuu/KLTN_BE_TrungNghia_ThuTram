@@ -37,6 +37,12 @@ async function startRpcServer() {
       if (action === 'getUserById') {
         const user = await userRepo.getUserById(payload.userId);
         response = user || null;
+      } else if (action === 'getAllUsers') {
+        // 🆕 Get all users from database
+        console.log('📥 [Auth RPC] getAllUsers request');
+        const users = await userRepo.listUsers();
+        console.log(`✅ [Auth RPC] Found ${users?.length || 0} users`);
+        response = { success: true, data: users || [] };
       } else if (action === 'rebuildUserCache') {
         // 🔄 Rebuild users_cache in Redis
         console.log('📥 [Auth RPC] Rebuilding users_cache...');

@@ -48,6 +48,10 @@ async function startRpcServer(retries = 10, delay = 2000) {
           if (action === 'getRoomById') {
             const room = await roomRepo.findById(payload.roomId);
             response = { success: true, data: room };
+          } else if (action === 'getAllRooms') {
+            // 🆕 Get all rooms from database
+            const rooms = await roomRepo.getAllRooms();
+            response = { success: true, data: rooms };
           } else if (action === 'rebuildRoomCache') {
             // 🔄 Rebuild rooms_cache trong Redis
             const redis = require('./redis.client');

@@ -4,7 +4,7 @@ const redisClient = require('../utils/redis.client');
 const { publishToQueue } = require('../utils/rabbitClient');
 const { sendRpcRequest } = require('../utils/rabbitmq.client'); // ⚡ Import sendRpcRequest
 const { getVietnamDate, toVietnamTime } = require('../utils/vietnamTime.util');
-const { getCachedUsers, getCachedRooms } = require('../utils/cacheHelper'); // ⚡ NEW
+// Cache helpers removed - now calling APIs directly
 const mongoose = require('mongoose');
 const Slot = require('../models/slot.model'); // 🆕 Import Slot model for toggleSlotsIsActive
 const DayClosure = require('../models/dayClosure.model'); // 🆕 Import DayClosure model
@@ -34,19 +34,7 @@ function toVNDateTimeString(d) {
   return `${dateStr} ${timeStr}`;
 }
 
-// Helper: Check if user already marked as used in cache
-async function isUserAlreadyUsed(userId) {
-  try {
-    const cached = await redisClient.get('users_cache');
-    if (!cached) return false;
-    const users = JSON.parse(cached);
-    const user = users.find(u => u._id === userId);
-    return user && user.hasBeenUsed === true;
-  } catch (error) {
-    console.warn('Failed to check user cache:', error.message);
-    return false; // If cache fails, proceed with marking
-  }
-}
+// Helper removed - markUserAsUsed is now idempotent at auth-service level
 
 function buildShiftOverviewFromConfig(scheduleConfig) {
   if (!scheduleConfig) return {};
@@ -233,70 +221,59 @@ async function getAvailableShifts() {
   }
 }
 
-// Helper: Get room information with auto-rebuild fallback
+// Helper: Get room information - call room-service API directly
 async function getRoomInfo(roomId) {
   try {
-    let cached = await redisClient.get('rooms_cache');
+    const roomData = await sendRpcRequest('room_queue', {
+      action: 'getRoomById',
+      payload: { roomId: roomId.toString() }
+    }, 5000);
     
-    // 🔄 AUTO-REBUILD: Nếu cache miss, rebuild từ room-service
-    if (!cached) {
-      console.warn('⚠️ rooms_cache không tồn tại - đang rebuild từ room-service...');
-      try {
-        const rebuildResult = await sendRpcRequest('room_queue', {
-          action: 'rebuildRoomCache'
-        }, 10000);
-        
-        if (rebuildResult && rebuildResult.success) {
-          console.log('✅ Đã rebuild rooms_cache thành công');
-          cached = await redisClient.get('rooms_cache');
-        }
-      } catch (rebuildError) {
-        console.error('❌ Không thể rebuild cache:', rebuildError.message);
-        // Fallback: Query trực tiếp từ room-service
-        try {
-          const roomData = await sendRpcRequest('room_queue', {
-            action: 'getRoomById',
-            payload: { roomId: roomId.toString() }
-          }, 5000);
-          
-          if (roomData && roomData.success) {
-            console.log('✅ Lấy thông tin phòng trực tiếp từ room-service');
-            return roomData.data;
-          }
-        } catch (fallbackError) {
-          throw new Error(`Không thể lấy thông tin phòng (cache miss + rebuild failed): ${fallbackError.message}`);
-        }
-      }
+    if (roomData && roomData.success && roomData.data) {
+      return roomData.data;
+    } else {
+      throw new Error('Invalid response from room-service');
     }
-    
-    if (!cached) {
-      throw new Error('rooms_cache vẫn không tồn tại sau khi rebuild');
-    }
-    
-    const rooms = JSON.parse(cached);
-    const room = rooms.find(r => r._id.toString() === roomId.toString());
-    
-    if (!room) {
-      // Thử refresh cache và query lại
-      console.warn(`⚠️ Không tìm thấy room ${roomId} trong cache - đang refresh...`);
-      await sendRpcRequest('room_queue', { action: 'rebuildRoomCache' }, 5000);
-      
-      const refreshedCached = await redisClient.get('rooms_cache');
-      if (refreshedCached) {
-        const refreshedRooms = JSON.parse(refreshedCached);
-        const refreshedRoom = refreshedRooms.find(r => r._id.toString() === roomId.toString());
-        if (refreshedRoom) {
-          console.log('✅ Tìm thấy room sau khi refresh cache');
-          return refreshedRoom;
-        }
-      }
-      
-      throw new Error(`Không tìm thấy phòng ${roomId} trong cache (đã refresh)`);
-    }
-    
-    return room;
   } catch (error) {
-    throw new Error(`Không thể lấy thông tin phòng: ${error.message}`);
+    throw new Error(`Cannot get room info: ${error.message}`);
+  }
+}
+
+// Helper: Get all rooms - call room-service API directly
+async function getAllRooms() {
+  try {
+    const roomsData = await sendRpcRequest('room_queue', {
+      action: 'getAllRooms'
+    }, 5000);
+    
+    if (roomsData && roomsData.success && Array.isArray(roomsData.data)) {
+      return roomsData.data;
+    } else {
+      console.error('❌ Invalid response from room-service:', roomsData);
+      return [];
+    }
+  } catch (error) {
+    console.error('❌ Cannot get rooms from room-service:', error.message);
+    return [];
+  }
+}
+
+// Helper: Get all users - call auth-service API directly
+async function getAllUsers() {
+  try {
+    const usersData = await sendRpcRequest('auth_queue', {
+      action: 'getAllUsers'
+    }, 5000);
+    
+    if (usersData && usersData.success && Array.isArray(usersData.data)) {
+      return usersData.data;
+    } else {
+      console.error('❌ Invalid response from auth-service:', usersData);
+      return [];
+    }
+  } catch (error) {
+    console.error('❌ Cannot get users from auth-service:', error.message);
+    return [];
   }
 }
 
@@ -304,13 +281,6 @@ async function getRoomInfo(roomId) {
 async function markUserAsUsed(userId) {
   try {
     if (!userId) return;
-    
-    // Check cache first to avoid unnecessary updates
-    const alreadyUsed = await isUserAlreadyUsed(userId);
-    if (alreadyUsed) {
-      console.log(`⚡ Skipping user ${userId} - already marked as used in cache`);
-      return;
-    }
     
     await publishToQueue('auth_queue', {
       action: 'markUserAsUsed',
@@ -343,16 +313,9 @@ async function markEntitiesAsUsed({ roomId, subRoomId, dentistIds, nurseIds }) {
       console.log(`📤 Sent markSubRoomAsUsed message for subRoom ${subRoomId}`);
     }
     
-    // Mark staff as used via RabbitMQ (check cache first)
+    // Mark staff as used via RabbitMQ
     for (const dentistId of dentistIds) {
       if (dentistId) {
-        // Check cache first to avoid unnecessary updates
-        const alreadyUsed = await isUserAlreadyUsed(dentistId);
-        if (alreadyUsed) {
-          console.log(`⚡ Skipping dentist ${dentistId} - already marked as used in cache`);
-          continue;
-        }
-        
         await publishToQueue('auth_queue', {
           action: 'markUserAsUsed',
           payload: { userId: dentistId }
@@ -363,13 +326,6 @@ async function markEntitiesAsUsed({ roomId, subRoomId, dentistIds, nurseIds }) {
     
     for (const nurseId of nurseIds) {
       if (nurseId) {
-        // Check cache first to avoid unnecessary updates
-        const alreadyUsed = await isUserAlreadyUsed(nurseId);
-        if (alreadyUsed) {
-          console.log(`⚡ Skipping nurse ${nurseId} - already marked as used in cache`);
-          continue;
-        }
-        
         await publishToQueue('auth_queue', {
           action: 'markUserAsUsed',
           payload: { userId: nurseId }
@@ -383,13 +339,13 @@ async function markEntitiesAsUsed({ roomId, subRoomId, dentistIds, nurseIds }) {
   }
 }
 
-// Helper: Validate staff IDs against Redis users cache
+// Helper: Validate staff IDs against auth-service API
 async function validateStaffIds(dentistIds, nurseIds) {
   try {
-    // 🔄 Use getCachedUsers with auto-rebuild
-    const users = await getCachedUsers();
+    // Get users from auth-service API
+    const users = await getAllUsers();
     if (users.length === 0) {
-      throw new Error('Không thể lấy danh sách người dùng từ cache');
+      throw new Error('Không thể lấy danh sách người dùng từ API');
     }
     
     // Validate dentist IDs - 🔥 Support multi-role system
@@ -593,7 +549,7 @@ async function assignStaffToSpecificSlots({
       }
     }
 
-    // Mark staff as used in Redis cache
+    // Mark staff as used via RabbitMQ
     const allStaffIds = [...dentistIds, ...nurseIds];
     for (const staffId of allStaffIds) {
       await markUserAsUsed(staffId);
@@ -769,7 +725,7 @@ async function reassignStaffToSpecificSlots({
       });
     }
 
-    // Mark new staff as used in Redis cache
+    // Mark new staff as used via RabbitMQ
     await markUserAsUsed(newStaffId);
 
     // 🔥 Invalidate Redis cache for affected room calendars
@@ -1156,11 +1112,10 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
       });
     }
     
-    // Get user info from cache for staff details
-    const usersCache = await redisClient.get('users_cache');
-    const users = usersCache ? JSON.parse(usersCache) : [];
+    // Get user info from auth-service for staff details
+    const users = await getAllUsers();
     
-    console.log('🔍 Users cache loaded:', users.length, 'users');
+    console.log('🔍 Users loaded:', users.length, 'users');
     
     // ⚡ PERFORMANCE: Create Map for O(1) lookup
     const usersMap = new Map(users.map(u => [u._id?.toString(), u]));
@@ -1401,10 +1356,10 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
       return !scheduleSubRoomId;
     });
     
-    // ⚡ OPTIMIZED: Get cached users and rooms (memory + Redis)
+    // ⚡ OPTIMIZED: Get users and rooms from APIs
     const [users, rooms] = await Promise.all([
-      getCachedUsers(),
-      getCachedRooms()
+      getAllUsers(),
+      getAllRooms()
     ]);
     
     // ⚡ PERFORMANCE: Create Map for O(1) lookup instead of O(n) find
@@ -1708,7 +1663,7 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
       ? scheduleShiftOverview
       : buildShiftOverviewFromConfig(scheduleConfig);
     
-    // Get room and subroom names from cache
+    // Get room and subroom names from roomsMap
     const roomFromCache = roomsMap.get(roomId?.toString());
     let subRoomInfo = null;
     let roomInfo = {
@@ -1963,8 +1918,8 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
     
     // ⚡ OPTIMIZED: Get cached users and rooms
     const [users, rooms] = await Promise.all([
-      getCachedUsers(),
-      getCachedRooms()
+      getAllUsers(),
+      getAllRooms()
     ]);
     
     // ⚡ PERFORMANCE: Create Map for O(1) lookup instead of O(n) find
@@ -2529,8 +2484,8 @@ async function getNurseCalendar({ nurseId, viewType, startDate = null, page = 0,
     
     // ⚡ OPTIMIZED: Get cached users and rooms
     const [users, rooms] = await Promise.all([
-      getCachedUsers(),
-      getCachedRooms()
+      getAllUsers(),
+      getAllRooms()
     ]);
     
     // ⚡ PERFORMANCE: Create Map for O(1) lookup instead of O(n) find
@@ -2893,8 +2848,7 @@ async function getRoomSlotDetailsFuture({ roomId, subRoomId = null, date, shiftN
     }
 
     // Get rooms cache to check if room has subrooms
-    const roomsCache = await redisClient.get('rooms_cache');
-    const rooms = roomsCache ? JSON.parse(roomsCache) : [];
+    const rooms = await getAllRooms();
     
     // ⚡ PERFORMANCE: Create Map for O(1) lookup
     const roomsMap = new Map(rooms.map(r => [r._id?.toString(), r]));
@@ -2965,7 +2919,7 @@ async function getRoomSlotDetailsFuture({ roomId, subRoomId = null, date, shiftN
     console.log('🔍 getRoomSlotDetailsFuture - Found slots:', slots.length);
 
     // ⚡ OPTIMIZED: Get cached users
-    const users = await getCachedUsers();
+    const users = await getAllUsers();
     
     // ⚡ PERFORMANCE: Create Map for O(1) lookup
     const usersMap = new Map(users.map(u => [u._id?.toString(), u]));
@@ -3118,31 +3072,25 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
     
     // ⚡ OPTIMIZED: Get cached users and rooms
     const [users, rooms] = await Promise.all([
-      getCachedUsers(),
-      getCachedRooms()
+      getAllUsers(),
+      getAllRooms()
     ]);
     
     // ⚡ PERFORMANCE: Create Map for O(1) lookup
     const usersMap = new Map(users.map(u => [u._id?.toString(), u]));
     const roomsMap = new Map(rooms.map(r => [r._id?.toString(), r]));
 
-    // 🏥 Load room data from Redis cache for roomType filtering
+    // 🏥 Load room data from room-service API for roomType filtering
     const roomMap = new Map();
-    try {
-      const roomsCache = await redisClient.get('rooms_cache');
-      if (roomsCache) {
-        const allRooms = JSON.parse(roomsCache);
-        allRooms.forEach(room => {
-          roomMap.set(room._id, room);
-        });
-        console.log(`✅ Loaded ${allRooms.length} rooms from Redis cache`);
-        // Debug: show first room
-        if (allRooms.length > 0) {
-          console.log(`🔍 Sample room from cache:`, { _id: allRooms[0]._id, name: allRooms[0].name, roomType: allRooms[0].roomType });
-        }
-      }
-    } catch (error) {
-      console.warn('⚠️ Could not load rooms from cache:', error.message);
+    const allRooms = await getAllRooms();
+    allRooms.forEach(room => {
+      roomMap.set(room._id, room);
+    });
+    console.log(`✅ Loaded ${allRooms.length} rooms`);
+    
+    // Debug: show first room
+    if (allRooms.length > 0) {
+      console.log(`🔍 Sample room:`, { _id: allRooms[0]._id, name: allRooms[0].name, roomType: allRooms[0].roomType });
     }
 
     console.log(`🏥 Will filter by allowedRoomTypes: ${allowedRoomTypes ? JSON.stringify(allowedRoomTypes) : 'NO FILTER'}`);
@@ -3301,8 +3249,8 @@ async function getNurseSlotDetailsFuture({ nurseId, date, shiftName }) {
     
     // ⚡ OPTIMIZED: Get cached users and rooms
     const [users, rooms] = await Promise.all([
-      getCachedUsers(),
-      getCachedRooms()
+      getAllUsers(),
+      getAllRooms()
     ]);
     
     // ⚡ PERFORMANCE: Create Map for O(1) lookup
@@ -3556,13 +3504,13 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
     }
 
     const slotDetails = updatedSlots.map(slot => {
-      // Get dentist info from cache
+      // Get dentist info from usersCache
       const dentistIds = Array.isArray(slot.dentist) ? slot.dentist : [];
       const dentistInfo = dentistIds.length > 0 && usersCache.length > 0
         ? usersCache.find(u => dentistIds.some(id => u._id.toString() === id.toString()))
         : null;
       
-      // Get nurse info from cache
+      // Get nurse info from usersCache
       const nurseIds = Array.isArray(slot.nurse) ? slot.nurse : [];
       const nurseInfo = nurseIds.length > 0 && usersCache.length > 0
         ? usersCache.find(u => nurseIds.some(id => u._id.toString() === id.toString()))
@@ -3711,10 +3659,10 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
           
           if (usersResponse.data?.success) {
             usersCache = usersResponse.data.data || [];
-            console.log(`✅ Retrieved ${usersCache.length} users from cache`);
+            console.log(`✅ Retrieved ${usersCache.length} users from auth-service`);
           }
         } catch (cacheError) {
-          console.error('⚠️ Could not fetch users cache:', cacheError.message);
+          console.error('⚠️ Could not fetch users from auth-service:', cacheError.message);
         }
         
         // Prepare email list (deduplicated by appointmentId)
@@ -4112,7 +4060,7 @@ async function disableAllDaySlots(date, reason, currentUser) {
       const usersResponse = await axios.get(`${AUTH_SERVICE_URL}/api/user/cache/all`, { timeout: 5000 });
       if (usersResponse.data?.success) {
         usersCache = usersResponse.data.data || [];
-        console.log(`✅ Retrieved ${usersCache.length} users from cache`);
+        console.log(`✅ Retrieved $1 users from auth-service`);
       }
     } catch (cacheError) {
       console.error('⚠️ Could not fetch users cache:', cacheError.message);
@@ -4273,7 +4221,7 @@ async function disableAllDaySlots(date, reason, currentUser) {
       const staffId = allStaffIds[i];
       const staffInfo = allStaffIdsObj[staffId];
       
-      // Find staff in cache - Use traditional for loop
+      // Find staff in usersCache - Use traditional for loop
       let staff = null;
       for (let j = 0; j < usersCache.length; j++) {
         if (usersCache[j]._id.toString() === staffId && usersCache[j].email) {
@@ -4887,7 +4835,7 @@ async function enableAllDaySlots(date, reason, currentUser) {
       const staffId = allStaffIds[i];
       const staffInfo = allStaffIdsObj[staffId];
       
-      // Find staff in cache - Use traditional for loop
+      // Find staff in usersCache - Use traditional for loop
       let staff = null;
       for (let j = 0; j < usersCache.length; j++) {
         if (usersCache[j]._id.toString() === staffId && usersCache[j].email) {

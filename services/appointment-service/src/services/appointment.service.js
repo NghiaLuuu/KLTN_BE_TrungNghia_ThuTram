@@ -325,44 +325,15 @@ class AppointmentService {
   
   async getServiceInfo(serviceId, serviceAddOnId) {
     try {
-      const cached = await redisClient.get('services_cache');
-      if (cached) {
-        const services = JSON.parse(cached);
-        const service = services.find(s => s._id.toString() === serviceId.toString());
-        if (service) {
-          console.log('🔍 Found service in cache:', JSON.stringify(service, null, 2));
-          
-          // ⭐ If serviceAddOnId provided, find the addOn
-          if (serviceAddOnId) {
-            const addOn = service.serviceAddOns.find(a => a._id.toString() === serviceAddOnId.toString());
-            if (addOn) {
-              return {
-                serviceName: service.name,
-                serviceType: service.type,
-                serviceDuration: service.duration || service.durationMinutes || 30, // ⭐ Support both field names
-                serviceAddOnName: addOn.name,
-                servicePrice: 0, // Service price (not addon price)
-                serviceAddOnPrice: addOn.price // ✅ AddOn price
-              };
-            }
-          } else {
-            // ⭐ No addOn - return service info only
-            return {
-              serviceName: service.name,
-              serviceType: service.type,
-              serviceDuration: service.duration || service.durationMinutes || 30,
-              serviceAddOnName: null,
-              servicePrice: service.price || 0,
-              serviceAddOnPrice: 0 // ✅ No addon
-            };
-          }
-        }
-      }
-      
-      // ⭐ Fallback to RPC if cache miss
+      // 🔥 Call service-service API directly (no more Redis cache)
       const result = await rpcClient.call('service-service', 'getServiceAddOn', {
         serviceId, serviceAddOnId
       });
+      
+      if (!result) {
+        throw new Error('Service not found');
+      }
+      
       return result;
     } catch (error) {
       throw new Error('Cannot get service info: ' + error.message);
@@ -371,33 +342,18 @@ class AppointmentService {
   
   async getDentistInfo(dentistId) {
     try {
-      let cached = await redisClient.get('users_cache');
+      // 🔥 Call auth-service API directly (no more Redis cache)
+      const { sendRpcRequest } = require('../utils/rabbitmq.client');
+      const userResult = await sendRpcRequest('auth_queue', {
+        action: 'getUserById',
+        payload: { userId: dentistId.toString() }
+      }, 5000);
       
-      // 🔄 AUTO-REBUILD: If cache miss, try to rebuild via RPC
-      if (!cached) {
-        console.warn('⚠️ users_cache not found - attempting rebuild...');
-        try {
-          const { sendRpcRequest } = require('../utils/rabbitmq.client');
-          const rebuildResult = await sendRpcRequest('auth_queue', {
-            action: 'rebuildUserCache'
-          }, 5000);
-          
-          if (rebuildResult && rebuildResult.success) {
-            cached = await redisClient.get('users_cache');
-          }
-        } catch (rebuildError) {
-          console.error('❌ Failed to rebuild users_cache:', rebuildError.message);
-        }
-        
-        if (!cached) {
-          throw new Error('users_cache not found after rebuild attempt');
-        }
+      if (!userResult || !userResult.success || !userResult.data) {
+        throw new Error('Dentist not found');
       }
       
-      const users = JSON.parse(cached);
-      const dentist = users.find(u => u._id.toString() === dentistId.toString());
-      
-      if (!dentist) throw new Error('Dentist not found');
+      const dentist = userResult.data;
       
       // ⭐ Return normalized object with 'name' field
       return {
@@ -422,20 +378,16 @@ class AppointmentService {
       let roomName = 'Phòng khám';
       let subroomName = null;
 
-      // 🔥 Read from Redis cache (set by room-service)
-      const roomsCacheStr = await redisClient.get('rooms_cache');
-      
-      if (!roomsCacheStr) {
-        console.warn('⚠️ rooms_cache not found in Redis');
-        return { roomName, subroomName };
-      }
-
-      const roomsCache = JSON.parse(roomsCacheStr);
-      
-      // Find room by ID
+      // 🔥 Call room-service API directly (no more Redis cache)
       if (roomId) {
-        const room = roomsCache.find(r => r._id.toString() === roomId.toString());
-        if (room) {
+        const { sendRpcRequest } = require('../utils/rabbitmq.client');
+        const roomResult = await sendRpcRequest('room_queue', {
+          action: 'getRoomById',
+          payload: { roomId: roomId.toString() }
+        }, 5000);
+        
+        if (roomResult && roomResult.success && roomResult.data) {
+          const room = roomResult.data;
           roomName = room.name || roomName;
           
           // Find subroom if exists
@@ -451,8 +403,8 @@ class AppointmentService {
       console.log(`🏠 [getRoomInfo] roomId=${roomId}, subroomId=${subroomId} → roomName="${roomName}", subroomName="${subroomName}"`);
       return { roomName, subroomName };
     } catch (error) {
-      console.warn('⚠️ Could not fetch room info from cache:', error.message);
-      // Return fallback values if Redis is down
+      console.warn('⚠️ Could not fetch room info from API:', error.message);
+      // Return fallback values if API is down
       return { roomName: 'Phòng khám', subroomName: null };
     }
   }

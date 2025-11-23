@@ -5,7 +5,8 @@ const Schema = mongoose.Schema;
 const PaymentMethod = {
   CASH: 'cash',
   VNPAY: 'vnpay',
-  VISA: 'visa'
+  VISA: 'visa',
+  STRIPE: 'stripe'
 };
 
 const PaymentStatus = {
@@ -15,7 +16,8 @@ const PaymentStatus = {
   FAILED: 'failed',
   CANCELLED: 'cancelled',
   REFUNDED: 'refunded',
-  PARTIAL_REFUND: 'partial_refund'
+  PARTIAL_REFUND: 'partial_refund',
+  EXPIRED: 'expired'
 };
 
 const PaymentType = {
@@ -189,6 +191,25 @@ const paymentSchema = new Schema({
   // Payment method specific information
   digitalWalletInfo: digitalWalletInfoSchema, // VNPay only
   cardInfo: cardInfoSchema, // VISA/Mastercard
+  
+  // Stripe specific fields
+  stripeSessionId: {
+    type: String,
+    trim: true
+  },
+  stripePaymentIntentId: {
+    type: String,
+    trim: true
+  },
+  stripePaymentStatus: {
+    type: String,
+    trim: true
+  },
+  paymentUrl: {
+    type: String,
+    trim: true,
+    comment: 'Payment URL for Stripe checkout or VNPay redirect'
+  },
   
   // Transaction details
   externalTransactionId: {

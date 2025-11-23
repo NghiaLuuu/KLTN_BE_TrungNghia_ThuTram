@@ -484,12 +484,20 @@ async function validateDates(startDate, endDate) {
   return true;
 }
 
-// Helper: Get all active rooms from Redis cache (rooms_cache)
+// Helper: Get all active rooms from room-service API
 async function getAllRooms() {
   try {
-    const cached = await redisClient.get('rooms_cache');
-    if (!cached) return [];
-    const allRooms = JSON.parse(cached);
+    const { sendRpcRequest } = require('../utils/rabbitmq.client');
+    const roomsData = await sendRpcRequest('room_queue', {
+      action: 'getAllRooms'
+    }, 5000);
+    
+    if (!roomsData || !roomsData.success || !Array.isArray(roomsData.data)) {
+      console.error('Invalid response from room-service:', roomsData);
+      return [];
+    }
+    
+    const allRooms = roomsData.data;
     
     // ✅ Chỉ lấy rooms đang hoạt động và có autoScheduleEnabled = true
     const activeRooms = (allRooms || []).filter(room => 
@@ -500,8 +508,8 @@ async function getAllRooms() {
     console.log(`📋 Found ${activeRooms.length} active rooms out of ${allRooms.length} total rooms`);
     return activeRooms;
   } catch (error) {
-    console.error('Failed to read rooms_cache from redis:', error);
-    throw new Error('Không thể lấy danh sách phòng từ cache');
+    console.error('Failed to get rooms from room-service:', error);
+    throw new Error('Không thể lấy danh sách phòng từ API');
   }
 }
 
@@ -518,13 +526,18 @@ function toObjectIdString(value) {
 
 async function getRoomByIdFromCache(roomId) {
   try {
-    const cached = await redisClient.get('rooms_cache');
-    if (!cached) return null;
-    const rooms = JSON.parse(cached);
-    const targetId = toObjectIdString(roomId);
-    return rooms.find(room => toObjectIdString(room._id) === targetId) || null;
+    const { sendRpcRequest } = require('../utils/rabbitmq.client');
+    const roomData = await sendRpcRequest('room_queue', {
+      action: 'getRoomById',
+      payload: { roomId: roomId.toString() }
+    }, 5000);
+    
+    if (roomData && roomData.success && roomData.data) {
+      return roomData.data;
+    }
+    return null;
   } catch (error) {
-    console.error('Failed to fetch room from cache:', error);
+    console.error('Failed to fetch room from room-service:', error);
     return null;
   }
 }
@@ -939,26 +952,18 @@ async function generateQuarterScheduleForSingleRoom(roomId, quarter, year) {
       throw new Error('Không thể tạo lịch cho quý trong quá khứ');
     }
 
-    // Get room from cache (fallback to fetch fresh if not found)
+    // Get room from getAllRooms (already calls API)
     let rooms = await getAllRooms();
     let room = rooms.find(r => r._id.toString() === roomId.toString());
     
     if (!room) {
-      // Room might be newly created and not in cache yet, try fresh fetch
-      console.log(`⚠️ Room ${roomId} không tìm thấy trong cache, thử fetch lại từ Redis...`);
-      try {
-        const cached = await redisClient.get('rooms_cache');
-        if (cached) {
-          const allRooms = JSON.parse(cached);
-          room = allRooms.find(r => r._id.toString() === roomId.toString());
-        }
-      } catch (error) {
-        console.error('Failed to re-fetch room from cache:', error);
-      }
+      // Room might be newly created, try direct API call
+      console.log(`⚠️ Room ${roomId} không tìm thấy, thử gọi API trực tiếp...`);
+      room = await getRoomByIdFromCache(roomId);
+    }
       
-      if (!room) {
-        throw new Error(`Không tìm thấy phòng ${roomId} trong hệ thống`);
-      }
+    if (!room) {
+      throw new Error(`Không tìm thấy phòng ${roomId} trong hệ thống`);
     }
     
     if (!room.isActive) {
@@ -1498,23 +1503,19 @@ async function countSlotsForQuarter(subRoomIds, quarter, year) {
 async function getSchedulesByRoom(roomId, startDate, endDate) {
   const schedules = await scheduleRepo.findByRoomAndDateRange(roomId, startDate, endDate);
   
-  // Lấy tên room từ cache
+  // Lấy tên room từ API
   try {
-    const roomCache = await redisClient.get('rooms_cache');
-    if (roomCache) {
-      const rooms = JSON.parse(roomCache);
-      const room = rooms.find(r => r._id === roomId);
+    const room = await getRoomByIdFromCache(roomId);
+    
+    // Thêm roomName vào mỗi schedule
+    const schedulesWithRoomName = schedules.map(schedule => ({
+      ...schedule,
+      roomName: room ? room.name : null
+    }));
       
-      // Thêm roomName vào mỗi schedule
-      const schedulesWithRoomName = schedules.map(schedule => ({
-        ...schedule,
-        roomName: room ? room.name : null
-      }));
-      
-      return schedulesWithRoomName;
-    }
+    return schedulesWithRoomName;
   } catch (error) {
-    console.error('Lỗi khi lấy room name từ cache:', error);
+    console.error('Lỗi khi lấy room name từ API:', error);
   }
   
   return schedules;
@@ -1524,11 +1525,13 @@ async function getSchedulesByRoom(roomId, startDate, endDate) {
 async function getSchedulesByDateRange(startDate, endDate) {
   const schedules = await scheduleRepo.findByDateRange(startDate, endDate);
   
-  // Lấy danh sách rooms từ cache
+  // Lấy danh sách rooms từ API
   try {
-    const roomCache = await redisClient.get('rooms_cache');
-    if (roomCache) {
-      const rooms = JSON.parse(roomCache);
+    const { sendRpcRequest } = require('../utils/rabbitmq.client');
+    const roomsData = await sendRpcRequest('room_queue', { action: 'getAllRooms' }, 5000);
+    
+    if (roomsData && roomsData.success) {
+      const rooms = roomsData.data;
       
       // Tạo map roomId -> roomName để lookup nhanh
       const roomMap = {};
@@ -1545,7 +1548,7 @@ async function getSchedulesByDateRange(startDate, endDate) {
       return schedulesWithRoomName;
     }
   } catch (error) {
-    console.error('Lỗi khi lấy room names từ cache:', error);
+    console.error('Lỗi khi lấy room names từ API:', error);
   }
   
   return schedules;
@@ -3384,9 +3387,10 @@ async function generateSlotsAndSave(scheduleId, subRoomId, selectedShifts, slotD
     return [];
   }
 
-  // Resolve parent roomId from cache and set on slots
-  const roomCache = await redisClient.get('rooms_cache');
-  const rooms = roomCache ? JSON.parse(roomCache) : [];
+  // Resolve parent roomId from API and set on slots
+  const { sendRpcRequest } = require('../utils/rabbitmq.client');
+  const roomsData = await sendRpcRequest('room_queue', { action: 'getAllRooms' }, 5000);
+  const rooms = (roomsData && roomsData.success) ? roomsData.data : [];
   let roomId = null;
   
   // Check if subRoomId is actually a subroom or just a roomId (for rooms without subrooms)
@@ -4043,24 +4047,29 @@ exports.getScheduleById = async (id) => {
 async function getUsersFromCache(ids = []) {
   if (!ids.length) return [];
 
-  // Lấy toàn bộ cache (string JSON)
-  const cache = await redisClient.get('users_cache');
-  if (!cache) return [];
-
-  let users;
   try {
-    users = JSON.parse(cache); // users là mảng
-  } catch (err) {
-    console.error('Lỗi parse users_cache:', err);
+    const { sendRpcRequest } = require('../utils/rabbitmq.client');
+    const usersData = await sendRpcRequest('auth_queue', {
+      action: 'getAllUsers'
+    }, 5000);
+    
+    if (!usersData || !usersData.success || !Array.isArray(usersData.data)) {
+      console.error('Invalid response from auth-service:', usersData);
+      return [];
+    }
+    
+    const users = usersData.data;
+    
+    // Lọc và chỉ lấy _id + fullName
+    const filtered = users
+      .filter(u => ids.includes(u._id))
+      .map(u => ({ _id: u._id, fullName: u.fullName, employeeCode: u.employeeCode}));
+
+    return filtered;
+  } catch (error) {
+    console.error('Failed to get users from auth-service:', error);
     return [];
   }
-
-  // Lọc và chỉ lấy _id + fullName
-  const filtered = users
-    .filter(u => ids.includes(u._id))
-    .map(u => ({ _id: u._id, fullName: u.fullName, employeeCode: u.employeeCode}));
-
-  return filtered;
 }
 
 
@@ -4100,22 +4109,36 @@ exports.getSlotsByScheduleId = async ({ scheduleId, page = 1, limit }) => {
 };
 
 async function getSubRoomMapFromCache() {
-  const roomCache = await redisClient.get('rooms_cache');
-  if (!roomCache) return {};
-
-  let rooms;
   try {
-    rooms = JSON.parse(roomCache); // mảng room
-  } catch (err) {
-    console.error('Lỗi parse rooms_cache:', err);
+    const { sendRpcRequest } = require('../utils/rabbitmq.client');
+    const roomsData = await sendRpcRequest('room_queue', { action: 'getAllRooms' }, 5000);
+    
+    if (!roomsData || !roomsData.success) return {};
+    
+    const rooms = roomsData.data;
+    const map = {};
+
+    for (const room of rooms) {
+      if (room.subRooms && room.subRooms.length > 0) {
+        for (const sr of room.subRooms) {
+          map[sr._id] = {
+            _id: sr._id,
+            name: sr.name,
+            parentRoomId: room._id,
+            parentRoomName: room.name
+          };
+        }
+      }
+    }
+
+    return map;
+  } catch (error) {
+    console.error('Failed to get subroom map:', error);
     return {};
   }
+}
 
-  const subRoomMap = {};
-  for (const r of rooms) {
-    if (r.subRooms && r.subRooms.length) {
-      for (const sub of r.subRooms) {
-        subRoomMap[sub._id] = {
+/**
           subRoomId: sub._id,
           subRoomName: sub.name,
           roomId: r._id,
