@@ -334,12 +334,27 @@ class AppointmentService {
         serviceId, serviceAddOnId
       });
       
-      if (!result) {
+      console.log('📦 [getServiceInfo] Raw RPC result:', JSON.stringify(result));
+      
+      if (!result || !result.service || !result.addOn) {
         throw new Error('Service not found');
       }
       
-      return result;
+      const { service, addOn } = result;
+      
+      // ✅ Build proper response with all required fields
+      return {
+        serviceId: service._id,
+        serviceName: service.name,
+        serviceType: service.serviceType,
+        serviceDuration: addOn.duration,
+        servicePrice: service.price || 0,
+        serviceAddOnId: addOn._id,
+        serviceAddOnName: addOn.name,
+        serviceAddOnPrice: addOn.effectivePrice || addOn.basePrice || addOn.price || 0
+      };
     } catch (error) {
+      console.error('❌ [getServiceInfo] Error:', error);
       throw new Error('Cannot get service info: ' + error.message);
     }
   }
@@ -369,8 +384,6 @@ class AppointmentService {
       return {
         _id: dentist._id,
         name: dentist.fullName || dentist.name, // Support both fullName and name
-        roles: dentist.roles, // roles is array
-        role: dentist.roles?.[0] || 'unknown', // Backward compatibility
         specialization: dentist.specializations?.[0] || dentist.specialization
       };
     } catch (error) {
