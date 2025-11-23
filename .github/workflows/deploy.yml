@@ -48,13 +48,13 @@ jobs:
             cd docker
             
             # Stop existing containers
-            docker-compose -f docker-compose.yml down
+            docker-compose -f docker-compose.yml -f docker-compose.prod.yml down
             
             # Build new images
-            docker-compose -f docker-compose.yml build --no-cache
+            docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
             
             # Start containers
-            docker-compose -f docker-compose.yml up -d
+            docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
             
             echo "🧹 Cleaning up old images..."
             docker system prune -f
