@@ -48,7 +48,9 @@ async function startRpcServer() {
     try {
       if (action === 'getUserById') {
         const user = await userRepo.getUserById(payload.userId);
-        response = user || null;
+        response = user 
+          ? { success: true, data: user }
+          : { success: false, error: 'User not found' };
       } else if (action === 'getAllUsers') {
         // 🆕 Get all users from database
         console.log('📥 [Auth RPC] getAllUsers request');

@@ -65,10 +65,55 @@ async function consumeQueue(queueName, handler) {
   }
 }
 
+/**
+ * Send RPC request and wait for response
+ * @param {string} queueName - RPC queue name (e.g., 'rpc.auth-service')
+ * @param {object} message - Request payload
+ * @param {number} timeout - Timeout in milliseconds (default: 20000)
+ * @returns {Promise<object>} Response from RPC server
+ */
+async function sendRpcRequest(queueName, message, timeout = 20000) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const ch = getChannel();
+      
+      // Create exclusive reply queue
+      const { queue: replyQueue } = await ch.assertQueue('', { exclusive: true });
+      
+      // Generate unique correlation ID
+      const correlationId = `${Date.now()}-${Math.random()}`;
+      
+      // Set timeout
+      const timer = setTimeout(() => {
+        reject(new Error(`RPC timeout after ${timeout}ms: ${queueName}`));
+      }, timeout);
+      
+      // Listen for response
+      ch.consume(replyQueue, (msg) => {
+        if (msg && msg.properties.correlationId === correlationId) {
+          clearTimeout(timer);
+          const response = JSON.parse(msg.content.toString());
+          resolve(response);
+        }
+      }, { noAck: true });
+      
+      // Send request
+      ch.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
+        correlationId,
+        replyTo: replyQueue
+      });
+      
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
 module.exports = { 
   connectRabbitMQ, 
   getChannel,
   publishToQueue,
   consumeQueue,
-  consumeFromQueue: consumeQueue // Alias for compatibility
+  consumeFromQueue: consumeQueue, // Alias for compatibility
+  sendRpcRequest
 };
