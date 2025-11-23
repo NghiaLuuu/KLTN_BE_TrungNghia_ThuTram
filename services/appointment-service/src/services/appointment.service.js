@@ -469,11 +469,25 @@ class AppointmentService {
       
       console.log('🔍 [createAppointmentFromPayment] reservation from Redis:', JSON.stringify({
         reservationId: reservation.reservationId,
+        serviceType: reservation.serviceType, // ⭐ Check if serviceType exists
+        serviceDuration: reservation.serviceDuration, // ⭐ Check if serviceDuration exists
         roomId: reservation.roomId,
         roomName: reservation.roomName,
         subroomId: reservation.subroomId,
         subroomName: reservation.subroomName
       }, null, 2));
+      
+      // 🔧 FIX: If reservation is missing serviceType/serviceDuration, re-fetch from service-service
+      if (!reservation.serviceType || !reservation.serviceDuration) {
+        console.warn('⚠️ [createAppointmentFromPayment] Missing serviceType or serviceDuration in reservation, re-fetching...');
+        const serviceInfo = await this.getServiceInfo(reservation.serviceId, reservation.serviceAddOnId);
+        reservation.serviceType = serviceInfo.serviceType;
+        reservation.serviceDuration = serviceInfo.serviceDuration;
+        console.log('✅ [createAppointmentFromPayment] Re-fetched serviceInfo:', { 
+          serviceType: serviceInfo.serviceType, 
+          serviceDuration: serviceInfo.serviceDuration 
+        });
+      }
       
       const appointmentDate = new Date(reservation.appointmentDate);
       const appointmentCode = await Appointment.generateAppointmentCode(appointmentDate);
