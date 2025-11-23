@@ -47,7 +47,9 @@ async function startRpcServer() {
 
     try {
       if (action === 'getUserById') {
-        const user = await userRepo.getUserById(payload.userId);
+        console.log(`📥 [Auth RPC] getUserById request for userId: ${payload.userId}`);
+        const user = await userRepo.findById(payload.userId);
+        console.log(`✅ [Auth RPC] Found user:`, user ? `${user.fullName || user.name} (${user.roles?.join(',')})` : 'NOT FOUND');
         response = user 
           ? { success: true, data: user }
           : { success: false, error: 'User not found' };

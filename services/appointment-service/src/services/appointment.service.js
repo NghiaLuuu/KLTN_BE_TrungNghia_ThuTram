@@ -152,6 +152,9 @@ class AppointmentService {
         dentistId, slotIds, date, notes
       } = reservationData;
       
+      // Normalize currentUser role (support both role and roles)
+      const userRole = currentUser.activeRole || currentUser.role || currentUser.roles?.[0] || 'unknown';
+      
       // 1️⃣ Get schedule config for deposit amount
       const scheduleConfig = await serviceClient.getScheduleConfig();
       const depositAmount = scheduleConfig.depositAmount || 100000; // Default 50k VND
@@ -211,7 +214,8 @@ class AppointmentService {
         subroomId: subRoomId || null,
         subroomName: roomInfo.subroomName,
         notes: notes || '',
-        bookedBy: currentUser._id, bookedByRole: currentUser.role,
+        bookedBy: currentUser._id, 
+        bookedByRole: userRole, // Use normalized role
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + 15 * 60 * 1000)
       };
@@ -344,12 +348,18 @@ class AppointmentService {
     try {
       // 🔥 Call auth-service API directly (no more Redis cache)
       const { sendRpcRequest } = require('../utils/rabbitmq.client');
+      
+      console.log(`🔍 [Appointment] Requesting dentist info for ID: ${dentistId}`);
+      
       const userResult = await sendRpcRequest('auth_queue', {
         action: 'getUserById',
         payload: { userId: dentistId.toString() }
-      }, 5000);
+      }, 20000); // Tăng timeout lên 20s
+      
+      console.log(`📥 [Appointment] Auth-service response:`, JSON.stringify(userResult));
       
       if (!userResult || !userResult.success || !userResult.data) {
+        console.error('❌ [Appointment] Invalid response from auth-service:', userResult);
         throw new Error('Dentist not found');
       }
       
@@ -359,10 +369,12 @@ class AppointmentService {
       return {
         _id: dentist._id,
         name: dentist.fullName || dentist.name, // Support both fullName and name
-        role: dentist.role,
-        specialization: dentist.specialization
+        roles: dentist.roles, // roles is array
+        role: dentist.roles?.[0] || 'unknown', // Backward compatibility
+        specialization: dentist.specializations?.[0] || dentist.specialization
       };
     } catch (error) {
+      console.error('❌ [Appointment] getDentistInfo error:', error);
       throw new Error('Cannot get dentist info: ' + error.message);
     }
   }
