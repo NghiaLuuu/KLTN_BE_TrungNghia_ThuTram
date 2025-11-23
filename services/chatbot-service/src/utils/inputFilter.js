@@ -5,7 +5,7 @@
 
 // Dental-related keywords (Vietnamese)
 const DENTAL_KEYWORDS = [
-  'răng', 'nha khoa', 'bác sĩ', 'nha sĩ', 'khám', 'điều trị',
+  'răng', 'nha khoa', 'Nha sĩ', 'nha sĩ', 'khám', 'điều trị',
   'dịch vụ', 'giá', 'chi phí', 'đặt lịch', 'hẹn', 'booking',
   'tẩy trắng', 'niềng răng', 'nhổ răng', 'trám răng', 'implant',
   'bọc răng sứ', 'cạo vôi', 'tẩy trắng', 'sâu răng', 'viêm nướu',

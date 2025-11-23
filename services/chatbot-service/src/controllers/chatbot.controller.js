@@ -38,7 +38,7 @@ class ChatbotController {
       const isInBookingFlow = recentMessages.some(msg => 
         msg.role === 'assistant' && 
         (msg.content.includes('Dịch vụ khám và điều trị') || 
-         msg.content.includes('Dịch vụ được bác sĩ chỉ định') ||
+         msg.content.includes('Dịch vụ được Nha sĩ chỉ định') ||
          msg.content.includes('Danh sách dịch vụ có thể đặt lịch') ||
          msg.content.includes('Danh sách nha sĩ khả dụng') ||
          msg.content.includes('Ngày làm việc có lịch trống') ||
@@ -53,7 +53,7 @@ class ChatbotController {
       // 4. Message looks like a person name (for dentist selection)
       const isNumberSelection = /^\d+$/.test(message.trim());
       const looksLikePersonName = /^[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ][a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]+(\s[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ][a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]+)+$/i.test(message.trim());
-      const hasBookingKeywords = ['đặt lịch', 'dịch vụ', 'khám', 'hẹn', 'có', 'không', 'bất kỳ', 'nha sĩ', 'bác sĩ', 'ngày', 'giờ'].some(kw => 
+      const hasBookingKeywords = ['đặt lịch', 'dịch vụ', 'khám', 'hẹn', 'có', 'không', 'bất kỳ', 'nha sĩ', 'Nha sĩ', 'ngày', 'giờ'].some(kw => 
         message.toLowerCase().includes(kw)
       );
       

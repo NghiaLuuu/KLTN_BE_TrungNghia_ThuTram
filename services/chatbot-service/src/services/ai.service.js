@@ -223,7 +223,7 @@ class AIService {
   isDentalRelated(message) {
     const dentalKeywords = [
       // Tiếng Việt - Cơ bản
-      'răng', 'nha khoa', 'khám', 'bác sĩ', 'nha sĩ', 'dịch vụ', 
+      'răng', 'nha khoa', 'khám', 'Nha sĩ', 'nha sĩ', 'dịch vụ', 
       'đặt lịch', 'đặt hẹn', 'giá', 'chi phí', 'phí', 'tiền',
       
       // Dịch vụ

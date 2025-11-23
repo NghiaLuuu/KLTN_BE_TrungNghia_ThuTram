@@ -36,7 +36,7 @@ async function registerSlotModel() {
     dentistId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      description: 'ID bác sĩ'
+      description: 'ID Nha sĩ'
     },
     roomId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -185,7 +185,7 @@ async function registerUserModel() {
     }],
     specialization: {
       type: String,
-      description: 'Chuyên môn (cho bác sĩ)'
+      description: 'Chuyên môn (cho Nha sĩ)'
     },
     experience: {
       type: Number,

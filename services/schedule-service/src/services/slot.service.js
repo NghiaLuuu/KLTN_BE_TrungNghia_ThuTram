@@ -247,14 +247,15 @@ async function getAllRooms() {
     }, 5000);
     
     if (roomsData && roomsData.success && Array.isArray(roomsData.data)) {
+      console.log(`✅ Fetched ${roomsData.data.length} rooms from room-service`);
       return roomsData.data;
     } else {
       console.error('❌ Invalid response from room-service:', roomsData);
-      return [];
+      throw new Error('Invalid response from room-service: ' + JSON.stringify(roomsData));
     }
   } catch (error) {
     console.error('❌ Cannot get rooms from room-service:', error.message);
-    return [];
+    throw new Error(`Cannot get rooms from room-service: ${error.message}`);
   }
 }
 
@@ -266,14 +267,15 @@ async function getAllUsers() {
     }, 5000);
     
     if (usersData && usersData.success && Array.isArray(usersData.data)) {
+      console.log(`✅ Fetched ${usersData.data.length} users from auth-service`);
       return usersData.data;
     } else {
       console.error('❌ Invalid response from auth-service:', usersData);
-      return [];
+      throw new Error('Invalid response from auth-service: ' + JSON.stringify(usersData));
     }
   } catch (error) {
     console.error('❌ Cannot get users from auth-service:', error.message);
-    return [];
+    throw new Error(`Cannot get users from auth-service: ${error.message}`);
   }
 }
 
@@ -1362,9 +1364,13 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
       getAllRooms()
     ]);
     
+    console.log(`🔍 [getRoomCalendar] Fetched ${users.length} users, ${rooms.length} rooms from APIs`);
+    
     // ⚡ PERFORMANCE: Create Map for O(1) lookup instead of O(n) find
     const usersMap = new Map(users.map(u => [u._id?.toString(), u]));
     const roomsMap = new Map(rooms.map(r => [r._id?.toString(), r]));
+    
+    console.log(`🔍 [getRoomCalendar] Looking for roomId: ${roomId?.toString()} in roomsMap with ${roomsMap.size} entries`);
     
     // 🆕 Fetch appointments for slots with appointmentId
     const axios = require('axios');
@@ -1693,22 +1699,13 @@ async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate =
         }
       }
     } else {
-      // Fallback to database data if cache not available
-      const room = await getRoomInfo(roomId);
+      // ⚠️ REMOVED FALLBACK: Do not call getRoomInfo() to avoid potential recursion
+      // If room not in cache, use roomId as-is
+      console.warn(`⚠️ Room ${roomId} not found in roomsMap, using default info`);
       roomInfo = {
-        id: room._id,
-        name: room.name
+        id: roomId,
+        name: `Room ${roomId}`
       };
-      
-      if (subRoomId && room.subRooms) {
-        const subRoom = room.subRooms.find(sr => sr._id === subRoomId);
-        if (subRoom) {
-          roomInfo.subRoom = {
-            id: subRoom._id,
-            name: subRoom.name
-          };
-        }
-      }
     }
     
     // Group calendar data by periods

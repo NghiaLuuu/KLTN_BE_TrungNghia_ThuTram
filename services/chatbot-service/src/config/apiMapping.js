@@ -94,8 +94,8 @@ const ACTION_KEYWORDS = {
 
   // Doctor search intents
   GET_DOCTORS_LIST: [
-    'bác sĩ nào', 'có bác sĩ', 'danh sách bác sĩ', 'doctor nào',
-    'nha sĩ', 'tìm bác sĩ'
+    'Nha sĩ nào', 'có Nha sĩ', 'danh sách Nha sĩ', 'doctor nào',
+    'nha sĩ', 'tìm Nha sĩ'
   ],
 
   // Price intents
@@ -149,10 +149,10 @@ const RESPONSE_TEMPLATES = {
 
   DOCTORS_FOUND: (doctors) => {
     if (doctors.length === 0) {
-      return 'Hiện tại chưa có bác sĩ phù hợp. Vui lòng liên hệ hotline để được tư vấn! 👨‍⚕️';
+      return 'Hiện tại chưa có Nha sĩ phù hợp. Vui lòng liên hệ hotline để được tư vấn! 👨‍⚕️';
     }
 
-    let response = `Đội ngũ bác sĩ của chúng tôi:\n\n`;
+    let response = `Đội ngũ Nha sĩ của chúng tôi:\n\n`;
     doctors.forEach((doctor, index) => {
       response += `${index + 1}. **BS. ${doctor.fullName || doctor.name}**\n`;
       if (doctor.specialization) {
@@ -164,7 +164,7 @@ const RESPONSE_TEMPLATES = {
       response += '\n';
     });
 
-    response += 'Bạn muốn đặt lịch với bác sĩ nào? 😊';
+    response += 'Bạn muốn đặt lịch với Nha sĩ nào? 😊';
     return response;
   },
 

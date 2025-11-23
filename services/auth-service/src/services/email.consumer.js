@@ -8,9 +8,18 @@ const { sendEmail } = require('../utils/mail.util');
 
 const EMAIL_QUEUE_NAME = 'email_notifications';
 
-// Format date helper
+// Format date helper - FIXED: Handle both Date objects and strings
 const formatDate = (date) => {
+  if (!date) return 'N/A';
+  
+  // If already formatted string (DD/MM/YYYY), return as-is
+  if (typeof date === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(date)) {
+    return date;
+  }
+  
   const d = new Date(date);
+  if (isNaN(d.getTime())) return 'N/A'; // Invalid date
+  
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const year = d.getFullYear();
@@ -18,7 +27,16 @@ const formatDate = (date) => {
 };
 
 const formatTime = (date) => {
+  if (!date) return 'N/A';
+  
+  // If already formatted string (HH:MM), return as-is
+  if (typeof date === 'string' && /^\d{2}:\d{2}$/.test(date)) {
+    return date;
+  }
+  
   const d = new Date(date);
+  if (isNaN(d.getTime())) return 'N/A'; // Invalid date
+  
   const hours = String(d.getHours()).padStart(2, '0');
   const minutes = String(d.getMinutes()).padStart(2, '0');
   return `${hours}:${minutes}`;
@@ -27,35 +45,38 @@ const formatTime = (date) => {
 // Email templates
 const createSlotCancellationEmail = (notification) => {
   const { name, role, slotInfo, reason } = notification;
-  const date = formatDate(slotInfo.date);
-  const startTime = formatTime(slotInfo.startTime);
-  const endTime = formatTime(slotInfo.endTime);
+  
+  // FIXED: slotInfo may contain Date objects or formatted strings
+  const date = formatDate(slotInfo?.date);
+  const startTime = formatTime(slotInfo?.startTime);
+  const endTime = formatTime(slotInfo?.endTime);
+  const shiftName = slotInfo?.shiftName || 'Ca làm việc';
 
   const roleText = {
     patient: 'Kính gửi Quý khách hàng',
-    dentist: 'Kính gửi Bác sĩ',
+    dentist: 'Kính gửi Nha sĩ',
     nurse: 'Kính gửi Y tá'
   };
 
   const subject = '[THÔNG BÁO KHẨN] Lịch Khám Bị Hủy - Smile Dental';
 
   const text = `
-${roleText[role] || 'Kính gửi'} ${name},
+${roleText[role] || 'Kính gửi'} ${name || 'Quý khách'},
 
 Chúng tôi rất tiếc phải thông báo rằng lịch ${role === 'patient' ? 'khám' : 'làm việc'} của bạn đã bị hủy do tình huống khẩn cấp.
 
 📅 THÔNG TIN LỊCH BỊ HỦY:
 - Ngày: ${date}
-- Ca: ${slotInfo.shiftName}
+- Ca: ${shiftName}
 - Thời gian: ${startTime} - ${endTime}
 
 ❗ LÝ DO:
-${reason}
+${reason || 'Không có lý do cụ thể'}
 
 ${role === 'patient' ? `
 🔄 HƯỚNG DẪN ĐẶT LỊCH MỚI:
 Quý khách vui lòng:
-1. Truy cập website: ${process.env.FRONTEND_URL || 'https://smiledental.com'}
+1. Truy cập website: ${process.env.FRONTEND_URL || 'https://smilecare.io.vn'}
 2. Đặt lại lịch khám trong thời gian phù hợp
 3. Hoặc liên hệ hotline: ${process.env.HOTLINE || '1900-xxxx'} để được hỗ trợ
 
@@ -63,14 +84,14 @@ Quý khách vui lòng:
 Chúng tôi sẽ hoàn lại toàn bộ số tiền đã thanh toán trong vòng 3-5 ngày làm việc.
 ` : `
 📋 LƯU Ý:
-Quý ${role === 'dentist' ? 'Bác sĩ' : 'Y tá'} vui lòng kiểm tra lại lịch làm việc và sắp xếp thời gian phù hợp.
+Quý ${role === 'dentist' ? 'Nha sĩ' : 'Y tá'} vui lòng kiểm tra lại lịch làm việc và sắp xếp thời gian phù hợp.
 `}
 
 Chúng tôi chân thành xin lỗi vì sự bất tiện này và cam kết phục vụ bạn tốt hơn trong tương lai.
 
 Trân trọng,
 Đội ngũ Smile Dental
-Email: ${process.env.EMAIL_FROM}
+Email: ${process.env.EMAIL_FROM || 'support@smilecare.io.vn'}
 Hotline: ${process.env.HOTLINE || '1900-xxxx'}
 `;
 
@@ -81,16 +102,16 @@ Hotline: ${process.env.HOTLINE || '1900-xxxx'}
 const createSlotStatusChangeEmail = (notification) => {
   const { name, role, slotInfo, action, reason } = notification;
   
-  // slotInfo already contains formatted strings from schedule-service
-  // date: 'DD/MM/YYYY', startTime: 'HH:mm', endTime: 'HH:mm'
-  const date = slotInfo.date; // Already formatted as '27/10/2025'
-  const startTime = slotInfo.startTime; // Already formatted as '08:00'
-  const endTime = slotInfo.endTime; // Already formatted as '12:00'
-  const slotCount = slotInfo.slotCount || 1;
+  // FIXED: slotInfo may contain formatted strings or Date objects
+  const date = formatDate(slotInfo?.date);
+  const startTime = formatTime(slotInfo?.startTime);
+  const endTime = formatTime(slotInfo?.endTime);
+  const shiftName = slotInfo?.shiftName || 'Ca làm việc';
+  const slotCount = slotInfo?.slotCount || 1;
 
   const roleText = {
     patient: 'Kính gửi Quý khách hàng',
-    dentist: 'Kính gửi Bác sĩ',
+    dentist: 'Kính gửi Nha sĩ',
     nurse: 'Kính gửi Y tá'
   };
 
@@ -101,7 +122,7 @@ const createSlotStatusChangeEmail = (notification) => {
     : '[THÔNG BÁO] Thay Đổi Trạng Thái Lịch Khám - Smile Dental';
 
   const text = `
-${roleText[role] || 'Kính gửi'} ${name},
+${roleText[role] || 'Kính gửi'} ${name || 'Quý khách'},
 
 ${isEnabled ? `
 Chúng tôi xin thông báo lịch ${role === 'patient' ? 'khám' : 'làm việc'} của bạn đã được KÍCH HOẠT LẠI.
@@ -111,12 +132,12 @@ Chúng tôi xin thông báo lịch ${role === 'patient' ? 'khám' : 'làm việc
 
 📅 THÔNG TIN LỊCH:
 - Ngày: ${date}
-- Ca: ${slotInfo.shiftName}
+- Ca: ${shiftName}
 - Thời gian: ${startTime} - ${endTime}
 ${slotCount > 1 ? `- Số lượng slot: ${slotCount}\n` : ''}${notification.appointmentCode ? `- Mã lịch hẹn: ${notification.appointmentCode}\n` : ''}
 
 ${isEnabled ? '✅' : '❗'} ${isEnabled ? 'TRẠNG THÁI' : 'LÝ DO'}:
-${reason}
+${reason || 'Không có lý do cụ thể'}
 
 ${role === 'patient' ? (
   isEnabled ? `
@@ -135,13 +156,13 @@ Nếu không thể sắp xếp lại, chúng tôi sẽ hoàn tiền trong 3-5 ng
 `
 ) : `
 📋 LƯU Ý:
-Quý ${role === 'dentist' ? 'Bác sĩ' : 'Y tá'} vui lòng kiểm tra lại lịch làm việc.
+Quý ${role === 'dentist' ? 'Nha sĩ' : 'Y tá'} vui lòng kiểm tra lại lịch làm việc.
 ${isEnabled ? 'Lịch đã sẵn sàng cho ca làm việc.' : 'Lịch tạm thời không hoạt động.'}
 `}
 
 Trân trọng,
 Đội ngũ Smile Dental
-Email: ${process.env.EMAIL_FROM}
+Email: ${process.env.EMAIL_FROM || 'support@smilecare.io.vn'}
 Hotline: ${process.env.HOTLINE || '1900-xxxx'}
 `;
 
@@ -150,30 +171,31 @@ Hotline: ${process.env.HOTLINE || '1900-xxxx'}
 
 // 🆕 Email template for appointment reminder (1 day before)
 const createAppointmentReminderEmail = (appointment) => {
-  const date = formatDate(appointment.appointmentDate);
-  const startTime = appointment.startTime;
-  const endTime = appointment.endTime;
+  // FIXED: appointmentDate may be Date object or string
+  const date = formatDate(appointment?.appointmentDate);
+  const startTime = formatTime(appointment?.startTime);
+  const endTime = formatTime(appointment?.endTime);
 
   const subject = '[NHẮC LỊCH HẸN] Lịch Khám Sắp Tới - Smile Dental';
 
-  const roomInfo = appointment.subroomName 
-    ? `${appointment.roomName} - ${appointment.subroomName}`
-    : appointment.roomName;
+  const roomInfo = appointment?.subroomName 
+    ? `${appointment.roomName || 'Phòng khám'} - ${appointment.subroomName}`
+    : (appointment?.roomName || 'Phòng khám');
 
-  const serviceInfo = appointment.serviceAddOnName
-    ? `${appointment.serviceName} - ${appointment.serviceAddOnName}`
-    : appointment.serviceName;
+  const serviceInfo = appointment?.serviceAddOnName
+    ? `${appointment.serviceName || 'Dịch vụ'} - ${appointment.serviceAddOnName}`
+    : (appointment?.serviceName || 'Dịch vụ');
 
   const text = `
-Kính gửi ${appointment.patientName},
+Kính gửi ${appointment?.patientName || 'Quý khách'},
 
 Đây là email nhắc nhở về lịch khám sắp tới của bạn tại Smile Dental.
 
 📅 THÔNG TIN LỊCH KHÁM:
-- Mã lịch hẹn: ${appointment.appointmentCode}
+- Mã lịch hẹn: ${appointment?.appointmentCode || 'N/A'}
 - Ngày khám: ${date}
 - Thời gian: ${startTime} - ${endTime}
-- Bác sĩ: ${appointment.dentistName}
+- Nha sĩ: ${appointment?.dentistName || 'Đang cập nhật'}
 - Dịch vụ: ${serviceInfo}
 - Phòng khám: ${roomInfo}
 
@@ -187,8 +209,8 @@ Lịch khám của bạn sẽ diễn ra trong vòng 24 giờ tới. Vui lòng đ
 
 📞 LIÊN HỆ:
 - Hotline: ${process.env.HOTLINE || '1900-xxxx'}
-- Email: ${process.env.EMAIL_FROM}
-- Website: ${process.env.FRONTEND_URL || 'https://smiledental.com'}
+- Email: ${process.env.EMAIL_FROM || 'support@smilecare.io.vn'}
+- Website: ${process.env.FRONTEND_URL || 'https://smilecare.io.vn'}
 
 Chúng tôi rất mong được phục vụ bạn!
 
@@ -228,7 +250,7 @@ Chúng tôi xin thông báo lịch khám của bạn tại Smile Dental đã b�
 - Mã lịch hẹn: ${appointmentCode}
 - Ngày khám: ${date}
 - Thời gian: ${startTime} - ${endTime}
-- Bác sĩ: ${appointmentInfo.dentistName}
+- Nha sĩ: ${appointmentInfo.dentistName}
 - Dịch vụ: ${serviceInfo}
 - Phòng khám: ${roomInfo}
 
@@ -239,7 +261,7 @@ Chúng tôi xin thông báo lịch khám của bạn tại Smile Dental đã b�
 
 🔄 HƯỚNG DẪN ĐẶT LỊCH MỚI:
 Quý khách vui lòng:
-1. Truy cập website: ${process.env.FRONTEND_URL || 'https://smiledental.com'}
+1. Truy cập website: ${process.env.FRONTEND_URL || 'https://smilecare.io.vn'}
 2. Đặt lại lịch khám trong thời gian phù hợp
 3. Hoặc liên hệ hotline: ${process.env.HOTLINE || '1900-xxxx'} để được hỗ trợ đặt lịch
 
@@ -249,7 +271,7 @@ Chúng tôi sẽ hoàn lại toàn bộ số tiền đã thanh toán trong vòng
 📞 LIÊN HỆ HỖ TRỢ:
 - Hotline: ${process.env.HOTLINE || '1900-xxxx'}
 - Email: ${process.env.EMAIL_FROM}
-- Website: ${process.env.FRONTEND_URL || 'https://smiledental.com'}
+- Website: ${process.env.FRONTEND_URL || 'https://smilecare.io.vn'}
 
 Chúng tôi chân thành xin lỗi vì sự bất tiện này và mong được phục vụ bạn trong tương lai.
 

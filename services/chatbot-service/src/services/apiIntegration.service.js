@@ -97,7 +97,7 @@ function formatApiResult(action, apiResult) {
 
     case 'GET_DOCTOR_INFO':
       if (!data || !data.fullName) {
-        return 'Không tìm thấy thông tin bác sĩ. Vui lòng liên hệ hotline! 👨‍⚕️';
+        return 'Không tìm thấy thông tin Nha sĩ. Vui lòng liên hệ hotline! 👨‍⚕️';
       }
       let doctorResponse = `**BS. ${data.fullName}**\n\n`;
       if (data.specialization) {
@@ -109,14 +109,14 @@ function formatApiResult(action, apiResult) {
       if (data.email) {
         doctorResponse += `📧 Email: ${data.email}\n`;
       }
-      doctorResponse += '\nBạn muốn đặt lịch với bác sĩ này không? 😊';
+      doctorResponse += '\nBạn muốn đặt lịch với Nha sĩ này không? 😊';
       return doctorResponse;
 
     case 'GET_DOCTOR_SCHEDULE':
       if (!data || !data.slots || data.slots.length === 0) {
-        return 'Bác sĩ này hiện không có lịch trống. Vui lòng chọn ngày khác! 📅';
+        return 'Nha sĩ này hiện không có lịch trống. Vui lòng chọn ngày khác! 📅';
       }
-      let scheduleResponse = `Lịch khám của bác sĩ:\n\n`;
+      let scheduleResponse = `Lịch khám của Nha sĩ:\n\n`;
       data.slots.slice(0, 10).forEach((slot, index) => {
         scheduleResponse += `${index + 1}. ${slot.startTime} - ${slot.endTime}\n`;
       });

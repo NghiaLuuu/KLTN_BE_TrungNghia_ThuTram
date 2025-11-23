@@ -217,7 +217,7 @@ QUAN TRỌNG:
 🎯 QUY TẮC HIỂU CÂU HỎI (QUAN TRỌNG):
 - "Dịch vụ nha khoa" / "Các dịch vụ" → Lấy TẤT CẢ services (không cần filter category)
 - "Dịch vụ tẩy trắng" → Filter theo name với $regex
-- "Bác sĩ" → Filter users với roles=DENTIST
+- "Nha sĩ" → Filter users với roles=DENTIST
 - "Phòng khám" / "Phòng" → Lấy từ collection rooms
 - "Lịch trống" / "Slot trống" → Filter slots với isAvailable=true
 
@@ -240,7 +240,7 @@ Collection: rooms
 - Query: {"collection": "rooms", "filter": {"roomType": "X_RAY", "isActive": true}}
 
 Collection: users
-- Câu hỏi: "Bác sĩ chuyên nha chu"
+- Câu hỏi: "Nha sĩ chuyên nha chu"
 - Query: {"collection": "users", "filter": {"roles": {"$in": ["DENTIST"]}, "specialization": {"$regex": "nha chu", "$options": "i"}}}
 
 LƯU Ý KHI TẠO FILTER:
