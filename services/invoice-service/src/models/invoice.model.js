@@ -131,7 +131,7 @@ const PaymentSummarySchema = new Schema({
   lastPaymentDate: Date,
   paymentMethod: {
     type: String,
-    enum: ['cash', 'credit_card', 'debit_card', 'bank_transfer', 'momo', 'zalopay', 'vnpay', 'shopeepay', 'insurance', 'installment']
+    enum: ['cash', 'credit_card', 'debit_card', 'bank_transfer', 'momo', 'zalopay', 'vnpay', 'stripe', 'shopeepay', 'insurance', 'installment']
   },
   paymentIds: [{
     type: mongoose.Schema.Types.ObjectId,
