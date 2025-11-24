@@ -208,7 +208,9 @@ async function startConsumer() {
         const { 
           paymentId, 
           paymentCode, 
-          amount, 
+          amount,  // finalAmount (already deducted deposit)
+          originalAmount,  // ✅ NEW: Original service amount before deposit
+          discountAmount,  // ✅ NEW: Deposit amount
           method,
           patientId, 
           patientInfo, 
@@ -222,68 +224,30 @@ async function startConsumer() {
           paymentId,
           paymentCode,
           amount,
+          originalAmount,
+          discountAmount,
           appointmentId,
           recordId,
           type
         });
 
         try {
-          // Determine if this is online booking (has appointmentId) or walk-in (has recordId)
-          const isOnlineBooking = !!appointmentId;
-          const isWalkIn = !!recordId && !appointmentId;
+          // ✅ Use payment data directly
+          const actualOriginalAmount = originalAmount || amount; // Service price
+          const actualDepositAmount = discountAmount || 0; // Deposit already paid
+          const actualFinalAmount = amount; // Remaining to pay
+          
+          console.log('💰 [Invoice Consumer] Payment amounts:', {
+            originalAmount: actualOriginalAmount,
+            depositAmount: actualDepositAmount,
+            finalAmount: actualFinalAmount,
+            isFullyPaidByDeposit: actualFinalAmount === 0 && actualDepositAmount > 0
+          });
 
-          // For online booking, we need to check if there's a deposit payment
-          let depositAmount = 0;
-          let finalAmount = amount;
-
-          if (isOnlineBooking && type === 'payment') {
-            // Query payment repository to find deposit payment for this appointment
-            console.log('🔍 [Invoice Consumer] Checking for deposit payment...');
-            
-            try {
-              // Call payment service to get deposit info
-              const axios = require('axios');
-              const paymentServiceUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3008';
-              
-              const depositResponse = await axios.get(
-                `${paymentServiceUrl}/api/payment/appointment/${appointmentId}`,
-                { 
-                  headers: { 
-                    'x-internal-call': 'true' 
-                  },
-                  timeout: 5000
-                }
-              );
-
-              if (depositResponse.data && depositResponse.data.success) {
-                const payments = depositResponse.data.data;
-                const depositPayment = payments.find(p => p.type === 'deposit' && p.status === 'completed');
-                
-                if (depositPayment) {
-                  depositAmount = depositPayment.finalAmount || 0;
-                  finalAmount = amount - depositAmount;
-                  
-                  console.log('💰 [Invoice Consumer] Found deposit payment:', {
-                    depositPaymentId: depositPayment._id,
-                    depositAmount,
-                    originalAmount: amount,
-                    finalAmount
-                  });
-                }
-              }
-            } catch (error) {
-              console.warn('⚠️ [Invoice Consumer] Could not fetch deposit info:', error.message);
-              // Continue without deposit deduction if service is unavailable
-            }
-          }
-
-          // ✅ Check if payment amount is 0 (fully paid by deposit)
-          if (finalAmount === 0) {
-            console.log('⚠️ [Invoice Consumer] Cash payment amount is 0 (fully covered by deposit). Skipping invoice creation.');
-            console.log('✅ [Invoice Consumer] No invoice needed - service fully paid by deposit');
-            channel.ack(msg);
-            return;
-          }
+          // ✅ For invoice, we ALWAYS use originalAmount for subtotal/totalAmount
+          // Even if finalAmount = 0 (fully paid by deposit), invoice still shows the service cost
+          const invoiceSubtotal = actualOriginalAmount; // Always use original service amount
+          const invoiceTotalPaid = actualOriginalAmount; // Total paid = deposit + cash = original amount
 
           // Generate invoice number
           const invoiceNumber = await generateInvoiceNumber();
@@ -385,23 +349,23 @@ async function startConsumer() {
             },
             
             // Financial Info
-            // ✅ FIXED: Set subtotal = finalAmount to ensure totalAmount = paymentSummary.totalPaid
-            subtotal: finalAmount,  // Use actual paid amount as subtotal
+            // ✅ FIXED: Always use originalAmount for invoice (even if fully paid by deposit)
+            subtotal: invoiceSubtotal,  // Original service amount
             discountInfo: {
-              type: 'none',  // No discount in invoice calculation (deposit already deducted)
+              type: 'none',  // No discount in invoice calculation (deposit already in payment)
               value: 0,
-              reason: depositAmount > 0 ? `Đã trừ tiền cọc ${depositAmount.toLocaleString('vi-VN')}đ trong thanh toán` : null
+              reason: actualDepositAmount > 0 ? `Đã trừ tiền cọc ${actualDepositAmount.toLocaleString('vi-VN')}đ trong thanh toán` : null
             },
             taxInfo: {
               taxRate: 0,
               taxAmount: 0,
               taxIncluded: true
             },
-            totalAmount: finalAmount,
+            totalAmount: invoiceSubtotal,  // Will be recalculated by pre-save hook
             
             // Payment Summary
             paymentSummary: {
-              totalPaid: finalAmount,
+              totalPaid: invoiceTotalPaid,  // Total paid (including deposit)
               remainingAmount: 0,
               lastPaymentDate: new Date(),
               paymentMethod: 'cash',
@@ -414,11 +378,11 @@ async function startConsumer() {
             paidDate: new Date(),
             
             // Metadata
-            notes: depositAmount > 0 
-              ? (finalAmount === 0 
-                  ? `Tổng tiền dịch vụ: ${amount.toLocaleString('vi-VN')}đ, Đã cọc đủ: ${depositAmount.toLocaleString('vi-VN')}đ, Không cần thanh toán thêm` 
-                  : `Tổng tiền dịch vụ: ${amount.toLocaleString('vi-VN')}đ, Đã cọc: ${depositAmount.toLocaleString('vi-VN')}đ, Thanh toán tiền mặt: ${finalAmount.toLocaleString('vi-VN')}đ`)
-              : `Thanh toán tiền mặt: ${finalAmount.toLocaleString('vi-VN')}đ`,
+            notes: actualDepositAmount > 0 
+              ? (actualFinalAmount === 0 
+                  ? `Tổng tiền dịch vụ: ${actualOriginalAmount.toLocaleString('vi-VN')}đ, Đã cọc đủ: ${actualDepositAmount.toLocaleString('vi-VN')}đ, Không cần thanh toán thêm` 
+                  : `Tổng tiền dịch vụ: ${actualOriginalAmount.toLocaleString('vi-VN')}đ, Đã cọc: ${actualDepositAmount.toLocaleString('vi-VN')}đ, Thanh toán tiền mặt: ${actualFinalAmount.toLocaleString('vi-VN')}đ`)
+              : `Thanh toán tiền mặt: ${actualFinalAmount.toLocaleString('vi-VN')}đ`,
             createdBy: confirmedBy || new mongoose.Types.ObjectId(),
             createdByRole: 'receptionist'
           };
@@ -426,10 +390,12 @@ async function startConsumer() {
           console.log('📝 [Invoice Consumer] Creating invoice for cash payment:', {
             invoiceNumber,
             patientName: invoiceDoc.patientInfo.name,
-            originalAmount: amount,
-            depositAmount,
-            finalAmount: invoiceDoc.totalAmount,
-            isFullyPaidByDeposit: finalAmount === 0,
+            originalAmount: actualOriginalAmount,
+            depositAmount: actualDepositAmount,
+            finalAmount: actualFinalAmount,
+            invoiceSubtotal,
+            invoiceTotalPaid,
+            isFullyPaidByDeposit: actualFinalAmount === 0,
             type: invoiceDoc.type
           });
 
@@ -447,25 +413,25 @@ async function startConsumer() {
             serviceInfo: {
               name: serviceDescription,
               code: null,
-              type: isOnlineBooking ? 'examination' : 'filling', // ✅ Use valid enum values
-              category: isOnlineBooking ? 'diagnostic' : 'restorative', // ✅ Use valid enum values
+              type: appointmentId ? 'examination' : 'filling', // ✅ Use valid enum values
+              category: appointmentId ? 'diagnostic' : 'restorative', // ✅ Use valid enum values
               description: serviceDescription
             },
             quantity: 1,
-            unitPrice: amount,
+            unitPrice: actualOriginalAmount,  // ✅ Use original amount
             discount: {
-              type: depositAmount > 0 ? 'fixed_amount' : 'none',
-              value: depositAmount,
-              reason: depositAmount > 0 ? 'Deposit deduction' : null
+              type: 'none',  // ✅ No discount in detail
+              value: 0,
+              reason: null
             },
-            subtotal: amount,
-            discountAmount: depositAmount,
-            totalPrice: finalAmount,
+            subtotal: actualOriginalAmount,
+            discountAmount: 0,  // ✅ No discount at detail level
+            totalPrice: actualOriginalAmount,  // ✅ Full amount (deposit already in payment summary)
             scheduledDate: new Date(),
             completedDate: new Date(),
             status: 'completed',
             description: serviceDescription,
-            notes: depositAmount > 0 ? `Deposit deducted: ${depositAmount}` : null,
+            notes: actualDepositAmount > 0 ? `Đã trừ tiền cọc: ${actualDepositAmount.toLocaleString('vi-VN')}đ` : null,
             createdBy: confirmedBy || new mongoose.Types.ObjectId()
           };
 
@@ -491,7 +457,7 @@ async function startConsumer() {
         }
       } else if (message.event === 'payment.success') {
         // ✅ Handle payment success from record completion (VNPay or Cash)
-        const {
+        const { 
           paymentId,
           paymentCode,
           recordId,
@@ -500,9 +466,11 @@ async function startConsumer() {
           patientInfo,
           method,
           originalAmount,
-          discountAmount,
-          finalAmount,
-          paidAmount,
+          depositAmount,  // ✅ Amount already paid as deposit
+          discountAmount, // ✅ Real discount (not deposit)
+          taxAmount,      // ✅ Tax amount
+          finalAmount,    // ✅ Remaining amount to pay (originalAmount - depositAmount - discountAmount + taxAmount)
+          paidAmount,     // ✅ Amount paid in this transaction
           completedAt,
           processedByName
         } = message.data;
@@ -514,12 +482,12 @@ async function startConsumer() {
           appointmentId,
           method,
           originalAmount,
+          depositAmount,
           discountAmount,
+          taxAmount,
           finalAmount,
           paidAmount
-        });
-
-        // ✅ Check if payment amount is 0 (fully paid by deposit)
+        });        // ✅ Check if payment amount is 0 (fully paid by deposit)
         const actualPaymentAmount = paidAmount || finalAmount || 0;
         if (actualPaymentAmount === 0) {
           console.log('⚠️ [Invoice Consumer] Payment amount is 0 (fully covered by deposit). Skipping invoice creation.');
@@ -606,23 +574,25 @@ async function startConsumer() {
             },
             
             // Financial Info
-            // ✅ FIXED: Set subtotal = totalPaid to ensure totalAmount = paymentSummary.totalPaid after calculateAmounts()
-            subtotal: paidAmount || finalAmount,  // Use actual paid amount as subtotal
+            // ✅ FIXED: subtotal = originalAmount (service price before any deductions)
+            // totalAmount will be calculated by pre-save hook: originalAmount - discountAmount (if any) + taxAmount
+            // depositAmount is tracked separately in paymentSummary
+            subtotal: originalAmount,  // ✅ Original service price
             discountInfo: {
-              type: 'none',  // No discount in invoice calculation (deposit already deducted in payment)
-              value: 0,
-              reason: discountAmount > 0 ? `Đã trừ tiền cọc ${discountAmount.toLocaleString('vi-VN')}đ trong thanh toán` : null
+              type: discountAmount > 0 ? 'fixed_amount' : 'none',  // ✅ Real discount (not deposit)
+              value: discountAmount || 0,
+              reason: discountAmount > 0 ? 'Giảm giá' : null
             },
             taxInfo: {
               taxRate: 0,
-              taxAmount: 0,
+              taxAmount: taxAmount || 0,
               taxIncluded: true
             },
-            totalAmount: paidAmount || finalAmount,  // ✅ Use paidAmount (actual payment amount)
+            totalAmount: originalAmount,  // ✅ Will be recalculated by pre-save hook
             
             // Payment Summary
             paymentSummary: {
-              totalPaid: paidAmount || finalAmount,
+              totalPaid: (depositAmount || 0) + (paidAmount || finalAmount),  // ✅ Total: deposit + current payment
               remainingAmount: 0,
               lastPaymentDate: completedAt || new Date(),
               paymentMethod: method || 'vnpay',
@@ -635,11 +605,9 @@ async function startConsumer() {
             paidDate: completedAt || new Date(),
             
             // Metadata
-            notes: discountAmount > 0 
-              ? (actualPaymentAmount === 0 
-                  ? `Tổng tiền dịch vụ: ${originalAmount.toLocaleString('vi-VN')}đ, Đã cọc đủ: ${discountAmount.toLocaleString('vi-VN')}đ, Không cần thanh toán thêm` 
-                  : `Tổng tiền dịch vụ: ${originalAmount.toLocaleString('vi-VN')}đ, Đã cọc: ${discountAmount.toLocaleString('vi-VN')}đ, Thanh toán: ${actualPaymentAmount.toLocaleString('vi-VN')}đ`)
-              : `Thanh toán: ${actualPaymentAmount.toLocaleString('vi-VN')}đ`,
+            notes: depositAmount > 0 
+              ? `Tổng tiền dịch vụ: ${originalAmount.toLocaleString('vi-VN')}đ\nĐã cọc: ${depositAmount.toLocaleString('vi-VN')}đ\nThanh toán ${method === 'vnpay' ? 'VNPay' : method === 'stripe' ? 'Stripe' : 'tiền mặt'}: ${paidAmount.toLocaleString('vi-VN')}đ\nMã thanh toán: ${paymentCode}`
+              : `Thanh toán qua ${method === 'vnpay' ? 'VNPay' : method === 'stripe' ? 'Stripe' : 'tiền mặt'} - Mã thanh toán: ${paymentCode}`,
             createdBy: patientId || new mongoose.Types.ObjectId(), // ✅ Create dummy ObjectId if no patientId
             createdByRole: 'system'
           };
@@ -647,9 +615,13 @@ async function startConsumer() {
           console.log('📝 [Invoice Consumer] Creating invoice for payment.success:', {
             invoiceNumber,
             patientName: invoiceDoc.patientInfo.name,
+            originalAmount,
+            depositAmount,
+            discountAmount,
+            paidAmount,
+            subtotal: invoiceDoc.subtotal,
             totalAmount: invoiceDoc.totalAmount,
-            actualPaymentAmount,
-            isFullyPaidByDeposit: actualPaymentAmount === 0,
+            totalPaid: invoiceDoc.paymentSummary.totalPaid,
             paymentMethod: method
           });
 
@@ -694,9 +666,9 @@ async function startConsumer() {
               quantity: mainQuantity,
               unitPrice: mainPrice,
               discount: {
-                type: 'none',
-                value: 0,
-                reason: null
+                type: discountAmount > 0 ? 'fixed_amount' : 'none',
+                value: discountAmount || 0,
+                reason: discountAmount > 0 ? 'Giảm giá' : null
               },
               subtotal: mainTotal,
               discountAmount: 0,

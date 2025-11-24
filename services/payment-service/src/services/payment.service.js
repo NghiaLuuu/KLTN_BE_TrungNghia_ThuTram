@@ -207,7 +207,8 @@ class PaymentService {
         method: PaymentMethod.CASH, // Default, will be changed by user
         status: PaymentStatus.PENDING,
         originalAmount: record.totalCost,
-        discountAmount: depositAmount,
+        depositAmount: depositAmount,  // ✅ FIXED: Deposit is separate from discount!
+        discountAmount: 0,  // ✅ FIXED: No discount, only deposit deduction
         taxAmount: 0,
         finalAmount: finalAmount,
         paidAmount: 0,
@@ -1624,7 +1625,9 @@ class PaymentService {
               patientInfo: payment.patientInfo,
               method: payment.method,
               originalAmount: payment.originalAmount,
-              discountAmount: payment.discountAmount,
+              depositAmount: payment.depositAmount || 0,  // ✅ Add deposit amount
+              discountAmount: payment.discountAmount || 0, // ✅ Keep discount amount (real discount)
+              taxAmount: payment.taxAmount || 0,  // ✅ Add tax amount
               finalAmount: payment.finalAmount,
               paidAmount: payment.paidAmount,
               changeAmount: payment.changeAmount,

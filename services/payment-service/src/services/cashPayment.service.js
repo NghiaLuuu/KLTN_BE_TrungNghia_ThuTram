@@ -42,7 +42,9 @@ class CashPaymentService {
         data: {
           paymentId: payment._id.toString(),
           paymentCode: payment.paymentCode,
-          amount: payment.finalAmount,
+          amount: payment.finalAmount, // ✅ This is the amount to be paid (after deposit deduction)
+          originalAmount: payment.originalAmount, // ✅ Original service amount
+          discountAmount: payment.discountAmount, // ✅ Deposit amount (already deducted)
           method: payment.method,
           patientId: payment.patientId,
           patientInfo: payment.patientInfo,
