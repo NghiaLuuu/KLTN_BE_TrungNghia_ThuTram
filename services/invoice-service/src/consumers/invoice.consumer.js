@@ -587,45 +587,54 @@ async function startConsumer() {
               specialization: null,
               licenseNumber: null
             },
-            
-            // Financial Info
-            // ✅ FIXED: subtotal = originalAmount (service price before any deductions)
-            // totalAmount will be calculated by pre-save hook: originalAmount - discountAmount (if any) + taxAmount
-            // depositAmount is tracked separately in paymentSummary
-            subtotal: originalAmount,  // ✅ Original service price
-            discountInfo: {
-              type: actualDiscountAmount > 0 ? 'fixed_amount' : 'none',  // ✅ Real discount (not deposit)
-              value: actualDiscountAmount,
-              reason: actualDiscountAmount > 0 ? 'Giảm giá' : null
-            },
-            taxInfo: {
-              taxRate: 0,
-              taxAmount: actualTaxAmount,
-              taxIncluded: true
-            },
-            totalAmount: originalAmount,  // ✅ Will be recalculated by pre-save hook
-            
-            // Payment Summary
-            paymentSummary: {
-              totalPaid: actualDepositAmount + actualPaidAmount,  // ✅ Total: deposit + current payment
-              remainingAmount: 0,
-              lastPaymentDate: completedAt || new Date(),
-              paymentMethod: method || 'vnpay',
-              paymentIds: [paymentId]
-            },
-            
-            // Dates
-            issueDate: new Date(),
-            dueDate: new Date(),
-            paidDate: completedAt || new Date(),
-            
-            // Metadata
-            notes: actualDepositAmount > 0 
-              ? `Tổng tiền dịch vụ: ${originalAmount.toLocaleString('vi-VN')}đ\nĐã cọc: ${actualDepositAmount.toLocaleString('vi-VN')}đ\nThanh toán ${method === 'vnpay' ? 'VNPay' : method === 'stripe' ? 'Stripe' : 'tiền mặt'}: ${actualPaidAmount.toLocaleString('vi-VN')}đ\nMã thanh toán: ${paymentCode}`
-              : `Thanh toán qua ${method === 'vnpay' ? 'VNPay' : method === 'stripe' ? 'Stripe' : 'tiền mặt'} - Mã thanh toán: ${paymentCode}`,
-            createdBy: patientId || new mongoose.Types.ObjectId(), // ✅ Create dummy ObjectId if no patientId
-            createdByRole: 'system'
           };
+
+          // ✅ FIXED: If deposit exists and already has invoice, only invoice the remaining amount
+          // Otherwise, invoice full amount
+          const invoiceAmount = actualDepositAmount > 0 ? actualPaidAmount : originalAmount;
+          
+          console.log('💰 [Invoice Consumer] Determining invoice amount:', {
+            originalAmount,
+            actualDepositAmount,
+            actualPaidAmount,
+            invoiceAmount,
+            reason: actualDepositAmount > 0 ? 'Deposit already invoiced separately' : 'No deposit, invoice full amount'
+          });
+
+          // Add financial info
+          invoiceDoc.subtotal = invoiceAmount;  // ✅ 300k if deposit exists, 500k if no deposit
+          invoiceDoc.discountInfo = {
+            type: actualDiscountAmount > 0 ? 'fixed_amount' : 'none',
+            value: actualDiscountAmount,
+            reason: actualDiscountAmount > 0 ? 'Giảm giá' : null
+          };
+          invoiceDoc.taxInfo = {
+            taxRate: 0,
+            taxAmount: actualTaxAmount,
+            taxIncluded: true
+          };
+          invoiceDoc.totalAmount = invoiceAmount;  // ✅ Will be recalculated by pre-save hook
+          
+          // Payment Summary
+          invoiceDoc.paymentSummary = {
+            totalPaid: actualPaidAmount,  // ✅ Only current payment amount (300k)
+            remainingAmount: 0,
+            lastPaymentDate: completedAt || new Date(),
+            paymentMethod: method || 'vnpay',
+            paymentIds: [paymentId]
+          };
+          
+          // Dates
+          invoiceDoc.issueDate = new Date();
+          invoiceDoc.dueDate = new Date();
+          invoiceDoc.paidDate = completedAt || new Date();
+          
+          // Metadata
+          invoiceDoc.notes = actualDepositAmount > 0 
+            ? `Thanh toán phần còn lại sau khi đã cọc ${actualDepositAmount.toLocaleString('vi-VN')}đ\nTổng dịch vụ: ${originalAmount.toLocaleString('vi-VN')}đ\nThanh toán lần này: ${actualPaidAmount.toLocaleString('vi-VN')}đ\nMã thanh toán: ${paymentCode}`
+            : `Thanh toán qua ${method === 'vnpay' ? 'VNPay' : method === 'stripe' ? 'Stripe' : 'tiền mặt'}\nSố tiền: ${actualPaidAmount.toLocaleString('vi-VN')}đ\nMã thanh toán: ${paymentCode}`;
+          invoiceDoc.createdBy = patientId || new mongoose.Types.ObjectId();
+          invoiceDoc.createdByRole = 'system';
 
           console.log('📝 [Invoice Consumer] Creating invoice for payment.success:', {
             invoiceNumber,
@@ -634,10 +643,12 @@ async function startConsumer() {
             depositAmount: actualDepositAmount,
             discountAmount: actualDiscountAmount,
             paidAmount: actualPaidAmount,
+            invoiceAmount: invoiceDoc.subtotal,
             subtotal: invoiceDoc.subtotal,
             totalAmount: invoiceDoc.totalAmount,
             totalPaid: invoiceDoc.paymentSummary.totalPaid,
-            paymentMethod: method
+            paymentMethod: method,
+            note: actualDepositAmount > 0 ? 'Deposit already has separate invoice' : 'Full amount invoice'
           });
 
           // Create invoice in database
@@ -661,16 +672,21 @@ async function startConsumer() {
             const mainAddonName = recordData.serviceAddOnName || '';
             const mainUnit = recordData.serviceAddOnUnit || '';
             const mainQuantity = recordData.quantity || 1;
-            // ✅ FIXED: Use originalAmount from payment if recordData price is 0
-            const mainPrice = recordData.serviceAddOnPrice || originalAmount || 0;
+            // ✅ FIXED: Use actualPaidAmount (remaining amount) if deposit exists, otherwise use originalAmount
+            const mainPrice = actualDepositAmount > 0 
+              ? actualPaidAmount  // If deposit exists, only invoice remaining amount
+              : (recordData.serviceAddOnPrice || originalAmount || 0);  // No deposit, invoice full amount
             const mainTotal = mainPrice * mainQuantity;
             
             console.log('💵 [Invoice Consumer] Calculating main service detail:', {
               serviceAddOnPrice: recordData.serviceAddOnPrice,
               originalAmountFromPayment: originalAmount,
+              actualDepositAmount,
+              actualPaidAmount,
               mainPriceUsed: mainPrice,
               mainQuantity,
-              mainTotal
+              mainTotal,
+              reasoning: actualDepositAmount > 0 ? 'Using paidAmount (deposit invoiced separately)' : 'Using originalAmount (no deposit)'
             });
             
             const mainServiceDescription = mainAddonName 
