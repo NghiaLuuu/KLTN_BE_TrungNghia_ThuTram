@@ -36,7 +36,7 @@ class StripeService {
       console.log('💱 [Stripe] Currency conversion:', {
         amountVND: amount,
         exchangeRate,
-        amountUSD,
+        amountUSD: amountInUSD,
         amountCents: amountInCents
       });
 
@@ -121,7 +121,7 @@ class StripeService {
         sessionId: session.id,
         orderId,
         amount,
-        amountUSD,
+        amountUSD: amountInUSD,
         expiresAt: new Date(session.expires_at * 1000).toISOString()
       };
 
