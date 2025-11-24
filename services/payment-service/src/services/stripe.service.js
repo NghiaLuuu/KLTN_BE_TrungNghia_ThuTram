@@ -1,6 +1,6 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const mongoose = require('mongoose');
-const Payment = require('../models/payment.model');
+const { Payment } = require('../models/payment.model');
 const redis = require('../utils/redis.client');
 const rabbitmqClient = require('../utils/rabbitmq.client');
 

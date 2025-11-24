@@ -49,12 +49,18 @@ class StripeController {
       );
 
       console.log('✅ [Stripe Controller] Payment link created:', result);
+      console.log('🔍 [Stripe Controller] Result keys:', Object.keys(result || {}));
+      console.log('🔍 [Stripe Controller] paymentUrl:', result?.paymentUrl);
 
-      res.status(200).json({
+      const responseData = {
         success: true,
         message: 'Tạo Stripe payment link thành công',
         data: result
-      });
+      };
+      
+      console.log('📤 [Stripe Controller] Sending response:', JSON.stringify(responseData, null, 2));
+      
+      res.status(200).json(responseData);
 
     } catch (error) {
       console.error('❌ [Stripe Controller] Error creating payment link:', error);
