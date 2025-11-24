@@ -279,7 +279,10 @@ async function startConsumer() {
 
           // ✅ Check if payment amount is 0 (fully paid by deposit)
           if (finalAmount === 0) {
-            console.log('⚠️ [Invoice Consumer] Cash payment amount is 0 (fully covered by deposit). Creating invoice with totalAmount = 0');
+            console.log('⚠️ [Invoice Consumer] Cash payment amount is 0 (fully covered by deposit). Skipping invoice creation.');
+            console.log('✅ [Invoice Consumer] No invoice needed - service fully paid by deposit');
+            channel.ack(msg);
+            return;
           }
 
           // Generate invoice number
@@ -519,7 +522,10 @@ async function startConsumer() {
         // ✅ Check if payment amount is 0 (fully paid by deposit)
         const actualPaymentAmount = paidAmount || finalAmount || 0;
         if (actualPaymentAmount === 0) {
-          console.log('⚠️ [Invoice Consumer] Payment amount is 0 (fully covered by deposit). Creating invoice with totalAmount = 0');
+          console.log('⚠️ [Invoice Consumer] Payment amount is 0 (fully covered by deposit). Skipping invoice creation.');
+          console.log('✅ [Invoice Consumer] No invoice needed - service fully paid by deposit');
+          channel.ack(msg);
+          return;
         }
 
         try {

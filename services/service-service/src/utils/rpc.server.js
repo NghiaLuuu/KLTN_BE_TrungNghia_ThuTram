@@ -118,8 +118,9 @@ async function handleGetService({ serviceId }) {
       throw new Error('Service not found');
     }
     
+    // ✅ Return consistent format: { service: ... }
     return {
-      result: service
+      service: service
     };
   } catch (error) {
     console.error(`❌ [RPC Handler] getService error:`, error);
