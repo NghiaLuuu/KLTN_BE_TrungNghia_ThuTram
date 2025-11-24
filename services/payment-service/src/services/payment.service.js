@@ -1610,31 +1610,45 @@ class PaymentService {
       await payment.save();
 
       console.log(`✅ Cash payment confirmed: ${payment.paymentCode}`);
+      console.log('💰 [confirmCashPayment] Payment details before publishing event:', {
+        paymentId: payment._id.toString(),
+        paymentCode: payment.paymentCode,
+        originalAmount: payment.originalAmount,
+        depositAmount: payment.depositAmount,
+        discountAmount: payment.discountAmount,
+        taxAmount: payment.taxAmount,
+        finalAmount: payment.finalAmount,
+        paidAmount: payment.paidAmount
+      });
 
       // Publish payment.success event to invoice-service (non-blocking)
       setImmediate(async () => {
         try {
+          const eventData = {
+            paymentId: payment._id.toString(),
+            paymentCode: payment.paymentCode,
+            recordId: payment.recordId ? payment.recordId.toString() : null,
+            appointmentId: payment.appointmentId ? payment.appointmentId.toString() : null,
+            patientId: payment.patientId ? payment.patientId.toString() : null,
+            patientInfo: payment.patientInfo,
+            method: payment.method,
+            originalAmount: payment.originalAmount,
+            depositAmount: payment.depositAmount || 0,  // ✅ Add deposit amount
+            discountAmount: payment.discountAmount || 0, // ✅ Keep discount amount (real discount)
+            taxAmount: payment.taxAmount || 0,  // ✅ Add tax amount
+            finalAmount: payment.finalAmount,
+            paidAmount: payment.paidAmount,
+            changeAmount: payment.changeAmount,
+            completedAt: payment.completedAt,
+            processedBy: payment.processedBy.toString(),
+            processedByName: payment.processedByName
+          };
+          
+          console.log('📤 [confirmCashPayment] Publishing payment.success event:', eventData);
+          
           await rabbitmqClient.publishToQueue('invoice_queue', {
             event: 'payment.success',
-            data: {
-              paymentId: payment._id.toString(),
-              paymentCode: payment.paymentCode,
-              recordId: payment.recordId ? payment.recordId.toString() : null,
-              appointmentId: payment.appointmentId ? payment.appointmentId.toString() : null,
-              patientId: payment.patientId ? payment.patientId.toString() : null,
-              patientInfo: payment.patientInfo,
-              method: payment.method,
-              originalAmount: payment.originalAmount,
-              depositAmount: payment.depositAmount || 0,  // ✅ Add deposit amount
-              discountAmount: payment.discountAmount || 0, // ✅ Keep discount amount (real discount)
-              taxAmount: payment.taxAmount || 0,  // ✅ Add tax amount
-              finalAmount: payment.finalAmount,
-              paidAmount: payment.paidAmount,
-              changeAmount: payment.changeAmount,
-              completedAt: payment.completedAt,
-              processedBy: payment.processedBy.toString(),
-              processedByName: payment.processedByName
-            }
+            data: eventData
           });
           console.log(`✅ Published payment.success for ${payment.paymentCode}`);
         } catch (publishError) {

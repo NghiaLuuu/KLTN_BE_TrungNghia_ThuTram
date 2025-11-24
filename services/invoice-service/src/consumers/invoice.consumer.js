@@ -487,9 +487,24 @@ async function startConsumer() {
           taxAmount,
           finalAmount,
           paidAmount
-        });        // ✅ Check if payment amount is 0 (fully paid by deposit)
-        const actualPaymentAmount = paidAmount || finalAmount || 0;
-        if (actualPaymentAmount === 0) {
+        });
+
+        // ✅ Calculate actual amounts (handle undefined values)
+        const actualDepositAmount = depositAmount || 0;
+        const actualDiscountAmount = discountAmount || 0;
+        const actualTaxAmount = taxAmount || 0;
+        const actualPaidAmount = paidAmount || finalAmount || 0;
+
+        console.log('💰 [Invoice Consumer] Calculated amounts:', {
+          actualDepositAmount,
+          actualDiscountAmount,
+          actualTaxAmount,
+          actualPaidAmount,
+          totalPaidWillBe: actualDepositAmount + actualPaidAmount
+        });
+
+        // ✅ Check if payment amount is 0 (fully paid by deposit)
+        if (actualPaidAmount === 0) {
           console.log('⚠️ [Invoice Consumer] Payment amount is 0 (fully covered by deposit). Skipping invoice creation.');
           console.log('✅ [Invoice Consumer] No invoice needed - service fully paid by deposit');
           channel.ack(msg);
@@ -579,20 +594,20 @@ async function startConsumer() {
             // depositAmount is tracked separately in paymentSummary
             subtotal: originalAmount,  // ✅ Original service price
             discountInfo: {
-              type: discountAmount > 0 ? 'fixed_amount' : 'none',  // ✅ Real discount (not deposit)
-              value: discountAmount || 0,
-              reason: discountAmount > 0 ? 'Giảm giá' : null
+              type: actualDiscountAmount > 0 ? 'fixed_amount' : 'none',  // ✅ Real discount (not deposit)
+              value: actualDiscountAmount,
+              reason: actualDiscountAmount > 0 ? 'Giảm giá' : null
             },
             taxInfo: {
               taxRate: 0,
-              taxAmount: taxAmount || 0,
+              taxAmount: actualTaxAmount,
               taxIncluded: true
             },
             totalAmount: originalAmount,  // ✅ Will be recalculated by pre-save hook
             
             // Payment Summary
             paymentSummary: {
-              totalPaid: (depositAmount || 0) + (paidAmount || finalAmount),  // ✅ Total: deposit + current payment
+              totalPaid: actualDepositAmount + actualPaidAmount,  // ✅ Total: deposit + current payment
               remainingAmount: 0,
               lastPaymentDate: completedAt || new Date(),
               paymentMethod: method || 'vnpay',
@@ -605,8 +620,8 @@ async function startConsumer() {
             paidDate: completedAt || new Date(),
             
             // Metadata
-            notes: depositAmount > 0 
-              ? `Tổng tiền dịch vụ: ${originalAmount.toLocaleString('vi-VN')}đ\nĐã cọc: ${depositAmount.toLocaleString('vi-VN')}đ\nThanh toán ${method === 'vnpay' ? 'VNPay' : method === 'stripe' ? 'Stripe' : 'tiền mặt'}: ${paidAmount.toLocaleString('vi-VN')}đ\nMã thanh toán: ${paymentCode}`
+            notes: actualDepositAmount > 0 
+              ? `Tổng tiền dịch vụ: ${originalAmount.toLocaleString('vi-VN')}đ\nĐã cọc: ${actualDepositAmount.toLocaleString('vi-VN')}đ\nThanh toán ${method === 'vnpay' ? 'VNPay' : method === 'stripe' ? 'Stripe' : 'tiền mặt'}: ${actualPaidAmount.toLocaleString('vi-VN')}đ\nMã thanh toán: ${paymentCode}`
               : `Thanh toán qua ${method === 'vnpay' ? 'VNPay' : method === 'stripe' ? 'Stripe' : 'tiền mặt'} - Mã thanh toán: ${paymentCode}`,
             createdBy: patientId || new mongoose.Types.ObjectId(), // ✅ Create dummy ObjectId if no patientId
             createdByRole: 'system'
@@ -616,9 +631,9 @@ async function startConsumer() {
             invoiceNumber,
             patientName: invoiceDoc.patientInfo.name,
             originalAmount,
-            depositAmount,
-            discountAmount,
-            paidAmount,
+            depositAmount: actualDepositAmount,
+            discountAmount: actualDiscountAmount,
+            paidAmount: actualPaidAmount,
             subtotal: invoiceDoc.subtotal,
             totalAmount: invoiceDoc.totalAmount,
             totalPaid: invoiceDoc.paymentSummary.totalPaid,
@@ -630,7 +645,11 @@ async function startConsumer() {
 
           console.log('✅ [Invoice Consumer] Invoice created:', {
             invoiceId: invoice._id.toString(),
-            invoiceNumber: invoice.invoiceNumber
+            invoiceNumber: invoice.invoiceNumber,
+            subtotal: invoice.subtotal,
+            totalAmount: invoice.totalAmount,
+            totalPaid: invoice.paymentSummary.totalPaid,
+            isBalanced: invoice.totalAmount === invoice.paymentSummary.totalPaid
           });
 
           // ✅ Create invoice details for main service AND additional services
@@ -642,8 +661,17 @@ async function startConsumer() {
             const mainAddonName = recordData.serviceAddOnName || '';
             const mainUnit = recordData.serviceAddOnUnit || '';
             const mainQuantity = recordData.quantity || 1;
-            const mainPrice = recordData.serviceAddOnPrice || 0;
+            // ✅ FIXED: Use originalAmount from payment if recordData price is 0
+            const mainPrice = recordData.serviceAddOnPrice || originalAmount || 0;
             const mainTotal = mainPrice * mainQuantity;
+            
+            console.log('💵 [Invoice Consumer] Calculating main service detail:', {
+              serviceAddOnPrice: recordData.serviceAddOnPrice,
+              originalAmountFromPayment: originalAmount,
+              mainPriceUsed: mainPrice,
+              mainQuantity,
+              mainTotal
+            });
             
             const mainServiceDescription = mainAddonName 
               ? `${mainServiceName} - ${mainAddonName}`
@@ -666,9 +694,9 @@ async function startConsumer() {
               quantity: mainQuantity,
               unitPrice: mainPrice,
               discount: {
-                type: discountAmount > 0 ? 'fixed_amount' : 'none',
-                value: discountAmount || 0,
-                reason: discountAmount > 0 ? 'Giảm giá' : null
+                type: actualDiscountAmount > 0 ? 'fixed_amount' : 'none',
+                value: actualDiscountAmount,
+                reason: actualDiscountAmount > 0 ? 'Giảm giá' : null
               },
               subtotal: mainTotal,
               discountAmount: 0,

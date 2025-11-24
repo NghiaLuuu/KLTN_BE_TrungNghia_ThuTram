@@ -20,8 +20,7 @@ class InvoiceDetailRepository {
   async findByInvoice(invoiceId, options = {}) {
     const mongoose = require('mongoose');
     
-    console.log(`🔍 [InvoiceDetail Repo] Finding details for invoiceId: ${invoiceId}`);
-    console.log(`🔍 [InvoiceDetail Repo] InvoiceId type: ${typeof invoiceId}`);
+    
     
     // Ensure invoiceId is an ObjectId
     const objectId = mongoose.Types.ObjectId.isValid(invoiceId) 
