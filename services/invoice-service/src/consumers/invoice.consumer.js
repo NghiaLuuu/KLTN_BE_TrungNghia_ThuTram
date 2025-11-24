@@ -499,7 +499,10 @@ async function startConsumer() {
           recordId,
           appointmentId,
           method,
-          finalAmount
+          originalAmount,
+          discountAmount,
+          finalAmount,
+          paidAmount
         });
 
         try {

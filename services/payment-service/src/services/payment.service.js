@@ -1088,14 +1088,53 @@ class PaymentService {
       console.log('📝 [Update Existing Payment] Current payment:', {
         paymentCode: payment.paymentCode,
         status: payment.status,
-        method: payment.method
+        method: payment.method,
+        finalAmount: payment.finalAmount,
+        recordId: payment.recordId
       });
+      
+      // ✅ If finalAmount is 0 and has recordId, fetch from record service
+      if (payment.finalAmount === 0 && payment.recordId) {
+        console.log('⚠️ [Update Existing Payment] finalAmount is 0, fetching from record:', payment.recordId);
+        
+        try {
+          const recordServiceUrl = process.env.RECORD_SERVICE_URL || 'http://localhost:3010';
+          const recordResponse = await axios.get(
+            `${recordServiceUrl}/api/record/${payment.recordId}`
+          );
+          
+          const recordData = recordResponse.data?.data || recordResponse.data;
+          console.log('📋 [Update Existing Payment] Record data:', {
+            recordId: payment.recordId,
+            serviceAmount: recordData.serviceAmount,
+            serviceAddOnPrice: recordData.serviceAddOnPrice,
+            depositPaid: recordData.depositPaid
+          });
+          
+          const serviceAmount = recordData.serviceAmount || recordData.serviceAddOnPrice || 0;
+          const depositAmount = recordData.depositPaid || 0;
+          const calculatedAmount = Math.max(0, serviceAmount - depositAmount);
+          
+          // Update payment amounts
+          payment.originalAmount = serviceAmount;
+          payment.discountAmount = depositAmount;
+          payment.finalAmount = calculatedAmount;
+          
+          console.log('✅ [Update Existing Payment] Amount calculated from record:', { 
+            serviceAmount, 
+            depositAmount, 
+            finalAmount: calculatedAmount 
+          });
+        } catch (error) {
+          console.error('❌ [Update Existing Payment] Failed to fetch amount from record:', error.message);
+        }
+      }
       
       // Update payment based on VNPay response
       if (status === 'success') {
         payment.status = 'completed';
         payment.externalTransactionId = transactionId;
-        payment.paidAmount = payment.finalAmount;
+        payment.paidAmount = payment.finalAmount;  // ✅ Now this will be correct
         payment.processedAt = new Date();
         payment.completedAt = new Date();
         

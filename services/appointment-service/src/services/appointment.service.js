@@ -329,7 +329,35 @@ class AppointmentService {
   
   async getServiceInfo(serviceId, serviceAddOnId) {
     try {
-      // 🔥 Call service-service API directly (no more Redis cache)
+      // ✅ If no serviceAddOnId, get service only
+      if (!serviceAddOnId) {
+        console.log('⚠️ [getServiceInfo] No serviceAddOnId provided, getting service only');
+        
+        const serviceResult = await rpcClient.call('service-service', 'getServiceById', {
+          serviceId
+        });
+        
+        console.log('📦 [getServiceInfo] Service-only result:', JSON.stringify(serviceResult));
+        
+        if (!serviceResult || !serviceResult.service) {
+          throw new Error('Service not found');
+        }
+        
+        const service = serviceResult.service;
+        
+        return {
+          serviceId: service._id,
+          serviceName: service.name,
+          serviceType: service.type,
+          serviceDuration: 30, // Default duration
+          servicePrice: service.price || 0,
+          serviceAddOnId: null,
+          serviceAddOnName: null,
+          serviceAddOnPrice: 0
+        };
+      }
+      
+      // 🔥 Call service-service API with serviceAddOnId
       const result = await rpcClient.call('service-service', 'getServiceAddOn', {
         serviceId, serviceAddOnId
       });
@@ -337,7 +365,7 @@ class AppointmentService {
       console.log('📦 [getServiceInfo] Raw RPC result:', JSON.stringify(result));
       
       if (!result || !result.service || !result.addOn) {
-        throw new Error('Service not found');
+        throw new Error('Service or ServiceAddOn not found');
       }
       
       const { service, addOn } = result;
