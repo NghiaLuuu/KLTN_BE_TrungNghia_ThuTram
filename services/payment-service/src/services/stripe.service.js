@@ -70,7 +70,7 @@ class StripeService {
           exchangeRate: exchangeRate.toString(),
           ...metadata
         },
-        expires_at: Math.floor(Date.now() / 1000) + (15 * 60), // 15 minutes
+        expires_at: Math.floor(Date.now() / 1000) + (30 * 60), // 30 minutes (Stripe minimum)
       };
 
       // Only set customer_email if it's valid (not null, not empty string)
