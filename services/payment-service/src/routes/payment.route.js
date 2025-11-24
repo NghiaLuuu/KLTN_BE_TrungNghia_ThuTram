@@ -18,11 +18,17 @@ const {
   searchPaymentsValidation,
   getStatisticsValidation
 } = require('../validations/payment.validation');
+const stripeController = require('../controllers/stripe.controller');
 
 // ============ PUBLIC ROUTES (No Auth Required) ============
 // VNPay Payment Gateway Return URL
 router.get('/return/vnpay', 
   paymentController.vnpayReturn
+);
+
+// Stripe Payment Gateway Return URL (VNPay-style)
+router.get('/return/stripe',
+  stripeController.handleCallback
 );
 
 // Visa Payment Processing (Patient only - optional auth)
@@ -71,6 +77,12 @@ router.post('/:originalPaymentId/refund',
 router.post('/:id/vnpay-url',
   roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
   paymentController.createVNPayUrlForPayment
+);
+
+// Create Stripe URL for existing payment (Staff only)
+router.post('/:id/stripe-url',
+  roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
+  paymentController.createStripeUrlForPayment
 );
 
 // ============ GET PAYMENT ROUTES ============

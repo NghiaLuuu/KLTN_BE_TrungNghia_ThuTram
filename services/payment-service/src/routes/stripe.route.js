@@ -23,32 +23,29 @@ router.post('/webhook',
 );
 
 /**
- * Verify checkout session (for frontend callback after payment)
+ * Verify checkout session (for frontend/debugging)
  * GET /api/payments/stripe/verify-session/:sessionId
  */
 router.get('/verify-session/:sessionId', 
   stripeController.verifySession
 );
 
-// ============ AUTHENTICATED ROUTES ============
-
 /**
- * Create Stripe Checkout Session
- * POST /api/payments/stripe/create-session
+ * Create Stripe Payment Link (VNPay-style)
+ * POST /api/payments/stripe/create-payment-link
  * Body: { orderId, amount, orderInfo, customerEmail?, metadata? }
+ * PUBLIC: No auth required (same as VNPay)
  */
-router.post('/create-session',
-  authMiddleware, // Optional: can be removed if patients don't need to be logged in
-  stripeController.createCheckoutSession
+router.post('/create-payment-link',
+  stripeController.createPaymentLink
 );
 
-/**
- * Get session details (for admin/debugging)
- * GET /api/payments/stripe/session/:sessionId
- */
-router.get('/session/:sessionId',
-  authMiddleware,
-  stripeController.getSessionDetails
+// Legacy endpoint for backward compatibility
+router.post('/create-session',
+  stripeController.createPaymentLink
 );
+
+// ============ AUTHENTICATED ROUTES (for future features) ============
+// router.use(authMiddleware);
 
 module.exports = router;

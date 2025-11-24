@@ -9,6 +9,7 @@ const { BadRequestError, NotFoundError, ForbiddenError } = require('../utils/err
 const redisClient = require('../utils/redis.client');
 const { createVNPayPayment } = require('../utils/payment.gateway');
 const rpcClient = require('../utils/rpcClient');
+const stripeService = require('./stripe.service');
 const visaGateway = require('../utils/visa.gateway');
 const rabbitmqClient = require('../utils/rabbitmq.client');
 
@@ -932,6 +933,89 @@ class PaymentService {
       };
     } catch (err) {
       console.error('❌ [Create VNPay URL for Existing Payment] Error:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Create Stripe URL for existing payment (from record)
+   * Used when staff wants to create Stripe payment for a cash payment
+   */
+  async createStripeUrlForExistingPayment(paymentId, userRole = 'patient') {
+    try {
+      console.log('🔍 [Create Stripe URL for Existing Payment]:', { paymentId });
+      
+      // Get payment from database
+      const payment = await paymentRepository.findById(paymentId);
+      if (!payment) {
+        throw new Error('Payment not found');
+      }
+      
+      // Validate payment status
+      if (payment.status === 'completed') {
+        throw new Error('Payment already completed');
+      }
+      
+      if (payment.status === 'cancelled') {
+        throw new Error('Cannot create Stripe URL for cancelled payment');
+      }
+      
+      // Create unique orderId for Stripe
+      const orderId = `PAY${Date.now()}${payment._id.toString().slice(-6)}`;
+      const amount = payment.finalAmount;
+      const orderInfo = `Thanh toan ${payment.paymentCode}`;
+      
+      console.log('📝 [Create Stripe URL] Payment details:', {
+        paymentCode: payment.paymentCode,
+        orderId,
+        amount,
+        status: payment.status
+      });
+      
+      // Get patient email from payment
+      const customerEmail = payment.patientInfo?.email || '';
+      
+      // Create Stripe payment link
+      const result = await stripeService.createPaymentLink(
+        orderId,
+        amount,
+        orderInfo,
+        customerEmail,
+        {
+          patientName: payment.patientInfo?.name || '',
+          patientPhone: payment.patientInfo?.phone || '',
+          paymentCode: payment.paymentCode
+        },
+        userRole
+      );
+      
+      // Store mapping between orderId and paymentId in Redis
+      const mappingKey = `payment:stripe:${orderId}`;
+      await redisClient.setEx(mappingKey, 1800, paymentId.toString()); // 30 min TTL
+      
+      // Update payment with Stripe URL and orderId
+      payment.gatewayResponse = payment.gatewayResponse || {};
+      payment.gatewayResponse.additionalData = payment.gatewayResponse.additionalData || {};
+      payment.gatewayResponse.additionalData.stripeUrl = result.paymentUrl;
+      payment.gatewayResponse.additionalData.stripeOrderId = orderId;
+      payment.gatewayResponse.additionalData.stripeSessionId = result.sessionId;
+      payment.gatewayResponse.additionalData.stripeCreatedAt = new Date();
+      payment.method = 'stripe'; // Update method to Stripe
+      payment.status = 'processing'; // Update status
+      
+      await payment.save();
+      
+      console.log('✅ [Create Stripe URL] URL created and saved:', { orderId, paymentId, sessionId: result.sessionId });
+      
+      return {
+        paymentUrl: result.paymentUrl,
+        orderId,
+        paymentId: payment._id,
+        sessionId: result.sessionId,
+        amount
+      };
+    } catch (err) {
+      console.error('❌ [Create Stripe URL for Existing Payment] Error:', err);
       throw err;
     }
   }

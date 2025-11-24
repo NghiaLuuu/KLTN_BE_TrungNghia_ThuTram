@@ -210,6 +210,35 @@ class PaymentController {
     }
   }
 
+  /**
+   * Create Stripe URL for existing payment (from record)
+   * POST /api/payments/:id/stripe-url
+   */
+  async createStripeUrlForPayment(req, res) {
+    try {
+      const { id } = req.params;
+      
+      console.log('🟣 [Create Stripe URL for Payment] Request:', { paymentId: id });
+      
+      const result = await paymentService.createStripeUrlForExistingPayment(
+        id,
+        req.user?.role || 'patient'
+      );
+      
+      res.status(200).json({
+        success: true,
+        message: 'Tạo Stripe URL thành công',
+        data: result
+      });
+    } catch (error) {
+      console.error('❌ [Create Stripe URL for Payment] Error:', error);
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Không thể tạo Stripe URL'
+      });
+    }
+  }
+
   // ============ GET PAYMENT METHODS ============
   async getPaymentById(req, res) {
     try {

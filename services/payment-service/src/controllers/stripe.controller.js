@@ -1,15 +1,16 @@
 const stripeService = require('../services/stripe.service');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const redis = require('../utils/redis.client');
 
 class StripeController {
   /**
-   * Create Stripe Checkout Session
-   * POST /api/payments/stripe/create-session
+   * Create Stripe Payment Link (VNPay-style)
+   * POST /api/payments/stripe/create-payment-link
    * Body: { orderId, amount, orderInfo, customerEmail?, metadata? }
    */
-  async createCheckoutSession(req, res) {
+  async createPaymentLink(req, res) {
     try {
-      console.log('🟣 [Stripe Controller] Create checkout session request:', {
+      console.log('🟣 [Stripe Controller] Create payment link request:', {
         body: req.body,
         user: req.user
       });
@@ -31,8 +32,10 @@ class StripeController {
         });
       }
 
-      // Create checkout session
-      const result = await stripeService.createCheckoutSession(
+      // Create payment link (VNPay-style)
+      const userRole = req.user?.role || metadata?.userRole || 'patient';
+      
+      const result = await stripeService.createPaymentLink(
         orderId,
         amount,
         orderInfo || `Thanh toán dịch vụ nha khoa - ${orderId}`,
@@ -40,24 +43,106 @@ class StripeController {
         {
           ...metadata,
           userId: req.user?.userId,
-          userRole: req.user?.role
-        }
+          userRole: userRole
+        },
+        userRole
       );
 
-      console.log('✅ [Stripe Controller] Checkout session created:', result);
+      console.log('✅ [Stripe Controller] Payment link created:', result);
 
       res.status(200).json({
         success: true,
-        message: 'Tạo Stripe checkout session thành công',
+        message: 'Tạo Stripe payment link thành công',
         data: result
       });
 
     } catch (error) {
-      console.error('❌ [Stripe Controller] Error creating checkout session:', error);
+      console.error('❌ [Stripe Controller] Error creating payment link:', error);
       res.status(400).json({
         success: false,
-        message: error.message || 'Lỗi tạo Stripe checkout session'
+        message: error.message || 'Lỗi tạo Stripe payment link'
       });
+    }
+  }
+
+  /**
+   * Handle Stripe Callback/Return (VNPay-style)
+   * GET /api/payments/return/stripe?session_id={CHECKOUT_SESSION_ID}&status={success|cancel}
+   */
+  async handleCallback(req, res) {
+    try {
+      const { session_id, status } = req.query;
+
+      console.log('🟣 [Stripe Callback] Handling callback:', { session_id, status });
+
+      if (!session_id || !status) {
+        return res.status(400).json({
+          success: false,
+          message: 'session_id và status là bắt buộc'
+        });
+      }
+
+      // Process callback (VNPay-style)
+      const result = await stripeService.processCallback(session_id, status);
+
+      // Get user role from Redis to determine redirect URL (SAME AS VNPAY)
+      const orderId = result.paymentCode || result.orderId;
+      const roleKey = `payment:role:${orderId}`;
+      let userRole = await redis.get(roleKey);
+      
+      // Clean up role from Redis immediately after getting it
+      // This prevents memory leaks and ensures one-time use
+      if (userRole) {
+        await redis.del(roleKey);
+        console.log('🧹 [Stripe] Cleaned up role from Redis:', roleKey);
+      }
+      
+      console.log('='.repeat(60));
+      console.log('🎯 [Stripe Return] REDIRECT DEBUG INFO');
+      console.log('='.repeat(60));
+      console.log('📋 Order ID:', orderId);
+      console.log('🔑 Redis Key:', roleKey);
+      console.log('👤 User Role from Redis:', userRole);
+      console.log('📊 Role Type:', typeof userRole);
+      console.log('❓ Is null/undefined?:', userRole === null || userRole === undefined);
+      
+      // Default to patient if not found
+      if (!userRole) {
+        console.log('⚠️  No role found in Redis, defaulting to patient');
+        userRole = 'patient';
+      }
+      
+      // Determine redirect path based on role (SAME AS VNPAY)
+      // Always redirect to payment result page, let frontend handle role-based redirect
+      let redirectPath = '/patient/payment/result';
+      
+      console.log('🔗 Redirect Path:', redirectPath);
+      console.log('👤 User Role (stored):', userRole);
+      console.log('ℹ️  Frontend will handle role-based redirect after login check');
+      console.log('='.repeat(60));
+      
+      // Redirect to frontend with result
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      
+      if (status === 'success' && result._id) {
+        // Success - redirect to result page (SAME AS VNPAY)
+        const redirectUrl = `${frontendUrl}${redirectPath}?payment=success&orderId=${orderId}`;
+        console.log('✅ [Stripe Callback] Payment successful, redirecting:', redirectUrl);
+        return res.redirect(redirectUrl);
+      } else {
+        // Cancel/failure - redirect to result page (SAME AS VNPAY)
+        const redirectUrl = `${frontendUrl}${redirectPath}?payment=failed&orderId=${orderId}&method=stripe`;
+        console.log('⏰ [Stripe Callback] Payment cancelled, redirecting:', redirectUrl);
+        return res.redirect(redirectUrl);
+      }
+
+    } catch (error) {
+      console.error('❌ [Stripe Callback] Error handling callback:', error);
+      
+      // Redirect to error page (SAME AS VNPAY)
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const redirectUrl = `${frontendUrl}/patient/payment/result?payment=error`;
+      return res.redirect(redirectUrl);
     }
   }
 
@@ -145,39 +230,6 @@ class StripeController {
       res.status(400).json({
         success: false,
         message: error.message || 'Lỗi xác thực session'
-      });
-    }
-  }
-
-  /**
-   * Get session details (for debugging/admin)
-   * GET /api/payments/stripe/session/:sessionId
-   */
-  async getSessionDetails(req, res) {
-    try {
-      const { sessionId } = req.params;
-
-      console.log('🟣 [Stripe Controller] Get session details:', sessionId);
-
-      if (!sessionId) {
-        return res.status(400).json({
-          success: false,
-          message: 'Session ID is required'
-        });
-      }
-
-      const result = await stripeService.getSessionDetails(sessionId);
-
-      res.status(200).json({
-        success: true,
-        data: result
-      });
-
-    } catch (error) {
-      console.error('❌ [Stripe Controller] Error getting session details:', error);
-      res.status(400).json({
-        success: false,
-        message: error.message || 'Lỗi lấy thông tin session'
       });
     }
   }
