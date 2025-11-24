@@ -591,7 +591,7 @@ async function startConsumer() {
               taxAmount: 0,
               taxIncluded: true
             },
-            totalAmount: finalAmount,
+            totalAmount: paidAmount || finalAmount,  // ✅ Use paidAmount (actual payment) instead of finalAmount
             
             // Payment Summary
             paymentSummary: {
