@@ -962,7 +962,56 @@ class PaymentService {
       
       // Create unique orderId for Stripe
       const orderId = `PAY${Date.now()}${payment._id.toString().slice(-6)}`;
-      const amount = payment.finalAmount;
+      
+      // Get amount - fetch from record if payment.finalAmount is 0 (dashboard payment)
+      let amount = payment.finalAmount;
+      
+      if (amount === 0 && payment.recordId) {
+        console.log('⚠️ [Create Stripe URL] Amount is 0, fetching from record:', payment.recordId);
+        
+        try {
+          const recordServiceUrl = process.env.RECORD_SERVICE_URL || 'http://localhost:3010';
+          const recordResponse = await axios.get(
+            `${recordServiceUrl}/api/record/${payment.recordId}`
+          );
+          
+          const recordData = recordResponse.data?.data || recordResponse.data;
+          console.log('📋 [Create Stripe URL] Record data:', {
+            recordId: payment.recordId,
+            serviceAmount: recordData.serviceAmount,
+            serviceAddOnPrice: recordData.serviceAddOnPrice,
+            depositPaid: recordData.depositPaid
+          });
+          
+          const serviceAmount = recordData.serviceAmount || recordData.serviceAddOnPrice || 0;
+          const depositAmount = recordData.depositPaid || 0;
+          amount = Math.max(0, serviceAmount - depositAmount);
+          
+          if (amount === 0) {
+            throw new Error('Không thể tính toán số tiền thanh toán. Vui lòng kiểm tra lại thông tin dịch vụ.');
+          }
+          
+          // Update payment with calculated amounts
+          payment.originalAmount = serviceAmount;
+          payment.discountAmount = depositAmount;
+          payment.finalAmount = amount;
+          await payment.save();
+          
+          console.log('✅ [Create Stripe URL] Amount calculated from record:', { 
+            serviceAmount, 
+            depositAmount, 
+            finalAmount: amount 
+          });
+        } catch (error) {
+          console.error('❌ [Create Stripe URL] Failed to fetch amount from record:', error.message);
+          throw new Error('Không thể lấy thông tin số tiền từ hồ sơ. Vui lòng thử lại.');
+        }
+      }
+      
+      if (!amount || amount <= 0) {
+        throw new Error('Số tiền thanh toán không hợp lệ');
+      }
+      
       const orderInfo = `Thanh toan ${payment.paymentCode}`;
       
       console.log('📝 [Create Stripe URL] Payment details:', {
