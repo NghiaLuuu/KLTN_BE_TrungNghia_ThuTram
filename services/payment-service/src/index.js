@@ -174,8 +174,11 @@ app.get('/health', async (req, res) => {
 });
 
 // API Routes
-app.use('/api/payments', paymentRoutes);
+// ⚠️ IMPORTANT: More specific routes MUST come first!
+// Stripe routes must be registered before general payment routes
+// to prevent /api/payments from catching /api/payments/stripe/* requests
 app.use('/api/payments/stripe', stripeRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
