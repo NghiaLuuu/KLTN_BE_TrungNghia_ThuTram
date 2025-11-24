@@ -138,10 +138,13 @@ class StripeController {
 
     } catch (error) {
       console.error('❌ [Stripe Callback] Error handling callback:', error);
+      console.error('❌ [Stripe Callback] Error stack:', error.stack);
+      console.error('❌ [Stripe Callback] Error message:', error.message);
       
       // Redirect to error page (SAME AS VNPAY)
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-      const redirectUrl = `${frontendUrl}/patient/payment/result?payment=error`;
+      const errorMessage = encodeURIComponent(error.message || 'Unknown error');
+      const redirectUrl = `${frontendUrl}/patient/payment/result?payment=error&error=${errorMessage}`;
       return res.redirect(redirectUrl);
     }
   }
