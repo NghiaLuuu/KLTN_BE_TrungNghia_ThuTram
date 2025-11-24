@@ -994,7 +994,9 @@ class PaymentService {
           
           // Update payment with calculated amounts
           payment.originalAmount = serviceAmount;
-          payment.discountAmount = depositAmount;
+          payment.depositAmount = depositAmount;  // ✅ FIXED: Correct field!
+          payment.discountAmount = 0;  // ✅ FIXED: No real discount
+          payment.taxAmount = 0;
           payment.finalAmount = amount;
           await payment.save();
           
@@ -1118,7 +1120,9 @@ class PaymentService {
           
           // Update payment amounts
           payment.originalAmount = serviceAmount;
-          payment.discountAmount = depositAmount;
+          payment.depositAmount = depositAmount;  // ✅ FIXED: Correct field!
+          payment.discountAmount = 0;  // ✅ FIXED: No real discount
+          payment.taxAmount = 0;
           payment.finalAmount = calculatedAmount;
           
           console.log('✅ [Update Existing Payment] Amount calculated from record:', { 
@@ -1168,25 +1172,31 @@ class PaymentService {
         try {
           console.log('📄 [Update Existing Payment] Triggering invoice creation for record:', payment.recordId);
           
+          const eventData = {
+            paymentId: payment._id.toString(),
+            paymentCode: payment.paymentCode,
+            recordId: payment.recordId.toString(),
+            appointmentId: payment.appointmentId ? payment.appointmentId.toString() : null,
+            patientId: payment.patientId ? payment.patientId.toString() : null,
+            patientInfo: payment.patientInfo,
+            method: payment.method,
+            originalAmount: payment.originalAmount,
+            depositAmount: payment.depositAmount || 0,  // ✅ Add deposit amount
+            discountAmount: payment.discountAmount || 0, // ✅ Real discount (not deposit)
+            taxAmount: payment.taxAmount || 0,  // ✅ Add tax amount
+            finalAmount: payment.finalAmount,
+            paidAmount: payment.paidAmount,
+            changeAmount: payment.changeAmount || 0,
+            completedAt: payment.completedAt,
+            processedBy: payment.processedBy ? payment.processedBy.toString() : null,
+            processedByName: payment.processedByName || 'System'
+          };
+          
+          console.log('📤 [Update Existing Payment] Publishing payment.success event:', eventData);
+          
           await rabbitmqClient.publishToQueue('invoice_queue', {
             event: 'payment.success',
-            data: {
-              paymentId: payment._id.toString(),
-              paymentCode: payment.paymentCode,
-              recordId: payment.recordId.toString(),
-              appointmentId: payment.appointmentId ? payment.appointmentId.toString() : null,
-              patientId: payment.patientId ? payment.patientId.toString() : null,
-              patientInfo: payment.patientInfo,
-              method: payment.method,
-              originalAmount: payment.originalAmount,
-              discountAmount: payment.discountAmount,
-              finalAmount: payment.finalAmount,
-              paidAmount: payment.paidAmount,
-              changeAmount: payment.changeAmount || 0,
-              completedAt: payment.completedAt,
-              processedBy: payment.processedBy ? payment.processedBy.toString() : null,
-              processedByName: payment.processedByName || 'System'
-            }
+            data: eventData
           });
           
           console.log('✅ [Update Existing Payment] Invoice creation event sent');
