@@ -43,7 +43,8 @@ class StripeService {
       // Create Stripe Checkout Session
       const returnUrl = process.env.STRIPE_RETURN_URL || 'http://localhost:3007/api/payments/return/stripe';
       
-      const session = await stripe.checkout.sessions.create({
+      // Prepare session config
+      const sessionConfig = {
         payment_method_types: ['card'],
         line_items: [
           {
@@ -61,7 +62,6 @@ class StripeService {
         mode: 'payment',
         success_url: `${returnUrl}?session_id={CHECKOUT_SESSION_ID}&status=success`,
         cancel_url: `${returnUrl}?session_id={CHECKOUT_SESSION_ID}&status=cancel`,
-        customer_email: customerEmail,
         client_reference_id: orderId,
         metadata: {
           orderId,
@@ -71,7 +71,14 @@ class StripeService {
           ...metadata
         },
         expires_at: Math.floor(Date.now() / 1000) + (15 * 60), // 15 minutes
-      });
+      };
+
+      // Only set customer_email if it's valid (not null, not empty string)
+      if (customerEmail && customerEmail.trim() !== '') {
+        sessionConfig.customer_email = customerEmail.trim();
+      }
+
+      const session = await stripe.checkout.sessions.create(sessionConfig);
 
       console.log('✅ [Stripe Service] Session created:', session.id);
 
