@@ -333,7 +333,7 @@ class AppointmentService {
       if (!serviceAddOnId) {
         console.log('⚠️ [getServiceInfo] No serviceAddOnId provided, getting service only');
         
-        const serviceResult = await rpcClient.call('service-service', 'getServiceById', {
+        const serviceResult = await rpcClient.call('service-service', 'getService', {
           serviceId
         });
         

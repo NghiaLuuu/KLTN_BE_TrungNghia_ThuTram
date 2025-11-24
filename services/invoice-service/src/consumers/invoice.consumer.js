@@ -277,6 +277,11 @@ async function startConsumer() {
             }
           }
 
+          // ✅ Check if payment amount is 0 (fully paid by deposit)
+          if (finalAmount === 0) {
+            console.log('⚠️ [Invoice Consumer] Cash payment amount is 0 (fully covered by deposit). Creating invoice with totalAmount = 0');
+          }
+
           // Generate invoice number
           const invoiceNumber = await generateInvoiceNumber();
 
@@ -377,11 +382,12 @@ async function startConsumer() {
             },
             
             // Financial Info
-            subtotal: amount,
+            // ✅ FIXED: Set subtotal = finalAmount to ensure totalAmount = paymentSummary.totalPaid
+            subtotal: finalAmount,  // Use actual paid amount as subtotal
             discountInfo: {
-              type: depositAmount > 0 ? 'fixed_amount' : 'none',
-              value: depositAmount,
-              reason: depositAmount > 0 ? 'Deposit deduction' : null
+              type: 'none',  // No discount in invoice calculation (deposit already deducted)
+              value: 0,
+              reason: depositAmount > 0 ? `Đã trừ tiền cọc ${depositAmount.toLocaleString('vi-VN')}đ trong thanh toán` : null
             },
             taxInfo: {
               taxRate: 0,
@@ -405,7 +411,11 @@ async function startConsumer() {
             paidDate: new Date(),
             
             // Metadata
-            notes: depositAmount > 0 ? `Original amount: ${amount}, Deposit: ${depositAmount}, Final amount: ${finalAmount}` : '',
+            notes: depositAmount > 0 
+              ? (finalAmount === 0 
+                  ? `Tổng tiền dịch vụ: ${amount.toLocaleString('vi-VN')}đ, Đã cọc đủ: ${depositAmount.toLocaleString('vi-VN')}đ, Không cần thanh toán thêm` 
+                  : `Tổng tiền dịch vụ: ${amount.toLocaleString('vi-VN')}đ, Đã cọc: ${depositAmount.toLocaleString('vi-VN')}đ, Thanh toán tiền mặt: ${finalAmount.toLocaleString('vi-VN')}đ`)
+              : `Thanh toán tiền mặt: ${finalAmount.toLocaleString('vi-VN')}đ`,
             createdBy: confirmedBy || new mongoose.Types.ObjectId(),
             createdByRole: 'receptionist'
           };
@@ -416,6 +426,7 @@ async function startConsumer() {
             originalAmount: amount,
             depositAmount,
             finalAmount: invoiceDoc.totalAmount,
+            isFullyPaidByDeposit: finalAmount === 0,
             type: invoiceDoc.type
           });
 
@@ -505,6 +516,12 @@ async function startConsumer() {
           paidAmount
         });
 
+        // ✅ Check if payment amount is 0 (fully paid by deposit)
+        const actualPaymentAmount = paidAmount || finalAmount || 0;
+        if (actualPaymentAmount === 0) {
+          console.log('⚠️ [Invoice Consumer] Payment amount is 0 (fully covered by deposit). Creating invoice with totalAmount = 0');
+        }
+
         try {
           // Generate invoice number
           const invoiceNumber = await generateInvoiceNumber();
@@ -583,18 +600,19 @@ async function startConsumer() {
             },
             
             // Financial Info
-            subtotal: originalAmount,
+            // ✅ FIXED: Set subtotal = totalPaid to ensure totalAmount = paymentSummary.totalPaid after calculateAmounts()
+            subtotal: paidAmount || finalAmount,  // Use actual paid amount as subtotal
             discountInfo: {
-              type: discountAmount > 0 ? 'fixed_amount' : 'none',
-              value: discountAmount,
-              reason: discountAmount > 0 ? 'Deposit deduction' : null
+              type: 'none',  // No discount in invoice calculation (deposit already deducted in payment)
+              value: 0,
+              reason: discountAmount > 0 ? `Đã trừ tiền cọc ${discountAmount.toLocaleString('vi-VN')}đ trong thanh toán` : null
             },
             taxInfo: {
               taxRate: 0,
               taxAmount: 0,
               taxIncluded: true
             },
-            totalAmount: paidAmount || finalAmount,  // ✅ Use paidAmount (actual payment) instead of finalAmount
+            totalAmount: paidAmount || finalAmount,  // ✅ Use paidAmount (actual payment amount)
             
             // Payment Summary
             paymentSummary: {
@@ -611,7 +629,11 @@ async function startConsumer() {
             paidDate: completedAt || new Date(),
             
             // Metadata
-            notes: discountAmount > 0 ? `Original: ${originalAmount}, Discount: ${discountAmount}, Final: ${finalAmount}` : '',
+            notes: discountAmount > 0 
+              ? (actualPaymentAmount === 0 
+                  ? `Tổng tiền dịch vụ: ${originalAmount.toLocaleString('vi-VN')}đ, Đã cọc đủ: ${discountAmount.toLocaleString('vi-VN')}đ, Không cần thanh toán thêm` 
+                  : `Tổng tiền dịch vụ: ${originalAmount.toLocaleString('vi-VN')}đ, Đã cọc: ${discountAmount.toLocaleString('vi-VN')}đ, Thanh toán: ${actualPaymentAmount.toLocaleString('vi-VN')}đ`)
+              : `Thanh toán: ${actualPaymentAmount.toLocaleString('vi-VN')}đ`,
             createdBy: patientId || new mongoose.Types.ObjectId(), // ✅ Create dummy ObjectId if no patientId
             createdByRole: 'system'
           };
@@ -620,6 +642,8 @@ async function startConsumer() {
             invoiceNumber,
             patientName: invoiceDoc.patientInfo.name,
             totalAmount: invoiceDoc.totalAmount,
+            actualPaymentAmount,
+            isFullyPaidByDeposit: actualPaymentAmount === 0,
             paymentMethod: method
           });
 
