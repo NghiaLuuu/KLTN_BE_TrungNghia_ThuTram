@@ -256,7 +256,6 @@ Chúng tôi xin thông báo lịch khám của bạn tại Smile Dental đã b�
 
 ❗ THÔNG TIN HỦY LỊCH:
 - Hủy bởi: ${cancelledBy === 'admin' ? 'Quản trị viên' : cancelledBy === 'manager' ? 'Quản lý' : 'Lễ tân'}
-- Thời gian hủy: ${cancelDate} ${cancelTime}
 - Lý do: ${reason}
 
 🔄 HƯỚNG DẪN ĐẶT LỊCH MỚI:
