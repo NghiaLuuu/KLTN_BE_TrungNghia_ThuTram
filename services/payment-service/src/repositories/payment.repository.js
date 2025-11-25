@@ -337,6 +337,18 @@ class PaymentRepository {
   buildQuery(filter) {
     const query = {};
 
+    // Keyword search
+    if (filter.keyword && filter.keyword.trim()) {
+      const searchRegex = new RegExp(filter.keyword.trim(), 'i');
+      query.$or = [
+        { paymentCode: searchRegex },
+        { 'patientInfo.name': searchRegex },
+        { 'patientInfo.phone': searchRegex },
+        { 'patientInfo.email': searchRegex },
+        { description: searchRegex }
+      ];
+    }
+
     if (filter.status) {
       if (Array.isArray(filter.status)) {
         query.status = { $in: filter.status };

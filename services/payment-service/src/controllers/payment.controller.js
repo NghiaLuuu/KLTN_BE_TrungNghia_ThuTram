@@ -402,6 +402,7 @@ class PaymentController {
   async listPayments(req, res) {
     try {
       const filter = {
+        keyword: req.query.keyword,
         status: req.query.status,
         method: req.query.method,
         type: req.query.type,
