@@ -590,9 +590,25 @@ class AppointmentService {
         // Don't throw - allow appointment creation to continue
       }
       
-      await redisClient.del('temp_reservation:' + reservationId);
+      // 🔓 Cleanup reservation and slot locks from Redis (idempotent - safe to call multiple times)
+      try {
+        await redisClient.del('temp_reservation:' + reservationId);
+        console.log('✅ Deleted reservation from Redis:', reservationId);
+      } catch (error) {
+        console.warn('⚠️ Failed to delete reservation from Redis:', error.message);
+      }
+      
       for (const slotId of reservation.slotIds) {
-        await redisClient.del('temp_slot_lock:' + slotId);
+        try {
+          const deleted = await redisClient.del('temp_slot_lock:' + slotId);
+          if (deleted > 0) {
+            console.log(`🔓 [Payment Success] Removed Redis lock for slot ${slotId}`);
+          } else {
+            console.log(`ℹ️ [Payment Success] No Redis lock for slot ${slotId} (already removed or expired)`);
+          }
+        } catch (redisError) {
+          console.warn(`⚠️ Failed to remove Redis lock for slot ${slotId}:`, redisError.message);
+        }
       }
       
       await publishToQueue('invoice_queue', {
@@ -960,6 +976,20 @@ class AppointmentService {
           appointmentId: null
         });
         console.log(`🔓 [Admin Cancel] Released ${appointment.slotIds.length} slots back to available`);
+        
+        // 🔥 IMPORTANT: Remove Redis locks for these slots (even if not found, no error)
+        for (const slotId of appointment.slotIds) {
+          try {
+            const deleted = await redisClient.del('temp_slot_lock:' + slotId);
+            if (deleted > 0) {
+              console.log(`🔓 [Admin Cancel] Removed Redis lock for slot ${slotId}`);
+            } else {
+              console.log(`ℹ️ [Admin Cancel] No Redis lock found for slot ${slotId} (already expired or not locked)`);
+            }
+          } catch (redisError) {
+            console.warn(`⚠️ Failed to remove Redis lock for slot ${slotId}:`, redisError.message);
+          }
+        }
       } catch (slotError) {
         console.warn('⚠️ Failed to release slots:', slotError.message);
       }
@@ -1170,6 +1200,20 @@ class AppointmentService {
       appointmentId: null
     });
     
+    // 🔓 Remove Redis locks for all slots (idempotent - user cancel)
+    for (const slotId of appointment.slotIds) {
+      try {
+        const deleted = await redisClient.del('temp_slot_lock:' + slotId);
+        if (deleted > 0) {
+          console.log(`🔓 [User Cancel] Removed Redis lock for slot ${slotId}`);
+        } else {
+          console.log(`ℹ️ [User Cancel] No Redis lock for slot ${slotId} (already removed or expired)`);
+        }
+      } catch (redisError) {
+        console.warn(`⚠️ Failed to remove Redis lock for slot ${slotId}:`, redisError.message);
+      }
+    }
+    
     await publishToQueue('appointment_queue', {
       event: 'appointment_cancelled',
       data: {
@@ -1276,6 +1320,21 @@ class AppointmentService {
         status: 'booked',
         appointmentId: appointment._id
       });
+      
+      // 🔓 Remove Redis locks for all slots (critical for offline appointments)
+      for (const slotId of slotIds) {
+        try {
+          const deleted = await redisClient.del('temp_slot_lock:' + slotId);
+          if (deleted > 0) {
+            console.log(`🔓 [Offline Appointment] Removed Redis lock for slot ${slotId}`);
+          } else {
+            console.log(`ℹ️ [Offline Appointment] No Redis lock for slot ${slotId} (never locked or expired)`);
+          }
+        } catch (redisError) {
+          console.warn(`⚠️ Failed to remove Redis lock for slot ${slotId}:`, redisError.message);
+          // Don't throw - appointment already created successfully
+        }
+      }
       
       // Mark service as used via Queue (non-blocking)
       try {
@@ -1464,10 +1523,25 @@ class AppointmentService {
         // Don't throw - allow appointment creation to continue
       }
       
-      // Cleanup reservation và slot locks from Redis
-      await redisClient.del('temp_reservation:' + reservationId);
+      // 🔓 Cleanup reservation và slot locks from Redis (idempotent - safe to call multiple times)
+      try {
+        await redisClient.del('temp_reservation:' + reservationId);
+        console.log('✅ Deleted reservation from Redis:', reservationId);
+      } catch (error) {
+        console.warn('⚠️ Failed to delete reservation from Redis:', error.message);
+      }
+      
       for (const slotId of reservation.slotIds) {
-        await redisClient.del('temp_slot_lock:' + slotId);
+        try {
+          const deleted = await redisClient.del('temp_slot_lock:' + slotId);
+          if (deleted > 0) {
+            console.log(`🔓 [Payment Success] Removed Redis lock for slot ${slotId}`);
+          } else {
+            console.log(`ℹ️ [Payment Success] No Redis lock for slot ${slotId} (already removed or expired)`);
+          }
+        } catch (redisError) {
+          console.warn(`⚠️ Failed to remove Redis lock for slot ${slotId}:`, redisError.message);
+        }
       }
       
       console.log('✅ Appointment created from reservation:', appointmentCode);
@@ -1496,6 +1570,16 @@ class AppointmentService {
       const reservationData = await redisClient.get('temp_reservation:' + reservationId);
       if (!reservationData) {
         console.log('⚠️ Reservation not found or already expired:', reservationId);
+        
+        // 🔥 Even if reservation not found, try to clean up any orphaned slot locks
+        // This handles cases where reservation expired but locks remained
+        try {
+          // We don't have slotIds, but Redis lock will auto-expire after TTL
+          console.log('ℹ️ Reservation data not available, slot locks will auto-expire via Redis TTL');
+        } catch (error) {
+          console.warn('⚠️ Error during orphaned lock cleanup:', error);
+        }
+        
         return;
       }
       
@@ -1517,14 +1601,27 @@ class AppointmentService {
         console.error('❌ Failed to unlock slots in DB:', error.message);
       }
       
-      // 2️⃣ Unlock slots in Redis
+      // 2️⃣ Unlock slots in Redis (even if not found, no error)
       for (const slotId of reservation.slotIds) {
-        await redisClient.del('temp_slot_lock:' + slotId);
-        console.log('Unlocked slot:', slotId);
+        try {
+          const deleted = await redisClient.del('temp_slot_lock:' + slotId);
+          if (deleted > 0) {
+            console.log(`🔓 Unlocked slot in Redis: ${slotId}`);
+          } else {
+            console.log(`ℹ️ No Redis lock found for slot ${slotId} (already expired)`);
+          }
+        } catch (error) {
+          console.warn(`⚠️ Failed to unlock slot ${slotId}:`, error.message);
+        }
       }
       
-      // 3️⃣ Delete reservation
-      await redisClient.del('temp_reservation:' + reservationId);
+      // 3️⃣ Delete reservation from Redis (idempotent)
+      try {
+        await redisClient.del('temp_reservation:' + reservationId);
+        console.log('✅ Deleted reservation from Redis:', reservationId);
+      } catch (error) {
+        console.warn('⚠️ Failed to delete reservation from Redis:', error.message);
+      }
       
       console.log('✅ Reservation cancelled:', reservationId);
       
