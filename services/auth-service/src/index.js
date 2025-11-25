@@ -68,6 +68,32 @@ app.use(cors({
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 
+// ✅ Error handling middleware for Multer errors
+app.use((err, req, res, next) => {
+  if (err.name === 'MulterError') {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        success: false,
+        message: 'Kích thước file vượt quá giới hạn 5MB. Vui lòng chọn file nhỏ hơn.'
+      });
+    }
+    return res.status(400).json({
+      success: false,
+      message: `Lỗi upload file: ${err.message}`
+    });
+  }
+  
+  // Handle other errors
+  if (err.message) {
+    return res.status(400).json({
+      success: false,
+      message: err.message
+    });
+  }
+  
+  next(err);
+});
+
 // Khởi chạy RPC Server với retry
 async function startRpcServerWithRetry(retries = 5, delay = 5000) {
   for (let i = 0; i < retries; i++) {
