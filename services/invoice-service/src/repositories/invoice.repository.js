@@ -399,6 +399,17 @@ class InvoiceRepository {
   buildQuery(filter) {
     const query = { isActive: true };
 
+    // Keyword search
+    if (filter.keyword && filter.keyword.trim()) {
+      const searchRegex = new RegExp(filter.keyword.trim(), 'i');
+      query.$or = [
+        { invoiceNumber: searchRegex },
+        { 'patientInfo.name': searchRegex },
+        { 'patientInfo.phone': searchRegex },
+        { 'patientInfo.email': searchRegex }
+      ];
+    }
+
     if (filter.status) {
       if (Array.isArray(filter.status)) {
         query.status = { $in: filter.status };
@@ -423,10 +434,14 @@ class InvoiceRepository {
     if (filter.dateFrom || filter.dateTo) {
       query.issueDate = {};
       if (filter.dateFrom) {
-        query.issueDate.$gte = new Date(filter.dateFrom);
+        const startDate = new Date(filter.dateFrom);
+        startDate.setHours(0, 0, 0, 0);
+        query.issueDate.$gte = startDate;
       }
       if (filter.dateTo) {
-        query.issueDate.$lte = new Date(filter.dateTo);
+        const endDate = new Date(filter.dateTo);
+        endDate.setHours(23, 59, 59, 999);
+        query.issueDate.$lte = endDate;
       }
     }
 

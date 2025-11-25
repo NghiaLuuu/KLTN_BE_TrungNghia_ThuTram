@@ -377,10 +377,14 @@ class PaymentRepository {
     if (filter.dateFrom || filter.dateTo) {
       query.processedAt = {};
       if (filter.dateFrom) {
-        query.processedAt.$gte = new Date(filter.dateFrom);
+        const startDate = new Date(filter.dateFrom);
+        startDate.setHours(0, 0, 0, 0);
+        query.processedAt.$gte = startDate;
       }
       if (filter.dateTo) {
-        query.processedAt.$lte = new Date(filter.dateTo);
+        const endDate = new Date(filter.dateTo);
+        endDate.setHours(23, 59, 59, 999);
+        query.processedAt.$lte = endDate;
       }
     }
 

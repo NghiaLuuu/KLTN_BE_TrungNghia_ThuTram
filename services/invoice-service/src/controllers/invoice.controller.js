@@ -24,7 +24,7 @@ class InvoiceController {
 
   async getInvoices(req, res) {
     try {
-      const { page, limit, status, patientId, dateFrom, dateTo, ...filters } = req.query;
+      const { page, limit, status, patientId, startDate, endDate, keyword, ...filters } = req.query;
       
       const options = {
         page: parseInt(page) || 1,
@@ -37,9 +37,14 @@ class InvoiceController {
         ...filters,
         ...(status && { status }),
         ...(patientId && { patientId }),
-        ...(dateFrom && { dateFrom: new Date(dateFrom) }),
-        ...(dateTo && { dateTo: new Date(dateTo) })
+        ...(startDate && { dateFrom: startDate }),
+        ...(endDate && { dateTo: endDate })
       };
+
+      // Add keyword search if provided
+      if (keyword && keyword.trim()) {
+        filter.keyword = keyword.trim();
+      }
 
       const result = await invoiceService.getInvoices(filter, options);
 
