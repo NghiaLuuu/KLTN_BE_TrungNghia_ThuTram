@@ -284,11 +284,17 @@ async function markUserAsUsed(userId) {
   try {
     if (!userId) return;
     
-    await publishToQueue('auth_queue', {
+    // ✅ Use RPC request with correct payload format
+    const result = await sendRpcRequest('auth_queue', {
       action: 'markUserAsUsed',
-      payload: { userId }
-    });
-    console.log(`📤 Sent markUserAsUsed message for user ${userId}`);
+      payload: { userId } // ✅ Wrap userId in payload object
+    }, 5000); // 5s timeout
+    
+    if (result && result.success) {
+      console.log(`✅ Marked user ${userId} as hasBeenUsed = true`);
+    } else {
+      console.warn(`⚠️ Failed to mark user ${userId} as used:`, result?.error || 'Unknown error');
+    }
   } catch (error) {
     console.warn(`⚠️ Failed to mark user ${userId} as used:`, error.message);
   }
@@ -315,24 +321,16 @@ async function markEntitiesAsUsed({ roomId, subRoomId, dentistIds, nurseIds }) {
       console.log(`📤 Sent markSubRoomAsUsed message for subRoom ${subRoomId}`);
     }
     
-    // Mark staff as used via RabbitMQ
+    // ✅ Mark staff as used via RPC (not fire-and-forget)
     for (const dentistId of dentistIds) {
       if (dentistId) {
-        await publishToQueue('auth_queue', {
-          action: 'markUserAsUsed',
-          payload: { userId: dentistId }
-        });
-        console.log(`📤 Sent markUserAsUsed message for dentist ${dentistId}`);
+        await markUserAsUsed(dentistId); // Use helper function
       }
     }
     
     for (const nurseId of nurseIds) {
       if (nurseId) {
-        await publishToQueue('auth_queue', {
-          action: 'markUserAsUsed',
-          payload: { userId: nurseId }
-        });
-        console.log(`📤 Sent markUserAsUsed message for nurse ${nurseId}`);
+        await markUserAsUsed(nurseId); // Use helper function
       }
     }
   } catch (error) {

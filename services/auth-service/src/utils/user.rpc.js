@@ -80,19 +80,26 @@ async function startRpcServer() {
           response = users || [];
         }
       } else if (action === 'markUserAsUsed') {
-        const updatedUser = await userRepo.markUserAsUsed(payload.userId);
+        console.log(`📥 [Auth RPC] markUserAsUsed request for userId: ${payload?.userId}`);
         
-        // 🔄 Refresh users cache to reflect the change
-        try {
-          const users = await userRepo.listUsers();
-          await redis.set('users_cache', JSON.stringify(users), { EX: 3600 }); // 1h TTL
-          console.log(`♻️ Refreshed users cache after marking user ${payload.userId} as used`);
-        } catch (cacheErr) {
-          console.warn('Failed to refresh users cache:', cacheErr.message);
+        if (!payload || !payload.userId) {
+          response = { success: false, error: 'userId is required' };
+          console.error('❌ [Auth RPC] Missing userId in payload:', payload);
+        } else {
+          const updatedUser = await userRepo.markUserAsUsed(payload.userId);
+          
+          // 🔄 Refresh users cache to reflect the change
+          try {
+            const users = await userRepo.listUsers();
+            await redis.set('users_cache', JSON.stringify(users), { EX: 3600 }); // 1h TTL
+            console.log(`♻️ Refreshed users cache after marking user ${payload.userId} as used`);
+          } catch (cacheErr) {
+            console.warn('Failed to refresh users cache:', cacheErr.message);
+          }
+          
+          response = { success: true, userId: payload.userId, hasBeenUsed: true };
+          console.log(`✅ Marked user ${payload.userId} as hasBeenUsed = true`);
         }
-        
-        response = { success: true, userId: payload.userId, hasBeenUsed: true };
-        console.log(`✅ Marked user ${payload.userId} as hasBeenUsed = true`);
       }
       // có thể thêm các action khác sau này
     } catch (err) {
