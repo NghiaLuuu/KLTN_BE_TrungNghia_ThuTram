@@ -164,38 +164,53 @@ function startReminderEmailCron() {
 }
 
 /**
- * Auto mark no-show for confirmed appointments that are 1 day overdue
+ * Auto mark no-show for confirmed appointments that passed half of appointment duration
  * Runs every 10 minutes
  */
 function startNoShowCron() {
   cron.schedule('*/10 * * * *', async () => {
     try {
       const now = new Date();
-      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-      // Find appointments with status 'confirmed' that are more than 1 day overdue
+      // Find appointments with status 'confirmed'
+      // Filter by appointmentDate to exclude future dates (performance optimization)
       const appointments = await Appointment.find({
         status: 'confirmed',
-        appointmentDate: { $lt: oneDayAgo }
+        appointmentDate: { $lte: now } // Only appointments on or before today
       }).select('_id appointmentCode appointmentDate startTime endTime patientInfo').lean();
 
-      // Filter by exact appointment time (appointmentDate + startTime + endTime)
-      const overdueAppointments = appointments.filter(apt => {
+      // Filter appointments that passed half of their duration without check-in
+      const overdueAppointments = [];
+      
+      for (const apt of appointments) {
+        const [startHours, startMinutes] = apt.startTime.split(':').map(Number);
         const [endHours, endMinutes] = apt.endTime.split(':').map(Number);
+        
+        const appointmentStartTime = new Date(apt.appointmentDate);
+        appointmentStartTime.setHours(startHours, startMinutes, 0, 0);
+        
         const appointmentEndTime = new Date(apt.appointmentDate);
         appointmentEndTime.setHours(endHours, endMinutes, 0, 0);
         
-        // Check if appointment end time + 1 day < now
-        const oneDayAfterEnd = new Date(appointmentEndTime.getTime() + 24 * 60 * 60 * 1000);
+        // Calculate mid-point time: (startTime + endTime) / 2
+        const midPointTime = new Date((appointmentStartTime.getTime() + appointmentEndTime.getTime()) / 2);
         
-        return now > oneDayAfterEnd;
-      });
+        // Check if current time > mid-point (passed half of appointment duration)
+        if (now > midPointTime) {
+          overdueAppointments.push({
+            ...apt,
+            midPointTime,
+            appointmentStartTime,
+            appointmentEndTime
+          });
+        }
+      }
 
       if (overdueAppointments.length === 0) {
         return;
       }
 
-      console.log(`⚠️ [No-Show] Found ${overdueAppointments.length} overdue confirmed appointments`);
+      console.log(`⚠️ [No-Show] Found ${overdueAppointments.length} appointments that passed half duration without check-in`);
 
       // Update status to no-show
       const appointmentIds = overdueAppointments.map(apt => apt._id);
@@ -211,7 +226,7 @@ function startNoShowCron() {
 
       console.log(`✅ [No-Show] Marked ${result.modifiedCount} appointments as no-show:`);
       overdueAppointments.forEach(apt => {
-        console.log(`   - ${apt.appointmentCode} (${apt.appointmentDate.toLocaleDateString()}) - ${apt.patientInfo?.name || 'N/A'}`);
+        console.log(`   - ${apt.appointmentCode} (${apt.appointmentDate.toLocaleDateString()} ${apt.startTime}-${apt.endTime}) - Mid-point: ${apt.midPointTime.toLocaleTimeString()} - ${apt.patientInfo?.name || 'N/A'}`);
       });
 
       // 🔥 Optional: Send notification/email about no-show (future enhancement)
