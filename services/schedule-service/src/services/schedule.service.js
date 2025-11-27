@@ -563,19 +563,16 @@ async function isHoliday(date) {
   const holidayConfig = await cfgService.getHolidays();
   const holidays = holidayConfig?.holidays || [];
 
-  const checkVN = toVNDateOnlyString(date);
-  const checkDate = new Date(checkVN); // Parse back to Date for day of week check
+  // ✅ FIX: Use dayjs to handle VN timezone correctly
+  const checkDateVN = dayjs(date).tz('Asia/Ho_Chi_Minh').startOf('day');
+  const checkVN = checkDateVN.format('YYYY-MM-DD'); // String format for comparison
+  
   // Convention: 1=Sunday, 2=Monday, 3=Tuesday, ..., 7=Saturday
-  // JavaScript getDay(): 0=Sunday, 1=Monday, ..., 6=Saturday
-  const dayOfWeek = checkDate.getDay() + 1; // Convert: 0->1, 1->2, ..., 6->7
+  // dayjs.day(): 0=Sunday, 1=Monday, ..., 6=Saturday
+  const dayOfWeek = checkDateVN.day() === 0 ? 1 : checkDateVN.day() + 1; // Convert: 0->1, 1->2, ..., 6->7
   
   // Get current date in VN timezone (00:00:00)
-  const nowVN = getVietnamDate();
-  nowVN.setHours(0, 0, 0, 0);
-  
-  // Tomorrow in VN
-  const tomorrowVN = new Date(nowVN);
-  tomorrowVN.setDate(tomorrowVN.getDate() + 1);
+  const nowVN = dayjs().tz('Asia/Ho_Chi_Minh').startOf('day');
   
   const result = holidays.some(holiday => {
     // ===== 1. Kiểm tra ngày nghỉ CỐ ĐỊNH (lặp lại mỗi tuần) =====
@@ -589,13 +586,15 @@ async function isHoliday(date) {
       // Chỉ kiểm tra các ngày nghỉ trong tương lai (sau ngày hiện tại)
       // Không kiểm tra hasBeenUsed - tất cả ngày nghỉ đều được áp dụng
       
-      if (checkDate <= nowVN) {
+      if (checkDateVN.isSameOrBefore(nowVN, 'day')) {
         return false; // Bỏ qua ngày trong quá khứ hoặc hôm nay
       }
       
       // Kiểm tra date có nằm trong [startDate, endDate] không
-      const startVN = toVNDateOnlyString(new Date(holiday.startDate));
-      const endVN = toVNDateOnlyString(new Date(holiday.endDate));
+      // ✅ FIX: Dùng dayjs.utc() để lấy date component từ UTC, KHÔNG convert timezone
+      // Ví dụ: '2026-02-01T23:59:59.999Z' → '2026-02-01' (không phải '2026-02-02')
+      const startVN = dayjs.utc(holiday.startDate).format('YYYY-MM-DD');
+      const endVN = dayjs.utc(holiday.endDate).format('YYYY-MM-DD');
       return checkVN >= startVN && checkVN <= endVN;
     }
     
@@ -624,10 +623,11 @@ async function getHolidaySnapshot(scheduleStartDate, scheduleEndDate) {
       });
     } else if (!holiday.isRecurring && holiday.isActive) {
       // Kiểm tra ngày nghỉ không cố định có nằm trong khoảng thời gian tạo lịch không
-      const holidayStart = new Date(holiday.startDate);
-      const holidayEnd = new Date(holiday.endDate);
-      const scheduleStart = new Date(scheduleStartDate);
-      const scheduleEnd = new Date(scheduleEndDate);
+      // ✅ FIX: Dùng dayjs.utc() để lấy date component, tránh lệch ngày
+      const holidayStart = dayjs.utc(holiday.startDate).format('YYYY-MM-DD');
+      const holidayEnd = dayjs.utc(holiday.endDate).format('YYYY-MM-DD');
+      const scheduleStart = dayjs.utc(scheduleStartDate).format('YYYY-MM-DD');
+      const scheduleEnd = dayjs.utc(scheduleEndDate).format('YYYY-MM-DD');
       
       // Chỉ lưu các ngày nghỉ nằm trong hoặc overlap với khoảng thời gian tạo lịch
       if (holidayEnd >= scheduleStart && holidayStart <= scheduleEnd) {
@@ -665,10 +665,9 @@ async function getHolidaySnapshot(scheduleStartDate, scheduleEndDate) {
 function isHolidayFromSnapshot(date, holidaySnapshot) {
   if (!holidaySnapshot) return false;
   
-  const checkDate = new Date(date);
-  // ✅ FIX: Sử dụng UTC methods để tránh timezone issue
-  checkDate.setUTCHours(0, 0, 0, 0);
-  const dateStr = checkDate.toISOString().split('T')[0]; // YYYY-MM-DD
+  // ✅ FIX: Use dayjs to handle VN timezone correctly
+  const checkDateVN = dayjs(date).tz('Asia/Ho_Chi_Minh').startOf('day');
+  const dateStr = checkDateVN.format('YYYY-MM-DD'); // YYYY-MM-DD
   
   // 🆕 PRIORITY 1: Kiểm tra computedDaysOff trước (nếu có)
   if (holidaySnapshot.computedDaysOff && holidaySnapshot.computedDaysOff.length > 0) {
@@ -677,8 +676,8 @@ function isHolidayFromSnapshot(date, holidaySnapshot) {
   
   // FALLBACK: Kiểm tra recurring và non-recurring (cho backward compatibility)
   // Convention: 1=Chủ nhật, 2=Thứ 2, 3=Thứ 3, ..., 7=Thứ 7
-  // checkDate.getUTCDay(): 0=Chủ nhật, 1=Thứ 2, 2=Thứ 3, ..., 6=Thứ 7
-  const dayOfWeek = checkDate.getUTCDay() + 1; // Convert: 0->1 (CN), 1->2 (T2), ..., 6->7 (T7)
+  // dayjs.day(): 0=Chủ nhật, 1=Thứ 2, 2=Thứ 3, ..., 6=Thứ 7
+  const dayOfWeek = checkDateVN.day() === 0 ? 1 : checkDateVN.day() + 1; // Convert: 0->1 (CN), 1->2 (T2), ..., 6->7 (T7)
   
   // Kiểm tra ngày nghỉ cố định
   const recurringHolidays = holidaySnapshot.recurringHolidays || [];
@@ -689,13 +688,11 @@ function isHolidayFromSnapshot(date, holidaySnapshot) {
   // Kiểm tra ngày nghỉ không cố định
   const nonRecurringHolidays = holidaySnapshot.nonRecurringHolidays || [];
   const isNonRecurringHoliday = nonRecurringHolidays.some(h => {
-    const holidayStart = new Date(h.startDate);
-    const holidayEnd = new Date(h.endDate);
-    // ✅ FIX: Sử dụng UTC methods
-    holidayStart.setUTCHours(0, 0, 0, 0);
-    holidayEnd.setUTCHours(23, 59, 59, 999);
+    // ✅ FIX: Dùng dayjs.utc() để lấy date component từ UTC, tránh lệch ngày
+    const holidayStart = dayjs.utc(h.startDate).format('YYYY-MM-DD');
+    const holidayEnd = dayjs.utc(h.endDate).format('YYYY-MM-DD');
     
-    return checkDate >= holidayStart && checkDate <= holidayEnd;
+    return dateStr >= holidayStart && dateStr <= holidayEnd;
   });
   
   return isNonRecurringHoliday;
@@ -1053,37 +1050,38 @@ async function generateScheduleForRoom(room, startDate, endDate, config) {
   console.log(`📅 Generating schedule for active room: ${room.name} (ID: ${room._id})`);
 
   const schedules = [];
-  const currentDate = new Date(startDate);
-  // Enforce start from next VN day at this layer too, in case caller passed earlier date
-  const nowVN = getVietnamDate();
-  const nextVN = new Date(nowVN.getFullYear(), nowVN.getMonth(), nowVN.getDate() + 1, 0, 0, 0, 0);
-  if (currentDate < nextVN) {
-    currentDate.setFullYear(nextVN.getFullYear(), nextVN.getMonth(), nextVN.getDate());
-    currentDate.setHours(0, 0, 0, 0);
-  }
   
-  while (currentDate <= endDate) {
-    const dateStr = currentDate.toISOString().split('T')[0];
+  // ✅ FIX: Use dayjs for VN timezone handling
+  const startDayVN = dayjs(startDate).tz('Asia/Ho_Chi_Minh').startOf('day');
+  const endDayVN = dayjs(endDate).tz('Asia/Ho_Chi_Minh').startOf('day');
+  const today = dayjs().tz('Asia/Ho_Chi_Minh').startOf('day');
+  const tomorrow = today.add(1, 'day');
+  
+  let currentDayVN = startDayVN.isBefore(tomorrow) ? tomorrow : startDayVN;
+  
+  while (currentDayVN.isSameOrBefore(endDayVN, 'day')) {
+    const dateStr = currentDayVN.format('YYYY-MM-DD');
     
     // Check if it's a holiday (remove weekend check)
-    const isHolidayDay = await isHoliday(currentDate);
+    const dateToCheck = currentDayVN.toDate();
+    const isHolidayDay = await isHoliday(dateToCheck);
     
     if (!isHolidayDay) {
       // Check if schedule already exists
       const existingSchedule = await scheduleRepo.findByRoomAndDate(
         room._id, 
-        new Date(currentDate)
+        currentDayVN.toDate()
       );
       
       if (!existingSchedule) {
-        const schedule = await createDailySchedule(room, new Date(currentDate), config);
+        const schedule = await createDailySchedule(room, currentDayVN.toDate(), config);
         if (schedule) { // Chỉ push nếu schedule được tạo thành công
           schedules.push(schedule);
         }
       }
     }
     
-    currentDate.setDate(currentDate.getDate() + 1);
+    currentDayVN = currentDayVN.add(1, 'day');
   }
   
   return schedules;
@@ -2206,7 +2204,8 @@ exports.createScheduleOverrideHoliday = async (data) => {
     
     // Kiểm tra ngày có phải holiday không (từ holidaySnapshot)
     // ✅ Convention: dayOfWeek 1=Sunday, 2=Monday, ..., 7=Saturday (dayjs format)
-    const jsDay = targetDate.getUTCDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
+    // ✅ FIX: Dùng dayjs.day() để check theo VN timezone, không dùng getUTCDay()
+    const jsDay = targetDateDayjs.day(); // 0=Sunday, 1=Monday, ..., 6=Saturday (VN timezone)
     const dayOfWeek = jsDay === 0 ? 1 : jsDay + 1; // Convert: 0→1, 1→2, ..., 6→7
     const holidaySnapshot = schedule.holidaySnapshot || {};
     const recurringHolidays = holidaySnapshot.recurringHolidays || [];
@@ -2234,12 +2233,12 @@ exports.createScheduleOverrideHoliday = async (data) => {
     // Check non-recurring holidays
     if (!isHoliday) {
       for (const holiday of nonRecurringHolidays) {
-        const startDate = new Date(holiday.startDate);
-        const endDate = new Date(holiday.endDate);
-        startDate.setUTCHours(0, 0, 0, 0); // ✅ Dùng UTC
-        endDate.setUTCHours(23, 59, 59, 999); // ✅ Dùng UTC
+        // ✅ FIX: Dùng dayjs.utc() để lấy date component, tránh lệch ngày
+        const targetDateStr = targetDateDayjs.format('YYYY-MM-DD');
+        const startDateStr = dayjs.utc(holiday.startDate).format('YYYY-MM-DD');
+        const endDateStr = dayjs.utc(holiday.endDate).format('YYYY-MM-DD');
         
-        if (targetDate >= startDate && targetDate <= endDate) {
+        if (targetDateStr >= startDateStr && targetDateStr <= endDateStr) {
           isHoliday = true;
           originalHolidayName = holiday.name;
           console.log('✅ Found non-recurring holiday:', holiday.name);
@@ -2975,7 +2974,11 @@ exports.validateHolidayFromSchedule = async ({ roomId, subRoomId, month, year, d
     // Parse target date
     const targetDate = new Date(date);
     targetDate.setHours(0, 0, 0, 0);
-    const dayOfWeek = targetDate.getDay(); // 0=CN, 1=T2, ..., 6=T7
+    
+    // ✅ FIX: Dùng dayjs để lấy dayOfWeek theo VN timezone
+    const targetDateDayjs = dayjs(targetDate).tz('Asia/Ho_Chi_Minh');
+    const dayOfWeek = targetDateDayjs.day(); // 0=CN, 1=T2, ..., 6=T7
+    const dayName = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'][dayOfWeek];
     
     const holidaySnapshot = schedule.holidaySnapshot || {};
     const recurringHolidays = holidaySnapshot.recurringHolidays || [];
@@ -3025,18 +3028,22 @@ exports.validateHolidayFromSchedule = async ({ roomId, subRoomId, month, year, d
     
     for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
       const checkDate = new Date(d);
-      const checkDayOfWeek = checkDate.getDay();
       
-      // Check recurring
-      const isRecurring = recurringHolidays.some(h => h.dayOfWeek === checkDayOfWeek);
+      // ✅ FIX: Dùng dayjs để check theo VN timezone
+      const checkDateDayjs = dayjs(checkDate).tz('Asia/Ho_Chi_Minh');
+      const checkDayOfWeek = checkDateDayjs.day();
+      
+      // Check recurring (convert dayjs day to convention: 0->1, 1->2, ..., 6->7)
+      const conventionDay = checkDayOfWeek === 0 ? 1 : checkDayOfWeek + 1;
+      const isRecurring = recurringHolidays.some(h => h.dayOfWeek === conventionDay);
       
       // Check non-recurring
+      // ✅ FIX: Dùng dayjs.utc() để lấy date component, tránh lệch ngày
+      const checkDateStr = checkDateDayjs.format('YYYY-MM-DD');
       const isNonRecurring = nonRecurringHolidays.some(holiday => {
-        const start = new Date(holiday.startDate);
-        const end = new Date(holiday.endDate);
-        start.setHours(0, 0, 0, 0);
-        end.setHours(23, 59, 59, 999);
-        return checkDate >= start && checkDate <= end;
+        const startStr = dayjs.utc(holiday.startDate).format('YYYY-MM-DD');
+        const endStr = dayjs.utc(holiday.endDate).format('YYYY-MM-DD');
+        return checkDateStr >= startStr && checkDateStr <= endStr;
       });
       
       if (isRecurring || isNonRecurring) {
@@ -3305,7 +3312,9 @@ async function generateSlotsCore(scheduleId, subRoomId, selectedShifts, slotDura
     processedDates.add(dayString);
     
     // 🔹 Skip holidays - don't create slots for holidays
-    const isHolidayDay = await isHoliday(new Date(dayString + 'T00:00:00.000Z'));
+    // ✅ FIX: Pass VN date correctly (use dayjs object to avoid timezone shift)
+    const dateToCheck = currentDayVN.toDate(); // Convert dayjs to Date in VN timezone
+    const isHolidayDay = await isHoliday(dateToCheck);
     if (isHolidayDay) {
       console.log(`📅 Skipping holiday: ${dayString}`);
       currentDayVN = currentDayVN.add(1, 'day');
@@ -7008,7 +7017,8 @@ exports.getShiftCalendarForAssignment = async ({ roomId, subRoomId, shiftName, m
         dayMap[dateKey] = {
           date: slot.date,
           dateStr: dateKey,
-          dayOfWeek: new Date(slot.date).getDay(),
+          // ✅ FIX: Dùng dayjs để lấy dayOfWeek theo VN timezone
+          dayOfWeek: dayjs(slot.date).tz('Asia/Ho_Chi_Minh').day(),
           slots: [],
           totalSlots: 0,
           assignedSlots: 0,
