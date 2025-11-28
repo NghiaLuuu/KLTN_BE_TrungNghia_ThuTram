@@ -9,11 +9,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
-          cpus: '1.0'
+          memory: 3G
+          cpus: '2.0'
         reservations:
-          memory: 512M
-          cpus: '0.5'
+          memory: 1G
+          cpus: '1.0'
     logging:
       driver: "json-file"
       options:
@@ -26,11 +26,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 1G
+          cpus: '1.0'
         reservations:
-          memory: 128M
-          cpus: '0.2'
+          memory: 256M
+          cpus: '0.5'
     logging:
       driver: "json-file"
       options:
@@ -43,11 +43,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
-          cpus: '0.5'
+          memory: 1.5G
+          cpus: '1.0'
         reservations:
-          memory: 256M
-          cpus: '0.2'
+          memory: 512M
+          cpus: '0.5'
     logging:
       driver: "json-file"
       options:
@@ -61,14 +61,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 768M
+          cpus: '1.0'
         reservations:
-          memory: 128M
-          cpus: '0.2'
+          memory: 256M
+          cpus: '0.5'
     environment:
       - NODE_ENV=production
-      - NODE_OPTIONS=--max-old-space-size=256
+      - NODE_OPTIONS=--max-old-space-size=512
     logging:
       driver: "json-file"
       options:
@@ -81,14 +81,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 768M
+          cpus: '1.0'
         reservations:
-          memory: 128M
-          cpus: '0.2'
+          memory: 256M
+          cpus: '0.5'
     environment:
       - NODE_ENV=production
-      - NODE_OPTIONS=--max-old-space-size=256
+      - NODE_OPTIONS=--max-old-space-size=512
     logging:
       driver: "json-file"
       options:
@@ -101,14 +101,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 768M
+          cpus: '1.0'
         reservations:
-          memory: 128M
-          cpus: '0.2'
+          memory: 256M
+          cpus: '0.5'
     environment:
       - NODE_ENV=production
-      - NODE_OPTIONS=--max-old-space-size=256
+      - NODE_OPTIONS=--max-old-space-size=512
     logging:
       driver: "json-file"
       options:
@@ -121,14 +121,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 1.5G
+          cpus: '2.0'
         reservations:
-          memory: 128M
-          cpus: '0.2'
+          memory: 512M
+          cpus: '1.0'
     environment:
       - NODE_ENV=production
-      - NODE_OPTIONS=--max-old-space-size=256
+      - NODE_OPTIONS=--max-old-space-size=1024
     logging:
       driver: "json-file"
       options:
@@ -141,14 +141,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 768M
+          cpus: '1.0'
         reservations:
-          memory: 128M
-          cpus: '0.2'
+          memory: 256M
+          cpus: '0.5'
     environment:
       - NODE_ENV=production
-      - NODE_OPTIONS=--max-old-space-size=256
+      - NODE_OPTIONS=--max-old-space-size=512
     logging:
       driver: "json-file"
       options:
@@ -161,14 +161,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 768M
+          cpus: '1.0'
         reservations:
-          memory: 128M
-          cpus: '0.2'
+          memory: 256M
+          cpus: '0.5'
     environment:
       - NODE_ENV=production
-      - NODE_OPTIONS=--max-old-space-size=256
+      - NODE_OPTIONS=--max-old-space-size=512
     logging:
       driver: "json-file"
       options:
@@ -181,14 +181,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 768M
+          cpus: '1.0'
         reservations:
-          memory: 128M
-          cpus: '0.2'
+          memory: 256M
+          cpus: '0.5'
     environment:
       - NODE_ENV=production
-      - NODE_OPTIONS=--max-old-space-size=256
+      - NODE_OPTIONS=--max-old-space-size=512
     logging:
       driver: "json-file"
       options:
@@ -201,14 +201,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 768M
+          cpus: '1.0'
         reservations:
-          memory: 128M
-          cpus: '0.2'
+          memory: 256M
+          cpus: '0.5'
     environment:
       - NODE_ENV=production
-      - NODE_OPTIONS=--max-old-space-size=256
+      - NODE_OPTIONS=--max-old-space-size=512
     logging:
       driver: "json-file"
       options:
@@ -221,14 +221,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 768M
+          cpus: '1.0'
         reservations:
-          memory: 128M
-          cpus: '0.2'
+          memory: 256M
+          cpus: '0.5'
     environment:
       - NODE_ENV=production
-      - NODE_OPTIONS=--max-old-space-size=256
+      - NODE_OPTIONS=--max-old-space-size=512
     logging:
       driver: "json-file"
       options:
@@ -241,14 +241,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 768M
+          cpus: '1.0'
         reservations:
-          memory: 128M
-          cpus: '0.2'
+          memory: 256M
+          cpus: '0.5'
     environment:
       - NODE_ENV=production
-      - NODE_OPTIONS=--max-old-space-size=256
+      - NODE_OPTIONS=--max-old-space-size=512
     logging:
       driver: "json-file"
       options:
@@ -261,14 +261,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          memory: 768M
+          cpus: '1.0'
         reservations:
-          memory: 128M
-          cpus: '0.2'
+          memory: 256M
+          cpus: '0.5'
     environment:
       - NODE_ENV=production
-      - NODE_OPTIONS=--max-old-space-size=256
+      - NODE_OPTIONS=--max-old-space-size=512
     logging:
       driver: "json-file"
       options:
