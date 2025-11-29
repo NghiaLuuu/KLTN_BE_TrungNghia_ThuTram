@@ -1914,7 +1914,8 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
     ['morning', 'afternoon', 'evening'].forEach(shiftKey => {
       let canSelectShift = false;
       let allRoomsHaveShift = true; // Track xem tất cả phòng đã có ca chưa
-      let allConfigsDisabled = true; // Track xem tất cả config đều tắt ca chưa
+      let anyScheduleWithActiveShift = false; // 🆕 Track xem có schedule nào có ca đang bật không
+      let anyScheduleWithDisabledShift = false; // 🆕 Track xem có schedule nào có ca bị tắt không
 
       // Check từng room
       for (const room of roomsAnalysis) {
@@ -1927,35 +1928,40 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
           
           if (!isInRange) continue;
 
-          // Case 1: Tháng chưa có schedule + Config hiện tại có ca đang bật
+          // Case 1: Tháng chưa có schedule - Check config global
           if (!monthAnalysis.hasSchedule) {
+            allRoomsHaveShift = false; // Chưa có lịch = chưa có ca
+            
+            // Nếu config global bật ca này → Có thể tạo
             if (currentConfigShifts[shiftKey]) {
               canSelectShift = true;
-              allConfigsDisabled = false;
-              allRoomsHaveShift = false;
-              console.log(`✅ ${shiftKey} available: Room ${room.roomName} month ${monthAnalysis.month}/${monthAnalysis.year} - no schedule + config active`);
+              anyScheduleWithActiveShift = true; // Config bật = có thể tạo
+              console.log(`✅ ${shiftKey} available: Room ${room.roomName} month ${monthAnalysis.month}/${monthAnalysis.year} - no schedule, config active`);
               break;
-            } else {
-              // Config disabled but room doesn't have schedule
-              allRoomsHaveShift = false;
             }
+            // Nếu config tắt → Không thể tạo, tiếp tục check tháng khác
+            continue;
           } 
-          // Case 2: Tháng đã có schedule nhưng thiếu ca này
+          // Case 2: Tháng đã có schedule - Check schedule config
           else {
+            // Track xem có schedule nào có ca đang bật không
+            if (monthAnalysis.shiftStatus[shiftKey].anyActive) {
+              anyScheduleWithActiveShift = true;
+            }
+            
             // Nếu !allHave = có ít nhất 1 subroom/room thiếu ca này
-            // NHƯNG phải check xem ca đó có đang bật trong schedule không
             if (!monthAnalysis.shiftStatus[shiftKey].allHave) {
-              // 🆕 Check xem có schedule nào có ca đang bật không
+              allRoomsHaveShift = false; // Chưa có đầy đủ
+              
+              // Check xem ca có đang bật trong schedule không
               if (monthAnalysis.shiftStatus[shiftKey].anyActive) {
                 canSelectShift = true;
-                allRoomsHaveShift = false;
-                allConfigsDisabled = false;
                 console.log(`✅ ${shiftKey} available: Room ${room.roomName} month ${monthAnalysis.month}/${monthAnalysis.year} - schedule exists, shift active but missing`);
                 break;
               } else {
                 // Ca bị tắt trong schedule
-                allRoomsHaveShift = false; // Không phải tất cả đã có
-                console.log(`⚠️ ${shiftKey} disabled: Room ${room.roomName} month ${monthAnalysis.month}/${monthAnalysis.year} - schedule exists but shift disabled`);
+                anyScheduleWithDisabledShift = true;
+                console.log(`⚠️ ${shiftKey} disabled in schedule: Room ${room.roomName} month ${monthAnalysis.month}/${monthAnalysis.year}`);
               }
             }
           }
@@ -1966,12 +1972,14 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
 
       availableShifts[shiftKey] = canSelectShift;
 
-      // 🆕 Xác định lý do không available
+      // 🔧 FIX: Xác định lý do không available dựa trên schedule thực tế, không phải config global
       if (!canSelectShift) {
         if (allRoomsHaveShift) {
           shiftUnavailableReasons[shiftKey] = 'complete'; // Tất cả phòng đã có đầy đủ
-        } else if (allConfigsDisabled) {
-          shiftUnavailableReasons[shiftKey] = 'disabled'; // Ca đang tắt trong config
+        } else if (anyScheduleWithDisabledShift) {
+          shiftUnavailableReasons[shiftKey] = 'disabled'; // Ca bị tắt trong schedule
+        } else {
+          shiftUnavailableReasons[shiftKey] = 'no-schedule'; // Chưa có lịch
         }
       }
     });

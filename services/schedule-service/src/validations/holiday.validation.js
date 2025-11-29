@@ -14,9 +14,11 @@ const createHolidayValidation = [
     .withMessage('Invalid start date format. Use YYYY-MM-DD')
     .custom((startDate) => {
       const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
       const today = new Date();
       today.setHours(0, 0, 0, 0); // Reset to start of day for fair comparison
       
+      // Cho phép ngày bắt đầu >= hôm nay (không chỉ >)
       if (start < today) {
         throw new Error('Start date must be today or in the future');
       }
@@ -66,9 +68,11 @@ const updateHolidayValidation = [
       if (!startDate) return true; // Skip if not provided
       
       const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
+      // Cho phép ngày bắt đầu >= hôm nay (không chỉ >)
       if (start < today) {
         throw new Error('Start date must be today or in the future');
       }

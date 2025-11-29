@@ -365,7 +365,7 @@ exports.addPriceSchedule = async (serviceId, addOnId, scheduleData) => {
   const startDate = new Date(scheduleData.startDate);
   startDate.setHours(0, 0, 0, 0);
   
-  if (startDate <= today) {
+  if (startDate < today) {
     throw new Error('Ngày bắt đầu phải sau ngày hiện tại ít nhất 1 ngày');
   }
 
