@@ -349,17 +349,18 @@ class InvoiceService {
             if (record.serviceId && record.serviceName) {
               // 🔥 IMPORTANT: Service chính không có giá, chỉ serviceAddOn mới có giá!
               // servicePrice là giá cơ bản (không dùng), serviceAddOnPrice là giá thực tế
-              let mainServicePrice = record.serviceAddOnPrice || 0; // CHỈ lấy serviceAddOnPrice
+              const originalPrice = record.serviceAddOnPrice || 0; // CHỈ lấy serviceAddOnPrice (giá gốc)
               
-              // 🔥 NEW: Subtract deposit from main service price
+              // 🔥 FIX: unitPrice = ORIGINAL price, totalPrice = price AFTER deposit
               // Deposit is only applied to the FIRST service (main service)
-              if (depositAmount > 0) {
-                mainServicePrice = Math.max(0, mainServicePrice - depositAmount);
-                console.log(`💰 Applying deposit: ${record.serviceAddOnPrice} - ${depositAmount} = ${mainServicePrice}`);
-              }
+              const priceAfterDeposit = depositAmount > 0 
+                ? Math.max(0, originalPrice - depositAmount)
+                : originalPrice;
+              
+              console.log(`💰 Main service pricing: Original ${originalPrice.toLocaleString()}, Deposit ${depositAmount.toLocaleString()}, After deposit ${priceAfterDeposit.toLocaleString()}`);
               
               const mainServiceQuantity = record.quantity || 1;
-              const mainServiceSubtotal = mainServicePrice * mainServiceQuantity;
+              const mainServiceSubtotal = priceAfterDeposit * mainServiceQuantity;
 
               invoiceDetails.push({
                 serviceId: record.serviceId || null,
@@ -371,11 +372,11 @@ class InvoiceService {
                   description: record.serviceAddOnName || record.serviceName,
                   unit: record.serviceAddOnUnit || null
                 },
-                unitPrice: mainServicePrice,
+                unitPrice: originalPrice, // 🔥 FIX: Store ORIGINAL price (500k), not price after deposit
                 quantity: mainServiceQuantity,
                 subtotal: mainServiceSubtotal,
-                discountAmount: depositAmount, // 🔥 NEW: Show deposit as discount on main service
-                totalPrice: mainServiceSubtotal,
+                discountAmount: depositAmount, // 🔥 Deposit shown as discount
+                totalPrice: mainServiceSubtotal, // 🔥 Price after deposit (300k)
                 notes: depositAmount > 0 
                   ? `Dịch vụ chính: ${record.serviceName}${record.serviceAddOnName ? ' - ' + record.serviceAddOnName : ''} (Đã trừ cọc ${depositAmount.toLocaleString('vi-VN')}đ)`
                   : `Dịch vụ chính: ${record.serviceName}${record.serviceAddOnName ? ' - ' + record.serviceAddOnName : ''}`,
@@ -383,7 +384,7 @@ class InvoiceService {
                 // 🔥 FIX: Don't set createdBy here, it will be set later
               });
               
-              console.log(`✅ Added main service: ${record.serviceName} (${mainServicePrice.toLocaleString()} x ${mainServiceQuantity} = ${mainServiceSubtotal.toLocaleString()})`);
+              console.log(`✅ Added main service: ${record.serviceName} (${originalPrice.toLocaleString()} - ${depositAmount.toLocaleString()} deposit = ${mainServiceSubtotal.toLocaleString()})`);
             }
             
             // 🔥 FIX: Add additional services
