@@ -194,13 +194,13 @@ async function testInvoiceCreation() {
       console.log(`💰 Invoice subtotal: ${invoiceWithDetails.subtotal.toLocaleString('vi-VN')} VNĐ`);
       console.log(`💰 Invoice totalAmount: ${invoiceWithDetails.totalAmount.toLocaleString('vi-VN')} VNĐ (after deposit)`);
       
-      // Verify totals match
-      if (calculatedTotal === invoiceWithDetails.subtotal) {
-        console.log('✅ PASS: Details total matches subtotal!');
+      // Verify totals match (details should match totalAmount after deposit)
+      if (calculatedTotal === invoiceWithDetails.totalAmount) {
+        console.log('✅ PASS: Details total matches totalAmount (after deposit)!');
       } else {
-        console.log('❌ FAIL: Details total mismatch with subtotal!');
+        console.log('❌ FAIL: Details total mismatch with totalAmount!');
         console.log(`   Expected: ${calculatedTotal.toLocaleString('vi-VN')} VNĐ`);
-        console.log(`   Got: ${invoiceWithDetails.subtotal.toLocaleString('vi-VN')} VNĐ`);
+        console.log(`   Got: ${invoiceWithDetails.totalAmount.toLocaleString('vi-VN')} VNĐ`);
       }
       
       // Verify deposit deduction
@@ -223,9 +223,9 @@ async function testInvoiceCreation() {
         console.log(`❌ FAIL: Expected ${expectedServices} services, got ${invoiceWithDetails.details.length}`);
       }
       
-      // Verify prices (main service first, then additional)
+      // Verify prices (main service AFTER deposit, then additional)
       console.log('\n💵 Price Verification:');
-      const expectedPrices = [2000000, 1000000, 1500000, 300000, 2700000]; // Main + 4 additional
+      const expectedPrices = [1700000, 1000000, 1500000, 300000, 2700000]; // Main (2M - 300k deposit) + 4 additional
       const actualPrices = invoiceWithDetails.details.map(d => d.totalPrice);
       
       let pricesMatch = true;

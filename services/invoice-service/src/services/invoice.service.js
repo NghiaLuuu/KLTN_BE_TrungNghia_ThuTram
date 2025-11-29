@@ -92,8 +92,9 @@ class InvoiceService {
         
         // Update invoice with calculated amounts
         // 🔥 CRITICAL: Don't overwrite totalAmount if already explicitly set (from payment with deposit)
+        // 🔥 NEW: Use invoiceData.subtotal if set (includes deposit add-back for display)
         const updateData = {
-          subtotal: subtotalAmount
+          subtotal: invoiceData.subtotal !== undefined ? invoiceData.subtotal : subtotalAmount
         };
         
         // Check if totalAmount was explicitly set (e.g., from payment with deposit)
@@ -302,6 +303,16 @@ class InvoiceService {
 
       console.log('📝 Creating invoice from payment:', paymentData._id);
 
+      // 🔥 FIX: Calculate deposit FIRST (before creating invoice details)
+      const originalAmount = paymentData.originalAmount || 0;
+      const paidAmount = paymentData.paidAmount || paymentData.amount || 0;
+      const depositAmount = paymentData.depositAmount || Math.max(0, originalAmount - paidAmount);
+      
+      console.log('💰 Deposit calculation:');
+      console.log('  - Payment originalAmount:', originalAmount.toLocaleString());
+      console.log('  - Payment paidAmount:', paidAmount.toLocaleString());
+      console.log('  - Detected depositAmount:', depositAmount.toLocaleString());
+      
       // 🔥 FIX: Get services from record if recordId exists
       let invoiceDetails = [];
       if (paymentData.recordId) {
@@ -338,7 +349,15 @@ class InvoiceService {
             if (record.serviceId && record.serviceName) {
               // 🔥 IMPORTANT: Service chính không có giá, chỉ serviceAddOn mới có giá!
               // servicePrice là giá cơ bản (không dùng), serviceAddOnPrice là giá thực tế
-              const mainServicePrice = record.serviceAddOnPrice || 0; // CHỈ lấy serviceAddOnPrice
+              let mainServicePrice = record.serviceAddOnPrice || 0; // CHỈ lấy serviceAddOnPrice
+              
+              // 🔥 NEW: Subtract deposit from main service price
+              // Deposit is only applied to the FIRST service (main service)
+              if (depositAmount > 0) {
+                mainServicePrice = Math.max(0, mainServicePrice - depositAmount);
+                console.log(`💰 Applying deposit: ${record.serviceAddOnPrice} - ${depositAmount} = ${mainServicePrice}`);
+              }
+              
               const mainServiceQuantity = record.quantity || 1;
               const mainServiceSubtotal = mainServicePrice * mainServiceQuantity;
 
@@ -355,9 +374,11 @@ class InvoiceService {
                 unitPrice: mainServicePrice,
                 quantity: mainServiceQuantity,
                 subtotal: mainServiceSubtotal,
-                discountAmount: 0,
+                discountAmount: depositAmount, // 🔥 NEW: Show deposit as discount on main service
                 totalPrice: mainServiceSubtotal,
-                notes: `Dịch vụ chính: ${record.serviceName}${record.serviceAddOnName ? ' - ' + record.serviceAddOnName : ''}`,
+                notes: depositAmount > 0 
+                  ? `Dịch vụ chính: ${record.serviceName}${record.serviceAddOnName ? ' - ' + record.serviceAddOnName : ''} (Đã trừ cọc ${depositAmount.toLocaleString('vi-VN')}đ)`
+                  : `Dịch vụ chính: ${record.serviceName}${record.serviceAddOnName ? ' - ' + record.serviceAddOnName : ''}`,
                 status: 'completed'
                 // 🔥 FIX: Don't set createdBy here, it will be set later
               });
@@ -429,27 +450,19 @@ class InvoiceService {
         };
       }
 
-      // 🔥 FIX: Calculate subtotal from invoice details (NOT from payment amount)
+      // 🔥 FIX: Calculate subtotal from invoice details (after deposit deduction in main service)
       const subtotalFromDetails = invoiceDetails.reduce((sum, detail) => sum + (detail.totalPrice || 0), 0);
       
-      // 🔥 FIX: Detect deposit and adjust invoice total to match payment
-      // If originalAmount > paidAmount, the difference is deposit
-      const originalAmount = paymentData.originalAmount || subtotalFromDetails;
-      const paidAmount = paymentData.paidAmount || paymentData.amount || 0;
-      const depositAmount = paymentData.depositAmount || Math.max(0, originalAmount - paidAmount);
-      
-      // 🔥 IMPORTANT: Invoice totalAmount MUST equal totalPaid (paidAmount)
-      // This ensures invoice reflects actual payment, not service prices
-      const invoiceSubtotal = subtotalFromDetails > 0 ? subtotalFromDetails : originalAmount;
-      const invoiceTotalAmount = paidAmount; // ✅ totalAmount = totalPaid
+      // 🔥 IMPORTANT: 
+      // - invoiceSubtotal = original amount (before deposit) for display
+      // - invoiceTotalAmount = after deposit deduction (what customer actually pays)
+      const invoiceSubtotal = subtotalFromDetails + depositAmount; // Add back deposit for display
+      const invoiceTotalAmount = subtotalFromDetails; // Actual payment amount
 
-      console.log('💰 Invoice calculation:');
-      console.log('  - Payment paidAmount:', paidAmount.toLocaleString());
-      console.log('  - Payment originalAmount:', originalAmount.toLocaleString());
-      console.log('  - Detected depositAmount:', depositAmount.toLocaleString());
-      console.log('  - Subtotal from details:', subtotalFromDetails.toLocaleString());
-      console.log('  - Invoice subtotal:', invoiceSubtotal.toLocaleString());
-      console.log('  - Invoice totalAmount:', invoiceTotalAmount.toLocaleString(), '(= totalPaid)');
+      console.log('💰 Final invoice calculation:');
+      console.log('  - Subtotal (before deposit):', invoiceSubtotal.toLocaleString());
+      console.log('  - Deposit amount:', depositAmount.toLocaleString());
+      console.log('  - Total amount (after deposit):', invoiceTotalAmount.toLocaleString());
 
       const invoiceData = {
         appointmentId: paymentData.appointmentId,

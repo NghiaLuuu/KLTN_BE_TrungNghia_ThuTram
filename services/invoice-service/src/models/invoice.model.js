@@ -430,8 +430,14 @@ InvoiceSchema.pre('save', async function(next) {
     this.invoiceNumber = await this.constructor.generateInvoiceNumber();
   }
   
-  // Calculate amounts before saving
-  this.calculateAmounts();
+  // 🔥 FIX: Only calculate amounts if totalAmount not explicitly set
+  // When creating invoice from payment with deposit, totalAmount is already set correctly
+  // Check if totalAmount was modified directly (not via calculateAmounts)
+  const totalAmountWasSet = this.isModified('totalAmount') && this.isNew;
+  if (!totalAmountWasSet || this.totalAmount === 0 || this.totalAmount === undefined) {
+    // Calculate amounts before saving (normal invoice creation)
+    this.calculateAmounts();
+  }
   
   // Set due date if not provided (default 30 days from issue date)
   if (!this.dueDate) {
