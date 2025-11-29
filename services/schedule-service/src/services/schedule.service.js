@@ -1751,8 +1751,14 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
           const activeSubRoomCount = activeSubRooms.length;
           const activeSubRoomIds = new Set(activeSubRooms.map(sr => sr._id.toString()));
           
+          // 🔥 FIX: Chỉ đếm schedule của subroom đang active VÀ isActiveSubRoom !== false
           const subRoomsWithSchedule = new Set(
-            monthSchedules.map(s => s.subRoomId?.toString()).filter(Boolean)
+            monthSchedules
+              .filter(s => {
+                const subRoomId = s.subRoomId?.toString();
+                return subRoomId && activeSubRoomIds.has(subRoomId) && s.isActiveSubRoom !== false;
+              })
+              .map(s => s.subRoomId.toString())
           );
 
           // Kiểm tra từng ca

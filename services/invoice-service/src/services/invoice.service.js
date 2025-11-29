@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const invoiceRepo = require("../repositories/invoice.repository");
 const invoiceDetailRepo = require("../repositories/invoiceDetail.repository");
 const RedisClient = require("../config/redis.config");
@@ -38,7 +39,12 @@ class InvoiceService {
       invoiceData.invoiceNumber = await this.generateInvoiceNumber();
 
       // Set default values
-      invoiceData.createdBy = userId;
+      // 🔥 FIX: If userId is 'system', use dentist ID or a default system ID
+      if (userId === 'system') {
+        invoiceData.createdBy = invoiceData.dentistInfo?.dentistId || new mongoose.Types.ObjectId();
+      } else {
+        invoiceData.createdBy = userId;
+      }
       invoiceData.status = invoiceData.status || InvoiceStatus.DRAFT;
       invoiceData.type = invoiceData.type || InvoiceType.APPOINTMENT;
 
@@ -56,19 +62,29 @@ class InvoiceService {
       if (invoiceData.details && invoiceData.details.length > 0) {
         const detailsWithInvoiceId = invoiceData.details.map(detail => ({
           ...detail,
-          invoiceId: invoice._id
+          invoiceId: invoice._id,
+          createdBy: detail.createdBy || userId || 'system' // Ensure createdBy is set
         }));
 
+        console.log('💾 Creating', detailsWithInvoiceId.length, 'invoice details');
         const createdDetails = await invoiceDetailRepo.createMultiple(detailsWithInvoiceId);
+        console.log('✅ Created invoice details:', createdDetails.map(d => ({
+          name: d.serviceInfo?.name,
+          unitPrice: d.unitPrice,
+          quantity: d.quantity,
+          totalPrice: d.totalPrice
+        })));
         
-        // Calculate total amounts
-        const totalAmount = createdDetails.reduce((sum, detail) => sum + detail.totalAmount, 0);
+        // 🔥 FIX: Calculate total amounts - use totalPrice not totalAmount
+        const subtotalAmount = createdDetails.reduce((sum, detail) => sum + (detail.totalPrice || 0), 0);
         
         // Update invoice with calculated amounts
         await invoiceRepo.update(invoice._id, {
-          subtotalAmount: totalAmount,
-          totalAmount: totalAmount + (invoice.taxInfo?.taxAmount || 0) - (invoice.discountInfo?.discountAmount || 0)
+          subtotalAmount: subtotalAmount,
+          totalAmount: subtotalAmount + (invoice.taxInfo?.taxAmount || 0) - (invoice.discountInfo?.discountAmount || 0)
         });
+        
+        console.log('💰 Updated invoice total:', subtotalAmount);
       }
 
       // Clear cache
@@ -234,13 +250,122 @@ class InvoiceService {
         throw new Error('Chỉ tạo hóa đơn khi thanh toán thành công');
       }
 
+      console.log('📝 Creating invoice from payment:', paymentData._id);
+
+      // 🔥 FIX: Get services from record if recordId exists
+      let invoiceDetails = [];
+      if (paymentData.recordId) {
+        try {
+          console.log('📋 Fetching record:', paymentData.recordId);
+          const record = await this.rpcClient.call('record-service', 'getRecordById', {
+            id: paymentData.recordId
+          });
+
+          if (record) {
+            // 🔥 FIX: Add MAIN service first (serviceId + serviceAddOn)
+            if (record.serviceId && record.serviceName) {
+              const mainServicePrice = record.serviceAddOnPrice || record.servicePrice || 0;
+              const mainServiceQuantity = record.quantity || 1;
+              const mainServiceSubtotal = mainServicePrice * mainServiceQuantity;
+
+              invoiceDetails.push({
+                serviceId: record.serviceId || null,
+                serviceInfo: {
+                  name: record.serviceName,
+                  code: record.serviceAddOnId || null,
+                  type: record.type === 'exam' ? 'examination' : 'filling', // Use valid enum
+                  category: 'restorative',
+                  description: record.serviceAddOnName || record.serviceName,
+                  unit: record.serviceAddOnUnit || null
+                },
+                unitPrice: mainServicePrice,
+                quantity: mainServiceQuantity,
+                subtotal: mainServiceSubtotal,
+                discountAmount: 0,
+                totalPrice: mainServiceSubtotal,
+                notes: `Dịch vụ chính: ${record.serviceName}${record.serviceAddOnName ? ' - ' + record.serviceAddOnName : ''}`,
+                status: 'completed',
+                createdBy: 'system'
+              });
+              
+              console.log(`✅ Added main service: ${record.serviceName} (${mainServicePrice.toLocaleString()} x ${mainServiceQuantity} = ${mainServiceSubtotal.toLocaleString()})`);
+            }
+            
+            // 🔥 FIX: Add additional services
+            if (record.additionalServices && record.additionalServices.length > 0) {
+              console.log(`✅ Found ${record.additionalServices.length} additional services`);
+              
+              const additionalDetails = record.additionalServices.map(service => {
+                const unitPrice = service.price || 0;
+                const quantity = service.quantity || 1;
+                const subtotal = unitPrice * quantity;
+                const totalPrice = service.totalPrice || subtotal;
+
+                return {
+                  serviceId: service.serviceId || null,
+                  serviceInfo: {
+                    name: service.serviceName || 'Unknown Service',
+                    code: service.serviceAddOnId || null,
+                    type: service.serviceType === 'exam' ? 'examination' : 'filling',
+                    category: 'restorative',
+                    description: service.serviceAddOnName || service.serviceName,
+                    unit: service.serviceAddOnUnit || null
+                  },
+                  unitPrice: unitPrice,
+                  quantity: quantity,
+                  subtotal: subtotal,
+                  discountAmount: 0,
+                  totalPrice: totalPrice,
+                  notes: service.notes || '',
+                  status: 'completed',
+                  createdBy: 'system'
+                };
+              });
+              
+              invoiceDetails.push(...additionalDetails);
+            }
+            
+            console.log('📦 Total invoice details:', invoiceDetails.length);
+            console.log('💰 Details:', invoiceDetails.map(d => ({
+              name: d.serviceInfo.name,
+              unitPrice: d.unitPrice,
+              quantity: d.quantity,
+              totalPrice: d.totalPrice
+            })));
+          } else {
+            console.warn('⚠️ Record not found');
+          }
+        } catch (error) {
+          console.error('❌ Error fetching record:', error);
+          // Continue without details
+        }
+      }
+
+      // 🔥 FIX: Get dentist info from payment or record
+      let dentistInfo = null;
+      if (paymentData.processedBy && paymentData.processedByName) {
+        dentistInfo = {
+          dentistId: paymentData.processedBy,
+          name: paymentData.processedByName
+        };
+      } else if (record && record.dentistId && record.dentistName) {
+        dentistInfo = {
+          dentistId: record.dentistId,
+          name: record.dentistName
+        };
+      }
+
       const invoiceData = {
         appointmentId: paymentData.appointmentId,
         patientId: paymentData.patientId,
+        recordId: paymentData.recordId, // 🆕 Link to record
         type: InvoiceType.APPOINTMENT,
         status: InvoiceStatus.PAID,
         totalAmount: paymentData.amount,
+        subtotal: paymentData.amount, // 🔥 FIX: Add required subtotal
         paidDate: new Date(),
+        dentistInfo: dentistInfo, // 🔥 FIX: Add required dentistInfo
+        createdByRole: 'system', // 🔥 FIX: Add required createdByRole
         paymentSummary: {
           totalPaid: paymentData.amount,
           remainingAmount: 0,
@@ -248,9 +373,11 @@ class InvoiceService {
           lastPaymentDate: new Date(),
           paymentMethod: paymentData.paymentMethod
         },
+        details: invoiceDetails, // 🔥 FIX: Add invoice details from record
         notes: `Hóa đơn tự động tạo từ thanh toán ${paymentData._id}`
       };
 
+      console.log('💰 Creating invoice with', invoiceDetails.length, 'service details');
       return await this.createInvoice(invoiceData, 'system');
     } catch (error) {
       console.error("❌ Error creating invoice from payment:", error);

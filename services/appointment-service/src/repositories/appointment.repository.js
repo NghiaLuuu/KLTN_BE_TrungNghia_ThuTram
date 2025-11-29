@@ -259,8 +259,8 @@ class AppointmentRepository {
   async getBookingChannelStats(startDate, endDate, groupBy = 'day') {
     try {
       const matchStage = {
-        createdAt: { $gte: startDate, $lte: endDate },
-        status: 'completed', // ✅ Only count completed appointments
+        appointmentDate: { $gte: startDate, $lte: endDate }, // ✅ Filter by appointment date (not createdAt)
+        // ✅ Count all appointments (not just completed) to see booking channel usage
         bookedByRole: { $exists: true, $ne: null } // ✅ Only count appointments with bookedByRole
       };
 
@@ -311,11 +311,11 @@ class AppointmentRepository {
     // 3. Get trends by period
     let groupByDateFormat;
     if (groupBy === 'month') {
-      groupByDateFormat = { $dateToString: { format: '%Y-%m', date: '$createdAt' } };
+      groupByDateFormat = { $dateToString: { format: '%Y-%m', date: '$appointmentDate' } };
     } else if (groupBy === 'year') {
-      groupByDateFormat = { $dateToString: { format: '%Y', date: '$createdAt' } };
+      groupByDateFormat = { $dateToString: { format: '%Y', date: '$appointmentDate' } };
     } else {
-      groupByDateFormat = { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } };
+      groupByDateFormat = { $dateToString: { format: '%Y-%m-%d', date: '$appointmentDate' } };
     }
 
     const trends = await Appointment.aggregate([
