@@ -408,18 +408,24 @@ class InvoiceService {
       // 🔥 FIX: Calculate subtotal from invoice details (NOT from payment amount)
       const subtotalFromDetails = invoiceDetails.reduce((sum, detail) => sum + (detail.totalPrice || 0), 0);
       
-      // 🔥 FIX: Use payment.originalAmount or calculated subtotal (before discount/deposit)
-      // Payment amount = finalAmount (after deposit) or paidAmount
-      // Invoice should show ORIGINAL service prices
-      const invoiceSubtotal = subtotalFromDetails > 0 ? subtotalFromDetails : (paymentData.originalAmount || paymentData.amount);
-      const invoiceTotalAmount = invoiceSubtotal; // No additional tax/discount at invoice level
+      // 🔥 FIX: Detect deposit and adjust invoice total to match payment
+      // If originalAmount > paidAmount, the difference is deposit
+      const originalAmount = paymentData.originalAmount || subtotalFromDetails;
+      const paidAmount = paymentData.paidAmount || paymentData.amount || 0;
+      const depositAmount = paymentData.depositAmount || Math.max(0, originalAmount - paidAmount);
+      
+      // 🔥 IMPORTANT: Invoice totalAmount MUST equal totalPaid (paidAmount)
+      // This ensures invoice reflects actual payment, not service prices
+      const invoiceSubtotal = subtotalFromDetails > 0 ? subtotalFromDetails : originalAmount;
+      const invoiceTotalAmount = paidAmount; // ✅ totalAmount = totalPaid
 
       console.log('💰 Invoice calculation:');
-      console.log('  - Payment amount:', paymentData.amount?.toLocaleString());
-      console.log('  - Payment originalAmount:', paymentData.originalAmount?.toLocaleString());
+      console.log('  - Payment paidAmount:', paidAmount.toLocaleString());
+      console.log('  - Payment originalAmount:', originalAmount.toLocaleString());
+      console.log('  - Detected depositAmount:', depositAmount.toLocaleString());
       console.log('  - Subtotal from details:', subtotalFromDetails.toLocaleString());
       console.log('  - Invoice subtotal:', invoiceSubtotal.toLocaleString());
-      console.log('  - Invoice total:', invoiceTotalAmount.toLocaleString());
+      console.log('  - Invoice totalAmount:', invoiceTotalAmount.toLocaleString(), '(= totalPaid)');
 
       const invoiceData = {
         appointmentId: paymentData.appointmentId,
@@ -428,20 +434,22 @@ class InvoiceService {
         recordId: paymentData.recordId, // 🆕 Link to record
         type: InvoiceType.APPOINTMENT,
         status: InvoiceStatus.PAID,
-        totalAmount: invoiceTotalAmount, // 🔥 FIX: Use calculated total from services
-        subtotal: invoiceSubtotal, // 🔥 FIX: Use calculated subtotal from services
+        totalAmount: invoiceTotalAmount, // 🔥 FIX: = paidAmount (actual payment)
+        subtotal: invoiceSubtotal, // 🔥 Total services before deposit deduction
         paidDate: new Date(),
         dentistInfo: dentistInfo, // 🔥 FIX: Add required dentistInfo
         createdByRole: 'system', // 🔥 FIX: Add required createdByRole
         paymentSummary: {
-          totalPaid: paymentData.paidAmount || paymentData.amount, // 🔥 Use paidAmount
+          totalPaid: paidAmount, // 🔥 Actual amount paid in this transaction
           remainingAmount: 0,
           paymentIds: [paymentData._id],
           lastPaymentDate: new Date(),
           paymentMethod: paymentData.paymentMethod
         },
         details: invoiceDetails, // 🔥 FIX: Add invoice details from record
-        notes: `Hóa đơn tự động tạo từ thanh toán ${paymentData._id}`
+        notes: depositAmount > 0 
+          ? `Hóa đơn tự động tạo từ thanh toán ${paymentData._id}. Đã trừ cọc ${depositAmount.toLocaleString('vi-VN')}đ`
+          : `Hóa đơn tự động tạo từ thanh toán ${paymentData._id}`
       };
 
       console.log('💰 Creating invoice with', invoiceDetails.length, 'service details');
