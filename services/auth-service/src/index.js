@@ -44,7 +44,9 @@ app.use(cors({
       process.env.FRONTEND_URL,
       process.env.CORS_ORIGIN,
       'http://localhost:5173',
-      'http://localhost:3000'
+      'http://localhost:3000',
+      'https://smilecare.io.vn',
+      'https://www.smilecare.io.vn'
     ]
       .filter(Boolean) // Remove undefined
       .flatMap(o => o.split(',').map(s => s.trim())) // Split comma-separated origins

@@ -28,11 +28,14 @@ app.use(cors({
       process.env.FRONTEND_URL,
       process.env.CORS_ORIGIN,
       'http://localhost:5173',
-      'http://localhost:3000'
+      'http://localhost:3000',
+      'https://smilecare.io.vn',
+      'https://www.smilecare.io.vn'
     ].filter(Boolean).flatMap(o => o.split(',').map(s => s.trim())).filter(Boolean);
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.warn('🚫 CORS blocked origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },

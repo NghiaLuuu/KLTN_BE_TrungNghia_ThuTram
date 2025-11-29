@@ -69,12 +69,15 @@ app.use(cors({
       process.env.ADMIN_URL,
       'http://localhost:3000',
       'http://localhost:3001',
-      'http://localhost:5173' // ✅ Vite dev server
+      'http://localhost:5173', // ✅ Vite dev server
+      'https://smilecare.io.vn', // ✅ Production frontend
+      'https://www.smilecare.io.vn' // ✅ Production frontend (www)
     ].filter(Boolean);
     
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.warn('🚫 CORS blocked origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
