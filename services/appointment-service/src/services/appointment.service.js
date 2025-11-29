@@ -245,8 +245,8 @@ class AppointmentService {
         // Continue anyway - Redis lock is primary
       }
       
-      // 3️⃣ Store reservation + locks in Redis (15 min TTL)
-      const ttl = 15 * 60;
+      // 3️⃣ Store reservation + locks in Redis (3 min TTL)
+      const ttl = 3 * 60; // 180 seconds = 3 minutes
       await redisClient.setEx(
         'temp_reservation:' + reservationId,
         ttl,

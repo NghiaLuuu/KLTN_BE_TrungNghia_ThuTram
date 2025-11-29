@@ -117,11 +117,11 @@ class StripeService {
         userRole: roleToStore
       };
       
-      await redis.setEx(tempPaymentKey, 900, JSON.stringify(tempPaymentData));
+      await redis.setEx(tempPaymentKey, 180, JSON.stringify(tempPaymentData)); // 3 minutes
       console.log('💾 [Stripe] Temp payment stored:', tempPaymentKey);
 
       // Store session mapping (for callback)
-      await redis.setEx(`stripe:session:${session.id}`, 900, orderId);
+      await redis.setEx(`stripe:session:${session.id}`, 180, orderId); // 3 minutes
       
       return {
         paymentUrl: session.url,

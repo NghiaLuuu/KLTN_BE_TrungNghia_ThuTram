@@ -124,7 +124,7 @@ class RedisSubscriber {
           reservationId: reservationId,
           slotIds: slotIds,
           expiredAt: new Date().toISOString(),
-          reason: 'Payment temporary expired (15 minutes timeout)'
+          reason: 'Payment temporary expired (3 minutes timeout)'
         }
       };
 

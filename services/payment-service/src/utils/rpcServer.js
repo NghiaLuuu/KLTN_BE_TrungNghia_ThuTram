@@ -43,13 +43,16 @@ async function startRpcServer() {
 
         case 'getPaymentById':
           try {
+            console.log('🔍 [RPC Server] Received getPaymentById:', payload);
             if (!payload.id) {
               response = { error: 'paymentId is required' };
               break;
             }
+            const startTime = Date.now();
             response = await paymentService.getPaymentByIdRPC(payload);
+            console.log(`✅ [RPC Server] getPaymentById completed in ${Date.now() - startTime}ms:`, response ? 'Success' : 'Not found');
           } catch (err) {
-            console.error('Failed to getPaymentById:', err);
+            console.error('❌ [RPC Server] Failed to getPaymentById:', err.message);
             response = { error: err.message };
           }
           break;

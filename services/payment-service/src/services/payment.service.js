@@ -788,8 +788,8 @@ class PaymentService {
       orderId
     };
 
-    // Lưu tạm vào Redis với TTL 15 phút
-    await redisClient.setEx(tempPaymentId, 900, JSON.stringify(data));
+    // Lưu tạm vào Redis với TTL 3 phút
+    await redisClient.setEx(tempPaymentId, 180, JSON.stringify(data)); // 3 minutes
 
     // Return frontend payment selection URL
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -844,7 +844,7 @@ class PaymentService {
         const tempPayment = JSON.parse(tempPaymentData);
         tempPayment.vnpayUrl = paymentUrl;
         tempPayment.vnpayCreatedAt = new Date().toISOString();
-        await redisClient.setEx(tempPaymentKey, 900, JSON.stringify(tempPayment));
+        await redisClient.setEx(tempPaymentKey, 180, JSON.stringify(tempPayment)); // 3 minutes
         console.log('💾 VNPay URL saved to temp payment:', tempPaymentKey);
       } else {
         console.warn('⚠️  Temp payment not found, VNPay URL not saved:', tempPaymentKey);
@@ -1267,12 +1267,21 @@ class PaymentService {
   }
 
   async getPaymentByIdRPC(payload) {
+    console.log('🔍 [getPaymentByIdRPC] Called with payload:', payload);
     if (!payload.id) throw new Error('Payment ID is required');
+    
     if (payload.id.startsWith('payment:temp:')) {
+      console.log('📦 [getPaymentByIdRPC] Fetching temp payment from Redis:', payload.id);
       const raw = await redisClient.get(payload.id);
-      return raw ? JSON.parse(raw) : null;
+      const result = raw ? JSON.parse(raw) : null;
+      console.log('✅ [getPaymentByIdRPC] Temp payment result:', result ? 'Found' : 'Not found');
+      return result;
     }
-    return this.getPaymentById(payload.id);
+    
+    console.log('📊 [getPaymentByIdRPC] Fetching payment from DB:', payload.id);
+    const result = await this.getPaymentById(payload.id);
+    console.log('✅ [getPaymentByIdRPC] DB payment result:', result ? 'Found' : 'Not found');
+    return result;
   }
 
   async manualConfirmPayment({ paymentId }) {

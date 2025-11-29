@@ -120,7 +120,8 @@ class RPCClient {
   // Specific service call methods
   async callPaymentService(method, params) {
     try {
-      return await this.call('payment-service', method, params);
+      // Use 'payment' to match payment_rpc_queue (not payment-service_rpc_queue)
+      return await this.call('payment', method, params);
     } catch (error) {
       console.error(`❌ Payment service call failed: ${method}`, error.message);
       throw error;
