@@ -14,6 +14,29 @@ const createRecordValidation = [
     .withMessage('Tên dịch vụ phải từ 2 đến 200 ký tự')
     .trim(),
   
+  // 🔥 CRITICAL: serviceAddOnPrice is REQUIRED for invoice pricing
+  body('serviceAddOnPrice')
+    .notEmpty()
+    .withMessage('Giá dịch vụ (serviceAddOnPrice) là bắt buộc')
+    .isNumeric()
+    .withMessage('Giá dịch vụ phải là số')
+    .custom((value) => {
+      if (value <= 0) {
+        throw new Error('Giá dịch vụ phải lớn hơn 0');
+      }
+      return true;
+    }),
+  
+  body('serviceAddOnId')
+    .optional()
+    .isString()
+    .withMessage('serviceAddOnId phải là chuỗi'),
+  
+  body('serviceAddOnName')
+    .optional()
+    .isString()
+    .withMessage('serviceAddOnName phải là chuỗi'),
+  
   body('dentistId')
     .notEmpty()
     .withMessage('Dentist ID là bắt buộc')

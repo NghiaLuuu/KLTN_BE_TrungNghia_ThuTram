@@ -347,22 +347,29 @@ class InvoiceService {
             
             // 🔥 FIX: Add MAIN service first (serviceId + serviceAddOn)
             if (record.serviceId && record.serviceName) {
-              // 🔥 IMPORTANT: Service chính không có giá, chỉ serviceAddOn mới có giá!
-              // servicePrice là giá cơ bản (không dùng), serviceAddOnPrice là giá thực tế
+              // 🔥 CRITICAL: serviceAddOnPrice is REQUIRED for invoice pricing
+              // servicePrice is base price (not used), serviceAddOnPrice is actual variant price
               
-              // 🔥 DEBUG: Log all price fields to find the issue
               console.log('🔍 [DEBUG] Main service price fields:', {
+                recordId: record._id || record.id,
+                serviceName: record.serviceName,
+                serviceAddOnName: record.serviceAddOnName,
                 servicePrice: record.servicePrice,
                 serviceAddOnPrice: record.serviceAddOnPrice,
                 totalCost: record.totalCost,
                 depositPaid: record.depositPaid
               });
               
-              const originalPrice = record.serviceAddOnPrice || 0; // CHỈ lấy serviceAddOnPrice (giá gốc)
-              
-              if (originalPrice === 0) {
-                console.error('❌ [ERROR] serviceAddOnPrice is 0 or null! This will cause unitPrice to be 0.');
+              // 🔥 STRICT VALIDATION: serviceAddOnPrice MUST exist and > 0
+              if (!record.serviceAddOnPrice || record.serviceAddOnPrice === 0) {
+                const errorMsg = `❌ CRITICAL ERROR: serviceAddOnPrice is missing or 0 for record ${record._id || record.id}! ` +
+                  `Service: ${record.serviceName}, AddOn: ${record.serviceAddOnName}. ` +
+                  `Cannot create invoice without proper pricing. Please check record-service.`;
+                console.error(errorMsg);
+                throw new Error(errorMsg);
               }
+              
+              const originalPrice = record.serviceAddOnPrice; // CHỈ lấy serviceAddOnPrice (giá gốc)
               
               // 🔥 FIX: unitPrice = ORIGINAL price, totalPrice = price AFTER deposit
               // Deposit is only applied to the FIRST service (main service)

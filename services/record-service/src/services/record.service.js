@@ -67,6 +67,10 @@ class RecordService {
       dentistName: dentistName || 'Unknown Dentist',
       serviceId,
       serviceName: serviceName || 'Unknown Service',
+      serviceAddOnId: data.serviceAddOnId || null, // 🔥 FIX: Include serviceAddOnId
+      serviceAddOnName: data.serviceAddOnName || null, // 🔥 FIX: Include serviceAddOnName
+      serviceAddOnPrice: data.serviceAddOnPrice || 0, // 🔥 FIX: Include serviceAddOnPrice (critical for invoices!)
+      servicePrice: data.servicePrice || 0, // Base price
       type,
       notes: notes || "",
       createdBy: createdBy || finalDentistId,
