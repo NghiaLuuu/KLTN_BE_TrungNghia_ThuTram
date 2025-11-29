@@ -984,7 +984,8 @@ class PaymentService {
             depositPaid: recordData.depositPaid
           });
           
-          const serviceAmount = recordData.serviceAmount || recordData.serviceAddOnPrice || 0;
+          // 🔥 FIX: Use serviceAddOnPrice (actual variant price) instead of servicePrice (base price)
+          const serviceAmount = recordData.serviceAddOnPrice || recordData.serviceAmount || 0;
           const depositAmount = recordData.depositPaid || 0;
           amount = Math.max(0, serviceAmount - depositAmount);
           
@@ -1114,7 +1115,8 @@ class PaymentService {
             depositPaid: recordData.depositPaid
           });
           
-          const serviceAmount = recordData.serviceAmount || recordData.serviceAddOnPrice || 0;
+          // 🔥 FIX: Use serviceAddOnPrice (actual variant price) instead of servicePrice (base price)
+          const serviceAmount = recordData.serviceAddOnPrice || recordData.serviceAmount || 0;
           const depositAmount = recordData.depositPaid || 0;
           const calculatedAmount = Math.max(0, serviceAmount - depositAmount);
           
