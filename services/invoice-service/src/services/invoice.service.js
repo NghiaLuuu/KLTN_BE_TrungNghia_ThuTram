@@ -288,6 +288,17 @@ class InvoiceService {
           });
 
           if (record) {
+            // 🔥 DEBUG: Log full record data to understand pricing
+            console.log('📋 [DEBUG] Record data:', JSON.stringify({
+              serviceName: record.serviceName,
+              serviceAddOnName: record.serviceAddOnName,
+              servicePrice: record.servicePrice,
+              serviceAddOnPrice: record.serviceAddOnPrice,
+              quantity: record.quantity,
+              depositPaid: record.depositPaid,
+              additionalServices: record.additionalServices?.length || 0
+            }, null, 2));
+            
             // 🔥 FIX: Add MAIN service first (serviceId + serviceAddOn)
             if (record.serviceId && record.serviceName) {
               const mainServicePrice = record.serviceAddOnPrice || record.servicePrice || 0;
