@@ -1795,12 +1795,64 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
             shiftStatus[shiftKey].anyActive = subRoomsWithActiveShift > 0; // 🆕 Có ít nhất 1 schedule có ca đang bật
           });
 
+          // 🆕 Chi tiết từng buồng con (để hiển thị trạng thái từng buồng)
+          const subRoomsDetail = activeSubRooms.map(subRoom => {
+            const subRoomId = subRoom._id.toString();
+            const schedule = monthSchedules.find(s => s.subRoomId?.toString() === subRoomId);
+            
+            if (!schedule) {
+              // Buồng chưa có schedule
+              return {
+                subRoomId,
+                subRoomName: subRoom.name,
+                isActive: subRoom.isActive !== false, // Trạng thái buồng trong room
+                isActiveInSchedule: null, // Chưa có schedule
+                hasSchedule: false,
+                shiftStatus: {
+                  morning: { hasShift: false, isActive: false, isGenerated: false },
+                  afternoon: { hasShift: false, isActive: false, isGenerated: false },
+                  evening: { hasShift: false, isActive: false, isGenerated: false }
+                }
+              };
+            }
+
+            // Buồng có schedule - check từng ca
+            const subRoomShiftStatus = {};
+            ['morning', 'afternoon', 'evening'].forEach(shiftKey => {
+              const isGenerated = schedule.shiftConfig?.[shiftKey]?.isGenerated === true;
+              const isActive = schedule.shiftConfig?.[shiftKey]?.isActive !== false;
+              
+              subRoomShiftStatus[shiftKey] = {
+                hasShift: isGenerated && isActive,
+                isActive: isActive,
+                isGenerated: isGenerated
+              };
+            });
+
+            // 🔥 FIX: Trả về đầy đủ các trạng thái
+            const isSubRoomActiveInRoom = subRoom.isActive !== false; // Trạng thái trong room
+            const isActiveSubRoomInSchedule = schedule.isActiveSubRoom !== false; // Trạng thái trong schedule
+            const isScheduleActive = schedule.isActive !== false; // Trạng thái schedule
+
+            return {
+              subRoomId,
+              subRoomName: subRoom.name,
+              isActive: isSubRoomActiveInRoom, // 🆕 Trạng thái buồng trong room
+              isActiveInSchedule: isActiveSubRoomInSchedule, // 🆕 isActiveSubRoom từ schedule
+              isScheduleActive: isScheduleActive, // 🆕 Trạng thái schedule
+              hasSchedule: true,
+              scheduleId: schedule._id.toString(),
+              shiftStatus: subRoomShiftStatus
+            };
+          });
+
           return {
             month,
             year,
             hasSchedule: subRoomsWithSchedule.size > 0,
             allSubRoomsHaveSchedule: subRoomsWithSchedule.size >= activeSubRoomCount, // 🔧 FIX: So với activeSubRoomCount
-            shiftStatus
+            shiftStatus,
+            subRoomsDetail // 🆕 Chi tiết từng buồng
           };
         } else {
           // Phòng không có subrooms: chỉ kiểm tra 1 schedule

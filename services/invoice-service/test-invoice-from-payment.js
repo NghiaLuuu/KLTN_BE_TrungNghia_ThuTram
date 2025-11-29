@@ -116,7 +116,7 @@ async function testInvoiceCreation() {
     // Mock RPC client
     invoiceService.rpcClient = new MockRPCClient();
 
-    // Mock payment data
+    // Mock payment data (giống real case: đã cọc 300k, còn phải trả 1.2M)
     const mockPayment = {
       _id: new mongoose.Types.ObjectId(),
       paymentCode: 'PAY-TEST-001',
@@ -126,7 +126,11 @@ async function testInvoiceCreation() {
       type: 'payment',
       method: 'cash',
       status: 'completed',
-      amount: 7500000, // 🔥 FIX: Updated total (2M + 1M + 1.5M + 300k + 2.7M)
+      originalAmount: 7500000, // 🔥 Tổng tiền dịch vụ gốc (2M + 1M + 1.5M + 300k + 2.7M)
+      depositAmount: 300000,   // 🔥 Đã cọc 300k
+      finalAmount: 7200000,    // 🔥 Còn phải trả: 7.5M - 300k = 7.2M
+      paidAmount: 7200000,     // 🔥 Số tiền khách trả lần này
+      amount: 7200000,         // 🔥 Fallback (dùng cho logic cũ)
       paymentMethod: 'cash',
       processedBy: new mongoose.Types.ObjectId(),
       processedByName: 'BS. Nguyễn Văn Test',
@@ -136,9 +140,12 @@ async function testInvoiceCreation() {
     console.log('💳 Mock Payment:', {
       paymentCode: mockPayment.paymentCode,
       recordId: mockPayment.recordId.toString(),
-      amount: mockPayment.amount.toLocaleString('vi-VN') + ' VNĐ',
+      originalAmount: mockPayment.originalAmount.toLocaleString('vi-VN') + ' VNĐ',
+      depositAmount: mockPayment.depositAmount.toLocaleString('vi-VN') + ' VNĐ',
+      finalAmount: mockPayment.finalAmount.toLocaleString('vi-VN') + ' VNĐ',
+      paidAmount: mockPayment.paidAmount.toLocaleString('vi-VN') + ' VNĐ',
       status: mockPayment.status,
-      note: '1 main service (2M) + 4 additional (1M + 1.5M + 300k + 2.7M)'
+      note: 'Total: 7.5M (1 main: 2M + 4 additional: 5.5M), Deposit: 300k, Remaining: 7.2M'
     });
     console.log('\n');
 

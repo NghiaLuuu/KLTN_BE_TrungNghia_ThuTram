@@ -355,19 +355,35 @@ class InvoiceService {
         };
       }
 
+      // 🔥 FIX: Calculate subtotal from invoice details (NOT from payment amount)
+      const subtotalFromDetails = invoiceDetails.reduce((sum, detail) => sum + (detail.totalPrice || 0), 0);
+      
+      // 🔥 FIX: Use payment.originalAmount or calculated subtotal (before discount/deposit)
+      // Payment amount = finalAmount (after deposit) or paidAmount
+      // Invoice should show ORIGINAL service prices
+      const invoiceSubtotal = subtotalFromDetails > 0 ? subtotalFromDetails : (paymentData.originalAmount || paymentData.amount);
+      const invoiceTotalAmount = invoiceSubtotal; // No additional tax/discount at invoice level
+
+      console.log('💰 Invoice calculation:');
+      console.log('  - Payment amount:', paymentData.amount?.toLocaleString());
+      console.log('  - Payment originalAmount:', paymentData.originalAmount?.toLocaleString());
+      console.log('  - Subtotal from details:', subtotalFromDetails.toLocaleString());
+      console.log('  - Invoice subtotal:', invoiceSubtotal.toLocaleString());
+      console.log('  - Invoice total:', invoiceTotalAmount.toLocaleString());
+
       const invoiceData = {
         appointmentId: paymentData.appointmentId,
         patientId: paymentData.patientId,
         recordId: paymentData.recordId, // 🆕 Link to record
         type: InvoiceType.APPOINTMENT,
         status: InvoiceStatus.PAID,
-        totalAmount: paymentData.amount,
-        subtotal: paymentData.amount, // 🔥 FIX: Add required subtotal
+        totalAmount: invoiceTotalAmount, // 🔥 FIX: Use calculated total from services
+        subtotal: invoiceSubtotal, // 🔥 FIX: Use calculated subtotal from services
         paidDate: new Date(),
         dentistInfo: dentistInfo, // 🔥 FIX: Add required dentistInfo
         createdByRole: 'system', // 🔥 FIX: Add required createdByRole
         paymentSummary: {
-          totalPaid: paymentData.amount,
+          totalPaid: paymentData.paidAmount || paymentData.amount, // 🔥 Use paidAmount
           remainingAmount: 0,
           paymentIds: [paymentData._id],
           lastPaymentDate: new Date(),

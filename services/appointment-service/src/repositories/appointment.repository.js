@@ -294,7 +294,7 @@ class AppointmentRepository {
         { 
           $match: { 
             ...matchStage,
-            bookedByRole: { $ne: 'patient', $exists: true, $ne: null } 
+            bookedByRole: { $exists: true, $ne: null, $nin: ['patient'] } // ✅ FIX: Use $nin to exclude patient
           } 
         },
         {
@@ -351,8 +351,8 @@ class AppointmentRepository {
       { 
         $match: { 
           ...matchStage,
-          bookedByRole: { $ne: 'patient' },
-          bookedBy: { $exists: true }
+          bookedByRole: { $nin: ['patient'], $exists: true, $ne: null }, // ✅ FIX: Use $nin consistently
+          bookedBy: { $exists: true, $ne: null }
         } 
       },
       {
