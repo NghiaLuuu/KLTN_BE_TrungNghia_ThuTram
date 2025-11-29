@@ -179,7 +179,7 @@ class InvoiceService {
         const invoicesWithDetails = await Promise.all(
           result.invoices.map(async (invoice) => {
             const details = await invoiceDetailRepo.findByInvoice(invoice._id);
-            console.log(`📋 [Invoice Service] Invoice ${invoice.invoiceNumber} has ${details.length} details`);
+            // console.log(`📋 [Invoice Service] Invoice ${invoice.invoiceNumber} has ${details.length} details`);
             return {
               ...invoice.toObject ? invoice.toObject() : invoice,
               details

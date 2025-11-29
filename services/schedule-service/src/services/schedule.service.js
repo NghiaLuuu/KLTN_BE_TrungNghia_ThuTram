@@ -1746,20 +1746,21 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
         const monthSchedules = schedulesByRoomMonth.get(key) || [];
 
         if (roomHasSubRooms) {
-          // 🔧 FIX: Chỉ đếm subroom ĐANG BẬT (isActive=true)
-          const activeSubRooms = roomInfo.subRooms.filter(sr => sr.isActive !== false);
-          const activeSubRoomCount = activeSubRooms.length;
-          const activeSubRoomIds = new Set(activeSubRooms.map(sr => sr._id.toString()));
+          // 🔥 FIX: Đếm TẤT CẢ subrooms CÓ SCHEDULE (không phân biệt isActive trong room config)
+          // Vì frontend đang hiển thị tất cả subrooms có schedule
+          const allSubRoomIds = new Set(roomInfo.subRooms.map(sr => sr._id.toString()));
           
-          // 🔥 FIX: Chỉ đếm schedule của subroom đang active VÀ isActiveSubRoom !== false
+          // Đếm số lượng subrooms CÓ SCHEDULE (và isActiveSubRoom !== false)
           const subRoomsWithSchedule = new Set(
             monthSchedules
               .filter(s => {
                 const subRoomId = s.subRoomId?.toString();
-                return subRoomId && activeSubRoomIds.has(subRoomId) && s.isActiveSubRoom !== false;
+                return subRoomId && allSubRoomIds.has(subRoomId) && s.isActiveSubRoom !== false;
               })
               .map(s => s.subRoomId.toString())
           );
+          
+          const totalSubRoomsWithSchedule = subRoomsWithSchedule.size;
 
           // Kiểm tra từng ca
           const shiftStatus = {
@@ -1769,28 +1770,29 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
           };
 
           ['morning', 'afternoon', 'evening'].forEach(shiftKey => {
-            // 🔥 FIX: Chỉ đếm ca đã tạo VÀ đang bật VÀ buồng đang bật VÀ isActiveSubRoom=true
+            // 🔥 FIX: Đếm TẤT CẢ subrooms (có schedule) đã tạo ca VÀ đang bật
             const subRoomsWithShift = monthSchedules.filter(s => {
               const subRoomId = s.subRoomId?.toString();
-              const isSubRoomActive = activeSubRoomIds.has(subRoomId); // Buồng đang bật
+              const hasSchedule = allSubRoomIds.has(subRoomId);
               const isScheduleSubRoomActive = s.isActiveSubRoom !== false; // isActiveSubRoom trong schedule
               const isShiftGenerated = s.shiftConfig?.[shiftKey]?.isGenerated === true;
               const isShiftActive = s.shiftConfig?.[shiftKey]?.isActive !== false;
               
-              return isSubRoomActive && isScheduleSubRoomActive && isShiftGenerated && isShiftActive;
+              return hasSchedule && isScheduleSubRoomActive && isShiftGenerated && isShiftActive;
             }).length;
 
             // 🆕 Check xem có schedule nào có ca này đang bật không (dù đã tạo hay chưa)
             const subRoomsWithActiveShift = monthSchedules.filter(s => {
               const subRoomId = s.subRoomId?.toString();
-              const isSubRoomActive = activeSubRoomIds.has(subRoomId);
+              const hasSchedule = allSubRoomIds.has(subRoomId);
               const isScheduleSubRoomActive = s.isActiveSubRoom !== false;
               const isShiftActive = s.shiftConfig?.[shiftKey]?.isActive !== false;
               
-              return isSubRoomActive && isScheduleSubRoomActive && isShiftActive;
+              return hasSchedule && isScheduleSubRoomActive && isShiftActive;
             }).length;
 
-            shiftStatus[shiftKey].allHave = subRoomsWithShift >= activeSubRoomCount;
+            // 🔥 FIX: allHave phải so sánh với TẤT CẢ subrooms CÓ SCHEDULE
+            shiftStatus[shiftKey].allHave = totalSubRoomsWithSchedule > 0 && subRoomsWithShift >= totalSubRoomsWithSchedule;
             shiftStatus[shiftKey].someHave = subRoomsWithShift > 0;
             shiftStatus[shiftKey].anyActive = subRoomsWithActiveShift > 0; // 🆕 Có ít nhất 1 schedule có ca đang bật
           });
@@ -1861,7 +1863,7 @@ async function getBulkRoomSchedulesInfo (roomIds, fromMonth, toMonth, fromYear, 
             month,
             year,
             hasSchedule: subRoomsWithSchedule.size > 0,
-            allSubRoomsHaveSchedule: subRoomsWithSchedule.size >= activeSubRoomCount, // 🔧 FIX: So với activeSubRoomCount
+            allSubRoomsHaveSchedule: subRoomsWithSchedule.size >= totalSubRoomsWithSchedule, // 🔥 FIX: So với TẤT CẢ subrooms có schedule
             shiftStatus,
             subRoomsDetail // 🆕 Chi tiết từng buồng
           };

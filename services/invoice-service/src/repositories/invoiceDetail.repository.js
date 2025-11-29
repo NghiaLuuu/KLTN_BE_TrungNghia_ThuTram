@@ -27,7 +27,7 @@ class InvoiceDetailRepository {
       ? new mongoose.Types.ObjectId(invoiceId) 
       : invoiceId;
     
-    console.log(`🔍 [InvoiceDetail Repo] Converted to ObjectId: ${objectId}`);
+    // console.log(`🔍 [InvoiceDetail Repo] Converted to ObjectId: ${objectId}`);
     
     let query = InvoiceDetail.find({ invoiceId: objectId, isActive: true });
 
@@ -43,7 +43,7 @@ class InvoiceDetailRepository {
     }
 
     const results = await query;
-    console.log(`✅ [InvoiceDetail Repo] Found ${results.length} details`);
+    // console.log(`✅ [InvoiceDetail Repo] Found ${results.length} details`);
     
     return results;
   }

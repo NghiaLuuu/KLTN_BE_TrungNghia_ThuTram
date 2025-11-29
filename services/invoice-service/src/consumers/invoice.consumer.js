@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const rabbitmqClient = require('../utils/rabbitmq.client');
 const invoiceRepository = require('../repositories/invoice.repository');
 const invoiceDetailRepository = require('../repositories/invoiceDetail.repository');
+const invoiceService = require('../services/invoice.service');
 
 /**
  * Generate unique invoice number
