@@ -189,17 +189,29 @@ async function testInvoiceCreation() {
         calculatedTotal += detail.totalPrice;
       });
       
-      console.log('\n==========================================');
+      console.log('==========================================');
       console.log(`📊 Total from details: ${calculatedTotal.toLocaleString('vi-VN')} VNĐ`);
-      console.log(`💰 Invoice total: ${invoiceWithDetails.totalAmount.toLocaleString('vi-VN')} VNĐ`);
+      console.log(`💰 Invoice subtotal: ${invoiceWithDetails.subtotal.toLocaleString('vi-VN')} VNĐ`);
+      console.log(`💰 Invoice totalAmount: ${invoiceWithDetails.totalAmount.toLocaleString('vi-VN')} VNĐ (after deposit)`);
       
       // Verify totals match
-      if (calculatedTotal === invoiceWithDetails.totalAmount) {
-        console.log('✅ PASS: Total amounts match!');
+      if (calculatedTotal === invoiceWithDetails.subtotal) {
+        console.log('✅ PASS: Details total matches subtotal!');
       } else {
-        console.log('❌ FAIL: Total mismatch!');
+        console.log('❌ FAIL: Details total mismatch with subtotal!');
         console.log(`   Expected: ${calculatedTotal.toLocaleString('vi-VN')} VNĐ`);
-        console.log(`   Got: ${invoiceWithDetails.totalAmount.toLocaleString('vi-VN')} VNĐ`);
+        console.log(`   Got: ${invoiceWithDetails.subtotal.toLocaleString('vi-VN')} VNĐ`);
+      }
+      
+      // Verify deposit deduction
+      const expectedDeposit = 300000;
+      const actualDeposit = invoiceWithDetails.subtotal - invoiceWithDetails.totalAmount;
+      if (actualDeposit === expectedDeposit) {
+        console.log(`✅ PASS: Deposit correctly applied (${expectedDeposit.toLocaleString('vi-VN')} VNĐ)`);
+      } else {
+        console.log(`❌ FAIL: Deposit mismatch!`);
+        console.log(`   Expected deposit: ${expectedDeposit.toLocaleString('vi-VN')} VNĐ`);
+        console.log(`   Actual deposit: ${actualDeposit.toLocaleString('vi-VN')} VNĐ`);
       }
       
       // Verify all services are included (1 main + 4 additional)

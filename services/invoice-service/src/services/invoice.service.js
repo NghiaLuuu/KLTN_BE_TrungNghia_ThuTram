@@ -91,12 +91,36 @@ class InvoiceService {
         const subtotalAmount = createdDetails.reduce((sum, detail) => sum + (detail.totalPrice || 0), 0);
         
         // Update invoice with calculated amounts
-        await invoiceRepo.update(invoice._id, {
-          subtotalAmount: subtotalAmount,
-          totalAmount: subtotalAmount + (invoice.taxInfo?.taxAmount || 0) - (invoice.discountInfo?.discountAmount || 0)
-        });
+        // 🔥 CRITICAL: Don't overwrite totalAmount if already explicitly set (from payment with deposit)
+        const updateData = {
+          subtotal: subtotalAmount
+        };
         
-        console.log('💰 Updated invoice total:', subtotalAmount);
+        // Check if totalAmount was explicitly set (e.g., from payment with deposit)
+        // invoiceData.totalAmount will be set when creating invoice from payment
+        const totalAmountExplicitlySet = invoiceData.hasOwnProperty('totalAmount') && 
+                                         invoiceData.totalAmount !== undefined && 
+                                         invoiceData.totalAmount !== null;
+        
+        if (totalAmountExplicitlySet) {
+          // Keep the explicitly set totalAmount (from payment)
+          updateData.totalAmount = invoiceData.totalAmount;
+          console.log('💰 Keeping explicit totalAmount:', invoiceData.totalAmount, '(from payment, subtotal:', subtotalAmount, ')');
+        } else {
+          // Calculate totalAmount from subtotal (normal invoice creation)
+          updateData.totalAmount = subtotalAmount + (invoice.taxInfo?.taxAmount || 0) - (invoice.discountInfo?.discountAmount || 0);
+          console.log('💰 Calculated totalAmount:', updateData.totalAmount);
+        }
+        
+        const updatedInvoice = await invoiceRepo.update(invoice._id, updateData);
+        
+        console.log('💰 Updated invoice with subtotal:', subtotalAmount);
+        
+        // Clear cache
+        await this.clearInvoiceCache();
+
+        console.log("✅ Invoice created:", updatedInvoice);
+        return updatedInvoice;
       }
 
       // Clear cache
