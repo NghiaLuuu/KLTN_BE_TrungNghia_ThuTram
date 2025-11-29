@@ -289,19 +289,32 @@ class InvoiceService {
 
           if (record) {
             // 🔥 DEBUG: Log full record data to understand pricing
-            console.log('📋 [DEBUG] Record data:', JSON.stringify({
+            console.log('📋 [DEBUG] Record data for invoice:', JSON.stringify({
+              recordId: record._id,
+              recordCode: record.recordCode,
               serviceName: record.serviceName,
+              serviceAddOnId: record.serviceAddOnId,
               serviceAddOnName: record.serviceAddOnName,
               servicePrice: record.servicePrice,
               serviceAddOnPrice: record.serviceAddOnPrice,
               quantity: record.quantity,
+              totalCost: record.totalCost,
               depositPaid: record.depositPaid,
-              additionalServices: record.additionalServices?.length || 0
+              additionalServices: record.additionalServices?.map(s => ({
+                serviceName: s.serviceName,
+                serviceAddOnId: s.serviceAddOnId,
+                serviceAddOnName: s.serviceAddOnName,
+                price: s.price,
+                quantity: s.quantity,
+                totalPrice: s.totalPrice
+              })) || []
             }, null, 2));
             
             // 🔥 FIX: Add MAIN service first (serviceId + serviceAddOn)
             if (record.serviceId && record.serviceName) {
-              const mainServicePrice = record.serviceAddOnPrice || record.servicePrice || 0;
+              // 🔥 IMPORTANT: Service chính không có giá, chỉ serviceAddOn mới có giá!
+              // servicePrice là giá cơ bản (không dùng), serviceAddOnPrice là giá thực tế
+              const mainServicePrice = record.serviceAddOnPrice || 0; // CHỈ lấy serviceAddOnPrice
               const mainServiceQuantity = record.quantity || 1;
               const mainServiceSubtotal = mainServicePrice * mainServiceQuantity;
 
