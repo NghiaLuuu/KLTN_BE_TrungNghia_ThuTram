@@ -15,10 +15,13 @@ class InvoiceService {
   // ============ CORE INVOICE OPERATIONS ============
   async createInvoice(invoiceData, userId) {
     try {
-      // Validate appointment if provided
-      if (invoiceData.appointmentId) {
-        const appointment = await this.rpcClient.call('appointment-service', 'getAppointment', {
-          appointmentId: invoiceData.appointmentId
+      // Validate appointment if provided AND patientInfo not already available
+      // 🔥 FIX: Skip appointment validation if patientId and patientInfo already exist
+      // This avoids unnecessary RPC calls when creating invoice from payment
+      if (invoiceData.appointmentId && (!invoiceData.patientId || !invoiceData.patientInfo)) {
+        console.log('📞 Fetching appointment to get patient info:', invoiceData.appointmentId);
+        const appointment = await this.rpcClient.call('appointment-service', 'getAppointmentById', {
+          id: invoiceData.appointmentId
         });
 
         if (!appointment) {
@@ -33,18 +36,27 @@ class InvoiceService {
         // Auto-fill patient info from appointment
         invoiceData.patientId = appointment.patientId;
         invoiceData.patientInfo = appointment.patientInfo;
+      } else if (invoiceData.appointmentId) {
+        console.log('✅ Skipping appointment validation - patient info already available');
       }
 
       // Generate invoice number
       invoiceData.invoiceNumber = await this.generateInvoiceNumber();
 
       // Set default values
-      // 🔥 FIX: If userId is 'system', use dentist ID or a default system ID
-      if (userId === 'system') {
-        invoiceData.createdBy = invoiceData.dentistInfo?.dentistId || new mongoose.Types.ObjectId();
-      } else {
+      // 🔥 FIX: Ensure userId is always an ObjectId
+      if (typeof userId === 'string' && userId !== 'system') {
+        try {
+          invoiceData.createdBy = new mongoose.Types.ObjectId(userId);
+        } catch (e) {
+          invoiceData.createdBy = invoiceData.dentistInfo?.dentistId || new mongoose.Types.ObjectId();
+        }
+      } else if (mongoose.Types.ObjectId.isValid(userId)) {
         invoiceData.createdBy = userId;
+      } else {
+        invoiceData.createdBy = invoiceData.dentistInfo?.dentistId || new mongoose.Types.ObjectId();
       }
+      
       invoiceData.status = invoiceData.status || InvoiceStatus.DRAFT;
       invoiceData.type = invoiceData.type || InvoiceType.APPOINTMENT;
 
@@ -298,8 +310,8 @@ class InvoiceService {
                 discountAmount: 0,
                 totalPrice: mainServiceSubtotal,
                 notes: `Dịch vụ chính: ${record.serviceName}${record.serviceAddOnName ? ' - ' + record.serviceAddOnName : ''}`,
-                status: 'completed',
-                createdBy: 'system'
+                status: 'completed'
+                // 🔥 FIX: Don't set createdBy here, it will be set later
               });
               
               console.log(`✅ Added main service: ${record.serviceName} (${mainServicePrice.toLocaleString()} x ${mainServiceQuantity} = ${mainServiceSubtotal.toLocaleString()})`);
@@ -331,8 +343,8 @@ class InvoiceService {
                   discountAmount: 0,
                   totalPrice: totalPrice,
                   notes: service.notes || '',
-                  status: 'completed',
-                  createdBy: 'system'
+                  status: 'completed'
+                  // 🔥 FIX: Don't set createdBy here, it will be set later
                 };
               });
               
@@ -388,6 +400,7 @@ class InvoiceService {
       const invoiceData = {
         appointmentId: paymentData.appointmentId,
         patientId: paymentData.patientId,
+        patientInfo: paymentData.patientInfo, // 🔥 FIX: Add patientInfo to skip appointment validation
         recordId: paymentData.recordId, // 🆕 Link to record
         type: InvoiceType.APPOINTMENT,
         status: InvoiceStatus.PAID,
@@ -408,7 +421,11 @@ class InvoiceService {
       };
 
       console.log('💰 Creating invoice with', invoiceDetails.length, 'service details');
-      return await this.createInvoice(invoiceData, 'system');
+      
+      // 🔥 FIX: Use dentistInfo.dentistId or payment.processedBy as createdBy (must be ObjectId)
+      const createdBy = dentistInfo?.dentistId || paymentData.processedBy || new mongoose.Types.ObjectId();
+      
+      return await this.createInvoice(invoiceData, createdBy);
     } catch (error) {
       console.error("❌ Error creating invoice from payment:", error);
       throw error;

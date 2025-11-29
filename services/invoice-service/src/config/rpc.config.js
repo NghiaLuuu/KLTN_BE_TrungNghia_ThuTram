@@ -5,7 +5,7 @@ const QUEUE_NAME_MAP = {
   'payment-service': 'payment_rpc_queue',
   paymentService: 'payment_rpc_queue',
   'record-service': 'record_rpc_queue',
-  'appointment-service': 'appointment_rpc_queue',
+  'appointment-service': 'appointment-service_rpc_queue', // 🔥 FIX: Add -service suffix
   'service-service': 'rpc.service-service',
   'invoice-service': 'invoice-service_rpc_queue'
 };
@@ -43,7 +43,13 @@ class RPCClient {
             if (response && response.error) {
               request.reject(new Error(response.error));
             } else {
-              request.resolve(extractResult(response));
+              // 🔥 FIX: Wrap extractResult in try-catch to handle errors from it
+              try {
+                const result = extractResult(response);
+                request.resolve(result);
+              } catch (error) {
+                request.reject(error);
+              }
             }
           }
         }
@@ -232,6 +238,16 @@ function extractResult(response) {
 
   if (typeof response !== 'object') {
     return response;
+  }
+
+  // 🔥 FIX: Handle { success: true, data: {...} } format from appointment-service
+  if (response.success === true && response.data !== undefined) {
+    return response.data;
+  }
+
+  // 🔥 FIX: Handle { success: false, error: '...' } format
+  if (response.success === false && response.error) {
+    throw new Error(response.error);
   }
 
   if (Object.prototype.hasOwnProperty.call(response, 'result')) {

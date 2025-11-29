@@ -11,6 +11,7 @@ const { startConsumer } = require('./consumers/appointment.consumer');
 const { initializeSocket } = require('./utils/socket');
 const { setupQueueCronJobs } = require('./utils/queueCron');
 const { startAllCronJobs } = require('./utils/cronJobs');
+const startRpcServer = require('./utils/rpcServer');
 const appointmentRoutes = require('./routes/appointment.route');
 
 connectDB();
@@ -66,6 +67,10 @@ async function startServer() {
     // ✅ Start NEW RabbitMQ consumer for payment events (event-driven)
     await startConsumer();
     console.log('✅ Appointment consumer started');
+    
+    // ✅ Start RPC Server for inter-service communication
+    await startRpcServer();
+    console.log('✅ Appointment RPC Server started');
     
     // 🔥 Start queue cron jobs for auto-start
     setupQueueCronJobs();

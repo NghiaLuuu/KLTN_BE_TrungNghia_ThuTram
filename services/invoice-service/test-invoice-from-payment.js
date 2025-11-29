@@ -17,10 +17,10 @@ class MockRPCClient {
   async call(service, action, params) {
     console.log(`📞 [Mock RPC] ${service}.${action}`, params);
     
-    if (service === 'appointment-service' && action === 'getAppointment') {
+    if (service === 'appointment-service' && action === 'getAppointmentById') {
       // Mock appointment
       return {
-        _id: params.appointmentId,
+        _id: params.id,
         patientId: new mongoose.Types.ObjectId(),
         status: 'completed',
         patientInfo: {
