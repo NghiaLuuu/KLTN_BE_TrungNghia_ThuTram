@@ -77,6 +77,21 @@ async function handleCreateRecord(payload) {
 async function handleGetRecordById(payload) {
   if (!payload.id) throw new Error("recordId is required");
   const record = await recordService.getRecordById(payload.id);
+  
+  // 🔥 DEBUG: Log complete record data being returned via RPC
+  console.log('📤 [RPC Server] Returning record data:', {
+    _id: record._id,
+    recordCode: record.recordCode,
+    serviceName: record.serviceName,
+    serviceAddOnId: record.serviceAddOnId,
+    serviceAddOnName: record.serviceAddOnName,
+    servicePrice: record.servicePrice,
+    serviceAddOnPrice: record.serviceAddOnPrice,
+    totalCost: record.totalCost,
+    depositPaid: record.depositPaid,
+    additionalServicesCount: record.additionalServices?.length || 0
+  });
+  
   return { record };
 }
 

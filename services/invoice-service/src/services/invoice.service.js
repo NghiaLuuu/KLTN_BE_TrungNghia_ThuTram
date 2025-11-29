@@ -453,7 +453,12 @@ class InvoiceService {
           }
         } catch (error) {
           console.error('❌ Error fetching record:', error);
-          // Continue without details
+          // 🔥 CRITICAL: If error is about missing serviceAddOnPrice, re-throw to stop invoice creation
+          if (error.message && error.message.includes('serviceAddOnPrice')) {
+            throw error; // Stop invoice creation immediately
+          }
+          // For other errors, continue without details (backward compatibility)
+          console.warn('⚠️ Continuing without invoice details due to non-critical error');
         }
       }
 
