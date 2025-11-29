@@ -243,8 +243,22 @@ class InvoiceService {
     }
   }
 
-  async createInvoiceFromPayment(paymentData) {
+  async createInvoiceFromPayment(paymentIdOrData) {
     try {
+      // 🔥 FIX: Support both paymentId (string) and paymentData (object)
+      let paymentData;
+      if (typeof paymentIdOrData === 'string') {
+        console.log('📞 Fetching payment by ID:', paymentIdOrData);
+        paymentData = await this.rpcClient.call('payment-service', 'getPaymentById', {
+          id: paymentIdOrData
+        });
+        if (!paymentData) {
+          throw new Error(`Payment not found: ${paymentIdOrData}`);
+        }
+      } else {
+        paymentData = paymentIdOrData;
+      }
+
       // Only create invoice if payment is successful
       if (paymentData.status !== 'completed') {
         throw new Error('Chỉ tạo hóa đơn khi thanh toán thành công');
