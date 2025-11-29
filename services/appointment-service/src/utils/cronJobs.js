@@ -14,14 +14,14 @@ const axios = require('axios');
  */
 
 /**
- * Cleanup expired slot locks (locked > 15 minutes)
- * Runs every 5 minutes
+ * Cleanup expired slot locks (locked > 3 minutes)
+ * Runs every 1 minute to match Redis TTL (3 minutes)
  */
 function startCleanupExpiredLocksCron() {
-  cron.schedule('*/5 * * * *', async () => {
+  cron.schedule('* * * * *', async () => {
     try {
       const now = new Date();
-      const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
+      const threeMinutesAgo = new Date(now.getTime() - 3 * 60 * 1000);
 
       // console.log('🔍 [Cron] Checking for expired slot locks...');
 
@@ -39,9 +39,9 @@ function startCleanupExpiredLocksCron() {
 
       const lockedSlots = response.data.slots;
 
-      // Filter expired slots (locked > 15 minutes ago)
+      // Filter expired slots (locked > 3 minutes ago)
       const expiredSlots = lockedSlots.filter(slot => {
-        return slot.lockedAt && new Date(slot.lockedAt) < fifteenMinutesAgo;
+        return slot.lockedAt && new Date(slot.lockedAt) < threeMinutesAgo;
       });
 
       if (expiredSlots.length === 0) {
@@ -80,7 +80,7 @@ function startCleanupExpiredLocksCron() {
     }
   });
 
-  console.log('⏰ Cron job started: Cleanup expired slot locks (15 min)');
+  console.log('⏰ Cron job started: Cleanup expired slot locks (3 min, runs every 1 min)');
 }
 
 /**
