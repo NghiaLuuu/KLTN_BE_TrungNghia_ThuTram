@@ -542,6 +542,28 @@ async function getRoomById(roomId) {
   }
 }
 
+/**
+ * ✅ Clear room calendar cache via RabbitMQ message queue
+ * Gửi message qua RabbitMQ để Room service tự invalidate cache
+ * @param {String} roomId - Room ID
+ */
+async function clearRoomCalendarCache(roomId) {
+  try {
+    // 📨 Publish message to RabbitMQ queue
+    await publishToQueue('room_cache_invalidation', {
+      action: 'invalidateRoomCache',
+      roomId: roomId.toString(),
+      reason: 'schedule_updated',
+      timestamp: new Date().toISOString()
+    });
+    
+    console.log(`📨 [RabbitMQ] Published cache invalidation message for room ${roomId}`);
+  } catch (error) {
+    console.error(`❌ [RabbitMQ Error] Failed to publish cache invalidation for room ${roomId}:`, error.message);
+    // ⚠️ Non-blocking: cache invalidation error không làm fail request chính
+  }
+}
+
 function calculateShiftDurationMinutes(startTime, endTime) {
   if (!startTime || !endTime) return 0;
   const parseToMinutes = (timeStr) => {
@@ -2436,15 +2458,10 @@ exports.createScheduleOverrideHoliday = async (data) => {
     // 🆕 Clear calendar cache for this room
     if (createdSlots.length > 0) {
       try {
-        const redisClient = require('../config/redis');
-        const pattern = `room_calendar:${schedule.roomId}:*`;
-        const keys = await redisClient.keys(pattern);
-        if (keys.length > 0) {
-          await redisClient.del(keys);
-          console.log(`🗑️ [Cache Cleared] Deleted ${keys.length} calendar cache keys for room ${schedule.roomId}`);
-        }
+        await clearRoomCalendarCache(schedule.roomId);
       } catch (cacheError) {
-        console.error('⚠️ Cache clear error (data still saved):', cacheError.message);
+        console.warn(`⚠️ [Cache Clear Error] Room ${schedule.roomId}:`, cacheError.message);
+        // ✅ Cache error không làm gian đoạn flow chính
       }
     }
 
@@ -2895,13 +2912,13 @@ exports.createBatchScheduleOverrideHoliday = async ({ scheduleIds, date, shifts,
           if (schedule.roomId) affectedRooms.add(schedule.roomId.toString());
         });
 
-        const redisClient = require('../config/redis');
+        // 🆕 Clear calendar cache for affected rooms
         for (const roomId of affectedRooms) {
-          const pattern = `room_calendar:${roomId}:*`;
-          const keys = await redisClient.keys(pattern);
-          if (keys.length > 0) {
-            await redisClient.del(keys);
-            console.log(`🗑️ [Cache Cleared] Deleted ${keys.length} calendar cache keys for room ${roomId}`);
+          try {
+            await clearRoomCalendarCache(roomId);
+          } catch (cacheError) {
+            console.warn(`⚠️ [Cache Clear Error] Room ${roomId}:`, cacheError.message);
+            // ✅ Cache error không làm gián đoạn flow chính
           }
         }
         console.log(`✅ Calendar cache cleared for ${affectedRooms.size} room(s)`);
@@ -6381,30 +6398,10 @@ exports.addMissingShifts = async ({
 
     console.log(`\n✅ [addMissingShifts] Completed: ${totalAddedSlots} total slots added`);
 
-    // 🆕 Clear calendar cache for this room
+    // 🆕 Clear calendar cache for this room using RabbitMQ message queue
     if (totalAddedSlots > 0) {
-      try {
-        const pattern = `room_calendar:${roomId}:*`;
-        console.log(`🔍 [addMissingShifts] Searching for cache keys with pattern: ${pattern}`);
-        
-        const keys = await redisClient.keys(pattern);
-        console.log(`🔍 [addMissingShifts] Found ${keys.length} cache keys:`, keys.slice(0, 5)); // Show first 5
-        
-        if (keys.length > 0) {
-          await redisClient.del(keys);
-          console.log(`🗑️ [addMissingShifts] Cleared ${keys.length} calendar cache keys for room ${roomId}`);
-        } else {
-          // Debug: Check if there are ANY calendar cache keys
-          const allCalendarKeys = await redisClient.keys('room_calendar:*');
-          console.log(`ℹ️ [addMissingShifts] No calendar cache found for room ${roomId}`);
-          console.log(`🔍 [addMissingShifts] Total calendar keys in Redis: ${allCalendarKeys.length}`);
-          if (allCalendarKeys.length > 0) {
-            console.log(`🔍 [addMissingShifts] Sample keys:`, allCalendarKeys.slice(0, 3));
-          }
-        }
-      } catch (cacheError) {
-        console.error('⚠️ [addMissingShifts] Cache clear error (slots still saved):', cacheError.message);
-      }
+      console.log(`🗑️ [addMissingShifts] Sending cache invalidation message for room ${roomId}`);
+      await clearRoomCalendarCache(roomId);
     }
 
     return {

@@ -355,8 +355,8 @@ exports.addPriceSchedule = async (serviceId, addOnId, scheduleData) => {
   }
 
   // Validate date range
-  if (new Date(scheduleData.endDate) <= new Date(scheduleData.startDate)) {
-    throw new Error('Ngày kết thúc phải sau ngày bắt đầu');
+  if (new Date(scheduleData.endDate) < new Date(scheduleData.startDate)) {
+    throw new Error('Ngày kết thúc phải sau hoặc bằng ngày bắt đầu');
   }
 
   // 🆕 Validate start date must be after today
@@ -431,8 +431,8 @@ exports.updatePriceSchedule = async (serviceId, addOnId, scheduleId, updateData)
   if (updateData.note !== undefined) schedule.note = updateData.note;
 
   // Validate date range if dates were updated
-  if (schedule.endDate <= schedule.startDate) {
-    throw new Error('Ngày kết thúc phải sau ngày bắt đầu');
+  if (schedule.endDate < schedule.startDate) {
+    throw new Error('Ngày kết thúc phải sau hoặc bằng ngày bắt đầu');
   }
 
   // 🆕 Check for overlapping date ranges with OTHER priceSchedules (exclude current one)

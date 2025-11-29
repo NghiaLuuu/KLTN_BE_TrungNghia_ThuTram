@@ -1,6 +1,7 @@
 // utils/scheduleConsumer.js
 const amqp = require('amqplib');
 const roomService = require('../services/room.service');
+const redisClient = require('./redis.client');
 
 let channel;
 let connection;
@@ -49,6 +50,7 @@ async function startScheduleConsumer() {
     const ch = await connectRabbit();
     const roomScheduleQueue = 'room.schedule.updated';
     const subroomScheduleQueue = 'subroom.schedule.created';
+    const cacheInvalidationQueue = 'room_cache_invalidation'; // 🆕 Cache invalidation queue
     
     // Consumer 1: Room schedule updates
     await ch.assertQueue(roomScheduleQueue, { durable: true });
@@ -107,6 +109,47 @@ async function startScheduleConsumer() {
           ch.ack(msg);
         } catch (error) {
           console.error('❌ Error processing subroom schedule created message:', error);
+          ch.nack(msg, false, false);
+        }
+      }
+    }, { noAck: false });
+    
+    // 🆕 Consumer 3: Room calendar cache invalidation
+    await ch.assertQueue(cacheInvalidationQueue, { durable: true });
+    
+    console.log(`📡 Listening for cache invalidation messages on queue: ${cacheInvalidationQueue}`);
+    
+    ch.consume(cacheInvalidationQueue, async (msg) => {
+      if (msg) {
+        try {
+          const data = JSON.parse(msg.content.toString());
+          console.log('📥 Received cache invalidation message:', data);
+          
+          const { roomId, action, reason } = data;
+          
+          if (action !== 'invalidateRoomCache' || !roomId) {
+            console.error('❌ Invalid cache invalidation data:', data);
+            ch.nack(msg, false, false);
+            return;
+          }
+          
+          // Clear calendar cache for the specific room
+          const pattern = `room_calendar:${roomId}:*`;
+          console.log(`🔍 [Cache Invalidation] Searching for keys: ${pattern}`);
+          
+          const keys = await redisClient.keys(pattern);
+          console.log(`🔍 [Cache Invalidation] Found ${keys.length} calendar cache keys`);
+          
+          if (keys.length > 0) {
+            await redisClient.del(keys);
+            console.log(`🗑️ [Cache Invalidation] Cleared ${keys.length} calendar cache keys for room ${roomId} (reason: ${reason})`);
+          } else {
+            console.log(`ℹ️ [Cache Invalidation] No calendar cache found for room ${roomId}`);
+          }
+          
+          ch.ack(msg);
+        } catch (error) {
+          console.error('❌ Error processing cache invalidation message:', error);
           ch.nack(msg, false, false);
         }
       }
