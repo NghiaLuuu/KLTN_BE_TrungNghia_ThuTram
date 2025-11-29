@@ -249,7 +249,7 @@ class InvoiceService {
       let paymentData;
       if (typeof paymentIdOrData === 'string') {
         console.log('📞 Fetching payment by ID:', paymentIdOrData);
-        paymentData = await this.rpcClient.call('payment-service', 'getPaymentById', {
+        paymentData = await this.rpcClient.callPaymentService('getPaymentById', {
           id: paymentIdOrData
         });
         if (!paymentData) {

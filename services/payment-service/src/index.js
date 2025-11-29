@@ -31,6 +31,20 @@ rabbitmqClient.connectRabbitMQ(RABBITMQ_URL)
 // Initialize Express app
 const app = express();
 
+// Honor proxy headers when running behind Nginx/Traefik so rate limit can read client IPs
+if (process.env.TRUST_PROXY !== 'false') {
+  const trustProxyValue = (() => {
+    if (!process.env.TRUST_PROXY || process.env.TRUST_PROXY === 'true') {
+      return 'loopback, linklocal, uniquelocal';
+    }
+    if (/^\d+$/.test(process.env.TRUST_PROXY)) {
+      return Number(process.env.TRUST_PROXY);
+    }
+    return process.env.TRUST_PROXY;
+  })();
+  app.set('trust proxy', trustProxyValue);
+}
+
 // Connect to Database
 connectDB().then(() => {
   console.log('✅ Database connected');

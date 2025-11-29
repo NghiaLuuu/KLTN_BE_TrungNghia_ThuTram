@@ -1,5 +1,15 @@
 const amqp = require('amqplib');
 
+const QUEUE_NAME_MAP = {
+  payment: 'payment_rpc_queue',
+  'payment-service': 'payment_rpc_queue',
+  paymentService: 'payment_rpc_queue',
+  'record-service': 'record_rpc_queue',
+  'appointment-service': 'appointment_rpc_queue',
+  'service-service': 'rpc.service-service',
+  'invoice-service': 'invoice-service_rpc_queue'
+};
+
 class RPCClient {
   constructor() {
     this.connection = null;
@@ -30,10 +40,10 @@ class RPCClient {
           const request = this.pendingRequests.get(correlationId);
           if (request) {
             this.pendingRequests.delete(correlationId);
-            if (response.error) {
+            if (response && response.error) {
               request.reject(new Error(response.error));
             } else {
-              request.resolve(response.result);
+              request.resolve(extractResult(response));
             }
           }
         }
@@ -80,7 +90,7 @@ class RPCClient {
 
     return new Promise((resolve, reject) => {
       const correlationId = `${++this.correlationId}`;
-      const queueName = `${serviceName}_rpc_queue`;
+      const queueName = QUEUE_NAME_MAP[serviceName] || `${serviceName}_rpc_queue`;
 
       // Set timeout
       const timeoutId = setTimeout(() => {
@@ -103,7 +113,9 @@ class RPCClient {
       // Send request
       const message = JSON.stringify({
         method: methodName,
-        params: params,
+        params,
+        action: methodName,
+        payload: params,
         timestamp: new Date().toISOString()
       });
 
@@ -212,5 +224,26 @@ class RPCClient {
 
 // Create singleton instance
 const rpcClient = new RPCClient();
+
+function extractResult(response) {
+  if (response === null || response === undefined) {
+    return response;
+  }
+
+  if (typeof response !== 'object') {
+    return response;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(response, 'result')) {
+    return response.result;
+  }
+
+  const keys = Object.keys(response).filter((key) => key !== 'error');
+  if (keys.length === 1) {
+    return response[keys[0]];
+  }
+
+  return response;
+}
 
 module.exports = rpcClient;
