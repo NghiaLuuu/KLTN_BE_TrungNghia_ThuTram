@@ -349,7 +349,20 @@ class InvoiceService {
             if (record.serviceId && record.serviceName) {
               // 🔥 IMPORTANT: Service chính không có giá, chỉ serviceAddOn mới có giá!
               // servicePrice là giá cơ bản (không dùng), serviceAddOnPrice là giá thực tế
+              
+              // 🔥 DEBUG: Log all price fields to find the issue
+              console.log('🔍 [DEBUG] Main service price fields:', {
+                servicePrice: record.servicePrice,
+                serviceAddOnPrice: record.serviceAddOnPrice,
+                totalCost: record.totalCost,
+                depositPaid: record.depositPaid
+              });
+              
               const originalPrice = record.serviceAddOnPrice || 0; // CHỈ lấy serviceAddOnPrice (giá gốc)
+              
+              if (originalPrice === 0) {
+                console.error('❌ [ERROR] serviceAddOnPrice is 0 or null! This will cause unitPrice to be 0.');
+              }
               
               // 🔥 FIX: unitPrice = ORIGINAL price, totalPrice = price AFTER deposit
               // Deposit is only applied to the FIRST service (main service)
