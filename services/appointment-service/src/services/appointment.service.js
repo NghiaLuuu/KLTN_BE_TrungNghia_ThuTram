@@ -1448,7 +1448,7 @@ class AppointmentService {
       
       const reservation = JSON.parse(reservationData);
       
-      // Generate appointment code
+      // Generate appointment code (with automatic retry/increment on duplicate)
       const appointmentDate = new Date(reservation.appointmentDate);
       const appointmentCode = await Appointment.generateAppointmentCode(appointmentDate);
       
@@ -1485,7 +1485,33 @@ class AppointmentService {
         transactionId: paymentInfo.transactionId
       });
       
-      await appointment.save();
+      try {
+        await appointment.save();
+      } catch (saveError) {
+        // Handle duplicate paymentId error (idempotent - same payment processed twice)
+        if (saveError.code === 11000 && saveError.keyPattern?.paymentId) {
+          console.log('⚠️ Duplicate paymentId detected - payment already processed');
+          const existingAppointment = await Appointment.findOne({
+            paymentId: paymentInfo.paymentId
+          });
+          if (existingAppointment) {
+            console.log('✅ Returning existing appointment:', existingAppointment.appointmentCode);
+            return existingAppointment;
+          }
+        }
+        
+        // If duplicate appointmentCode (race condition), regenerate and retry
+        if (saveError.code === 11000 && saveError.keyPattern?.appointmentCode) {
+          console.log('⚠️ Duplicate appointmentCode - race condition detected, retrying...');
+          // generateAppointmentCode already handles finding max sequence
+          const newCode = await Appointment.generateAppointmentCode(appointmentDate);
+          appointment.appointmentCode = newCode;
+          await appointment.save(); // Retry with new code
+          console.log('✅ Saved with new appointmentCode:', newCode);
+        } else {
+          throw saveError; // Re-throw other errors
+        }
+      }
       
       // Update slots: set status='booked' and appointmentId
       // Use HTTP instead of RPC for better debugging

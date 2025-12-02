@@ -264,7 +264,7 @@ const appointmentSchema = new Schema({
 appointmentSchema.index({ patientId: 1, appointmentDate: -1 });
 appointmentSchema.index({ dentistId: 1, appointmentDate: 1 });
 appointmentSchema.index({ status: 1, appointmentDate: 1 });
-appointmentSchema.index({ paymentId: 1 });
+appointmentSchema.index({ paymentId: 1 }, { unique: true, sparse: true }); // ✅ Unique to prevent duplicate appointments from same payment
 appointmentSchema.index({ appointmentDate: 1 });
 // ⚡ Compound index for reminder email cron (highly optimized)
 appointmentSchema.index({ 
@@ -294,22 +294,48 @@ appointmentSchema.virtual('bookingChannel').get(function() {
 
 // Static: Generate appointment code (AP000001-03102025)
 appointmentSchema.statics.generateAppointmentCode = async function(date) {
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
+  // ✅ FIX: Get date parts in Vietnam timezone
+  // date is already midnight Vietnam stored as UTC (e.g., 2025-12-02T17:00:00.000Z = Dec 3 Vietnam)
+  const vietnamDateStr = date.toLocaleString('en-US', { 
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }); // Returns MM/DD/YYYY
+  
+  const [month, day, year] = vietnamDateStr.split('/');
   const dateStr = `${day}${month}${year}`; // ddmmyyyy
   
   // Count appointments on that day
+  // ✅ FIX: appointmentDate is already stored as midnight Vietnam in UTC
+  // So we need to count appointments with same appointmentDate (not same UTC day)
+  // Range: from date 00:00 Vietnam to 23:59:59 Vietnam
   const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
+  startOfDay.setUTCHours(0, 0, 0, 0); // Reset to UTC midnight of same date
+  
   const endOfDay = new Date(date);
-  endOfDay.setHours(23, 59, 59, 999);
+  endOfDay.setUTCHours(23, 59, 59, 999);
   
-  const count = await this.countDocuments({
+  // ✅ FIX: Retry logic to handle race conditions
+  // Find the highest sequence number for this date
+  const existingCodes = await this.find({
     appointmentDate: { $gte: startOfDay, $lte: endOfDay }
-  });
+  }).select('appointmentCode').lean();
   
-  const sequence = String(count + 1).padStart(6, '0'); // 000001, 000002, ...
+  let maxSequence = 0;
+  const pattern = new RegExp(`^AP(\\d{6})-${dateStr}$`);
+  
+  for (const doc of existingCodes) {
+    const match = doc.appointmentCode.match(pattern);
+    if (match) {
+      const seq = parseInt(match[1], 10);
+      if (seq > maxSequence) {
+        maxSequence = seq;
+      }
+    }
+  }
+  
+  const sequence = String(maxSequence + 1).padStart(6, '0');
   
   return `AP${sequence}-${dateStr}`;
 };
