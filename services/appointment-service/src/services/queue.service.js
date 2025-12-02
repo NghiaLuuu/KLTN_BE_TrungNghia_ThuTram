@@ -2,6 +2,7 @@ const Appointment = require('../models/appointment.model');
 const { getIO } = require('../utils/socket');
 const serviceClient = require('../utils/serviceClient');
 const redisClient = require('../utils/redis.client');
+const { getStartOfDayVN, getEndOfDayVN, getNowVN } = require('../utils/timezone.helper');
 
 class QueueService {
   /**
@@ -13,16 +14,18 @@ class QueueService {
    */
   async getQueue(roomId = null) {
     try {
-      const today = new Date();
-      const startOfDay = new Date(today.setHours(0, 0, 0, 0));
-      const endOfDay = new Date(today.setHours(23, 59, 59, 999));
+      // ✅ FIX: Use timezone helper for consistent VN timezone handling
+      const startOfDayUTC = getStartOfDayVN();
+      const endOfDayUTC = getEndOfDayVN();
+
+      console.log(`📅 [QueueService] Query range (UTC): ${startOfDayUTC.toISOString()} - ${endOfDayUTC.toISOString()}`);
 
       const query = {
         // ✅ Chỉ lấy appointment chưa hoàn thành (bao gồm cả khám lố giờ)
         status: { $in: ['in-progress', 'checked-in', 'confirmed'] },
         appointmentDate: {
-          $gte: startOfDay,
-          $lte: endOfDay
+          $gte: startOfDayUTC,
+          $lte: endOfDayUTC
         }
       };
 
@@ -210,13 +213,16 @@ class QueueService {
    */
   async getQueueStats() {
     try {
-      const today = new Date();
+      // ✅ FIX: Use timezone helper for consistent VN timezone handling
+      const startOfDayUTC = getStartOfDayVN();
+      const endOfDayUTC = getEndOfDayVN();
+
       const stats = await Appointment.aggregate([
         {
           $match: {
             appointmentDate: {
-              $gte: new Date(today.setHours(0, 0, 0, 0)),
-              $lte: new Date(today.setHours(23, 59, 59, 999))
+              $gte: startOfDayUTC,
+              $lte: endOfDayUTC
             }
           }
         },

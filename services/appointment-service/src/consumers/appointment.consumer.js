@@ -1,5 +1,6 @@
 const rabbitmqClient = require('../utils/rabbitmq.client');
 const appointmentRepository = require('../repositories/appointment.repository');
+const { parseVNDate } = require('../utils/timezone.helper');
 
 /**
  * Generate unique appointment code
@@ -294,7 +295,7 @@ async function startConsumer() {
             
             // Slot & Schedule info
             slotIds: appointmentData.slotIds || [],
-            appointmentDate: new Date(appointmentData.appointmentDate),
+            appointmentDate: parseVNDate(appointmentData.appointmentDate), // ✅ Parse as VN midnight
             startTime: appointmentData.startTime,
             endTime: appointmentData.endTime,
             roomId: appointmentData.roomId,
