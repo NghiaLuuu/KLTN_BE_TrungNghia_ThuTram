@@ -107,8 +107,12 @@ function startReminderEmailCron() {
       // Filter appointments by exact start time (appointmentDate + startTime)
       const filteredAppointments = appointments.filter(apt => {
         const [hours, minutes] = apt.startTime.split(':').map(Number);
+        
+        // ✅ FIX: appointmentDate is stored as UTC (e.g., 2025-12-02T17:00:00Z = midnight Vietnam Dec 3)
+        // startTime is Vietnam time (e.g., "08:00" Vietnam)
+        // To get correct UTC time: add startTime hours to the base appointmentDate
         const appointmentStartTime = new Date(apt.appointmentDate);
-        appointmentStartTime.setHours(hours, minutes, 0, 0);
+        appointmentStartTime.setUTCHours(appointmentStartTime.getUTCHours() + hours, minutes, 0, 0);
         
         const timeDiff = appointmentStartTime - now;
         const isWithin24Hours = timeDiff > 0 && timeDiff <= 24 * 60 * 60 * 1000;
@@ -186,11 +190,15 @@ function startNoShowCron() {
         const [startHours, startMinutes] = apt.startTime.split(':').map(Number);
         const [endHours, endMinutes] = apt.endTime.split(':').map(Number);
         
+        // ✅ FIX: appointmentDate is stored as UTC (e.g., 2025-12-02T17:00:00Z = midnight Vietnam Dec 3)
+        // startTime/endTime are Vietnam times (e.g., "08:00", "09:00" Vietnam)
+        // To get correct UTC time: add the hours to the base appointmentDate UTC hours
+        // Example: 2025-12-02T17:00:00Z + 8 hours = 2025-12-03T01:00:00Z (08:00 Vietnam)
         const appointmentStartTime = new Date(apt.appointmentDate);
-        appointmentStartTime.setHours(startHours, startMinutes, 0, 0);
+        appointmentStartTime.setUTCHours(appointmentStartTime.getUTCHours() + startHours, startMinutes, 0, 0);
         
         const appointmentEndTime = new Date(apt.appointmentDate);
-        appointmentEndTime.setHours(endHours, endMinutes, 0, 0);
+        appointmentEndTime.setUTCHours(appointmentEndTime.getUTCHours() + endHours, endMinutes, 0, 0);
         
         // Calculate mid-point time: (startTime + endTime) / 2
         const midPointTime = new Date((appointmentStartTime.getTime() + appointmentEndTime.getTime()) / 2);
