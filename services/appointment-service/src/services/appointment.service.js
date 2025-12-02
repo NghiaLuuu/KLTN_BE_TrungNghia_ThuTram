@@ -1307,42 +1307,9 @@ class AppointmentService {
         notes: notes || ''
       });
       
-      // 🔄 Try to save with duplicate handling (retry loop for race conditions)
-      let saveAttempts = 0;
-      const maxAttempts = 100;
-      let saved = false;
-      
-      while (!saved && saveAttempts < maxAttempts) {
-        try {
-          await appointment.save();
-          console.log('✅ Walk-in appointment created:', appointment.appointmentCode);
-          saved = true;
-        } catch (saveError) {
-          saveAttempts++;
-          
-          // Handle duplicate appointmentCode (race condition)
-          if (saveError.code === 11000 && saveError.keyPattern?.appointmentCode) {
-            if (saveAttempts >= maxAttempts) {
-              console.error('❌ Failed to save appointment after', maxAttempts, 'attempts');
-              throw new Error('Failed to create appointment due to duplicate code conflict after multiple retries');
-            }
-            
-            console.warn(`⚠️ Duplicate appointmentCode detected (attempt ${saveAttempts}/${maxAttempts}), regenerating...`);
-            
-            // Wait random delay to avoid all retries querying at same time
-            const delay = Math.floor(Math.random() * 100) + 50; // 50-150ms
-            await new Promise(resolve => setTimeout(resolve, delay));
-            
-            // Regenerate code and retry
-            const newCode = await Appointment.generateAppointmentCode(appointmentDate);
-            appointment.appointmentCode = newCode;
-            console.log(`🔄 Retry ${saveAttempts} with new code: ${newCode} (after ${delay}ms delay)`);
-          } else {
-            // Other errors - throw immediately
-            throw saveError;
-          }
-        }
-      }
+      // Save appointment (random offset in generateAppointmentCode handles race conditions)
+      await appointment.save();
+      console.log('✅ Walk-in appointment created:', appointment.appointmentCode);
       
       // ✅ Auto check-in for walk-in appointments (triggers record creation event)
       const userId = currentUser.userId || currentUser._id;
@@ -1519,52 +1486,23 @@ class AppointmentService {
         transactionId: paymentInfo.transactionId
       });
       
-      // 🔄 Try to save with duplicate handling (retry loop for race conditions)
-      let saveAttempts = 0;
-      const maxAttempts = 100;
-      let saved = false;
-      
-      while (!saved && saveAttempts < maxAttempts) {
-        try {
-          await appointment.save();
-          console.log('✅ Online appointment created:', appointment.appointmentCode);
-          saved = true;
-        } catch (saveError) {
-          saveAttempts++;
-          
-          // Handle duplicate paymentId error (idempotent - same payment processed twice)
-          if (saveError.code === 11000 && saveError.keyPattern?.paymentId) {
-            console.log('⚠️ Duplicate paymentId detected - payment already processed');
-            const existingAppointment = await Appointment.findOne({
-              paymentId: paymentInfo.paymentId
-            });
-            if (existingAppointment) {
-              console.log('✅ Returning existing appointment:', existingAppointment.appointmentCode);
-              return existingAppointment;
-            }
-          }
-          
-          // If duplicate appointmentCode (race condition), regenerate and retry
-          if (saveError.code === 11000 && saveError.keyPattern?.appointmentCode) {
-            if (saveAttempts >= maxAttempts) {
-              console.error('❌ Failed to save appointment after', maxAttempts, 'attempts');
-              throw new Error('Failed to create appointment due to duplicate code conflict after multiple retries');
-            }
-            
-            console.log(`⚠️ Duplicate appointmentCode - race condition detected (attempt ${saveAttempts}/${maxAttempts}), retrying...`);
-            
-            // Wait random delay to avoid all retries querying at same time
-            const delay = Math.floor(Math.random() * 100) + 50; // 50-150ms
-            await new Promise(resolve => setTimeout(resolve, delay));
-            
-            // generateAppointmentCode already handles finding max sequence
-            const newCode = await Appointment.generateAppointmentCode(appointmentDate);
-            appointment.appointmentCode = newCode;
-            console.log(`🔄 Retry ${saveAttempts} with new code: ${newCode} (after ${delay}ms delay)`);
-          } else {
-            throw saveError; // Re-throw other errors
+      // Save appointment (random offset in generateAppointmentCode handles race conditions)
+      try {
+        await appointment.save();
+        console.log('✅ Online appointment created:', appointment.appointmentCode);
+      } catch (saveError) {
+        // Handle duplicate paymentId error (idempotent - same payment processed twice)
+        if (saveError.code === 11000 && saveError.keyPattern?.paymentId) {
+          console.log('⚠️ Duplicate paymentId detected - payment already processed');
+          const existingAppointment = await Appointment.findOne({
+            paymentId: paymentInfo.paymentId
+          });
+          if (existingAppointment) {
+            console.log('✅ Returning existing appointment:', existingAppointment.appointmentCode);
+            return existingAppointment;
           }
         }
+        throw saveError;
       }
       
       // Update slots: set status='booked' and appointmentId

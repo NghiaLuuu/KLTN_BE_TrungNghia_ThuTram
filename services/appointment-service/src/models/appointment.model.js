@@ -293,7 +293,7 @@ appointmentSchema.virtual('bookingChannel').get(function() {
 });
 
 // Static: Generate appointment code (AP000001-03102025)
-appointmentSchema.statics.generateAppointmentCode = async function(date) {
+appointmentSchema.statics.generateAppointmentCode = async function(date, retryOffset = 0) {
   // ✅ FIX: Get date parts in Vietnam timezone
   // date is already midnight Vietnam stored as UTC (e.g., 2025-12-02T17:00:00.000Z = Dec 3 Vietnam)
   const vietnamDateStr = date.toLocaleString('en-US', { 
@@ -335,7 +335,10 @@ appointmentSchema.statics.generateAppointmentCode = async function(date) {
     }
   }
   
-  const sequence = String(maxSequence + 1).padStart(6, '0');
+  // ✅ Add retryOffset + random component to avoid collision between concurrent requests
+  // Random offset: 0-99 ensures different requests get different sequences even at same retry attempt
+  const randomOffset = Math.floor(Math.random() * 100);
+  const sequence = String(maxSequence + 1 + retryOffset + randomOffset).padStart(6, '0');
   
   return `AP${sequence}-${dateStr}`;
 };
