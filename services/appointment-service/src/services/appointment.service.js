@@ -289,7 +289,7 @@ class AppointmentService {
       
     } catch (error) {
       console.error('Error reserving appointment:', error);
-      throw new Error('Cannot reserve appointment: ' + error.message);
+      throw new Error(error.message || 'Không thể đặt lịch hẹn. Vui lòng thử lại sau.');
     }
   }
   
@@ -309,17 +309,17 @@ class AppointmentService {
       
       // Check if already booked or locked in database
       if (slot.status === 'booked') {
-        throw new Error('Slot ' + slotId + ' is already booked');
+        throw new Error('Khung giờ này đã được đặt. Vui lòng chọn khung giờ khác.');
       }
       
       if (slot.status === 'locked') {
-        throw new Error('Slot ' + slotId + ' is currently locked (another user is booking)');
+        throw new Error('Khung giờ này đang được giữ chỗ. Vui lòng chọn khung giờ khác hoặc đợi 3 phút để đặt lại nếu bạn đang trong quá trình thanh toán.');
       }
       
       // 3️⃣ Check temporary lock in Redis (backup check)
       const isLocked = await this.isSlotLocked(slotId);
       if (isLocked) {
-        throw new Error('Slot ' + slotId + ' is currently locked by another reservation');
+        throw new Error('Khung giờ này đang được giữ chỗ. Vui lòng chọn khung giờ khác hoặc đợi 3 phút để đặt lại nếu bạn đang trong quá trình thanh toán.');
       }
     }
     
