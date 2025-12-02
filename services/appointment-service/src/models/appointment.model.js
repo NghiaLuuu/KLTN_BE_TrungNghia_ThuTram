@@ -335,12 +335,19 @@ appointmentSchema.statics.generateAppointmentCode = async function(date, retryOf
     }
   }
   
-  // ✅ Add retryOffset + random component to avoid collision between concurrent requests
-  // Random offset: 0-99 ensures different requests get different sequences even at same retry attempt
-  const randomOffset = Math.floor(Math.random() * 100);
-  const sequence = String(maxSequence + 1 + retryOffset + randomOffset).padStart(6, '0');
+  // ✅ Only use random offset for concurrent requests (first attempt uses sequential numbering)
+  // Random offset 0-999 only added when retryOffset > 0 (concurrent collision detected)
+  let sequence;
+  if (retryOffset > 0) {
+    // Race condition detected - add large random offset to avoid collision
+    const randomOffset = Math.floor(Math.random() * 1000);
+    sequence = maxSequence + 1 + retryOffset * 1000 + randomOffset;
+  } else {
+    // Normal sequential numbering for first attempt
+    sequence = maxSequence + 1;
+  }
   
-  return `AP${sequence}-${dateStr}`;
+  return `AP${String(sequence).padStart(6, '0')}-${dateStr}`;
 };
 
 // Static: Find by appointment code
