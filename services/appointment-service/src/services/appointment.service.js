@@ -1307,29 +1307,36 @@ class AppointmentService {
         notes: notes || ''
       });
       
-      // 🔄 Try to save with duplicate handling (same as createFromReservation)
-      try {
-        await appointment.save();
-        console.log('✅ Walk-in appointment created:', appointmentCode);
-      } catch (saveError) {
-        // Handle duplicate appointmentCode (race condition)
-        if (saveError.code === 11000 && saveError.keyPattern?.appointmentCode) {
-          console.warn('⚠️ Duplicate appointmentCode detected, regenerating...');
+      // 🔄 Try to save with duplicate handling (retry loop for race conditions)
+      let saveAttempts = 0;
+      const maxAttempts = 100;
+      let saved = false;
+      
+      while (!saved && saveAttempts < maxAttempts) {
+        try {
+          await appointment.save();
+          console.log('✅ Walk-in appointment created:', appointment.appointmentCode);
+          saved = true;
+        } catch (saveError) {
+          saveAttempts++;
           
-          // Regenerate code and retry ONCE
-          const newCode = await Appointment.generateAppointmentCode(appointmentDate);
-          appointment.appointmentCode = newCode;
-          
-          try {
-            await appointment.save();
-            console.log('✅ Walk-in appointment created with new code:', newCode);
-          } catch (retryError) {
-            console.error('❌ Failed to save appointment even after retry:', retryError);
-            throw new Error('Failed to create appointment due to duplicate code conflict');
+          // Handle duplicate appointmentCode (race condition)
+          if (saveError.code === 11000 && saveError.keyPattern?.appointmentCode) {
+            if (saveAttempts >= maxAttempts) {
+              console.error('❌ Failed to save appointment after', maxAttempts, 'attempts');
+              throw new Error('Failed to create appointment due to duplicate code conflict after multiple retries');
+            }
+            
+            console.warn(`⚠️ Duplicate appointmentCode detected (attempt ${saveAttempts}/${maxAttempts}), regenerating...`);
+            
+            // Regenerate code and retry
+            const newCode = await Appointment.generateAppointmentCode(appointmentDate);
+            appointment.appointmentCode = newCode;
+            console.log(`🔄 Retry with new code: ${newCode}`);
+          } else {
+            // Other errors - throw immediately
+            throw saveError;
           }
-        } else {
-          // Other errors - throw immediately
-          throw saveError;
         }
       }
       
@@ -1508,31 +1515,46 @@ class AppointmentService {
         transactionId: paymentInfo.transactionId
       });
       
-      try {
-        await appointment.save();
-      } catch (saveError) {
-        // Handle duplicate paymentId error (idempotent - same payment processed twice)
-        if (saveError.code === 11000 && saveError.keyPattern?.paymentId) {
-          console.log('⚠️ Duplicate paymentId detected - payment already processed');
-          const existingAppointment = await Appointment.findOne({
-            paymentId: paymentInfo.paymentId
-          });
-          if (existingAppointment) {
-            console.log('✅ Returning existing appointment:', existingAppointment.appointmentCode);
-            return existingAppointment;
+      // 🔄 Try to save with duplicate handling (retry loop for race conditions)
+      let saveAttempts = 0;
+      const maxAttempts = 100;
+      let saved = false;
+      
+      while (!saved && saveAttempts < maxAttempts) {
+        try {
+          await appointment.save();
+          console.log('✅ Online appointment created:', appointment.appointmentCode);
+          saved = true;
+        } catch (saveError) {
+          saveAttempts++;
+          
+          // Handle duplicate paymentId error (idempotent - same payment processed twice)
+          if (saveError.code === 11000 && saveError.keyPattern?.paymentId) {
+            console.log('⚠️ Duplicate paymentId detected - payment already processed');
+            const existingAppointment = await Appointment.findOne({
+              paymentId: paymentInfo.paymentId
+            });
+            if (existingAppointment) {
+              console.log('✅ Returning existing appointment:', existingAppointment.appointmentCode);
+              return existingAppointment;
+            }
           }
-        }
-        
-        // If duplicate appointmentCode (race condition), regenerate and retry
-        if (saveError.code === 11000 && saveError.keyPattern?.appointmentCode) {
-          console.log('⚠️ Duplicate appointmentCode - race condition detected, retrying...');
-          // generateAppointmentCode already handles finding max sequence
-          const newCode = await Appointment.generateAppointmentCode(appointmentDate);
-          appointment.appointmentCode = newCode;
-          await appointment.save(); // Retry with new code
-          console.log('✅ Saved with new appointmentCode:', newCode);
-        } else {
-          throw saveError; // Re-throw other errors
+          
+          // If duplicate appointmentCode (race condition), regenerate and retry
+          if (saveError.code === 11000 && saveError.keyPattern?.appointmentCode) {
+            if (saveAttempts >= maxAttempts) {
+              console.error('❌ Failed to save appointment after', maxAttempts, 'attempts');
+              throw new Error('Failed to create appointment due to duplicate code conflict after multiple retries');
+            }
+            
+            console.log(`⚠️ Duplicate appointmentCode - race condition detected (attempt ${saveAttempts}/${maxAttempts}), retrying...`);
+            // generateAppointmentCode already handles finding max sequence
+            const newCode = await Appointment.generateAppointmentCode(appointmentDate);
+            appointment.appointmentCode = newCode;
+            console.log(`🔄 Retry with new code: ${newCode}`);
+          } else {
+            throw saveError; // Re-throw other errors
+          }
         }
       }
       
