@@ -1307,8 +1307,31 @@ class AppointmentService {
         notes: notes || ''
       });
       
-      await appointment.save();
-      console.log('✅ Walk-in appointment created:', appointmentCode);
+      // 🔄 Try to save with duplicate handling (same as createFromReservation)
+      try {
+        await appointment.save();
+        console.log('✅ Walk-in appointment created:', appointmentCode);
+      } catch (saveError) {
+        // Handle duplicate appointmentCode (race condition)
+        if (saveError.code === 11000 && saveError.keyPattern?.appointmentCode) {
+          console.warn('⚠️ Duplicate appointmentCode detected, regenerating...');
+          
+          // Regenerate code and retry ONCE
+          const newCode = await Appointment.generateAppointmentCode(appointmentDate);
+          appointment.appointmentCode = newCode;
+          
+          try {
+            await appointment.save();
+            console.log('✅ Walk-in appointment created with new code:', newCode);
+          } catch (retryError) {
+            console.error('❌ Failed to save appointment even after retry:', retryError);
+            throw new Error('Failed to create appointment due to duplicate code conflict');
+          }
+        } else {
+          // Other errors - throw immediately
+          throw saveError;
+        }
+      }
       
       // ✅ Auto check-in for walk-in appointments (triggers record creation event)
       const userId = currentUser.userId || currentUser._id;
