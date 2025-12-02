@@ -1329,10 +1329,14 @@ class AppointmentService {
             
             console.warn(`⚠️ Duplicate appointmentCode detected (attempt ${saveAttempts}/${maxAttempts}), regenerating...`);
             
+            // Wait random delay to avoid all retries querying at same time
+            const delay = Math.floor(Math.random() * 100) + 50; // 50-150ms
+            await new Promise(resolve => setTimeout(resolve, delay));
+            
             // Regenerate code and retry
             const newCode = await Appointment.generateAppointmentCode(appointmentDate);
             appointment.appointmentCode = newCode;
-            console.log(`🔄 Retry with new code: ${newCode}`);
+            console.log(`🔄 Retry ${saveAttempts} with new code: ${newCode} (after ${delay}ms delay)`);
           } else {
             // Other errors - throw immediately
             throw saveError;
@@ -1548,10 +1552,15 @@ class AppointmentService {
             }
             
             console.log(`⚠️ Duplicate appointmentCode - race condition detected (attempt ${saveAttempts}/${maxAttempts}), retrying...`);
+            
+            // Wait random delay to avoid all retries querying at same time
+            const delay = Math.floor(Math.random() * 100) + 50; // 50-150ms
+            await new Promise(resolve => setTimeout(resolve, delay));
+            
             // generateAppointmentCode already handles finding max sequence
             const newCode = await Appointment.generateAppointmentCode(appointmentDate);
             appointment.appointmentCode = newCode;
-            console.log(`🔄 Retry with new code: ${newCode}`);
+            console.log(`🔄 Retry ${saveAttempts} with new code: ${newCode} (after ${delay}ms delay)`);
           } else {
             throw saveError; // Re-throw other errors
           }
