@@ -274,6 +274,54 @@ appointmentSchema.index({
   appointmentDate: 1 
 });
 
+// ✅ Pre-save hook: Auto-retry if appointmentCode is duplicate
+appointmentSchema.pre('save', async function(next) {
+  // Only handle new documents that need appointmentCode generation
+  if (!this.isNew || !this.appointmentCode) {
+    return next();
+  }
+  
+  const maxRetries = 100;
+  let attempt = 0;
+  
+  while (attempt < maxRetries) {
+    try {
+      // Validate uniqueness by checking if code exists
+      const existing = await this.constructor.findOne({ 
+        appointmentCode: this.appointmentCode 
+      });
+      
+      if (!existing) {
+        // Code is unique, proceed with save
+        return next();
+      }
+      
+      // Code is duplicate, increment sequence
+      attempt++;
+      console.warn(`⚠️ Duplicate appointmentCode detected: ${this.appointmentCode}, incrementing... (${attempt}/${maxRetries})`);
+      
+      // Extract current sequence and increment it
+      const match = this.appointmentCode.match(/^AP(\d{6})-(.+)$/);
+      if (match) {
+        const currentSeq = parseInt(match[1], 10);
+        const dateStr = match[2];
+        const newSeq = currentSeq + 1;
+        this.appointmentCode = `AP${String(newSeq).padStart(6, '0')}-${dateStr}`;
+        console.log(`🔄 Retry with code: ${this.appointmentCode}`);
+      } else {
+        // If pattern doesn't match, regenerate from scratch
+        this.appointmentCode = await this.constructor.generateAppointmentCode(this.appointmentDate);
+      }
+      
+    } catch (error) {
+      return next(error);
+    }
+  }
+  
+  // Max retries exceeded
+  return next(new Error(`Failed to generate unique appointmentCode after ${maxRetries} attempts`));
+});
+
 // Virtual: Check if appointment is today
 appointmentSchema.virtual('isToday').get(function() {
   const today = new Date();
@@ -293,9 +341,8 @@ appointmentSchema.virtual('bookingChannel').get(function() {
 });
 
 // Static: Generate appointment code (AP000001-03102025)
-appointmentSchema.statics.generateAppointmentCode = async function(date, retryOffset = 0) {
-  // ✅ FIX: Get date parts in Vietnam timezone
-  // date is already midnight Vietnam stored as UTC (e.g., 2025-12-02T17:00:00.000Z = Dec 3 Vietnam)
+appointmentSchema.statics.generateAppointmentCode = async function(date) {
+  // ✅ Get date parts in Vietnam timezone
   const vietnamDateStr = date.toLocaleString('en-US', { 
     timeZone: 'Asia/Ho_Chi_Minh',
     year: 'numeric',
@@ -306,18 +353,13 @@ appointmentSchema.statics.generateAppointmentCode = async function(date, retryOf
   const [month, day, year] = vietnamDateStr.split('/');
   const dateStr = `${day}${month}${year}`; // ddmmyyyy
   
-  // Count appointments on that day
-  // ✅ FIX: appointmentDate is already stored as midnight Vietnam in UTC
-  // So we need to count appointments with same appointmentDate (not same UTC day)
-  // Range: from date 00:00 Vietnam to 23:59:59 Vietnam
+  // Find the highest sequence number for this date
   const startOfDay = new Date(date);
-  startOfDay.setUTCHours(0, 0, 0, 0); // Reset to UTC midnight of same date
+  startOfDay.setUTCHours(0, 0, 0, 0);
   
   const endOfDay = new Date(date);
   endOfDay.setUTCHours(23, 59, 59, 999);
   
-  // ✅ FIX: Retry logic to handle race conditions
-  // Find the highest sequence number for this date
   const existingCodes = await this.find({
     appointmentDate: { $gte: startOfDay, $lte: endOfDay }
   }).select('appointmentCode').lean();
@@ -335,18 +377,8 @@ appointmentSchema.statics.generateAppointmentCode = async function(date, retryOf
     }
   }
   
-  // ✅ Only use random offset for concurrent requests (first attempt uses sequential numbering)
-  // Random offset 0-999 only added when retryOffset > 0 (concurrent collision detected)
-  let sequence;
-  if (retryOffset > 0) {
-    // Race condition detected - add large random offset to avoid collision
-    const randomOffset = Math.floor(Math.random() * 1000);
-    sequence = maxSequence + 1 + retryOffset * 1000 + randomOffset;
-  } else {
-    // Normal sequential numbering for first attempt
-    sequence = maxSequence + 1;
-  }
-  
+  // Sequential numbering (no random)
+  const sequence = maxSequence + 1;
   return `AP${String(sequence).padStart(6, '0')}-${dateStr}`;
 };
 
