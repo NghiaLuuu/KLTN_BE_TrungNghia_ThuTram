@@ -406,13 +406,26 @@ appointmentSchema.methods.canRequestCancellation = function() {
     return { canRequest: false, reason: 'Chỉ bệnh nhân đặt online mới có thể yêu cầu hủy' };
   }
   
-  // Calculate time difference
+  // ✅ Calculate time difference in Vietnam timezone
   const now = new Date();
-  const appointmentDateTime = new Date(this.appointmentDate);
   
-  // Parse startTime (format: "HH:MM")
+  // appointmentDate is stored as UTC midnight representing Vietnam date
+  // e.g., 2025-12-03T17:00:00.000Z = 2025-12-04 00:00 Vietnam
+  // Parse startTime (format: "HH:MM") and create Vietnam datetime
   const [hours, minutes] = this.startTime.split(':').map(Number);
-  appointmentDateTime.setHours(hours, minutes, 0, 0);
+  
+  // Convert appointmentDate from UTC to Vietnam datetime
+  const vietnamDateStr = this.appointmentDate.toLocaleString('en-US', { 
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }); // Returns MM/DD/YYYY
+  
+  const [month, day, year] = vietnamDateStr.split('/');
+  
+  // Create appointment datetime in Vietnam timezone
+  const appointmentDateTime = new Date(`${year}-${month}-${day}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00+07:00`);
   
   const timeDiff = appointmentDateTime - now;
   const oneDayInMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
