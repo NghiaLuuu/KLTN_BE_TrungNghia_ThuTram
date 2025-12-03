@@ -23,6 +23,9 @@ async function getDayClosures(filters = {}) {
 
     const query = {};
 
+    // 🆕 Filter out appointment cancellations (only show slot closures)
+    query.isAppointmentCancellation = { $ne: true };
+
     // Date range filter
     if (startDate || endDate) {
       query.dateFrom = {};

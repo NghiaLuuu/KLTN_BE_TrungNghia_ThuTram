@@ -5144,6 +5144,7 @@ async function logAppointmentCancellation({
         },
         reason: reason || 'Hủy appointment bởi staff',
         closureType: 'other',
+        isAppointmentCancellation: true, // 🆕 Mark as appointment cancellation
         stats: {
           totalSlotsDisabled: slotIds?.length || 0,
           appointmentsCancelledCount: 1,

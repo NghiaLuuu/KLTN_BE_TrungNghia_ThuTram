@@ -66,6 +66,12 @@ const dayClosureSchema = new mongoose.Schema(
       default: 'other'
     },
 
+    // 🆕 Flag to distinguish appointment cancellation from slot toggle/closure
+    isAppointmentCancellation: {
+      type: Boolean,
+      default: false
+    },
+
     // Statistics
     stats: {
       totalSlotsDisabled: { type: Number, default: 0 },
