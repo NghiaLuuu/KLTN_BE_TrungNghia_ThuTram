@@ -269,6 +269,11 @@ services:
     environment:
       - NODE_ENV=production
       - NODE_OPTIONS=--max-old-space-size=512
+      # Database URIs for Query Engine (cross-service query support)
+      - AUTH_DB_URI=mongodb://admin:password123@mongodb:27017/dental_clinic_auth?authSource=admin
+      - SERVICE_DB_URI=mongodb://admin:password123@mongodb:27017/dental_clinic_service?authSource=admin
+      - SCHEDULE_DB_URI=mongodb://admin:password123@mongodb:27017/dental_clinic_schedule?authSource=admin
+      - ROOM_DB_URI=mongodb://admin:password123@mongodb:27017/dental_clinic_room?authSource=admin
     logging:
       driver: "json-file"
       options:

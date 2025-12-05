@@ -340,6 +340,11 @@ services:
       - MONGODB_URI=mongodb://admin:password123@mongodb:27017/dental_clinic_chatbot?authSource=admin
       - REDIS_URL=redis://:redis123@redis:6379
       - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      # Database URIs for Query Engine (cross-service query support)
+      - AUTH_DB_URI=mongodb://admin:password123@mongodb:27017/dental_clinic_auth?authSource=admin
+      - SERVICE_DB_URI=mongodb://admin:password123@mongodb:27017/dental_clinic_service?authSource=admin
+      - SCHEDULE_DB_URI=mongodb://admin:password123@mongodb:27017/dental_clinic_schedule?authSource=admin
+      - ROOM_DB_URI=mongodb://admin:password123@mongodb:27017/dental_clinic_room?authSource=admin
     depends_on:
       mongodb:
         condition: service_started
