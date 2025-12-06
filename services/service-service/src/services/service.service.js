@@ -227,12 +227,24 @@ exports.updateServiceAddOn = async (serviceId, addOnId, updateData, imageFile = 
 exports.toggleServiceAddOnStatus = async (serviceId, addOnId) => {
   const service = await serviceRepo.toggleServiceAddOnStatus(serviceId, addOnId);
   
-  // 🆕 Kiểm tra nếu TẤT CẢ serviceAddOns đều tắt thì tắt luôn service cha
-  const allAddOnsInactive = service.serviceAddOns.every(addOn => !addOn.isActive);
-  if (allAddOnsInactive && service.isActive) {
-    service.isActive = false;
-    await service.save();
-    console.log(`🔄 Service "${service.name}" (${service._id}): Tự động tắt vì tất cả addOns đã tắt`);
+  // Lấy addon vừa toggle
+  const toggledAddOn = service.serviceAddOns.find(a => a._id.toString() === addOnId.toString());
+  
+  if (toggledAddOn.isActive) {
+    // 🆕 Nếu BẬT addon thì tự động BẬT service cha (nếu đang tắt)
+    if (!service.isActive) {
+      service.isActive = true;
+      await service.save();
+      console.log(`🔄 Service "${service.name}" (${service._id}): Tự động bật vì có addOn được bật`);
+    }
+  } else {
+    // 🆕 Nếu TẮT addon thì kiểm tra tất cả addOns, nếu đều tắt thì tắt service cha
+    const allAddOnsInactive = service.serviceAddOns.every(addOn => !addOn.isActive);
+    if (allAddOnsInactive && service.isActive) {
+      service.isActive = false;
+      await service.save();
+      console.log(`🔄 Service "${service.name}" (${service._id}): Tự động tắt vì tất cả addOns đã tắt`);
+    }
   }
   
   await refreshServiceCache();
