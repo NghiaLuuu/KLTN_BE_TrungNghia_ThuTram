@@ -15,6 +15,9 @@ const {
   dentistAppointmentsValidation,
   availableSlotsValidation
 } = require('../validations/reserve.validation');
+const {
+  rejectCancellationValidation
+} = require('../validations/appointment.validation');
 
 // 🆕 Get appointments by IDs (for schedule-service - internal use)
 // ⚠️ MUST be BEFORE '/' route to avoid path conflict
@@ -132,6 +135,15 @@ router.post('/:appointmentId/admin-cancel',
   authenticate,
   authorize(['manager', 'admin', 'receptionist']),
   appointmentController.adminCancelAppointment
+);
+
+// ⭐ Admin/Manager/Receptionist reject cancellation request
+router.post('/:appointmentId/reject-cancellation',
+  authenticate,
+  authorize(['manager', 'admin', 'receptionist']),
+  rejectCancellationValidation,
+  validate,
+  appointmentController.rejectCancellation
 );
 
 // ============================================

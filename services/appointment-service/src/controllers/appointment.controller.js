@@ -406,6 +406,54 @@ class AppointmentController {
   }
 
   /**
+   * ✅ Admin/Manager/Receptionist reject cancellation request
+   * Changes status from 'pending-cancellation' back to 'confirmed'
+   */
+  async rejectCancellation(req, res) {
+    try {
+      const { appointmentId } = req.params;
+      const { reason } = req.body;
+      const staffId = req.user?.userId || req.user?._id;
+      const staffRole = req.user?.activeRole || req.user?.role;
+
+      console.log('🔍 [rejectCancellation] Request received:', {
+        appointmentId,
+        staffId,
+        staffRole,
+        reason: reason?.substring(0, 50)
+      });
+
+      if (!staffId || !staffRole) {
+        console.error('❌ [rejectCancellation] Missing auth info:', { staffId, staffRole, user: req.user });
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Unauthorized' 
+        });
+      }
+
+      const result = await appointmentService.rejectCancellation(
+        appointmentId,
+        staffId,
+        staffRole,
+        reason
+      );
+
+      console.log('✅ [rejectCancellation] Success');
+      res.json({
+        success: true,
+        message: 'Đã từ chối yêu cầu hủy lịch, trạng thái phiếu khám về lại "Đã xác nhận"',
+        data: result
+      });
+    } catch (error) {
+      console.error('❌ [rejectCancellation] error:', error);
+      res.status(400).json({ 
+        success: false, 
+        message: error.message 
+      });
+    }
+  }
+
+  /**
    * ✅ Get booking channel statistics (Online vs Offline)
    */
   async getBookingChannelStats(req, res) {

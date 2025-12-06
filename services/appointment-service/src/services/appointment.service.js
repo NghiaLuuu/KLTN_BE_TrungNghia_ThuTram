@@ -1156,6 +1156,90 @@ class AppointmentService {
     
     return appointment;
   }
+
+  /**
+   * Admin/Manager/Receptionist reject cancellation request
+   * Changes status from 'pending-cancellation' back to 'confirmed'
+   */
+  async rejectCancellation(appointmentId, staffId, staffRole, reason = null) {
+    const appointment = await Appointment.findById(appointmentId)
+      .populate('patientId', 'email fullName name phoneNumber');
+    
+    if (!appointment) {
+      throw new Error('Không tìm thấy phiếu khám');
+    }
+    
+    // Check if appointment is in pending-cancellation status
+    if (appointment.status !== 'pending-cancellation') {
+      throw new Error('Phiếu khám không ở trạng thái chờ duyệt hủy');
+    }
+
+    console.log(`🔄 [Reject Cancellation] Processing appointment ${appointment.appointmentCode}`);
+
+    // Get patient info for notification
+    let patientEmail = null;
+    let patientName = null;
+    
+    if (appointment.patientId) {
+      patientEmail = appointment.patientId.email;
+      patientName = appointment.patientId.fullName || appointment.patientId.name;
+    }
+    
+    if (!patientEmail && appointment.patientInfo?.email) {
+      patientEmail = appointment.patientInfo.email;
+      patientName = appointment.patientInfo.name;
+    }
+
+    // Update status back to confirmed
+    appointment.status = 'confirmed';
+    
+    // Clear cancellation request fields
+    appointment.cancellationRequestedAt = null;
+    appointment.cancellationRequestedBy = null;
+    appointment.cancellationRequestReason = null;
+    
+    await appointment.save();
+    
+    const appointmentCode = appointment.appointmentCode;
+    console.log(`✅ [Reject Cancellation] Appointment ${appointmentCode} status changed back to confirmed by ${staffRole}`);
+
+    // Send email to patient if email exists
+    if (patientEmail) {
+      try {
+        await publishToQueue('email_notifications', {
+          type: 'cancellation_rejected',
+          notifications: [{
+            email: patientEmail,
+            name: patientName || 'Bệnh nhân',
+            role: 'patient',
+            appointmentCode: appointmentCode,
+            appointmentInfo: {
+              date: appointment.appointmentDate,
+              startTime: appointment.startTime,
+              endTime: appointment.endTime,
+              serviceName: appointment.serviceName,
+              serviceAddOnName: appointment.serviceAddOnName,
+              dentistName: appointment.dentistName,
+              roomName: appointment.roomName
+            },
+            rejectedBy: staffRole,
+            rejectionReason: reason || 'Yêu cầu hủy không được chấp nhận',
+            rejectedAt: new Date()
+          }],
+          metadata: {
+            appointmentId: appointment._id.toString(),
+            appointmentCode: appointmentCode,
+            action: 'cancellation_rejected'
+          }
+        });
+        console.log(`📧 [Reject Cancellation] Queued email to patient: ${patientEmail}`);
+      } catch (emailError) {
+        console.warn('⚠️ Failed to queue patient email:', emailError.message);
+      }
+    }
+
+    return appointment;
+  }
   
   async cancel(appointmentId, userId, reason) {
     const appointment = await Appointment.findById(appointmentId);

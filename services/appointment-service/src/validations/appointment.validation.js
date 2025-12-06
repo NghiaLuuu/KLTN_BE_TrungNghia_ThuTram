@@ -284,6 +284,18 @@ const cancelAppointmentValidation = [
     .trim()
 ];
 
+const rejectCancellationValidation = [
+  param('appointmentId')
+    .isMongoId()
+    .withMessage('Appointment ID không hợp lệ'),
+  
+  body('reason')
+    .optional()
+    .isLength({ max: 200 })
+    .withMessage('Lý do từ chối không được quá 200 ký tự')
+    .trim()
+];
+
 const listAppointmentsValidation = [
   query('status')
     .optional()
@@ -497,6 +509,7 @@ module.exports = {
   updateStatusValidation,
   assignDentistValidation,
   cancelAppointmentValidation,
+  rejectCancellationValidation,
   listAppointmentsValidation,
   searchAppointmentsValidation,
   patientIdValidation,
