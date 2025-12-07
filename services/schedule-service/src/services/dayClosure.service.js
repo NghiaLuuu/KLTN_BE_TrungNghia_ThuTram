@@ -376,19 +376,21 @@ async function getAllCancelledPatients(filters = {}) {
     });
 
     // Filter by appointment date range (client-side filtering for precise date matching)
-    // Use appointmentDateVN for filtering to match Vietnam timezone
+    // Use appointmentDate (UTC) for filtering, then convert to Vietnam date for comparison
     if (startDate || endDate) {
       allPatients = allPatients.filter(p => {
-        if (!p.appointmentDateVN) return false;
+        if (!p.appointmentDate) return false;
         
-        // appointmentDateVN is already in Vietnam timezone format (e.g., "2025-12-29T00:00:00.000Z")
-        // Extract just the date part for comparison (YYYY-MM-DD)
-        // Use UTC methods since appointmentDateVN represents VN time stored as UTC
-        const apptDateObj = new Date(p.appointmentDateVN);
-        const year = apptDateObj.getUTCFullYear();
-        const month = String(apptDateObj.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(apptDateObj.getUTCDate()).padStart(2, '0');
-        const apptDateStr = `${year}-${month}-${day}`; // YYYY-MM-DD format
+        // Convert appointmentDate (UTC) to Vietnam date (UTC+7)
+        // Example: "2025-12-28T17:00:00.000Z" (UTC) = 29/12/2025 00:00 (VN)
+        const apptDateUTC = new Date(p.appointmentDate);
+        const apptDateVN = new Date(apptDateUTC.getTime() + 7 * 60 * 60 * 1000);
+        
+        // Extract Vietnam date in YYYY-MM-DD format
+        const year = apptDateVN.getUTCFullYear();
+        const month = String(apptDateVN.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(apptDateVN.getUTCDate()).padStart(2, '0');
+        const apptDateStr = `${year}-${month}-${day}`; // YYYY-MM-DD in VN timezone
         
         if (startDate && endDate) {
           return apptDateStr >= startDate && apptDateStr <= endDate;
