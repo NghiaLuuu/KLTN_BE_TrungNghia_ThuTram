@@ -57,12 +57,23 @@ function getNowVN() {
  * @returns {Date} Start of day in VN timezone (as UTC)
  */
 function getStartOfDayVN(date = null) {
-  const targetDate = date || getNowVN();
-  const vnDate = new Date(targetDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
-  vnDate.setHours(0, 0, 0, 0);
+  const targetDate = date || new Date();
   
-  // Convert back to UTC
-  return new Date(vnDate.getTime() - 7 * 60 * 60 * 1000);
+  // Get VN date/time components
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  
+  const parts = formatter.formatToParts(targetDate);
+  const year = parts.find(p => p.type === 'year').value;
+  const month = parts.find(p => p.type === 'month').value;
+  const day = parts.find(p => p.type === 'day').value;
+  
+  // Create midnight VN time: YYYY-MM-DDT00:00:00+07:00
+  return new Date(`${year}-${month}-${day}T00:00:00+07:00`);
 }
 
 /**
@@ -71,12 +82,23 @@ function getStartOfDayVN(date = null) {
  * @returns {Date} End of day in VN timezone (as UTC)
  */
 function getEndOfDayVN(date = null) {
-  const targetDate = date || getNowVN();
-  const vnDate = new Date(targetDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
-  vnDate.setHours(23, 59, 59, 999);
+  const targetDate = date || new Date();
   
-  // Convert back to UTC
-  return new Date(vnDate.getTime() - 7 * 60 * 60 * 1000);
+  // Get VN date/time components
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  
+  const parts = formatter.formatToParts(targetDate);
+  const year = parts.find(p => p.type === 'year').value;
+  const month = parts.find(p => p.type === 'month').value;
+  const day = parts.find(p => p.type === 'day').value;
+  
+  // Create end of day VN time: YYYY-MM-DDT23:59:59.999+07:00
+  return new Date(`${year}-${month}-${day}T23:59:59.999+07:00`);
 }
 
 /**
