@@ -281,6 +281,63 @@ Trân trọng,
   return { subject, text };
 };
 
+// 🆕 Email template for cancellation request rejected by staff
+const createCancellationRejectedEmail = (notification) => {
+  const { name, appointmentCode, appointmentInfo, rejectedBy, rejectionReason } = notification;
+  
+  const date = formatDate(appointmentInfo.date);
+  const startTime = appointmentInfo.startTime;
+  const endTime = appointmentInfo.endTime;
+
+  const subject = '[THÔNG BÁO] Yêu Cầu Hủy Lịch Đã Bị Từ Chối - Smile Dental';
+
+  const roomInfo = appointmentInfo.subroomName 
+    ? `${appointmentInfo.roomName} - ${appointmentInfo.subroomName}`
+    : appointmentInfo.roomName;
+
+  const serviceInfo = appointmentInfo.serviceAddOnName
+    ? `${appointmentInfo.serviceName} - ${appointmentInfo.serviceAddOnName}`
+    : appointmentInfo.serviceName;
+
+  const text = `
+Kính gửi ${name},
+
+Chúng tôi xin thông báo yêu cầu hủy lịch khám của bạn tại Smile Dental đã bị từ chối.
+
+📅 THÔNG TIN LỊCH KHÁM:
+- Mã lịch hẹn: ${appointmentCode}
+- Ngày khám: ${date}
+- Thời gian: ${startTime} - ${endTime}
+- Nha sĩ: ${appointmentInfo.dentistName}
+- Dịch vụ: ${serviceInfo}
+- Phòng khám: ${roomInfo}
+
+❗ THÔNG TIN TỪ CHỐI:
+- Từ chối bởi: ${rejectedBy === 'admin' ? 'Quản trị viên' : rejectedBy === 'manager' ? 'Quản lý' : 'Lễ tân'}
+- Lý do: ${rejectionReason || 'Yêu cầu hủy không được chấp nhận'}
+
+✅ TRẠNG THÁI LỊCH HẸN:
+Lịch khám của bạn vẫn được GIỮ NGUYÊN và có hiệu lực. Vui lòng đến đúng giờ theo lịch đã đặt.
+
+📋 LƯU Ý:
+- Nếu bạn vẫn muốn hủy lịch, vui lòng liên hệ trực tiếp với phòng khám
+- Đến trước 15 phút để làm thủ tục
+- Mang theo giấy tờ tùy thân
+
+📞 LIÊN HỆ HỖ TRỢ:
+- Hotline: ${process.env.HOTLINE || '1900-xxxx'}
+- Email: ${process.env.EMAIL_FROM}
+- Website: ${process.env.FRONTEND_URL || 'https://smilecare.io.vn'}
+
+Chúng tôi rất mong được phục vụ bạn!
+
+Trân trọng,
+Đội ngũ Smile Dental
+`;
+
+  return { subject, text };
+};
+
 // Message handler
 const handleEmailNotification = async (message) => {
   try {
@@ -412,6 +469,42 @@ const handleEmailNotification = async (message) => {
       }
 
       console.log(`📊 Cancellation email batch completed: ${successCount} success, ${failCount} failed`);
+      
+      if (metadata) {
+        console.log(`📝 Metadata: Appointment ${metadata.appointmentCode}, Action: ${metadata.action}`);
+      }
+    } else if (type === 'cancellation_rejected' && Array.isArray(notifications)) {
+      // 🆕 Handle cancellation request rejected by staff
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const notification of notifications) {
+        try {
+          const { email } = notification;
+          
+          if (!email) {
+            console.warn('⚠️ Notification missing email, skipping...');
+            failCount++;
+            continue;
+          }
+
+          const { subject, text } = createCancellationRejectedEmail(notification);
+
+          await sendEmail(email, subject, text);
+          
+          console.log(`✅ Rejection email sent to: ${email} for ${notification.appointmentCode}`);
+          successCount++;
+
+          // Add delay to avoid rate limits
+          await new Promise(resolve => setTimeout(resolve, 3000));
+
+        } catch (emailError) {
+          console.error(`❌ Failed to send rejection email to ${notification.email}:`, emailError.message);
+          failCount++;
+        }
+      }
+
+      console.log(`📊 Rejection email batch completed: ${successCount} success, ${failCount} failed`);
       
       if (metadata) {
         console.log(`📝 Metadata: Appointment ${metadata.appointmentCode}, Action: ${metadata.action}`);

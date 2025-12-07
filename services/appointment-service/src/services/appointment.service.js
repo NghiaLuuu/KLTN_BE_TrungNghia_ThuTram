@@ -1053,7 +1053,8 @@ class AppointmentService {
               serviceName: appointment.serviceName,
               serviceAddOnName: appointment.serviceAddOnName,
               dentistName: appointment.dentistName,
-              roomName: appointment.roomName
+              roomName: appointment.roomName,
+              subroomName: appointment.subroomName
             },
             cancelledBy: staffRole,
             reason: reason || 'Không rõ lý do',
@@ -1176,19 +1177,43 @@ class AppointmentService {
 
     console.log(`🔄 [Reject Cancellation] Processing appointment ${appointment.appointmentCode}`);
 
-    // Get patient info for notification
+    // 🔥 Get patient email for notification
     let patientEmail = null;
     let patientName = null;
+    let patientPhone = null;
+    let patientIdStr = null;
     
+    // Try to get from populated patientId first
     if (appointment.patientId) {
-      patientEmail = appointment.patientId.email;
-      patientName = appointment.patientId.fullName || appointment.patientId.name;
+      // Check if patientId is populated (object) or just an ObjectId
+      if (typeof appointment.patientId === 'object' && appointment.patientId._id) {
+        patientIdStr = appointment.patientId._id.toString();
+        patientEmail = appointment.patientId.email;
+        patientName = appointment.patientId.fullName || appointment.patientId.name;
+        patientPhone = appointment.patientId.phoneNumber;
+      } else {
+        // Just an ObjectId, not populated
+        patientIdStr = appointment.patientId.toString();
+      }
     }
     
+    // Fallback to patientInfo
     if (!patientEmail && appointment.patientInfo?.email) {
       patientEmail = appointment.patientInfo.email;
+    }
+    if (!patientName && appointment.patientInfo?.name) {
       patientName = appointment.patientInfo.name;
     }
+    if (!patientPhone && appointment.patientInfo?.phone) {
+      patientPhone = appointment.patientInfo.phone;
+    }
+    
+    console.log('📧 [Reject Cancellation] Extracted patient info:', {
+      patientEmail,
+      patientName,
+      patientPhone,
+      patientIdStr
+    });
 
     // Update status back to confirmed
     appointment.status = 'confirmed';
@@ -1203,7 +1228,7 @@ class AppointmentService {
     const appointmentCode = appointment.appointmentCode;
     console.log(`✅ [Reject Cancellation] Appointment ${appointmentCode} status changed back to confirmed by ${staffRole}`);
 
-    // Send email to patient if email exists
+    // 🔥 Send email to patient if email exists
     if (patientEmail) {
       try {
         await publishToQueue('email_notifications', {
@@ -1220,7 +1245,8 @@ class AppointmentService {
               serviceName: appointment.serviceName,
               serviceAddOnName: appointment.serviceAddOnName,
               dentistName: appointment.dentistName,
-              roomName: appointment.roomName
+              roomName: appointment.roomName,
+              subroomName: appointment.subroomName
             },
             rejectedBy: staffRole,
             rejectionReason: reason || 'Yêu cầu hủy không được chấp nhận',
@@ -1236,6 +1262,8 @@ class AppointmentService {
       } catch (emailError) {
         console.warn('⚠️ Failed to queue patient email:', emailError.message);
       }
+    } else {
+      console.warn(`⚠️ [Reject Cancellation] No patient email found for appointment ${appointmentCode}`);
     }
 
     return appointment;
