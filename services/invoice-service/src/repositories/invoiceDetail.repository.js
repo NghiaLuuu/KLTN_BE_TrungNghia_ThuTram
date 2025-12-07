@@ -281,6 +281,21 @@ class InvoiceDetailRepository {
 
     const result = await InvoiceDetail.aggregate([
       { $match: matchFilter },
+      // ✅ Join with Invoice to check invoice status
+      {
+        $lookup: {
+          from: 'invoices',
+          localField: 'invoiceId',
+          foreignField: '_id',
+          as: 'invoice'
+        }
+      },
+      { $unwind: '$invoice' },
+      // ✅ Filter: only include if Invoice.status = 'completed'
+      { $match: { 'invoice.status': 'completed' } },
+      {
+        $group: {,
+      invoiceStatusMatch,
       {
         $group: {
           _id: null,
@@ -326,6 +341,18 @@ class InvoiceDetailRepository {
       isActive: true,
       ...filters
     };
+
+    // ✅ Prepare $lookup stage to check invoice status
+    const lookupStage = {
+      $lookup: {
+        from: 'invoices',
+        localField: 'invoiceId',
+        foreignField: '_id',
+        as: 'invoice'
+      }
+    };
+    const unwindStage = { $unwind: '$invoice' };
+    const invoiceStatusMatch = { $match: { 'invoice.status': 'completed' } };
 
     let groupStage = {};
     
@@ -420,6 +447,18 @@ class InvoiceDetailRepository {
 
     const byDentist = await InvoiceDetail.aggregate([
       { $match: matchFilter },
+      // ✅ Join with Invoice to check invoice status
+      {
+        $lookup: {
+          from: 'invoices',
+          localField: 'invoiceId',
+          foreignField: '_id',
+          as: 'invoice'
+        }
+      },
+      { $unwind: '$invoice' },
+      // ✅ Filter: only include if Invoice.status = 'completed'
+      { $match: { 'invoice.status': 'completed' } },
       {
         $group: {
           _id: '$dentistId',
@@ -475,6 +514,18 @@ class InvoiceDetailRepository {
 
     const byService = await InvoiceDetail.aggregate([
       { $match: matchFilter },
+      // ✅ Join with Invoice to check invoice status
+      {
+        $lookup: {
+          from: 'invoices',
+          localField: 'invoiceId',
+          foreignField: '_id',
+          as: 'invoice'
+        }
+      },
+      { $unwind: '$invoice' },
+      // ✅ Filter: only include if Invoice.status = 'completed'
+      { $match: { 'invoice.status': 'completed' } },
       {
         $group: {
           _id: '$serviceId',
@@ -532,6 +583,18 @@ class InvoiceDetailRepository {
 
     const rawDetails = await InvoiceDetail.aggregate([
       { $match: matchFilter },
+      // ✅ Join with Invoice to check invoice status
+      {
+        $lookup: {
+          from: 'invoices',
+          localField: 'invoiceId',
+          foreignField: '_id',
+          as: 'invoice'
+        }
+      },
+      { $unwind: '$invoice' },
+      // ✅ Filter: only include if Invoice.status = 'completed'
+      { $match: { 'invoice.status': 'completed' } },
       {
         $group: {
           _id: {
