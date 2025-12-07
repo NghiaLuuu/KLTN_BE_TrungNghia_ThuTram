@@ -234,7 +234,7 @@ async function startRpcServer() {
             try {
               slots = await Slot.find(query)
                 .hint('utilization_stats_query_v2')
-                .select('roomId startTime shiftName appointmentId')
+                .select('roomId startTime shiftName appointmentId status')
                 .lean()
                 .maxTimeMS(30000);
             } catch (hintError) {
@@ -242,7 +242,7 @@ async function startRpcServer() {
               console.warn('⚠️ Index v2 not found, using v1:', hintError.message);
               slots = await Slot.find(query)
                 .hint('utilization_stats_query')
-                .select('roomId startTime shiftName appointmentId')
+                .select('roomId startTime shiftName appointmentId status')
                 .lean()
                 .maxTimeMS(30000);
             }
@@ -280,13 +280,15 @@ async function startRpcServer() {
                 startTime: slots[0].startTime,
                 roomId: slots[0].roomId,
                 shiftName: slots[0].shiftName,
-                appointmentId: slots[0].appointmentId
+                appointmentId: slots[0].appointmentId,
+                status: slots[0].status
               });
             }
             
             // Calculate metrics
+            // Slot is considered "booked" if status is 'booked' or 'locked' (has appointment)
             const totalSlots = slots.length;
-            const bookedSlots = slots.filter(s => s.appointmentId).length;
+            const bookedSlots = slots.filter(s => s.status === 'booked' || s.status === 'locked').length;
             const emptySlots = totalSlots - bookedSlots;
             const utilizationRate = totalSlots > 0 ? parseFloat(((bookedSlots / totalSlots) * 100).toFixed(2)) : 0;
             
@@ -298,7 +300,7 @@ async function startRpcServer() {
                 byRoomMap[roomId] = { total: 0, booked: 0, empty: 0 };
               }
               byRoomMap[roomId].total++;
-              if (slot.appointmentId) {
+              if (slot.status === 'booked' || slot.status === 'locked') {
                 byRoomMap[roomId].booked++;
               } else {
                 byRoomMap[roomId].empty++;
@@ -337,7 +339,7 @@ async function startRpcServer() {
             slots.forEach(slot => {
               if (byShiftMap[slot.shiftName]) {
                 byShiftMap[slot.shiftName].total++;
-                if (slot.appointmentId) {
+                if (slot.status === 'booked' || slot.status === 'locked') {
                   byShiftMap[slot.shiftName].booked++;
                 } else {
                   byShiftMap[slot.shiftName].empty++;
@@ -382,7 +384,7 @@ async function startRpcServer() {
                 byDateMap[dateKey] = { total: 0, booked: 0 };
               }
               byDateMap[dateKey].total++;
-              if (slot.appointmentId) {
+              if (slot.status === 'booked' || slot.status === 'locked') {
                 byDateMap[dateKey].booked++;
               }
             });
