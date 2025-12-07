@@ -283,6 +283,14 @@ async function startRpcServer() {
                 appointmentId: slots[0].appointmentId,
                 status: slots[0].status
               });
+              
+              // 🔍 DEBUG: Log ALL slot statuses to see the issue
+              const statusCounts = {};
+              slots.forEach(s => {
+                statusCounts[s.status] = (statusCounts[s.status] || 0) + 1;
+              });
+              console.log('🔍 Slot status distribution:', statusCounts);
+              console.log('🔍 Booked/Locked slots:', slots.filter(s => s.status === 'booked' || s.status === 'locked').length);
             }
             
             // Calculate metrics
@@ -291,6 +299,13 @@ async function startRpcServer() {
             const bookedSlots = slots.filter(s => s.status === 'booked' || s.status === 'locked').length;
             const emptySlots = totalSlots - bookedSlots;
             const utilizationRate = totalSlots > 0 ? parseFloat(((bookedSlots / totalSlots) * 100).toFixed(2)) : 0;
+            
+            console.log('📊 Summary metrics:', {
+              totalSlots,
+              bookedSlots,
+              emptySlots,
+              utilizationRate: utilizationRate + '%'
+            });
             
             // Group by room
             const byRoomMap = {};
@@ -306,6 +321,14 @@ async function startRpcServer() {
                 byRoomMap[roomId].empty++;
               }
             });
+            
+            console.log('🏠 By Room breakdown:', Object.entries(byRoomMap).map(([roomId, stats]) => ({
+              roomId: roomId.substring(0, 8) + '...',
+              total: stats.total,
+              booked: stats.booked,
+              empty: stats.empty,
+              rate: stats.total > 0 ? ((stats.booked / stats.total) * 100).toFixed(1) + '%' : '0%'
+            })));
             
             const byRoom = Object.entries(byRoomMap).map(([roomId, stats]) => {
               const utilRate = stats.total > 0 ? parseFloat(((stats.booked / stats.total) * 100).toFixed(2)) : 0;
@@ -346,6 +369,14 @@ async function startRpcServer() {
                 }
               }
             });
+            
+            console.log('⏰ By Shift breakdown:', Object.entries(byShiftMap).map(([shift, stats]) => ({
+              shift,
+              total: stats.total,
+              booked: stats.booked,
+              empty: stats.empty,
+              rate: stats.total > 0 ? ((stats.booked / stats.total) * 100).toFixed(1) + '%' : '0%'
+            })));
             
             // Convert byShift to object format for FE compatibility
             const byShift = {};
@@ -399,6 +430,13 @@ async function startRpcServer() {
               });
             });
             timeline.sort((a, b) => a.date.localeCompare(b.date));
+            
+            console.log('📅 Timeline breakdown:', timeline.map(t => ({
+              date: t.date,
+              total: t.totalSlots,
+              booked: t.bookedSlots,
+              rate: t.utilizationRate + '%'
+            })));
             
             response = {
               success: true,
