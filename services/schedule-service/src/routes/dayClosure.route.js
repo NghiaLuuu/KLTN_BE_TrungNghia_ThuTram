@@ -21,17 +21,18 @@ router.get('/', dayClosureController.getDayClosures);
 router.get('/stats', dayClosureController.getDayClosureStats);
 
 /**
+ * @route GET /api/day-closure/patients/all
+ * @desc Get all cancelled patients with filters
+ * @query startDate, endDate, roomId, dentistId, patientName, page, limit
+ * @important MUST be before /:id and /:id/patients routes to avoid matching 'patients' as an ID
+ */
+router.get('/patients/all', dayClosureController.getAllCancelledPatients);
+
+/**
  * @route GET /api/day-closure/:id
  * @desc Get day closure details by ID
  */
 router.get('/:id', dayClosureController.getDayClosureById);
-
-/**
- * @route GET /api/day-closure/patients/all
- * @desc Get all cancelled patients with filters (must be before /:id route)
- * @query startDate, endDate, roomId, dentistId, patientName, page, limit
- */
-router.get('/patients/all', dayClosureController.getAllCancelledPatients);
 
 /**
  * @route GET /api/day-closure/:id/patients

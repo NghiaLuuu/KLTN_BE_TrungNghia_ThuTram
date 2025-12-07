@@ -279,24 +279,21 @@ async function getAllCancelledPatients(filters = {}) {
 
     const skip = (page - 1) * limit;
 
-    // Lấy tất cả records (không filter theo ngày, room, dentist ở MongoDB để tránh miss data)
-    // Tất cả filter sẽ được thực hiện ở client-side sau khi flatten để chính xác
-    // Giới hạn 6 tháng gần nhất nếu KHÔNG có bất kỳ filter nào để tránh quá tải
+    // KHÔNG filter theo ngày ở MongoDB vì:
+    // - startDate/endDate là filter theo appointmentDate (ngày hẹn)
+    // - dateFrom là ngày đóng cửa (cancelledAt)
+    // - Nếu filter dateFrom sẽ miss data (ví dụ: hủy ngày 2/12 nhưng lịch hẹn là 29/12)
+    // Giới hạn 1 năm gần nhất để tránh quá tải nếu KHÔNG có bất kỳ filter nào
     const hasAnyFilter = startDate || endDate || roomId || dentistId || patientName;
     
     if (!hasAnyFilter) {
-      // Nếu không có filter nào, giới hạn 6 tháng gần nhất
-      const sixMonthsAgo = new Date();
-      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-      sixMonthsAgo.setUTCHours(0, 0, 0, 0);
-      query.dateFrom = { $gte: sixMonthsAgo };
-    } else if (startDate) {
-      // Nếu có startDate filter, dùng nó để tối ưu MongoDB query
-      const start = new Date(startDate);
-      start.setUTCHours(0, 0, 0, 0);
-      query.dateFrom = { $gte: start };
+      // Nếu không có filter nào, giới hạn 1 năm gần nhất
+      const oneYearAgo = new Date();
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+      oneYearAgo.setUTCHours(0, 0, 0, 0);
+      query.dateFrom = { $gte: oneYearAgo };
     }
-    // Nếu chỉ có endDate hoặc các filter khác, không cần filter dateFrom ở MongoDB
+    // KHÔNG filter dateFrom khi có startDate/endDate vì chúng filter theo appointmentDate
     
     const records = await DayClosure.find(query)
       .sort({ dateFrom: -1, createdAt: -1 })
