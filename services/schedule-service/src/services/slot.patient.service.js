@@ -504,11 +504,12 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
       
       const dateData = dateMap.get(dateStr);
       
-      // Determine shift
-      let shiftKey = 'morning';
-      const hour = new Date(slot.startTime).getHours();
-      if (hour >= 12 && hour < 17) shiftKey = 'afternoon';
-      else if (hour >= 17) shiftKey = 'evening';
+      // ✅ FIX: Use slot.shiftName from database instead of calculating from hour
+      // This ensures consistency with /details/future API which groups by shiftName
+      let shiftKey = 'morning'; // default
+      if (slot.shiftName === 'Ca Sáng') shiftKey = 'morning';
+      else if (slot.shiftName === 'Ca Chiều') shiftKey = 'afternoon';
+      else if (slot.shiftName === 'Ca Tối') shiftKey = 'evening';
       
       dateData.shifts[shiftKey].slots.push(slot);
       dateData.allSlots.push(slot);

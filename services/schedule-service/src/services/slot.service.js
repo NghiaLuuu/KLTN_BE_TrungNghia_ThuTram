@@ -3035,7 +3035,8 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
       bufferMinutes = 0;
     }
 
-    // ⭐ Chỉ lấy slots có startTime > hiện tại + buffer (booking buffer)
+    // ⭐ Chỉ lấy slots có startTime >= hiện tại + buffer (booking buffer)
+    // ✅ FIX: Use $gte instead of $gt to match /dentists-with-nearest-slot behavior
     const vietnamNow = getVietnamDate();
     vietnamNow.setMinutes(vietnamNow.getMinutes() + bufferMinutes);
     const effectiveStartTime = vietnamNow > startUTC ? vietnamNow : startUTC;
@@ -3046,7 +3047,7 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
     const queryFilter = {
       dentist: dentistId,
       startTime: { 
-        $gt: effectiveStartTime,  // > max(start of day, now + 15 min)
+        $gte: effectiveStartTime,  // ✅ CHANGED: >= instead of > to match API /dentists-with-nearest-slot
         $lt: endUTC 
       },
       status: 'available', // 🆕 Only get available slots (same as working-dates)
@@ -3119,7 +3120,13 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
         }
         return isAllowed;
       });
+      
+      console.log(`✅ After roomType filtering: ${filteredSlots.length} / ${slots.length} slots remaining`);
+    } else {
+      console.log(`✅ No roomType filtering applied - all ${slots.length} slots will be used`);
     }
+    
+    console.log(`📊 Total slots after filtering: ${filteredSlots.length}`);
 
     console.log(`🔍 Filtered ${filteredSlots.length}/${slots.length} slots by roomType`);
 
