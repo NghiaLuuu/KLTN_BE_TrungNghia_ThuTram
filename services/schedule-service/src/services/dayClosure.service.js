@@ -378,6 +378,9 @@ async function getAllCancelledPatients(filters = {}) {
     // Filter by appointment date range (client-side filtering for precise date matching)
     // Use appointmentDate (UTC) for filtering, then convert to Vietnam date for comparison
     if (startDate || endDate) {
+      console.log(`🔍 Filtering by date range: ${startDate} to ${endDate}`);
+      console.log(`📊 Total patients before filter: ${allPatients.length}`);
+      
       allPatients = allPatients.filter(p => {
         if (!p.appointmentDate) return false;
         
@@ -392,15 +395,26 @@ async function getAllCancelledPatients(filters = {}) {
         const day = String(apptDateVN.getUTCDate()).padStart(2, '0');
         const apptDateStr = `${year}-${month}-${day}`; // YYYY-MM-DD in VN timezone
         
+        let match = false;
         if (startDate && endDate) {
-          return apptDateStr >= startDate && apptDateStr <= endDate;
+          match = apptDateStr >= startDate && apptDateStr <= endDate;
         } else if (startDate) {
-          return apptDateStr >= startDate;
+          match = apptDateStr >= startDate;
         } else if (endDate) {
-          return apptDateStr <= endDate;
+          match = apptDateStr <= endDate;
+        } else {
+          match = true;
         }
-        return true;
+        
+        // Debug log for first 3 patients
+        if (allPatients.indexOf(p) < 3) {
+          console.log(`  Patient ${p.patientName}: appointmentDate=${p.appointmentDate} → VN=${apptDateStr}, match=${match}`);
+        }
+        
+        return match;
       });
+      
+      console.log(`✅ Total patients after filter: ${allPatients.length}`);
     }
 
     // Filter by room (client-side filtering for precise matching)
