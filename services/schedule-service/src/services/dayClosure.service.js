@@ -384,12 +384,17 @@ async function getAllCancelledPatients(filters = {}) {
       allPatients = allPatients.filter(p => {
         if (!p.appointmentDate) return false;
         
-        // Convert appointmentDate (UTC) to Vietnam date (UTC+7)
-        // Example: "2025-12-28T17:00:00.000Z" (UTC) = 29/12/2025 00:00 (VN)
-        const apptDateUTC = new Date(p.appointmentDate);
-        const apptDateVN = new Date(apptDateUTC.getTime() + 7 * 60 * 60 * 1000);
+        // Ensure appointmentDate is a Date object (could be string or Date from MongoDB)
+        const apptDateUTC = p.appointmentDate instanceof Date 
+          ? p.appointmentDate 
+          : new Date(p.appointmentDate);
         
-        // Extract Vietnam date in YYYY-MM-DD format
+        // Get UTC timestamp and add 7 hours for Vietnam timezone
+        const vnTimestamp = apptDateUTC.getTime() + 7 * 60 * 60 * 1000;
+        const apptDateVN = new Date(vnTimestamp);
+        
+        // Extract Vietnam date in YYYY-MM-DD format using UTC methods
+        // (apptDateVN is actually a UTC date that represents VN time)
         const year = apptDateVN.getUTCFullYear();
         const month = String(apptDateVN.getUTCMonth() + 1).padStart(2, '0');
         const day = String(apptDateVN.getUTCDate()).padStart(2, '0');
@@ -408,7 +413,7 @@ async function getAllCancelledPatients(filters = {}) {
         
         // Debug log for first 3 patients
         if (allPatients.indexOf(p) < 3) {
-          console.log(`  Patient ${p.patientName}: appointmentDate=${p.appointmentDate} → VN=${apptDateStr}, match=${match}`);
+          console.log(`  Patient ${p.patientName}: appointmentDate(UTC)=${apptDateUTC.toISOString()} → VN=${apptDateStr}, match=${match}`);
         }
         
         return match;
