@@ -27,13 +27,20 @@ async function getDayClosures(filters = {}) {
     query.isAppointmentCancellation = { $ne: true };
 
     // Date range filter
+    // Handle both YYYY-MM-DD and ISO string formats
     if (startDate || endDate) {
       query.dateFrom = {};
       if (startDate) {
-        query.dateFrom.$gte = new Date(startDate);
+        // Parse as YYYY-MM-DD and set to start of day in UTC
+        const start = new Date(startDate);
+        start.setUTCHours(0, 0, 0, 0);
+        query.dateFrom.$gte = start;
       }
       if (endDate) {
-        query.dateFrom.$lte = new Date(endDate);
+        // Parse as YYYY-MM-DD and set to end of day in UTC
+        const end = new Date(endDate);
+        end.setUTCHours(23, 59, 59, 999);
+        query.dateFrom.$lte = end;
       }
     }
 
@@ -62,7 +69,8 @@ async function getDayClosures(filters = {}) {
     const formattedRecords = records.map(record => {
       const dateValue = record.dateFrom || record.createdAt;
       const d = new Date(dateValue);
-      const formattedDate = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+      // Sử dụng UTC methods để đảm bảo nhất quán
+      const formattedDate = `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
       
       return {
         ...record,
@@ -112,7 +120,8 @@ async function getDayClosureById(id) {
     // Format date - use dateFrom from new model
     const dateValue = record.dateFrom || record.createdAt;
     const d = new Date(dateValue);
-    const formattedDate = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    // Sử dụng UTC methods để đảm bảo nhất quán
+    const formattedDate = `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
     
     return {
       success: true,
@@ -141,8 +150,16 @@ async function getDayClosureStats(startDate, endDate) {
     
     if (startDate || endDate) {
       query.dateFrom = {};
-      if (startDate) query.dateFrom.$gte = new Date(startDate);
-      if (endDate) query.dateFrom.$lte = new Date(endDate);
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setUTCHours(0, 0, 0, 0);
+        query.dateFrom.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setUTCHours(23, 59, 59, 999);
+        query.dateFrom.$lte = end;
+      }
     }
 
     const records = await DayClosure.find(query).lean();
@@ -163,8 +180,9 @@ async function getDayClosureStats(startDate, endDate) {
 
     // Group by month
     records.forEach(record => {
-      const date = new Date(record.date);
-      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const date = new Date(record.dateFrom || record.date);
+      // Sử dụng UTC để nhất quán
+      const monthKey = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
       if (!stats.byMonth[monthKey]) {
         stats.byMonth[monthKey] = 0;
       }
@@ -234,8 +252,8 @@ async function getCancelledPatients(closureId) {
 /**
  * Get all cancelled patients with filters (for patient list view)
  * @param {Object} filters
- * @param {Date} filters.startDate
- * @param {Date} filters.endDate
+ * @param {Date} filters.startDate - Filter by appointment date (ngày hẹn)
+ * @param {Date} filters.endDate - Filter by appointment date (ngày hẹn)
  * @param {String} filters.roomId
  * @param {String} filters.dentistId
  * @param {String} filters.patientName - Search by patient name
@@ -259,29 +277,27 @@ async function getAllCancelledPatients(filters = {}) {
       'cancelledAppointments.0': { $exists: true } // Must have at least 1 cancelled appointment
     };
 
-    // Date range filter
-    if (startDate || endDate) {
-      query.dateFrom = {};
-      if (startDate) {
-        query.dateFrom.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        query.dateFrom.$lte = new Date(endDate);
-      }
-    }
-
-    // Room filter
-    if (roomId) {
-      query['cancelledAppointments.roomId'] = roomId;
-    }
-
-    // Dentist filter
-    if (dentistId) {
-      query['cancelledAppointments.dentists.dentistId'] = dentistId;
-    }
-
     const skip = (page - 1) * limit;
 
+    // Lấy tất cả records (không filter theo ngày, room, dentist ở MongoDB để tránh miss data)
+    // Tất cả filter sẽ được thực hiện ở client-side sau khi flatten để chính xác
+    // Giới hạn 6 tháng gần nhất nếu KHÔNG có bất kỳ filter nào để tránh quá tải
+    const hasAnyFilter = startDate || endDate || roomId || dentistId || patientName;
+    
+    if (!hasAnyFilter) {
+      // Nếu không có filter nào, giới hạn 6 tháng gần nhất
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      sixMonthsAgo.setUTCHours(0, 0, 0, 0);
+      query.dateFrom = { $gte: sixMonthsAgo };
+    } else if (startDate) {
+      // Nếu có startDate filter, dùng nó để tối ưu MongoDB query
+      const start = new Date(startDate);
+      start.setUTCHours(0, 0, 0, 0);
+      query.dateFrom = { $gte: start };
+    }
+    // Nếu chỉ có endDate hoặc các filter khác, không cần filter dateFrom ở MongoDB
+    
     const records = await DayClosure.find(query)
       .sort({ dateFrom: -1, createdAt: -1 })
       .lean();
@@ -353,6 +369,45 @@ async function getAllCancelledPatients(filters = {}) {
       
       allPatients = allPatients.concat(patients);
     });
+
+    // Filter by appointment date range (client-side filtering for precise date matching)
+    if (startDate || endDate) {
+      allPatients = allPatients.filter(p => {
+        if (!p.appointmentDate) return false;
+        const apptDate = new Date(p.appointmentDate);
+        
+        if (startDate && endDate) {
+          const start = new Date(startDate);
+          start.setUTCHours(0, 0, 0, 0);
+          const end = new Date(endDate);
+          end.setUTCHours(23, 59, 59, 999);
+          return apptDate >= start && apptDate <= end;
+        } else if (startDate) {
+          const start = new Date(startDate);
+          start.setUTCHours(0, 0, 0, 0);
+          return apptDate >= start;
+        } else if (endDate) {
+          const end = new Date(endDate);
+          end.setUTCHours(23, 59, 59, 999);
+          return apptDate <= end;
+        }
+        return true;
+      });
+    }
+
+    // Filter by room (client-side filtering for precise matching)
+    if (roomId) {
+      allPatients = allPatients.filter(p => 
+        p.roomId && p.roomId.toString() === roomId.toString()
+      );
+    }
+
+    // Filter by dentist (client-side filtering for precise matching)
+    if (dentistId) {
+      allPatients = allPatients.filter(p => 
+        p.dentistIds && p.dentistIds.some(id => id.toString() === dentistId.toString())
+      );
+    }
 
     // Client-side filtering by patient name (if provided)
     if (patientName && patientName.trim()) {
