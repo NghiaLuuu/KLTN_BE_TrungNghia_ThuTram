@@ -290,9 +290,14 @@ class InvoiceDetailRepository {
           as: 'invoice'
         }
       },
-      { $unwind: '$invoice' },
-      // ✅ Filter: only include if Invoice.status = 'completed'
-      { $match: { 'invoice.status': 'completed' } },
+      { 
+        $unwind: { 
+          path: '$invoice',
+          preserveNullAndEmptyArrays: false // ✅ Drop if invoice not found
+        } 
+      },
+      // ✅ Filter: only include if Invoice.status is 'completed' or 'paid'
+      { $match: { 'invoice.status': { $in: ['completed', 'paid'] } } },
       {
         $group: {
           _id: null,
@@ -348,8 +353,13 @@ class InvoiceDetailRepository {
         as: 'invoice'
       }
     };
-    const unwindStage = { $unwind: '$invoice' };
-    const invoiceStatusMatch = { $match: { 'invoice.status': 'completed' } };
+    const unwindStage = { 
+      $unwind: { 
+        path: '$invoice',
+        preserveNullAndEmptyArrays: false 
+      } 
+    };
+    const invoiceStatusMatch = { $match: { 'invoice.status': { $in: ['completed', 'paid'] } } };
 
     let groupStage = {};
     
@@ -456,9 +466,14 @@ class InvoiceDetailRepository {
           as: 'invoice'
         }
       },
-      { $unwind: '$invoice' },
-      // ✅ Filter: only include if Invoice.status = 'completed'
-      { $match: { 'invoice.status': 'completed' } },
+      { 
+        $unwind: { 
+          path: '$invoice',
+          preserveNullAndEmptyArrays: false 
+        } 
+      },
+      // ✅ Filter: only include if Invoice.status is 'completed' or 'paid'
+      { $match: { 'invoice.status': { $in: ['completed', 'paid'] } } },
       {
         $group: {
           _id: '$dentistId',
@@ -523,9 +538,14 @@ class InvoiceDetailRepository {
           as: 'invoice'
         }
       },
-      { $unwind: '$invoice' },
-      // ✅ Filter: only include if Invoice.status = 'completed'
-      { $match: { 'invoice.status': 'completed' } },
+      { 
+        $unwind: { 
+          path: '$invoice',
+          preserveNullAndEmptyArrays: false 
+        } 
+      },
+      // ✅ Filter: only include if Invoice.status is 'completed' or 'paid'
+      { $match: { 'invoice.status': { $in: ['completed', 'paid'] } } },
       {
         $group: {
           _id: '$serviceId',
@@ -592,9 +612,14 @@ class InvoiceDetailRepository {
           as: 'invoice'
         }
       },
-      { $unwind: '$invoice' },
-      // ✅ Filter: only include if Invoice.status = 'completed'
-      { $match: { 'invoice.status': 'completed' } },
+      { 
+        $unwind: { 
+          path: '$invoice',
+          preserveNullAndEmptyArrays: false 
+        } 
+      },
+      // ✅ Filter: only include if Invoice.status is 'completed' or 'paid'
+      { $match: { 'invoice.status': { $in: ['completed', 'paid'] } } },
       {
         $group: {
           _id: {
