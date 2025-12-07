@@ -321,6 +321,10 @@ async function getAllCancelledPatients(filters = {}) {
         const actualCancelledAt = p.cancelledAt || record.dateFrom || record.createdAt;
         const cancelledDate = new Date(actualCancelledAt);
         
+        // Calculate Vietnam time (UTC+7) for appointmentDate
+        const appointmentDateUTC = p.appointmentDate ? new Date(p.appointmentDate) : null;
+        const appointmentDateVN = appointmentDateUTC ? new Date(appointmentDateUTC.getTime() + 7 * 60 * 60 * 1000) : null;
+        
         return {
           // Patient info
           appointmentId: p.appointmentId,
@@ -331,6 +335,7 @@ async function getAllCancelledPatients(filters = {}) {
           
           // Appointment info
           appointmentDate: p.appointmentDate,
+          appointmentDateVN: appointmentDateVN, // Vietnam timezone (UTC+7)
           appointmentTime: `${p.startTime} - ${p.endTime}`,
           startTime: p.startTime,
           endTime: p.endTime,
@@ -371,10 +376,11 @@ async function getAllCancelledPatients(filters = {}) {
     });
 
     // Filter by appointment date range (client-side filtering for precise date matching)
+    // Use appointmentDateVN for filtering to match Vietnam timezone
     if (startDate || endDate) {
       allPatients = allPatients.filter(p => {
-        if (!p.appointmentDate) return false;
-        const apptDate = new Date(p.appointmentDate);
+        if (!p.appointmentDateVN) return false;
+        const apptDate = new Date(p.appointmentDateVN);
         
         if (startDate && endDate) {
           const start = new Date(startDate);
