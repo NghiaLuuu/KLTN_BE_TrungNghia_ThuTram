@@ -467,9 +467,12 @@ class AppointmentController {
         });
       }
 
+      const { parseDateRange } = require('../utils/dateUtils');
+      const { startDate: start, endDate: end } = parseDateRange(startDate, endDate);
+
       const stats = await appointmentService.getBookingChannelStats(
-        new Date(startDate),
-        new Date(endDate),
+        start,
+        end,
         groupBy
       );
 

@@ -173,12 +173,11 @@ async function startRpcServer() {
             const { startDate, endDate, roomIds, timeRange, shiftName } = payload;
             console.log('🔍 getUtilizationStatistics request:', { startDate, endDate, roomIds, timeRange, shiftName });
             
-            // Parse dates to ensure we include the full day range
-            const startDateObj = new Date(startDate);
-            startDateObj.setHours(0, 0, 0, 0); // Start of day
-            
-            const endDateObj = new Date(endDate);
-            endDateObj.setHours(23, 59, 59, 999); // End of day
+            // Parse dates with Vietnam timezone
+            const DateUtils = require('./dateUtils');
+            const dateRange = DateUtils.parseDateRange(startDate, endDate);
+            const startDateObj = dateRange.startDate;
+            const endDateObj = dateRange.endDate
             
             // Build query
             const query = {

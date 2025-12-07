@@ -1,4 +1,6 @@
-const moment = require('moment');
+const moment = require('moment-timezone');
+
+const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 class DateUtils {
   /**
@@ -8,7 +10,7 @@ class DateUtils {
    * @returns {Object} { startDate, endDate }
    */
   static getPeriodRange(period, date = new Date()) {
-    const momentDate = moment(date);
+    const momentDate = moment.tz(date, TIMEZONE);
     let startDate, endDate;
 
     switch (period) {
@@ -43,7 +45,7 @@ class DateUtils {
    * Get previous period dates for comparison
    */
   static getPreviousPeriodRange(period, date = new Date()) {
-    const momentDate = moment(date);
+    const momentDate = moment.tz(date, TIMEZONE);
     let prevDate;
 
     switch (period) {
@@ -89,23 +91,33 @@ class DateUtils {
    * Format date for Vietnamese timezone
    */
   static formatVNDate(date, format = 'YYYY-MM-DD') {
-    return moment(date).utcOffset('+07:00').format(format);
+    return moment.tz(date, TIMEZONE).format(format);
   }
 
   /**
    * Get Vietnam current time
    */
   static getVNNow() {
-    return moment().utcOffset('+07:00').toDate();
+    return moment.tz(TIMEZONE).toDate();
   }
 
   /**
-   * Parse date range from query params
+   * Parse date range from query params with Vietnam timezone
    */
   static parseDateRange(startDate, endDate, defaultPeriod = 'month') {
     if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
+      // Parse dates as Vietnam timezone (Asia/Ho_Chi_Minh) to avoid timezone shift
+      const start = moment.tz(startDate, TIMEZONE).startOf('day').toDate();
+      const end = moment.tz(endDate, TIMEZONE).endOf('day').toDate();
+      
+      console.log('📅 [DateUtils] Parsed date range:', {
+        input: { startDate, endDate },
+        output: {
+          startDate: start.toISOString(),
+          endDate: end.toISOString()
+        },
+        timezone: TIMEZONE
+      });
       
       // Validate date range
       if (start > end) {

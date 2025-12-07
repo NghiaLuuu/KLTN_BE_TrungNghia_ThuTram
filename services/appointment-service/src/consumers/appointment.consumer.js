@@ -54,12 +54,16 @@ async function startConsumer() {
             console.time('⏱️ [RPC] getAppointmentStatusStats query time');
 
             const Appointment = require('../models/appointment.model');
+            const DateUtils = require('../utils/dateUtils');
+            
+            // Parse dates with Vietnam timezone
+            const dateRange = DateUtils.parseDateRange(startDate, endDate);
             
             // Build match filters
             const matchStage = {
               appointmentDate: {
-                $gte: new Date(startDate),
-                $lte: new Date(endDate)
+                $gte: dateRange.startDate,
+                $lte: dateRange.endDate
               }
             };
 
