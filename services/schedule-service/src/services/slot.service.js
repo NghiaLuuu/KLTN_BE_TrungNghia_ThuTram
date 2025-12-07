@@ -3039,10 +3039,17 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
     // ✅ FIX: Use $gte instead of $gt to match /dentists-with-nearest-slot behavior
     const vietnamNow = getVietnamDate();
     vietnamNow.setMinutes(vietnamNow.getMinutes() + bufferMinutes);
-    const effectiveStartTime = vietnamNow > startUTC ? vietnamNow : startUTC;
+    
+    // ✅ FIX: Don't compare with startUTC - just use vietnamNow + buffer
+    // The issue was: startUTC is start of day in UTC (17:00 UTC = 00:00 VN)
+    // When testing at 18:31 VN (11:31 UTC), vietnamNow + 30min = 19:01 VN = 12:01 UTC
+    // But vietnamNow (12:01 UTC) < startUTC (17:00 UTC), so it wrongly used 17:00 UTC
+    // This filtered out all slots before 00:00 VN next day!
+    const effectiveStartTime = vietnamNow;
 
     console.log(`🕐 getDentistSlotDetailsFuture (buffer ${bufferMinutes} phút):`, vietnamNow.toISOString());
     console.log('📅 Effective start time:', effectiveStartTime.toISOString());
+    console.log('📅 End UTC (end of selected day):', endUTC.toISOString());
 
     const queryFilter = {
       dentist: dentistId,
@@ -3094,17 +3101,19 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
     // 🏥 Filter slots by roomType if allowedRoomTypes is specified
     let filteredSlots = slots;
     if (allowedRoomTypes && allowedRoomTypes.length > 0) {
+      console.log(`🔍 Filtering ${slots.length} slots by allowedRoomTypes:`, allowedRoomTypes);
+      
       filteredSlots = slots.filter(slot => {
         const roomId = slot.roomId?.toString();
         if (!roomId) {
-          // console.log(`⏭️ Skipping slot ${slot._id} - no roomId`);
+          console.log(`⏭️ Skipping slot ${slot._id} - no roomId`);
           return false;
         }
         
         const room = roomMap.get(roomId);
         if (!room || !room.roomType) {
-          // console.log(`⏭️ Skipping slot ${slot._id} - room ${roomId} not found or no roomType`);
-          // // Debug: show available room IDs
+          console.log(`⏭️ Skipping slot ${slot._id} - room ${roomId} not found or no roomType`);
+          // Debug: show available room IDs
           if (!room) {
             const availableIds = Array.from(roomMap.keys()).slice(0, 3);
             console.log(`   Available room IDs in cache (sample): ${availableIds.join(', ')}`);
@@ -3114,7 +3123,7 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
         
         const isAllowed = allowedRoomTypes.includes(room.roomType);
         if (!isAllowed) {
-          // console.log(`⏭️ Skipping slot ${slot._id} - room "${room.name}" type "${room.roomType}" not in allowed types [${allowedRoomTypes.join(', ')}]`);
+          console.log(`⏭️ Skipping slot ${slot._id} - room "${room.name}" type "${room.roomType}" not in allowed types [${allowedRoomTypes.join(', ')}]`);
         } else {
           console.log(`✅ Keeping slot ${slot._id} - room "${room.name}" type "${room.roomType}" matches allowed types`);
         }
@@ -3122,6 +3131,17 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
       });
       
       console.log(`✅ After roomType filtering: ${filteredSlots.length} / ${slots.length} slots remaining`);
+      
+      // 🚨 CRITICAL: If all slots filtered out, show debug info
+      if (filteredSlots.length === 0 && slots.length > 0) {
+        console.error(`❌ CRITICAL: All ${slots.length} slots were filtered out by roomType!`);
+        console.error(`   Allowed roomTypes: [${allowedRoomTypes.join(', ')}]`);
+        const uniqueRoomTypes = [...new Set(slots.map(s => {
+          const room = roomMap.get(s.roomId?.toString());
+          return room?.roomType || 'UNKNOWN';
+        }))];
+        console.error(`   Actual roomTypes in slots: [${uniqueRoomTypes.join(', ')}]`);
+      }
     } else {
       console.log(`✅ No roomType filtering applied - all ${slots.length} slots will be used`);
     }
