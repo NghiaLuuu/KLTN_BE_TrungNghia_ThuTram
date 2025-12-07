@@ -3015,47 +3015,33 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
       }
     }
 
-    const targetDate = new Date(date);
-    const startUTC = new Date(Date.UTC(
-      targetDate.getFullYear(),
-      targetDate.getMonth(),
-      targetDate.getDate(),
-      -7, 0, 0, 0
-    ));
-    const endUTC = new Date(Date.UTC(
-      targetDate.getFullYear(),
-      targetDate.getMonth(),
-      targetDate.getDate(),
-      -7 + 24, 0, 0, 0
-    ));
-
     const parsedLead = parseInt(minLeadMinutes, 10);
     let bufferMinutes = Number.isNaN(parsedLead) ? 30 : parsedLead;
     if (bufferMinutes < 0) {
       bufferMinutes = 0;
     }
 
-    // ⭐ Chỉ lấy slots có startTime >= hiện tại + buffer (booking buffer)
-    // ✅ FIX: Use $gte instead of $gt to match /dentists-with-nearest-slot behavior
-    const vietnamNow = getVietnamDate();
-    vietnamNow.setMinutes(vietnamNow.getMinutes() + bufferMinutes);
+    // ⭐ Match API 1 & 2 logic exactly - use server time + buffer
+    // ✅ FIX: Use same query filter as getDentistsWithNearestSlot and getDentistWorkingDates
+    // Use server time (UTC) + buffer, then filter by maxBookingDays
+    const now = new Date();
+    const threshold = new Date(now.getTime() + bufferMinutes * 60 * 1000);
     
-    // ✅ FIX: Don't compare with startUTC - just use vietnamNow + buffer
-    // The issue was: startUTC is start of day in UTC (17:00 UTC = 00:00 VN)
-    // When testing at 18:31 VN (11:31 UTC), vietnamNow + 30min = 19:01 VN = 12:01 UTC
-    // But vietnamNow (12:01 UTC) < startUTC (17:00 UTC), so it wrongly used 17:00 UTC
-    // This filtered out all slots before 00:00 VN next day!
-    const effectiveStartTime = vietnamNow;
+    // Get max booking days from config (same as API 1 & 2)
+    const config = await require('../models/scheduleConfig.model').ScheduleConfig.findOne();
+    const maxBookingDays = config?.maxBookingDays || 30;
+    const maxDate = new Date(now);
+    maxDate.setDate(maxDate.getDate() + maxBookingDays);
 
-    console.log(`🕐 getDentistSlotDetailsFuture (buffer ${bufferMinutes} phút):`, vietnamNow.toISOString());
-    console.log('📅 Effective start time:', effectiveStartTime.toISOString());
-    console.log('📅 End UTC (end of selected day):', endUTC.toISOString());
+    console.log(`🕐 getDentistSlotDetailsFuture (buffer ${bufferMinutes} phút):`, now.toISOString());
+    console.log('📅 Threshold (now + buffer):', threshold.toISOString());
+    console.log('📅 Max date (now + maxBookingDays):', maxDate.toISOString());
 
     const queryFilter = {
       dentist: dentistId,
       startTime: { 
-        $gte: effectiveStartTime,  // ✅ CHANGED: >= instead of > to match API /dentists-with-nearest-slot
-        $lt: endUTC 
+        $gte: threshold,  // ✅ MATCH API 1 & 2
+        $lte: maxDate     // ✅ MATCH API 1 & 2
       },
       status: 'available', // 🆕 Only get available slots (same as working-dates)
       isActive: true
@@ -3069,8 +3055,34 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
     const slots = await slotRepo.findForDetails(queryFilter); // ⚡ OPTIMIZED
     
     console.log(`📊 Total slots from query: ${slots.length}`);
-    if (slots.length > 0) {
-      console.log(`🔍 First slot roomId: ${slots[0].roomId}`);
+    
+    // ⚡ Filter by date if specified (match API behavior)
+    let filteredByDate = slots;
+    if (date) {
+      const targetDate = new Date(date);
+      const vnStartOfDay = new Date(Date.UTC(
+        targetDate.getFullYear(),
+        targetDate.getMonth(),
+        targetDate.getDate(),
+        -7, 0, 0, 0  // 17:00 UTC = 00:00 VN
+      ));
+      const vnEndOfDay = new Date(Date.UTC(
+        targetDate.getFullYear(),
+        targetDate.getMonth(),
+        targetDate.getDate(),
+        -7 + 24, 0, 0, 0  // 17:00 UTC next day = 00:00 VN next day
+      ));
+      
+      filteredByDate = slots.filter(slot => {
+        return slot.startTime >= vnStartOfDay && slot.startTime < vnEndOfDay;
+      });
+      
+      console.log(`📅 Filtered by date ${date}: ${filteredByDate.length} / ${slots.length} slots`);
+    }
+    
+    if (filteredByDate.length > 0) {
+      console.log(`🔍 First slot roomId: ${filteredByDate[0].roomId}`);
+      console.log(`🔍 First slot startTime: ${filteredByDate[0].startTime}`);
     }
     
     // ⚡ OPTIMIZED: Get cached users and rooms
@@ -3099,11 +3111,11 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
     console.log(`🏥 Will filter by allowedRoomTypes: ${allowedRoomTypes ? JSON.stringify(allowedRoomTypes) : 'NO FILTER'}`);
 
     // 🏥 Filter slots by roomType if allowedRoomTypes is specified
-    let filteredSlots = slots;
+    let filteredSlots = filteredByDate;
     if (allowedRoomTypes && allowedRoomTypes.length > 0) {
-      console.log(`🔍 Filtering ${slots.length} slots by allowedRoomTypes:`, allowedRoomTypes);
+      console.log(`🔍 Filtering ${filteredByDate.length} slots by allowedRoomTypes:`, allowedRoomTypes);
       
-      filteredSlots = slots.filter(slot => {
+      filteredSlots = filteredByDate.filter(slot => {
         const roomId = slot.roomId?.toString();
         if (!roomId) {
           console.log(`⏭️ Skipping slot ${slot._id} - no roomId`);
@@ -3130,25 +3142,25 @@ async function getDentistSlotDetailsFuture({ dentistId, date, shiftName, service
         return isAllowed;
       });
       
-      console.log(`✅ After roomType filtering: ${filteredSlots.length} / ${slots.length} slots remaining`);
+      console.log(`✅ After roomType filtering: ${filteredSlots.length} / ${filteredByDate.length} slots remaining`);
       
       // 🚨 CRITICAL: If all slots filtered out, show debug info
-      if (filteredSlots.length === 0 && slots.length > 0) {
-        console.error(`❌ CRITICAL: All ${slots.length} slots were filtered out by roomType!`);
+      if (filteredSlots.length === 0 && filteredByDate.length > 0) {
+        console.error(`❌ CRITICAL: All ${filteredByDate.length} slots were filtered out by roomType!`);
         console.error(`   Allowed roomTypes: [${allowedRoomTypes.join(', ')}]`);
-        const uniqueRoomTypes = [...new Set(slots.map(s => {
+        const uniqueRoomTypes = [...new Set(filteredByDate.map(s => {
           const room = roomMap.get(s.roomId?.toString());
           return room?.roomType || 'UNKNOWN';
         }))];
         console.error(`   Actual roomTypes in slots: [${uniqueRoomTypes.join(', ')}]`);
       }
     } else {
-      console.log(`✅ No roomType filtering applied - all ${slots.length} slots will be used`);
+      console.log(`✅ No roomType filtering applied - all ${filteredByDate.length} slots will be used`);
     }
     
     console.log(`📊 Total slots after filtering: ${filteredSlots.length}`);
 
-    console.log(`🔍 Filtered ${filteredSlots.length}/${slots.length} slots by roomType`);
+    console.log(`🔍 Filtered ${filteredSlots.length}/${filteredByDate.length} slots by roomType`);
 
     const slotDetails = filteredSlots.map(slot => {
       const nurse = slot.nurse ? usersMap.get(slot.nurse?.toString()) : null;
