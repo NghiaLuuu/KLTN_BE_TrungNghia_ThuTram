@@ -380,22 +380,17 @@ async function getAllCancelledPatients(filters = {}) {
     if (startDate || endDate) {
       allPatients = allPatients.filter(p => {
         if (!p.appointmentDateVN) return false;
-        const apptDate = new Date(p.appointmentDateVN);
+        
+        // Convert appointmentDateVN to YYYY-MM-DD format for comparison
+        const apptDateObj = new Date(p.appointmentDateVN);
+        const apptDateStr = apptDateObj.toISOString().split('T')[0]; // YYYY-MM-DD
         
         if (startDate && endDate) {
-          const start = new Date(startDate);
-          start.setUTCHours(0, 0, 0, 0);
-          const end = new Date(endDate);
-          end.setUTCHours(23, 59, 59, 999);
-          return apptDate >= start && apptDate <= end;
+          return apptDateStr >= startDate && apptDateStr <= endDate;
         } else if (startDate) {
-          const start = new Date(startDate);
-          start.setUTCHours(0, 0, 0, 0);
-          return apptDate >= start;
+          return apptDateStr >= startDate;
         } else if (endDate) {
-          const end = new Date(endDate);
-          end.setUTCHours(23, 59, 59, 999);
-          return apptDate <= end;
+          return apptDateStr <= endDate;
         }
         return true;
       });
