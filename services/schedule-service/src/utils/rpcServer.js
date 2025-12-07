@@ -284,13 +284,32 @@ async function startRpcServer() {
                 status: slots[0].status
               });
               
-              // 🔍 DEBUG: Log ALL slot statuses to see the issue
-              const statusCounts = {};
-              slots.forEach(s => {
-                statusCounts[s.status] = (statusCounts[s.status] || 0) + 1;
-              });
-              console.log('🔍 Slot status distribution:', statusCounts);
-              console.log('🔍 Booked/Locked slots:', slots.filter(s => s.status === 'booked' || s.status === 'locked').length);
+            // 🔍 DEBUG: Log ALL slot statuses to see the issue
+            const statusCounts = {};
+            const appointmentIdCount = { hasId: 0, noId: 0 };
+            slots.forEach(s => {
+              statusCounts[s.status] = (statusCounts[s.status] || 0) + 1;
+              if (s.appointmentId) {
+                appointmentIdCount.hasId++;
+              } else {
+                appointmentIdCount.noId++;
+              }
+            });
+            console.log('🔍 Slot status distribution:', statusCounts);
+            console.log('🔍 AppointmentId distribution:', appointmentIdCount);
+            console.log('🔍 Booked/Locked slots (by status):', slots.filter(s => s.status === 'booked' || s.status === 'locked').length);
+            console.log('🔍 Slots with appointmentId:', slots.filter(s => s.appointmentId).length);
+            
+            // 🔍 Show slots that have appointmentId but status is not booked/locked
+            const mismatchedSlots = slots.filter(s => s.appointmentId && s.status !== 'booked' && s.status !== 'locked');
+            if (mismatchedSlots.length > 0) {
+              console.log('⚠️ FOUND MISMATCHED SLOTS:', mismatchedSlots.map(s => ({
+                slotId: s._id.toString().substring(0, 8) + '...',
+                startTime: s.startTime,
+                status: s.status,
+                appointmentId: s.appointmentId.toString().substring(0, 8) + '...'
+              })));
+            }
             }
             
             // Calculate metrics
