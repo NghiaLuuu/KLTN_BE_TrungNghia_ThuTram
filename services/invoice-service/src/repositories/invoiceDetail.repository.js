@@ -294,9 +294,6 @@ class InvoiceDetailRepository {
       // ✅ Filter: only include if Invoice.status = 'completed'
       { $match: { 'invoice.status': 'completed' } },
       {
-        $group: {,
-      invoiceStatusMatch,
-      {
         $group: {
           _id: null,
           totalRevenue: { $sum: '$totalPrice' },
@@ -414,6 +411,9 @@ class InvoiceDetailRepository {
 
     const trends = await InvoiceDetail.aggregate([
       { $match: matchFilter },
+      lookupStage,
+      unwindStage,
+      invoiceStatusMatch,
       { $group: groupStage },
       { $sort: { '_id': 1 } },
       {
