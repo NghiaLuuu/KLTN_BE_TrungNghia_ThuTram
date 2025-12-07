@@ -217,7 +217,7 @@ class AppointmentService {
         bookedBy: currentUser._id, 
         bookedByRole: userRole, // Use normalized role
         createdAt: new Date(),
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000)
+        expiresAt: new Date(Date.now() + 3 * 60 * 1000)
       };
       
       console.log('🔍 [reserveAppointment] reservation object:', JSON.stringify({
