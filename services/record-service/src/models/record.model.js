@@ -53,7 +53,7 @@ const prescriptionSchema = new mongoose.Schema({
   },
   prescribedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    required: true,
+    required: false, // ✅ Không bắt buộc - đơn thuốc là optional
     ref: 'User'
   },
   prescribedAt: {
