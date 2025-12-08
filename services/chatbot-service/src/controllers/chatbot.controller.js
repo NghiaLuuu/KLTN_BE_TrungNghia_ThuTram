@@ -1496,10 +1496,33 @@ class ChatbotController {
       // Hiển thị tối đa 50 slots thay vì 12
       const maxSlots = Math.min(slotGroups.length, 50);
       slotGroups.slice(0, maxSlots).forEach((group, idx) => {
-        // startTime và endTime đã được convert sang giờ Việt Nam ở appointment-service
-        // Chỉ cần hiển thị trực tiếp (đã là format "HH:mm")
-        const startTime = group.startTime;
-        const endTime = group.endTime;
+        let startTime = group.startTime;
+        let endTime = group.endTime;
+        
+        // Xử lý cả 2 trường hợp: ISO string (UTC) hoặc "HH:mm" string (đã convert)
+        if (startTime && typeof startTime === 'string') {
+          if (startTime.includes('T') || startTime.includes('Z')) {
+            // ISO string → convert UTC+7
+            const date = new Date(startTime);
+            const vnHours = date.getUTCHours() + 7;
+            const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
+            const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+            startTime = `${hours}:${minutes}`;
+          }
+          // Nếu đã là "HH:mm" thì giữ nguyên
+        }
+        
+        if (endTime && typeof endTime === 'string') {
+          if (endTime.includes('T') || endTime.includes('Z')) {
+            // ISO string → convert UTC+7
+            const date = new Date(endTime);
+            const vnHours = date.getUTCHours() + 7;
+            const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
+            const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+            endTime = `${hours}:${minutes}`;
+          }
+          // Nếu đã là "HH:mm" thì giữ nguyên
+        }
         
         slotMessage += `${idx + 1}. ${startTime} - ${endTime}\n`;
       });
@@ -1606,9 +1629,29 @@ class ChatbotController {
       
       confirmMessage += `📅 **Ngày:** ${dateFormatted}\n`;
       
-      // startTime và endTime đã là format "HH:mm" từ appointment-service (đã convert UTC+7)
-      const startTime = selectedSlotGroup.startTime;
-      const endTime = selectedSlotGroup.endTime;
+      // Xử lý cả 2 trường hợp: ISO string hoặc "HH:mm" string
+      let startTime = selectedSlotGroup.startTime;
+      let endTime = selectedSlotGroup.endTime;
+      
+      if (startTime && typeof startTime === 'string') {
+        if (startTime.includes('T') || startTime.includes('Z')) {
+          const date = new Date(startTime);
+          const vnHours = date.getUTCHours() + 7;
+          const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
+          const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+          startTime = `${hours}:${minutes}`;
+        }
+      }
+      
+      if (endTime && typeof endTime === 'string') {
+        if (endTime.includes('T') || endTime.includes('Z')) {
+          const date = new Date(endTime);
+          const vnHours = date.getUTCHours() + 7;
+          const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
+          const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+          endTime = `${hours}:${minutes}`;
+        }
+      }
       
       confirmMessage += `🕐 **Giờ:** ${startTime} - ${endTime}\n\n`;
       
