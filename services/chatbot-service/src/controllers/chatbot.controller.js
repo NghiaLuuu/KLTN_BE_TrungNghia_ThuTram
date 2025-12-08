@@ -1496,35 +1496,31 @@ class ChatbotController {
       // Hiển thị tối đa 50 slots thay vì 12
       const maxSlots = Math.min(slotGroups.length, 50);
       slotGroups.slice(0, maxSlots).forEach((group, idx) => {
-        let startTime = group.startTime;
-        let endTime = group.endTime;
+        // Schedule-service trả về: startTime (ISO), startTimeVN (HH:mm), endTimeVN (HH:mm)
+        // Ưu tiên dùng startTimeVN/endTimeVN đã được convert sẵn
+        let startTime = group.startTimeVN || group.startTime;
+        let endTime = group.endTimeVN || group.endTime;
         
-        // Xử lý cả 2 trường hợp: ISO string (UTC) hoặc "HH:mm" string (đã convert)
-        if (startTime && typeof startTime === 'string') {
-          if (startTime.includes('T') || startTime.includes('Z')) {
-            // ISO string → convert UTC+7
-            const date = new Date(startTime);
-            const vnHours = date.getUTCHours() + 7;
-            const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
-            const minutes = date.getUTCMinutes().toString().padStart(2, '0');
-            startTime = `${hours}:${minutes}`;
-          }
-          // Nếu đã là "HH:mm" thì giữ nguyên
+        // Nếu vẫn là ISO string thì convert UTC+7
+        if (startTime && typeof startTime === 'string' && (startTime.includes('T') || startTime.includes('Z'))) {
+          const date = new Date(startTime);
+          const vnHours = date.getUTCHours() + 7;
+          const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
+          const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+          startTime = `${hours}:${minutes}`;
         }
         
-        if (endTime && typeof endTime === 'string') {
-          if (endTime.includes('T') || endTime.includes('Z')) {
-            // ISO string → convert UTC+7
-            const date = new Date(endTime);
-            const vnHours = date.getUTCHours() + 7;
-            const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
-            const minutes = date.getUTCMinutes().toString().padStart(2, '0');
-            endTime = `${hours}:${minutes}`;
-          }
-          // Nếu đã là "HH:mm" thì giữ nguyên
+        if (endTime && typeof endTime === 'string' && (endTime.includes('T') || endTime.includes('Z'))) {
+          const date = new Date(endTime);
+          const vnHours = date.getUTCHours() + 7;
+          const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
+          const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+          endTime = `${hours}:${minutes}`;
         }
         
-        slotMessage += `${idx + 1}. ${startTime} - ${endTime}\n`;
+        // Hiển thị startTime - endTime, nếu không có endTime thì chỉ hiển thị startTime
+        const timeDisplay = endTime ? `${startTime} - ${endTime}` : `${startTime}`;
+        slotMessage += `${idx + 1}. ${timeDisplay}\n`;
       });
       
       if (slotGroups.length > maxSlots) {
@@ -1629,31 +1625,29 @@ class ChatbotController {
       
       confirmMessage += `📅 **Ngày:** ${dateFormatted}\n`;
       
-      // Xử lý cả 2 trường hợp: ISO string hoặc "HH:mm" string
-      let startTime = selectedSlotGroup.startTime;
-      let endTime = selectedSlotGroup.endTime;
+      // Schedule-service trả về: startTime (ISO), startTimeVN (HH:mm), endTimeVN (HH:mm)
+      let startTime = selectedSlotGroup.startTimeVN || selectedSlotGroup.startTime;
+      let endTime = selectedSlotGroup.endTimeVN || selectedSlotGroup.endTime;
       
-      if (startTime && typeof startTime === 'string') {
-        if (startTime.includes('T') || startTime.includes('Z')) {
-          const date = new Date(startTime);
-          const vnHours = date.getUTCHours() + 7;
-          const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
-          const minutes = date.getUTCMinutes().toString().padStart(2, '0');
-          startTime = `${hours}:${minutes}`;
-        }
+      // Nếu vẫn là ISO string thì convert UTC+7
+      if (startTime && typeof startTime === 'string' && (startTime.includes('T') || startTime.includes('Z'))) {
+        const date = new Date(startTime);
+        const vnHours = date.getUTCHours() + 7;
+        const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
+        const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+        startTime = `${hours}:${minutes}`;
       }
       
-      if (endTime && typeof endTime === 'string') {
-        if (endTime.includes('T') || endTime.includes('Z')) {
-          const date = new Date(endTime);
-          const vnHours = date.getUTCHours() + 7;
-          const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
-          const minutes = date.getUTCMinutes().toString().padStart(2, '0');
-          endTime = `${hours}:${minutes}`;
-        }
+      if (endTime && typeof endTime === 'string' && (endTime.includes('T') || endTime.includes('Z'))) {
+        const date = new Date(endTime);
+        const vnHours = date.getUTCHours() + 7;
+        const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
+        const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+        endTime = `${hours}:${minutes}`;
       }
       
-      confirmMessage += `🕐 **Giờ:** ${startTime} - ${endTime}\n\n`;
+      const timeDisplay = endTime ? `${startTime} - ${endTime}` : `${startTime}`;
+      confirmMessage += `🕐 **Giờ:** ${timeDisplay}\n\n`;
       
       confirmMessage += '💡 Xác nhận đặt lịch? (Có/Không)';
       
