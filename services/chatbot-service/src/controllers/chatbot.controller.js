@@ -1464,16 +1464,60 @@ class ChatbotController {
       
       console.log('📦 Slots response:', slotsResponse.data);
       
-      // Extract slots/slotGroups from response
-      let slotGroups = [];
+      // Extract individual slots from response
+      let individualSlots = [];
       if (slotsResponse.data.success && slotsResponse.data.data) {
-        // API may return either 'slotGroups' or 'slots' array
-        if (slotsResponse.data.data.slotGroups && Array.isArray(slotsResponse.data.data.slotGroups)) {
-          slotGroups = slotsResponse.data.data.slotGroups;
-        } else if (slotsResponse.data.data.slots && Array.isArray(slotsResponse.data.data.slots)) {
-          slotGroups = slotsResponse.data.data.slots;
+        individualSlots = slotsResponse.data.data.slots || [];
+      }
+      
+      // Group consecutive slots by serviceDuration
+      const slotDuration = 15; // Each slot is 15 minutes
+      const slotsNeeded = Math.ceil(serviceDuration / slotDuration);
+      const slotGroups = [];
+      
+      for (let i = 0; i <= individualSlots.length - slotsNeeded; i++) {
+        const group = [];
+        let isConsecutive = true;
+        
+        for (let j = 0; j < slotsNeeded; j++) {
+          const currentSlot = individualSlots[i + j];
+          group.push(currentSlot);
+          
+          if (j > 0) {
+            const prevSlot = individualSlots[i + j - 1];
+            const prevEnd = new Date(prevSlot.startTime).getTime() + (15 * 60 * 1000);
+            const currentStart = new Date(currentSlot.startTime).getTime();
+            
+            // Check if slots are consecutive (max 1ms gap)
+            if (Math.abs(currentStart - prevEnd) > 1000) {
+              isConsecutive = false;
+              break;
+            }
+          }
+        }
+        
+        if (isConsecutive) {
+          const firstSlot = group[0];
+          const lastSlot = group[group.length - 1];
+          const lastSlotEnd = new Date(lastSlot.startTime).getTime() + (15 * 60 * 1000);
+          
+          slotGroups.push({
+            startTime: firstSlot.startTime,
+            startTimeVN: firstSlot.startTimeVN,
+            endTime: new Date(lastSlotEnd).toISOString(),
+            endTimeVN: new Date(lastSlotEnd).toLocaleTimeString('en-GB', { 
+              timeZone: 'Asia/Ho_Chi_Minh', 
+              hour12: false,
+              hour: '2-digit',
+              minute: '2-digit'
+            }),
+            slotIds: group.map(s => s._id),
+            slots: group
+          });
         }
       }
+      
+      console.log(`✅ Grouped ${individualSlots.length} slots into ${slotGroups.length} groups (${slotsNeeded} slots per group)`);
       
       if (slotGroups.length === 0) {
         const noSlotsMessage = `Xin lỗi, ngày ${new Date(selectedDate).toLocaleDateString('vi-VN')} không có khung giờ trống. Vui lòng chọn ngày khác! 📞`;
