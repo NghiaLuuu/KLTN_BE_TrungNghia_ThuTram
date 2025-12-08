@@ -111,7 +111,7 @@ STYLE:
 - Luôn lịch sự, thân thiện, chuyên nghiệp
 - Sử dụng emoji phù hợp 🦷😊💙
 - Nếu không chắc chắn, hãy truy vấn dữ liệu
-- Ngày hiện tại: ${new Date().toISOString().split('T')[0]}`;
+- Ngày hiện tại: ${new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().split('T')[0]}`;
 
 const IMAGE_ANALYSIS_PROMPT = `Bạn là SmileCare Vision Assistant - chuyên gia phân tích hình ảnh răng miệng.
 

@@ -1496,27 +1496,10 @@ class ChatbotController {
       // Hiển thị tối đa 50 slots thay vì 12
       const maxSlots = Math.min(slotGroups.length, 50);
       slotGroups.slice(0, maxSlots).forEach((group, idx) => {
-        // Format time properly - handle both string and Date object
-        let startTime = group.startTime;
-        let endTime = group.endTime;
-        
-        // If startTime is ISO string or Date object, convert to HH:mm
-        if (startTime && typeof startTime === 'string' && startTime.includes('T')) {
-          const date = new Date(startTime);
-          startTime = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-        }
-        
-        if (endTime && typeof endTime === 'string' && endTime.includes('T')) {
-          const date = new Date(endTime);
-          endTime = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-        }
-        
-        // If endTime is undefined/null, calculate it based on service duration
-        if (!endTime && startTime) {
-          const startDate = new Date(group.startTime);
-          const endDate = new Date(startDate.getTime() + (selectedServiceItem.duration || 30) * 60000);
-          endTime = endDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-        }
+        // startTime và endTime đã được convert sang giờ Việt Nam ở appointment-service
+        // Chỉ cần hiển thị trực tiếp (đã là format "HH:mm")
+        const startTime = group.startTime;
+        const endTime = group.endTime;
         
         slotMessage += `${idx + 1}. ${startTime} - ${endTime}\n`;
       });
@@ -1623,27 +1606,9 @@ class ChatbotController {
       
       confirmMessage += `📅 **Ngày:** ${dateFormatted}\n`;
       
-      // Format time properly
-      let startTime = selectedSlotGroup.startTime;
-      let endTime = selectedSlotGroup.endTime;
-      
-      // If startTime is ISO string, convert to HH:mm
-      if (startTime && typeof startTime === 'string' && startTime.includes('T')) {
-        const date = new Date(startTime);
-        startTime = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-      }
-      
-      if (endTime && typeof endTime === 'string' && endTime.includes('T')) {
-        const date = new Date(endTime);
-        endTime = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-      }
-      
-      // Calculate endTime if undefined
-      if (!endTime && startTime) {
-        const startDate = new Date(selectedSlotGroup.startTime);
-        const endDate = new Date(startDate.getTime() + (selectedServiceItem.duration || 30) * 60000);
-        endTime = endDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-      }
+      // startTime và endTime đã là format "HH:mm" từ appointment-service (đã convert UTC+7)
+      const startTime = selectedSlotGroup.startTime;
+      const endTime = selectedSlotGroup.endTime;
       
       confirmMessage += `🕐 **Giờ:** ${startTime} - ${endTime}\n\n`;
       
