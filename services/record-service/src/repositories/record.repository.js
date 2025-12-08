@@ -255,13 +255,15 @@ class RecordRepository {
   }
 
   async addPrescription(id, prescription, prescribedBy) {
-    // ✅ Ensure prescribedBy is set after spreading to avoid being overwritten
+    // ✅ Không cần filter, chấp nhận tất cả medicines kể cả chưa đầy đủ thông tin
     const prescriptionData = {
       medicines: prescription?.medicines || [],
       notes: prescription?.notes || '',
       prescribedBy,  // ✅ Always use the prescribedBy from parameter
       prescribedAt: new Date()
     };
+    
+    console.log('💊 Saving prescription with', prescriptionData.medicines.length, 'medicines');
     
     return await Record.findByIdAndUpdate(
       id,
@@ -273,7 +275,7 @@ class RecordRepository {
       },
       { 
         new: true, 
-        runValidators: false, // ✅ Tắt validator để tránh lỗi với các trường khác trong record
+        runValidators: false, // ✅ Tắt validator
         strict: false
       }
     );

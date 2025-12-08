@@ -4,36 +4,36 @@ const mongoose = require("mongoose");
 const prescribedMedicineSchema = new mongoose.Schema({
   medicineId: { 
     type: mongoose.Schema.Types.ObjectId, 
-    required: true,
+    required: false, // ✅ Không bắt buộc
     ref: 'Medicine'
   },
   medicineName: { 
     type: String, 
-    required: true // Store medicine name for historical record
+    required: false // ✅ Không bắt buộc
   },
   unit: {
     type: String,
-    required: true, // Store unit (viên, ống, lọ, etc.)
+    required: false, // ✅ Không bắt buộc
     trim: true
   },
   category: {
     type: String,
-    required: false, // Store category for reference
+    required: false,
     trim: true
   },
   dosageInstruction: { 
     type: String, 
-    required: true, // How to take: "1 viên x 3 lần/ngày sau ăn"
+    required: false, // ✅ Không bắt buộc
     trim: true
   },
   duration: { 
     type: String, 
-    required: true, // Duration: "5 ngày", "1 tuần"
+    required: false, // ✅ Không bắt buộc
     trim: true
   },
   quantity: {
     type: Number,
-    required: true, // Total quantity prescribed
+    required: false, // ✅ Không bắt buộc
     min: 1
   },
   note: { 
