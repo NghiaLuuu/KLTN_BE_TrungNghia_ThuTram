@@ -16,7 +16,7 @@ const scheduleSchema = new mongoose.Schema({
   // Lưu để biết subroom có active không khi lịch được tạo
   isActiveSubRoom: {
     type: Boolean,
-    default: true
+    default: true  // TRUE: Subroom đang hoạt động
   },
   
   // 🆕 Thông tin THÁNG (thay vì quý)

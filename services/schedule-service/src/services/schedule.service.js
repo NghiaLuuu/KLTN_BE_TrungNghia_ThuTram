@@ -3878,87 +3878,140 @@ async function createScheduleForNewRoomDirect(roomData, quarter, year) {
 }
 
 // 🆕 Tạo lịch thông minh cho subRooms mới - SAO CHÉP từ lịch hiện có thay vì tạo theo quý
+// 🗑️ XÓA TẤT CẢ SCHEDULES CỦA SUBROOM KHI XÓA SUBROOM
+exports.deleteSchedulesForSubRoom = async (roomId, subRoomId) => {
+  try {
+    console.log(`🗑️ Bắt đầu xóa tất cả schedules của subRoom ${subRoomId} trong room ${roomId}`);
+
+    // Tìm tất cả schedules của subroom này
+    const schedules = await Schedule.find({ roomId, subRoomId });
+    
+    if (schedules.length === 0) {
+      console.log(`ℹ️ Không tìm thấy schedule nào cho subRoom ${subRoomId}`);
+      return { success: true, deletedCount: 0, subRoomId, roomId };
+    }
+
+    console.log(`📋 Tìm thấy ${schedules.length} schedules cần xóa`);
+
+    // Xóa tất cả schedules (hard delete)
+    const result = await Schedule.deleteMany({ roomId, subRoomId });
+
+    console.log(`✅ Đã xóa ${result.deletedCount} schedules của subRoom ${subRoomId}`);
+
+    return {
+      success: true,
+      deletedCount: result.deletedCount,
+      subRoomId,
+      roomId
+    };
+  } catch (error) {
+    console.error(`❌ Lỗi khi xóa schedules của subRoom ${subRoomId}:`, error);
+    throw error;
+  }
+};
+
 exports.createSchedulesForNewSubRooms = async (roomId, subRoomIds) => {
   try {
     console.log(`📩 Bắt đầu tạo schedule documents cho ${subRoomIds.length} subRoom mới của room ${roomId}`);
     
-    // 🆕 TÌM TẤT CẢ schedules hiện có của room (để biết cần tạo schedules cho những tháng nào)
-    const existingSchedules = await scheduleRepo.findByRoomId(roomId);
+    // ✅ CHỈ LẤY SCHEDULES CHÍNH CỦA ROOM (subRoomId = null)
+    // Không lấy schedules của các subroom khác để tránh nhầm lẫn
+    const roomSchedules = await Schedule.find({
+      roomId,
+      subRoomId: null,  // ← QUAN TRỌNG: Chỉ lấy schedule chính của room
+      isActive: true
+    }).lean();
     
-    if (existingSchedules.length === 0) {
-      console.warn(`⚠️ Room ${roomId} chưa có lịch nào. Không tạo schedule cho subRoom mới.`);
-      return { success: true, schedulesCreated: 0, subRoomIds, roomId, reason: 'no_existing_schedules' };
+    if (roomSchedules.length === 0) {
+      console.warn(`⚠️ Room ${roomId} chưa có lịch chính (subRoomId=null). Không tạo schedule cho subRoom mới.`);
+      return { success: true, schedulesCreated: 0, subRoomIds, roomId, reason: 'no_main_schedules' };
     }
 
-    console.log(`✅ Tìm thấy ${existingSchedules.length} schedules hiện có của room ${roomId}`);
+    console.log(`✅ Tìm thấy ${roomSchedules.length} schedules CHÍNH của room ${roomId}`);
 
-    // 🆕 LẤY DANH SÁCH CÁC THÁNG ĐÃ CÓ (unique startDate) - CHỈ TỪ THÁNG HIỆN TẠI TRỞ ĐI
+    // ✅ LẤY DANH SÁCH CÁC THÁNG ĐÃ CÓ - CHỈ TỪ THÁNG HIỆN TẠI TRỞ ĐI
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1; // 1-12
     
-    const uniqueMonths = new Set();
-    const monthConfigs = new Map(); // Lưu config của từng tháng
+    const monthConfigs = new Map(); // Map<monthKey, scheduleConfig>
 
-    for (const schedule of existingSchedules) {
-      const scheduleYear = schedule.startDate.getFullYear();
-      const scheduleMonth = schedule.startDate.getMonth() + 1; // 1-12
+    for (const schedule of roomSchedules) {
+      const scheduleYear = schedule.year;  // ← Dùng field year thay vì parse startDate
+      const scheduleMonth = schedule.month; // ← Dùng field month
       
-      // 🔍 CHỈ LẤY THÁNG >= THÁNG HIỆN TẠI
+      // ✅ CHỈ LẤY THÁNG >= THÁNG HIỆN TẠI
       if (scheduleYear > currentYear || (scheduleYear === currentYear && scheduleMonth >= currentMonth)) {
-        const monthKey = `${scheduleYear}-${scheduleMonth}`;
-        if (!uniqueMonths.has(monthKey)) {
-          uniqueMonths.add(monthKey);
+        const monthKey = `${scheduleYear}-${String(scheduleMonth).padStart(2, '0')}`; // 2025-01, 2025-12
+        
+        // ✅ Chỉ lưu config đầu tiên tìm thấy cho mỗi tháng (tránh duplicate)
+        if (!monthConfigs.has(monthKey)) {
           monthConfigs.set(monthKey, {
             year: scheduleYear,
             month: scheduleMonth,
             startDate: schedule.startDate,
             endDate: schedule.endDate,
-            shiftConfig: schedule.shiftConfig // Lấy config từ schedule hiện có
+            shiftConfig: schedule.shiftConfig,
+            scheduleId: schedule._id  // ← Lưu ID để debug
           });
         }
       }
     }
 
-    console.log(`📅 Tìm thấy ${uniqueMonths.size} tháng (từ ${currentMonth}/${currentYear} trở đi) cần tạo schedule cho subRoom mới`);
+    // ✅ SẮP XẾP THÁNG THEO THỨ TỰ
+    const sortedMonths = Array.from(monthConfigs.entries()).sort((a, b) => {
+      const [keyA] = a;
+      const [keyB] = b;
+      return keyA.localeCompare(keyB);
+    });
+
+    console.log(`📅 Tìm thấy ${sortedMonths.length} tháng (từ ${currentMonth}/${currentYear} trở đi):`);
+    sortedMonths.forEach(([key, config]) => {
+      console.log(`   - ${key}: ${config.startDate.toISOString().split('T')[0]} → ${config.endDate.toISOString().split('T')[0]}`);
+    });
 
     let schedulesCreated = 0;
 
-    // 🆕 DUYỆT QUA TỪNG SUBROOM MỚI
+    // ✅ DUYỆT QUA TỪNG SUBROOM MỚI
     for (const subRoomId of subRoomIds) {
-      // 🆕 DUYỆT QUA TỪNG THÁNG ĐÃ CÓ
-      for (const [monthKey, config] of monthConfigs.entries()) {
+      console.log(`\n🔄 Tạo schedules cho subRoom: ${subRoomId}`);
+      
+      // ✅ DUYỆT QUA TỪNG THÁNG ĐÃ CÓ (theo thứ tự)
+      for (const [monthKey, config] of sortedMonths) {
         try {
-          // Kiểm tra xem subRoom này đã có schedule cho tháng này chưa
-          const existingSchedule = await scheduleRepo.findOne({
+          // ✅ Kiểm tra xem subRoom này đã có schedule cho tháng này chưa
+          const existingSchedule = await Schedule.findOne({
             roomId,
             subRoomId,
-            startDate: config.startDate
+            year: config.year,  // ← Kiểm tra chính xác year/month
+            month: config.month
           });
 
           if (existingSchedule) {
-            console.log(`✅ SubRoom ${subRoomId} đã có schedule cho tháng ${monthKey}, bỏ qua`);
+            console.log(`   ⏭️  Tháng ${monthKey}: Đã tồn tại (schedule ${existingSchedule._id})`);
             continue;
           }
 
-          // 🆕 TẠO SCHEDULE MỚI với isActiveSubRoom=false (subroom mới chưa có lịch)
+          // ✅ TẠO SCHEDULE MỚI với isActiveSubRoom=true
           const newScheduleData = {
             roomId,
             subRoomId,
-            year: config.year, // ✅ Bắt buộc
-            month: config.month, // ✅ Bắt buộc
+            year: config.year,
+            month: config.month,
             startDate: config.startDate,
             endDate: config.endDate,
-            isActiveSubRoom: false, // ✅ FALSE vì subroom mới chưa có lịch sinh ra
+            isActiveSubRoom: true, // ✅ TRUE: Subroom đang hoạt động
             shiftConfig: {
               morning: {
-                isActive: config.shiftConfig.morning.isActive, // ✅ Lấy từ config hiện có
-                isGenerated: false, // ✅ Luôn là false cho subRoom mới
+                name: config.shiftConfig.morning.name || 'Ca Sáng',
+                isActive: config.shiftConfig.morning.isActive,
+                isGenerated: false, // ✅ Chưa tạo slots
                 startTime: config.shiftConfig.morning.startTime,
                 endTime: config.shiftConfig.morning.endTime,
                 slotDuration: config.shiftConfig.morning.slotDuration
               },
               afternoon: {
+                name: config.shiftConfig.afternoon.name || 'Ca Chiều',
                 isActive: config.shiftConfig.afternoon.isActive,
                 isGenerated: false,
                 startTime: config.shiftConfig.afternoon.startTime,
@@ -3966,6 +4019,7 @@ exports.createSchedulesForNewSubRooms = async (roomId, subRoomIds) => {
                 slotDuration: config.shiftConfig.afternoon.slotDuration
               },
               evening: {
+                name: config.shiftConfig.evening.name || 'Ca Tối',
                 isActive: config.shiftConfig.evening.isActive,
                 isGenerated: false,
                 startTime: config.shiftConfig.evening.startTime,
@@ -3975,19 +4029,19 @@ exports.createSchedulesForNewSubRooms = async (roomId, subRoomIds) => {
             }
           };
 
-          const newSchedule = await scheduleRepo.create(newScheduleData);
+          const newSchedule = await Schedule.create(newScheduleData);
           schedulesCreated++;
 
-          console.log(`✅ Tạo schedule ${newSchedule._id} cho subRoom ${subRoomId} tháng ${monthKey}`);
+          console.log(`   ✅ Tháng ${monthKey}: Tạo mới (schedule ${newSchedule._id})`);
 
         } catch (scheduleError) {
-          console.error(`❌ Lỗi tạo schedule cho subRoom ${subRoomId} tháng ${monthKey}:`, scheduleError.message);
+          console.error(`   ❌ Tháng ${monthKey}: Lỗi - ${scheduleError.message}`);
         }
       }
     }
 
     console.log(
-      `📊 Tổng kết: tạo ${schedulesCreated} schedules cho ${subRoomIds.length} subRoom mới (không tạo slots)`
+      `\n📊 TỔNG KẾT: Tạo ${schedulesCreated} schedules cho ${subRoomIds.length} subRoom mới`
     );
     
     return { success: true, schedulesCreated, subRoomIds, roomId };

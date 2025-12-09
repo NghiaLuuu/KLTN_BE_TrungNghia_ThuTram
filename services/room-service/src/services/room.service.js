@@ -370,6 +370,22 @@ exports.deleteSubRoom = async (roomId, subRoomId) => {
 
   await room.save();
   await refreshRoomCache();
+
+  // 🔔 GỬI EVENT SANG SCHEDULE-SERVICE để xóa tất cả schedules của subroom này
+  try {
+    await publishToQueue('schedule_queue', {
+      action: 'subRoomDeleted',
+      payload: {
+        roomId: roomId.toString(),
+        subRoomId: subRoomId.toString()
+      }
+    });
+    console.log(`✅ Đã gửi event subRoomDeleted cho subRoom ${subRoomId}`);
+  } catch (eventError) {
+    console.error('⚠️ Lỗi gửi event subRoomDeleted (room vẫn được xóa):', eventError.message);
+    // Không throw error vì subroom đã bị xóa thành công
+  }
+
   return room;
 };
 

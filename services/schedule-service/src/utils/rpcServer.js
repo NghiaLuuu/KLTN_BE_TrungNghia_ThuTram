@@ -92,6 +92,20 @@ async function startRpcServer() {
           }
           break;
 
+        // 👉 Event subRoomDeleted
+        case 'subRoomDeleted':
+          try {
+            console.log(
+              `🗑️ Nhận sự kiện subRoomDeleted: room ${payload.roomId}, subRoom ${payload.subRoomId}`
+            );
+
+            // Xóa tất cả schedules của subroom này
+            await scheduleService.deleteSchedulesForSubRoom(payload.roomId, payload.subRoomId);
+          } catch (err) {
+            console.warn('⚠️ Không thể xóa lịch của subRoom:', err.message);
+          }
+          break;
+
         case 'getSlotById':
           try {
             const slot = await slotRepo.getSlotById(payload.slotId);
