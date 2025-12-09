@@ -3914,20 +3914,36 @@ exports.createSchedulesForNewSubRooms = async (roomId, subRoomIds) => {
   try {
     console.log(`📩 Bắt đầu tạo schedule documents cho ${subRoomIds.length} subRoom mới của room ${roomId}`);
     
-    // ✅ CHỈ LẤY SCHEDULES CHÍNH CỦA ROOM (subRoomId = null)
-    // Không lấy schedules của các subroom khác để tránh nhầm lẫn
-    const roomSchedules = await Schedule.find({
+    // ✅ BƯỚC 1: Thử lấy schedules CHÍNH của room (subRoomId = null)
+    let templateSchedules = await Schedule.find({
       roomId,
-      subRoomId: null,  // ← QUAN TRỌNG: Chỉ lấy schedule chính của room
+      subRoomId: null,
       isActive: true
     }).lean();
     
-    if (roomSchedules.length === 0) {
-      console.warn(`⚠️ Room ${roomId} chưa có lịch chính (subRoomId=null). Không tạo schedule cho subRoom mới.`);
-      return { success: true, schedulesCreated: 0, subRoomIds, roomId, reason: 'no_main_schedules' };
+    // ✅ BƯỚC 2: Nếu không có schedule chính, lấy schedule của SUBROOM BẤT KỲ làm template
+    if (templateSchedules.length === 0) {
+      console.log(`⚠️ Room ${roomId} không có lịch chính (subRoomId=null). Tìm lịch của subroom khác làm template...`);
+      
+      templateSchedules = await Schedule.find({
+        roomId,
+        subRoomId: { $ne: null },  // Lấy schedule CÓ subRoomId
+        isActive: true
+      }).lean();
+      
+      if (templateSchedules.length === 0) {
+        console.warn(`⚠️ Room ${roomId} không có lịch nào (cả chính lẫn subroom). Không tạo schedule cho subRoom mới.`);
+        return { success: true, schedulesCreated: 0, subRoomIds, roomId, reason: 'no_schedules_at_all' };
+      }
+      
+      console.log(`✅ Tìm thấy ${templateSchedules.length} schedules SUBROOM để làm template`);
+      
+      // 🔍 Debug: Log các tháng từ subroom schedules
+      const uniqueMonthsDebug = new Set(templateSchedules.map(s => `${s.year}-${s.month}`));
+      console.log(`   📅 Các tháng unique: ${Array.from(uniqueMonthsDebug).sort().join(', ')}`);
+    } else {
+      console.log(`✅ Tìm thấy ${templateSchedules.length} schedules CHÍNH của room ${roomId}`);
     }
-
-    console.log(`✅ Tìm thấy ${roomSchedules.length} schedules CHÍNH của room ${roomId}`);
 
     // ✅ LẤY DANH SÁCH CÁC THÁNG ĐÃ CÓ - CHỈ TỪ THÁNG HIỆN TẠI TRỞ ĐI
     const now = new Date();
@@ -3936,7 +3952,7 @@ exports.createSchedulesForNewSubRooms = async (roomId, subRoomIds) => {
     
     const monthConfigs = new Map(); // Map<monthKey, scheduleConfig>
 
-    for (const schedule of roomSchedules) {
+    for (const schedule of templateSchedules) {
       const scheduleYear = schedule.year;  // ← Dùng field year thay vì parse startDate
       const scheduleMonth = schedule.month; // ← Dùng field month
       
