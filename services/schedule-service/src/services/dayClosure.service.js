@@ -72,12 +72,20 @@ async function getDayClosures(filters = {}) {
       // Sử dụng UTC methods để đảm bảo nhất quán
       const formattedDate = `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
       
+      // Format dateTo if exists
+      let formattedDateTo = null;
+      if (record.dateTo) {
+        const dTo = new Date(record.dateTo);
+        formattedDateTo = `${String(dTo.getUTCDate()).padStart(2, '0')}/${String(dTo.getUTCMonth() + 1).padStart(2, '0')}/${dTo.getUTCFullYear()}`;
+      }
+      
       return {
         ...record,
         date: dateValue, // For backward compatibility
         dateFrom: dateValue,
         formattedDate,
         formattedDateFrom: formattedDate,
+        formattedDateTo,
         totalPatients: record.cancelledAppointments?.length || 0,
         totalStaffAffected: (record.affectedStaffWithoutAppointments?.length || 0) + 
           (record.cancelledAppointments?.reduce((sum, appt) => {
