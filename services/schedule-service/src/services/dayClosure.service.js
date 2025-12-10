@@ -1,4 +1,5 @@
 const DayClosure = require('../models/dayClosure.model');
+const axios = require('axios');
 
 /**
  * Get all day closure records with optional filters
@@ -223,32 +224,81 @@ async function getCancelledPatients(closureId) {
     }
 
     const patients = record.cancelledAppointments || [];
+    
+    // 🔧 FIX: Re-fetch patient info if data is incomplete (from old closures)
+    const enrichedPatients = await Promise.all(patients.map(async (p) => {
+      let patientName = p.patientName;
+      let patientEmail = p.patientEmail;
+      let patientPhone = p.patientPhone;
+      let roomName = p.roomName;
+      
+      // If patient data is incomplete, try to fetch from appointment
+      if (patientName === 'Unknown' || !patientName || roomName === 'Unknown Room') {
+        try {
+          const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
+          const ROOM_SERVICE_URL = process.env.ROOM_SERVICE_URL || 'http://localhost:3009';
+          
+          // Fetch appointment details
+          if (p.appointmentId) {
+            const aptResponse = await axios.get(
+              `${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids?ids=${p.appointmentId}`,
+              { timeout: 3000 }
+            );
+            
+            if (aptResponse.data?.success && aptResponse.data?.data?.length > 0) {
+              const apt = aptResponse.data.data[0];
+              if (apt.patientInfo) {
+                patientName = apt.patientInfo.name || patientName;
+                patientEmail = apt.patientInfo.email || patientEmail;
+                patientPhone = apt.patientInfo.phone || patientPhone;
+              }
+            }
+          }
+          
+          // Fetch room name if missing
+          if (roomName === 'Unknown Room' && p.roomId) {
+            const roomResponse = await axios.get(
+              `${ROOM_SERVICE_URL}/api/room/${p.roomId}`,
+              { timeout: 3000 }
+            );
+            
+            if (roomResponse.data?.name) {
+              roomName = roomResponse.data.name;
+            }
+          }
+        } catch (fetchError) {
+          console.warn(`⚠️ Could not enrich patient data for appointment ${p.appointmentId}:`, fetchError.message);
+        }
+      }
+      
+      return {
+        appointmentId: p.appointmentId,
+        patientName,
+        patientEmail,
+        patientPhone,
+        appointmentTime: `${p.startTime} - ${p.endTime}`,
+        shiftName: p.shiftName,
+        roomName,
+        dentists: p.dentists?.map(d => d.dentistName).join(', ') || 'N/A',
+        nurses: p.nurses?.map(n => n.nurseName).join(', ') || 'N/A',
+        paymentInfo: p.paymentInfo ? {
+          paymentId: p.paymentInfo.paymentId,
+          status: p.paymentInfo.status
+        } : null,
+        invoiceInfo: p.invoiceInfo ? {
+          invoiceId: p.invoiceInfo.invoiceId,
+          status: p.invoiceInfo.status
+        } : null,
+        emailSent: p.emailSent
+      };
+    }));
 
     return {
       success: true,
       data: {
         closureDate: record.dateFrom || record.date,
         reason: record.reason,
-        patients: patients.map(p => ({
-          appointmentId: p.appointmentId,
-          patientName: p.patientName,
-          patientEmail: p.patientEmail,
-          patientPhone: p.patientPhone,
-          appointmentTime: `${p.startTime} - ${p.endTime}`,
-          shiftName: p.shiftName,
-          roomName: p.roomName,
-          dentists: p.dentists?.map(d => d.dentistName).join(', ') || 'N/A',
-          nurses: p.nurses?.map(n => n.nurseName).join(', ') || 'N/A',
-          paymentInfo: p.paymentInfo ? {
-            paymentId: p.paymentInfo.paymentId,
-            status: p.paymentInfo.status
-          } : null,
-          invoiceInfo: p.invoiceInfo ? {
-            invoiceId: p.invoiceInfo.invoiceId,
-            status: p.invoiceInfo.status
-          } : null,
-          emailSent: p.emailSent
-        }))
+        patients: enrichedPatients
       }
     };
   } catch (error) {

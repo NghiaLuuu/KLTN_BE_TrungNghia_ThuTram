@@ -221,20 +221,43 @@ async function logSlotStatusChange({
       const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
 
       // Get patient info - support both registered users and guest patients
+      // ⚠️ IMPORTANT: usersCache does NOT include patients (only staff), so we must use patientInfo first!
       let patientName = 'Unknown';
       let patientEmail = '';
       let patientPhone = '';
       
-      if (appointment.patientId && patient) {
-        // Registered user
-        patientName = patient.fullName || patient.name || 'Unknown';
-        patientEmail = patient.email || '';
-        patientPhone = patient.phone || patient.phoneNumber || '';
-      } else if (appointment.patientInfo) {
-        // Guest patient (walk-in)
+      // Priority 1: Use patientInfo from appointment (embedded data - most reliable)
+      if (appointment.patientInfo && appointment.patientInfo.name) {
         patientName = appointment.patientInfo.name || 'Unknown';
         patientEmail = appointment.patientInfo.email || '';
         patientPhone = appointment.patientInfo.phone || '';
+        console.log(`📋 Logger: Using patientInfo from appointment: ${patientName}`);
+      } 
+      // Priority 2: Try to find in usersCache (for staff who also book appointments)
+      else if (appointment.patientId && patient) {
+        patientName = patient.fullName || patient.name || 'Unknown';
+        patientEmail = patient.email || '';
+        patientPhone = patient.phone || patient.phoneNumber || '';
+        console.log(`📋 Logger: Using usersCache for patient: ${patientName}`);
+      }
+      // Priority 3: If patientId exists but patient not in cache (normal case for patients)
+      else if (appointment.patientId) {
+        // Try to fetch patient info directly from auth-service
+        try {
+          const patientResponse = await axios.get(
+            `${AUTH_SERVICE_URL}/api/user/${appointment.patientId}`,
+            { timeout: 3000 }
+          );
+          if (patientResponse.data?.success && patientResponse.data?.data) {
+            const patientData = patientResponse.data.data;
+            patientName = patientData.fullName || patientData.name || 'Unknown';
+            patientEmail = patientData.email || '';
+            patientPhone = patientData.phone || patientData.phoneNumber || '';
+            console.log(`📋 Logger: Fetched patient from auth-service: ${patientName}`);
+          }
+        } catch (fetchError) {
+          console.warn(`⚠️ Logger: Could not fetch patient ${appointment.patientId}:`, fetchError.message);
+        }
       }
       
       console.log(`📋 Logger: Appointment ${appointment._id} - Patient: ${patientName} (${patientEmail})`);
