@@ -341,9 +341,10 @@ async function startConsumer() {
         // Update invoice status to cancelled
         invoice.status = 'cancelled';
         invoice.cancelReason = cancelReason || 'Appointment cancelled';
-        invoice.cancelledBy = cancelledBy;
+        // 🔥 FIX: cancelledBy must be ObjectId or null, not string 'system'
+        invoice.cancelledBy = (cancelledBy && cancelledBy !== 'system') ? cancelledBy : null;
         invoice.cancelledAt = cancelledAt || new Date();
-        invoice.notes = `${invoice.notes || ''}\n\nĐã hủy bởi ${cancelledByRole}: ${cancelReason || 'Không rõ lý do'}`.trim();
+        invoice.notes = `${invoice.notes || ''}\n\nĐã hủy bởi ${cancelledByRole || 'system'}: ${cancelReason || 'Không rõ lý do'}`.trim();
 
         await invoice.save();
 
