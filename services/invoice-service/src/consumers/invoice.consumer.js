@@ -374,6 +374,76 @@ async function startConsumer() {
         });
         throw error;
       }
+    } else if (message.event === 'appointment_restored') {
+      // 🆕 Handle appointment restoration - restore invoice and invoice details to paid
+      const { 
+        appointmentId, 
+        invoiceId, 
+        restoredBy, 
+        restoredByRole, 
+        reason, 
+        restoredAt 
+      } = message.data;
+
+      console.log('🔄 [Invoice Consumer] Processing appointment_restored:', {
+        appointmentId,
+        invoiceId,
+        reason
+      });
+
+      try {
+        const { Invoice } = require('../models/invoice.model');
+        const { InvoiceDetail } = require('../models/invoiceDetail.model');
+
+        // Find invoice by invoiceId
+        const invoice = await Invoice.findById(invoiceId);
+        
+        if (!invoice) {
+          console.warn('⚠️ [Invoice Consumer] Invoice not found:', invoiceId);
+          return;
+        }
+
+        // Check if invoice can be restored (must be cancelled)
+        if (invoice.status !== 'cancelled') {
+          console.log('ℹ️ [Invoice Consumer] Invoice is not cancelled, skipping restore:', invoice.invoiceNumber);
+          return;
+        }
+
+        // Restore invoice status to paid
+        invoice.status = 'paid';
+        invoice.cancelReason = null;
+        invoice.cancelledBy = null;
+        invoice.cancelledAt = null;
+        invoice.notes = `${invoice.notes || ''}\n\nĐã khôi phục: ${reason || 'Slot được bật lại'}`.trim();
+
+        await invoice.save();
+
+        console.log('✅ [Invoice Consumer] Invoice restored:', {
+          invoiceId: invoice._id.toString(),
+          invoiceNumber: invoice.invoiceNumber
+        });
+
+        // Restore all invoice details to completed
+        const invoiceDetails = await InvoiceDetail.find({ 
+          invoiceId: invoice._id
+        });
+
+        for (const detail of invoiceDetails) {
+          detail.status = 'completed';
+          await detail.save();
+        }
+
+        console.log(`✅ [Invoice Consumer] Restored ${invoiceDetails.length} invoice detail(s) to completed`);
+
+      } catch (error) {
+        console.error('❌ [Invoice Consumer] Error restoring invoice:', {
+          error: error.message,
+          invoiceId,
+          appointmentId,
+          stack: error.stack
+        });
+        throw error;
+      }
     } else {
       console.log('ℹ️ [Invoice Consumer] Unhandled event type:', message.event);
     }

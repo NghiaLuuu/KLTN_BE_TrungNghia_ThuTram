@@ -1159,6 +1159,185 @@ class AppointmentService {
   }
 
   /**
+   * 🆕 Cancel appointment due to slot toggle (does NOT clear appointmentId in slots)
+   * Used when disabling slots - allows restoration when slots are re-enabled
+   */
+  async slotCancelAppointment(appointmentId, reason = null) {
+    const appointment = await Appointment.findById(appointmentId)
+      .populate('patientId', 'email fullName name phoneNumber');
+    
+    if (!appointment) {
+      throw new Error('Không tìm thấy phiếu khám');
+    }
+    
+    console.log('🔄 [slotCancelAppointment] Appointment data:', {
+      _id: appointment._id,
+      appointmentCode: appointment.appointmentCode,
+      status: appointment.status
+    });
+    
+    // Only cancel appointments that can be cancelled
+    if (appointment.status === 'cancelled') {
+      console.log(`ℹ️ [slotCancelAppointment] Appointment ${appointment.appointmentCode} already cancelled, skipping`);
+      return appointment;
+    }
+    
+    if (appointment.status === 'completed') {
+      console.log(`ℹ️ [slotCancelAppointment] Appointment ${appointment.appointmentCode} already completed, cannot cancel`);
+      return appointment;
+    }
+
+    // Update status to cancelled
+    const cancelledAt = new Date();
+    appointment.status = 'cancelled';
+    appointment.cancelledAt = cancelledAt;
+    appointment.cancelledBy = null; // System action
+    appointment.cancellationReason = reason || 'Slot bị tắt';
+    
+    await appointment.save();
+    
+    const appointmentIdStr = appointment._id.toString();
+    const appointmentCode = appointment.appointmentCode;
+    
+    console.log(`✅ [Slot Cancel] Appointment ${appointmentCode} cancelled due to slot toggle`);
+
+    // 🔥 NOTE: Do NOT release slots - keep appointmentId for restoration
+
+    // Cancel Invoice if exists
+    if (appointment.invoiceId) {
+      try {
+        await publishToQueue('invoice_queue', {
+          event: 'appointment_cancelled',
+          data: {
+            appointmentId: appointmentIdStr,
+            invoiceId: appointment.invoiceId.toString(),
+            cancelledBy: 'system',
+            cancelledByRole: 'system',
+            cancelReason: reason || 'Slot bị tắt',
+            cancelledAt: cancelledAt
+          }
+        });
+        console.log(`📡 [Slot Cancel] Published invoice cancellation event`);
+      } catch (error) {
+        console.warn('⚠️ Failed to publish invoice cancellation event:', error.message);
+      }
+    }
+    
+    // Cancel Payment if exists
+    if (appointment.paymentId) {
+      try {
+        await publishToQueue('payment_queue', {
+          event: 'appointment_cancelled',
+          data: {
+            appointmentId: appointmentIdStr,
+            paymentId: appointment.paymentId.toString(),
+            cancelledBy: 'system',
+            cancelledByRole: 'system',
+            cancelReason: reason || 'Slot bị tắt',
+            cancelledAt: cancelledAt
+          }
+        });
+        console.log(`📡 [Slot Cancel] Published payment cancellation event`);
+      } catch (error) {
+        console.warn('⚠️ Failed to publish payment cancellation event:', error.message);
+      }
+    }
+    
+    return appointment;
+  }
+
+  /**
+   * 🆕 Restore appointment when slot is re-enabled
+   * Changes status from 'cancelled' back to 'confirmed'
+   */
+  async slotRestoreAppointment(appointmentId, reason = null) {
+    const appointment = await Appointment.findById(appointmentId)
+      .populate('patientId', 'email fullName name phoneNumber');
+    
+    if (!appointment) {
+      throw new Error('Không tìm thấy phiếu khám');
+    }
+    
+    console.log('🔄 [slotRestoreAppointment] Appointment data:', {
+      _id: appointment._id,
+      appointmentCode: appointment.appointmentCode,
+      status: appointment.status
+    });
+    
+    // Only restore cancelled appointments
+    if (appointment.status !== 'cancelled') {
+      console.log(`ℹ️ [slotRestoreAppointment] Appointment ${appointment.appointmentCode} is not cancelled (status: ${appointment.status}), skipping`);
+      return appointment;
+    }
+    
+    // Check if appointment date is in the future
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const appointmentDate = new Date(appointment.appointmentDate);
+    appointmentDate.setHours(0, 0, 0, 0);
+    
+    if (appointmentDate < today) {
+      console.log(`ℹ️ [slotRestoreAppointment] Appointment ${appointment.appointmentCode} is in the past, cannot restore`);
+      return appointment;
+    }
+
+    // Restore status to confirmed
+    appointment.status = 'confirmed';
+    appointment.cancelledAt = null;
+    appointment.cancelledBy = null;
+    appointment.cancellationReason = null;
+    
+    await appointment.save();
+    
+    const appointmentIdStr = appointment._id.toString();
+    const appointmentCode = appointment.appointmentCode;
+    
+    console.log(`✅ [Slot Restore] Appointment ${appointmentCode} restored to confirmed`);
+
+    // Restore Invoice if exists
+    if (appointment.invoiceId) {
+      try {
+        await publishToQueue('invoice_queue', {
+          event: 'appointment_restored',
+          data: {
+            appointmentId: appointmentIdStr,
+            invoiceId: appointment.invoiceId.toString(),
+            restoredBy: 'system',
+            restoredByRole: 'system',
+            reason: reason || 'Slot được bật lại',
+            restoredAt: new Date()
+          }
+        });
+        console.log(`📡 [Slot Restore] Published invoice restoration event`);
+      } catch (error) {
+        console.warn('⚠️ Failed to publish invoice restoration event:', error.message);
+      }
+    }
+    
+    // Restore Payment if exists
+    if (appointment.paymentId) {
+      try {
+        await publishToQueue('payment_queue', {
+          event: 'appointment_restored',
+          data: {
+            appointmentId: appointmentIdStr,
+            paymentId: appointment.paymentId.toString(),
+            restoredBy: 'system',
+            restoredByRole: 'system',
+            reason: reason || 'Slot được bật lại',
+            restoredAt: new Date()
+          }
+        });
+        console.log(`📡 [Slot Restore] Published payment restoration event`);
+      } catch (error) {
+        console.warn('⚠️ Failed to publish payment restoration event:', error.message);
+      }
+    }
+    
+    return appointment;
+  }
+
+  /**
    * Admin/Manager/Receptionist reject cancellation request
    * Changes status from 'pending-cancellation' back to 'confirmed'
    */

@@ -359,6 +359,60 @@ async function startEventListeners() {
             stack: error.stack
           });
         }
+      } else if (event === 'appointment_restored') {
+        // 🆕 Handle appointment restoration - restore payment to completed
+        const { 
+          appointmentId, 
+          paymentId, 
+          restoredBy, 
+          restoredByRole, 
+          reason, 
+          restoredAt 
+        } = data;
+
+        console.log('🔄 [Payment Service] Processing appointment_restored:', {
+          appointmentId,
+          paymentId,
+          reason
+        });
+
+        try {
+          const { Payment, PaymentStatus } = require('./models/payment.model');
+
+          // Find payment by paymentId
+          const payment = await Payment.findById(paymentId);
+          
+          if (!payment) {
+            console.warn('⚠️ [Payment Service] Payment not found:', paymentId);
+            return;
+          }
+
+          // Check if payment can be restored (must be cancelled)
+          if (payment.status !== PaymentStatus.CANCELLED) {
+            console.log('ℹ️ [Payment Service] Payment is not cancelled, skipping restore:', payment.paymentCode);
+            return;
+          }
+
+          // Restore payment status to completed
+          payment.status = PaymentStatus.COMPLETED;
+          payment.cancelledAt = null;
+          payment.notes = `${payment.notes || ''}\n\nĐã khôi phục: ${reason || 'Slot được bật lại'}`.trim();
+
+          await payment.save();
+
+          console.log('✅ [Payment Service] Payment restored:', {
+            paymentId: payment._id.toString(),
+            paymentCode: payment.paymentCode
+          });
+
+        } catch (error) {
+          console.error('❌ [Payment Service] Error restoring payment:', {
+            error: error.message,
+            paymentId,
+            appointmentId,
+            stack: error.stack
+          });
+        }
       } else {
         console.warn(`⚠️ Unknown event in payment_queue: ${event}`);
       }

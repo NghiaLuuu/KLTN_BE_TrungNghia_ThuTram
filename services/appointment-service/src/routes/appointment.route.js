@@ -137,6 +137,17 @@ router.post('/:appointmentId/admin-cancel',
   appointmentController.adminCancelAppointment
 );
 
+// 🆕 Cancel appointment due to slot toggle (internal API - called by schedule-service)
+// Does NOT clear appointmentId in slots - allows restoration when slots are re-enabled
+router.post('/:appointmentId/slot-cancel',
+  appointmentController.slotCancelAppointment
+);
+
+// 🆕 Restore appointment when slot is re-enabled (internal API - called by schedule-service)
+router.post('/:appointmentId/slot-restore',
+  appointmentController.slotRestoreAppointment
+);
+
 // ⭐ Admin/Manager/Receptionist reject cancellation request
 router.post('/:appointmentId/reject-cancellation',
   authenticate,

@@ -3478,7 +3478,7 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
       };
     }
 
-    // 🔥 If DISABLING slots, cancel appointments first
+    // 🔥 If DISABLING slots, cancel appointments via API
     const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
     let cancelledAppointments = [];
     
@@ -3487,36 +3487,114 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
       const slotsWithAppointmentsToDisable = slotsToChange.filter(s => s.appointmentId);
       
       if (slotsWithAppointmentsToDisable.length > 0) {
-        console.log(`🚨 ${slotsWithAppointmentsToDisable.length} slots have appointments - will clean up appointmentId`);
+        console.log(`🚨 ${slotsWithAppointmentsToDisable.length} slots have appointments - will cancel via API`);
         
-        // Just clean up appointmentId in slots - don't cancel appointments
-        // (Appointments in states like "checked-in" cannot be cancelled)
         const appointmentIdsInSlots = [...new Set(
           slotsWithAppointmentsToDisable.map(s => s.appointmentId.toString())
         )];
         
-        console.log(`📋 Tracking ${appointmentIdsInSlots.length} appointmentIds for logging`);
-        cancelledAppointments = appointmentIdsInSlots; // Track for logging
+        console.log(`📋 Cancelling ${appointmentIdsInSlots.length} unique appointments`);
         
-        // ⚠️ Note: We don't actually cancel appointments
-        // We also keep appointmentId in slots for history tracking
-        // Appointments in states like "checked-in" cannot be cancelled anyway
+        // 🔥 Call slot-cancel API for each appointment (does NOT clear appointmentId in slot)
+        for (const appointmentId of appointmentIdsInSlots) {
+          try {
+            const cancelUrl = `${APPOINTMENT_SERVICE_URL}/api/appointments/${appointmentId}/slot-cancel`;
+            console.log(`🔄 Cancelling appointment: ${appointmentId}`);
+            
+            const cancelResponse = await axios.post(cancelUrl, {
+              reason: reason || 'Slot bị tắt'
+            }, {
+              headers: { 'Content-Type': 'application/json' },
+              timeout: 10000
+            });
+            
+            if (cancelResponse.data?.success) {
+              console.log(`✅ Cancelled appointment ${appointmentId}`);
+              cancelledAppointments.push(appointmentId);
+            } else {
+              console.warn(`⚠️ Failed to cancel appointment ${appointmentId}:`, cancelResponse.data?.message);
+            }
+          } catch (cancelError) {
+            console.error(`❌ Error cancelling appointment ${appointmentId}:`, cancelError.response?.data?.message || cancelError.message);
+            cancelledAppointments.push(appointmentId); // Still track for logging
+          }
+        }
+        
+        console.log(`✅ Processed ${cancelledAppointments.length}/${appointmentIdsInSlots.length} appointments`);
       }
     }
     
-    // Update slots isActive status
-    const updateData = { isActive };
+    // 🔥 If ENABLING slots, restore appointments and set slot status correctly
+    if (isActive === true) {
+      const slotsWithAppointmentsToEnable = slotsToChange.filter(s => s.appointmentId);
+      
+      if (slotsWithAppointmentsToEnable.length > 0) {
+        console.log(`🔄 ${slotsWithAppointmentsToEnable.length} slots have appointments - will restore via API`);
+        
+        const appointmentIdsInSlots = [...new Set(
+          slotsWithAppointmentsToEnable.map(s => s.appointmentId.toString())
+        )];
+        
+        console.log(`📋 Restoring ${appointmentIdsInSlots.length} unique appointments`);
+        
+        // 🔥 Call slot-restore API for each appointment
+        for (const appointmentId of appointmentIdsInSlots) {
+          try {
+            const restoreUrl = `${APPOINTMENT_SERVICE_URL}/api/appointments/${appointmentId}/slot-restore`;
+            console.log(`🔄 Restoring appointment: ${appointmentId}`);
+            
+            const restoreResponse = await axios.post(restoreUrl, {
+              reason: reason || 'Slot được bật lại'
+            }, {
+              headers: { 'Content-Type': 'application/json' },
+              timeout: 10000
+            });
+            
+            if (restoreResponse.data?.success) {
+              console.log(`✅ Restored appointment ${appointmentId}`);
+            } else {
+              console.warn(`⚠️ Failed to restore appointment ${appointmentId}:`, restoreResponse.data?.message);
+            }
+          } catch (restoreError) {
+            console.error(`❌ Error restoring appointment ${appointmentId}:`, restoreError.response?.data?.message || restoreError.message);
+          }
+        }
+      }
+    }
     
-    // ⚠️ IMPORTANT: Do NOT clear appointmentId when disabling
-    // We need to keep appointmentId to:
-    // 1. Log patient info in SlotStatusChange history
-    // 2. Display "Cancelled Patients" list
-    // 3. Track which appointments were affected
+    // Update slots isActive status AND slot.status based on appointmentId
+    // 🔥 FIX: When enabling, set status = 'booked' if has appointmentId, else 'available'
+    const updateData = { isActive };
     
     const result = await Slot.updateMany(
       { _id: { $in: objectIds } },
       { $set: updateData }
     );
+    
+    // 🔥 If ENABLING, also update slot.status based on appointmentId
+    if (isActive === true) {
+      // Slots with appointmentId → status = 'booked'
+      const slotsWithAppointment = slotsToChange.filter(s => s.appointmentId);
+      if (slotsWithAppointment.length > 0) {
+        const slotIdsWithAppointment = slotsWithAppointment.map(s => s._id);
+        await Slot.updateMany(
+          { _id: { $in: slotIdsWithAppointment } },
+          { $set: { status: 'booked' } }
+        );
+        console.log(`✅ Set status='booked' for ${slotIdsWithAppointment.length} slots with appointments`);
+      }
+      
+      // Slots without appointmentId → status = 'available'
+      const slotsWithoutAppointment = slotsToChange.filter(s => !s.appointmentId);
+      if (slotsWithoutAppointment.length > 0) {
+        const slotIdsWithoutAppointment = slotsWithoutAppointment.map(s => s._id);
+        await Slot.updateMany(
+          { _id: { $in: slotIdsWithoutAppointment } },
+          { $set: { status: 'available' } }
+        );
+        console.log(`✅ Set status='available' for ${slotIdsWithoutAppointment.length} slots without appointments`);
+      }
+    }
 
     console.log(`✅ Updated isActive=${isActive} for ${result.modifiedCount}/${slotIds.length} slots`);
 
@@ -4337,10 +4415,35 @@ async function disableAllDaySlots(date, reason, currentUser) {
     
     console.log(`📧 Total: Prepared ${emailNotifications.length} email notifications`);
     
-    // Step 4: Track cancelled appointments
+    // Step 4: Cancel appointments via API
     const cancelledAppointments = uniqueAppointmentIds;
     if (cancelledAppointments.length > 0) {
-      console.log(`✅ Tracking ${cancelledAppointments.length} appointments for logging`);
+      console.log(`🔥 Cancelling ${cancelledAppointments.length} appointments via API`);
+      
+      for (let i = 0; i < cancelledAppointments.length; i++) {
+        const appointmentId = cancelledAppointments[i];
+        try {
+          const cancelUrl = `${APPOINTMENT_SERVICE_URL}/api/appointments/${appointmentId}/slot-cancel`;
+          console.log(`🔄 [${i + 1}/${cancelledAppointments.length}] Cancelling appointment: ${appointmentId}`);
+          
+          const cancelResponse = await axios.post(cancelUrl, {
+            reason: reason || 'Đóng cửa toàn bộ phòng'
+          }, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 10000
+          });
+          
+          if (cancelResponse.data?.success) {
+            console.log(`✅ Cancelled appointment ${appointmentId}`);
+          } else {
+            console.warn(`⚠️ Failed to cancel appointment ${appointmentId}:`, cancelResponse.data?.message);
+          }
+        } catch (cancelError) {
+          console.error(`❌ Error cancelling appointment ${appointmentId}:`, cancelError.response?.data?.message || cancelError.message);
+        }
+      }
+      
+      console.log(`✅ Processed ${cancelledAppointments.length} appointments`);
     }
     
     // Step 5: Send emails via RabbitMQ
@@ -4952,7 +5055,37 @@ async function enableAllDaySlots(date, reason, currentUser) {
     
     console.log(`📧 Total: Prepared ${emailNotifications.length} email notifications`);
     
-    // Step 4: Send emails via RabbitMQ
+    // Step 4: Restore appointments via API
+    if (uniqueAppointmentIds.length > 0) {
+      console.log(`🔄 Restoring ${uniqueAppointmentIds.length} appointments via API`);
+      
+      for (let i = 0; i < uniqueAppointmentIds.length; i++) {
+        const appointmentId = uniqueAppointmentIds[i];
+        try {
+          const restoreUrl = `${APPOINTMENT_SERVICE_URL}/api/appointments/${appointmentId}/slot-restore`;
+          console.log(`🔄 [${i + 1}/${uniqueAppointmentIds.length}] Restoring appointment: ${appointmentId}`);
+          
+          const restoreResponse = await axios.post(restoreUrl, {
+            reason: reason || 'Slot được bật lại'
+          }, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 10000
+          });
+          
+          if (restoreResponse.data?.success) {
+            console.log(`✅ Restored appointment ${appointmentId}`);
+          } else {
+            console.warn(`⚠️ Failed to restore appointment ${appointmentId}:`, restoreResponse.data?.message);
+          }
+        } catch (restoreError) {
+          console.error(`❌ Error restoring appointment ${appointmentId}:`, restoreError.response?.data?.message || restoreError.message);
+        }
+      }
+      
+      console.log(`✅ Processed ${uniqueAppointmentIds.length} appointments for restoration`);
+    }
+    
+    // Step 5: Send emails via RabbitMQ
     if (emailNotifications.length > 0) {
       try {
         await rabbitmqClient.publishToQueue('email_notifications', {
@@ -4974,7 +5107,7 @@ async function enableAllDaySlots(date, reason, currentUser) {
       }
     }
     
-    // Step 5: Enable all slots
+    // Step 6: Enable all slots and set status based on appointmentId
     const slotIds = slots.map(s => s._id.toString());
     const updateResult = await Slot.updateMany(
       { _id: { $in: slotIds } },
@@ -4992,7 +5125,28 @@ async function enableAllDaySlots(date, reason, currentUser) {
     
     console.log(`✅ Enabled ${updateResult.modifiedCount} slots`);
     
-    // Step 6: Invalidate Redis cache for ALL affected rooms
+    // 🔥 Set slot.status based on appointmentId
+    // Slots with appointmentId → status = 'booked'
+    const slotsWithAppointmentIds = slotsWithAppointments.map(s => s._id);
+    if (slotsWithAppointmentIds.length > 0) {
+      await Slot.updateMany(
+        { _id: { $in: slotsWithAppointmentIds } },
+        { $set: { status: 'booked' } }
+      );
+      console.log(`✅ Set status='booked' for ${slotsWithAppointmentIds.length} slots with appointments`);
+    }
+    
+    // Slots without appointmentId → status = 'available'
+    const slotsWithoutAppointmentIds = slots.filter(s => !s.appointmentId).map(s => s._id);
+    if (slotsWithoutAppointmentIds.length > 0) {
+      await Slot.updateMany(
+        { _id: { $in: slotsWithoutAppointmentIds } },
+        { $set: { status: 'available' } }
+      );
+      console.log(`✅ Set status='available' for ${slotsWithoutAppointmentIds.length} slots without appointments`);
+    }
+    
+    // Step 7: Invalidate Redis cache for ALL affected rooms
     try {
       let totalKeysDeleted = 0;
       

@@ -406,6 +406,67 @@ class AppointmentController {
   }
 
   /**
+   * 🆕 Cancel appointment due to slot toggle (internal API - no auth required)
+   * Does NOT clear appointmentId in slots - allows restoration when slots are re-enabled
+   */
+  async slotCancelAppointment(req, res) {
+    try {
+      const { appointmentId } = req.params;
+      const { reason } = req.body;
+
+      console.log('🔍 [slotCancelAppointment] Request received:', {
+        appointmentId,
+        reason: reason?.substring(0, 50)
+      });
+
+      const result = await appointmentService.slotCancelAppointment(appointmentId, reason);
+
+      console.log('✅ [slotCancelAppointment] Success');
+      res.json({
+        success: true,
+        message: 'Phiếu khám đã được hủy do slot bị tắt',
+        data: result
+      });
+    } catch (error) {
+      console.error('❌ [slotCancelAppointment] error:', error);
+      res.status(400).json({ 
+        success: false, 
+        message: error.message 
+      });
+    }
+  }
+
+  /**
+   * 🆕 Restore appointment when slot is re-enabled (internal API - no auth required)
+   */
+  async slotRestoreAppointment(req, res) {
+    try {
+      const { appointmentId } = req.params;
+      const { reason } = req.body;
+
+      console.log('🔍 [slotRestoreAppointment] Request received:', {
+        appointmentId,
+        reason: reason?.substring(0, 50)
+      });
+
+      const result = await appointmentService.slotRestoreAppointment(appointmentId, reason);
+
+      console.log('✅ [slotRestoreAppointment] Success');
+      res.json({
+        success: true,
+        message: 'Phiếu khám đã được khôi phục',
+        data: result
+      });
+    } catch (error) {
+      console.error('❌ [slotRestoreAppointment] error:', error);
+      res.status(400).json({ 
+        success: false, 
+        message: error.message 
+      });
+    }
+  }
+
+  /**
    * ✅ Admin/Manager/Receptionist reject cancellation request
    * Changes status from 'pending-cancellation' back to 'confirmed'
    */
