@@ -89,6 +89,7 @@ async function logSlotStatusChange({
 
         return {
           slotId: slot._id,
+          appointmentId: slot.appointmentId || null, // 🆕 Thêm appointmentId để FE gom nhóm
           date: slot.date || startDate,
           startTime: startTimeStr,
           endTime: endTimeStr,
@@ -119,7 +120,7 @@ async function logSlotStatusChange({
       if (!appointment) {
         console.warn(`⚠️ Logger: Slot ${slot._id} has appointmentId ${slot.appointmentId} but appointment not found!`);
         
-        // 🆕 Still log with basic info from slot (appointment was likely just cancelled)
+        // Still log with basic info from slot (appointment was likely just cancelled)
         const room = roomsCache.get(slot.roomId?.toString());
         
         const dentistIds = Array.isArray(slot.dentist) ? slot.dentist : (slot.dentist ? [slot.dentist] : []);
@@ -152,7 +153,7 @@ async function logSlotStatusChange({
         cancelledAppointments.push({
           appointmentId: slot.appointmentId,
           appointmentDate: startDate,
-          cancelledAt: new Date(), // Current time since we don't have appointment data
+          cancelledAt: new Date(),
           shiftName: slot.shiftName || 'Unknown',
           startTime: startTimeStr,
           endTime: endTimeStr,
@@ -241,7 +242,7 @@ async function logSlotStatusChange({
       cancelledAppointments.push({
         appointmentId: appointment._id,
         appointmentDate: startDate,
-        cancelledAt: appointment.cancelledAt || new Date(), // Thời gian hủy thực tế từ appointment
+        cancelledAt: appointment.cancelledAt || new Date(),
         shiftName: slot.shiftName || 'Unknown',
         startTime: startTimeStr,
         endTime: endTimeStr,
