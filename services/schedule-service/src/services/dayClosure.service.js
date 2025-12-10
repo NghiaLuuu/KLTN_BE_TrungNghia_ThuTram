@@ -132,10 +132,136 @@ async function getDayClosureById(id) {
     // Sử dụng UTC methods để đảm bảo nhất quán
     const formattedDate = `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
     
+    // 🔧 FIX: Enrich data if incomplete
+    const ROOM_SERVICE_URL = process.env.ROOM_SERVICE_URL || 'http://localhost:3009';
+    const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
+    const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+    
+    // Enrich closedBy.userName if it's "System" or missing
+    let enrichedClosedBy = record.closedBy || {};
+    if (enrichedClosedBy.userId && (!enrichedClosedBy.userName || enrichedClosedBy.userName === 'System')) {
+      try {
+        const userResponse = await axios.get(
+          `${AUTH_SERVICE_URL}/api/users/${enrichedClosedBy.userId}`,
+          { timeout: 3000 }
+        );
+        
+        if (userResponse.data?.success && userResponse.data?.data?.fullName) {
+          enrichedClosedBy = {
+            ...enrichedClosedBy,
+            userName: userResponse.data.data.fullName
+          };
+        }
+      } catch (fetchError) {
+        console.warn(`⚠️ Could not fetch user name for userId ${enrichedClosedBy.userId}:`, fetchError.message);
+      }
+    }
+    
+    // Enrich restoredBy.userName if exists and is "System" or missing
+    let enrichedRestoredBy = record.restoredBy || null;
+    if (enrichedRestoredBy?.userId && (!enrichedRestoredBy.userName || enrichedRestoredBy.userName === 'System')) {
+      try {
+        const userResponse = await axios.get(
+          `${AUTH_SERVICE_URL}/api/users/${enrichedRestoredBy.userId}`,
+          { timeout: 3000 }
+        );
+        
+        if (userResponse.data?.success && userResponse.data?.data?.fullName) {
+          enrichedRestoredBy = {
+            ...enrichedRestoredBy,
+            userName: userResponse.data.data.fullName
+          };
+        }
+      } catch (fetchError) {
+        console.warn(`⚠️ Could not fetch user name for restoredBy userId ${enrichedRestoredBy.userId}:`, fetchError.message);
+      }
+    }
+    
+    // Enrich affectedRooms
+    const enrichedAffectedRooms = await Promise.all((record.affectedRooms || []).map(async (room) => {
+      let roomName = room.roomName;
+      
+      if (roomName === 'Unknown Room' && room.roomId) {
+        try {
+          const roomResponse = await axios.get(
+            `${ROOM_SERVICE_URL}/api/room/${room.roomId}`,
+            { timeout: 3000 }
+          );
+          
+          if (roomResponse.data?.name) {
+            roomName = roomResponse.data.name;
+          }
+        } catch (fetchError) {
+          console.warn(`⚠️ Could not fetch room name for roomId ${room.roomId}:`, fetchError.message);
+        }
+      }
+      
+      return {
+        ...room,
+        roomName
+      };
+    }));
+    
+    // Enrich cancelledAppointments
+    const enrichedCancelledAppointments = await Promise.all((record.cancelledAppointments || []).map(async (p) => {
+      let patientName = p.patientName;
+      let patientEmail = p.patientEmail;
+      let patientPhone = p.patientPhone;
+      let roomName = p.roomName;
+      
+      // If data is incomplete, try to fetch
+      if (patientName === 'Unknown' || !patientName || roomName === 'Unknown Room') {
+        try {
+          // Fetch appointment details for patient info
+          if ((patientName === 'Unknown' || !patientName) && p.appointmentId) {
+            const aptResponse = await axios.get(
+              `${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids?ids=${p.appointmentId}`,
+              { timeout: 3000 }
+            );
+            
+            if (aptResponse.data?.success && aptResponse.data?.data?.length > 0) {
+              const apt = aptResponse.data.data[0];
+              if (apt.patientInfo) {
+                patientName = apt.patientInfo.name || patientName;
+                patientEmail = apt.patientInfo.email || patientEmail;
+                patientPhone = apt.patientInfo.phone || patientPhone;
+              }
+            }
+          }
+          
+          // Fetch room name if missing
+          if (roomName === 'Unknown Room' && p.roomId) {
+            const roomResponse = await axios.get(
+              `${ROOM_SERVICE_URL}/api/room/${p.roomId}`,
+              { timeout: 3000 }
+            );
+            
+            if (roomResponse.data?.name) {
+              roomName = roomResponse.data.name;
+            }
+          }
+        } catch (fetchError) {
+          console.warn(`⚠️ Could not enrich data for appointment ${p.appointmentId}:`, fetchError.message);
+        }
+      }
+      
+      return {
+        ...p,
+        patientName,
+        patientEmail,
+        patientPhone,
+        roomName
+      };
+    }));
+    
     return {
       success: true,
       data: {
         ...record,
+        closedBy: enrichedClosedBy,
+        restoredBy: enrichedRestoredBy,
+        affectedRooms: enrichedAffectedRooms,
+        cancelledAppointments: enrichedCancelledAppointments,
         date: dateValue, // For backward compatibility
         dateFrom: dateValue,
         formattedDate,
