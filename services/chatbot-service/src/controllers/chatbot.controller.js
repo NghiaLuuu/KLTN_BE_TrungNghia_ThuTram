@@ -271,8 +271,9 @@ class ChatbotController {
           
           console.log('🔍 Selected slot group:', JSON.stringify(selectedSlotGroup, null, 2));
           
-          // Extract slot ID (handle multiple possible field names)
-          const slotId = selectedSlotGroup?._id || selectedSlotGroup?.slotId || selectedSlotGroup?.id;
+          // Extract slot IDs - slotIds is an array from handleSlotSelection
+          const slotIds = selectedSlotGroup?.slotIds || [];
+          const slotId = slotIds.length > 0 ? slotIds[0] : (selectedSlotGroup?._id || selectedSlotGroup?.slotId || selectedSlotGroup?.id);
           
           if (!slotId) {
             console.error('❌ No slot ID found in selectedSlotGroup:', selectedSlotGroup);
@@ -287,6 +288,7 @@ class ChatbotController {
           }
           
           console.log('✅ Slot ID extracted:', slotId);
+          console.log('✅ All slot IDs:', slotIds);
           
           // Prepare booking data to send to frontend
           const bookingData = {
@@ -307,8 +309,8 @@ class ChatbotController {
             },
             date: selectedDate,
             slotGroup: {
-              slotIds: [slotId], // ✅ Frontend expects "slotIds" not "slots"
-              slots: [slotId],    // Keep both for compatibility
+              slotIds: slotIds.length > 0 ? slotIds : [slotId], // ✅ Use full slotIds array from handleSlotSelection
+              slots: slotIds.length > 0 ? slotIds : [slotId],   // Keep both for compatibility
               startTime: selectedSlotGroup.startTime,
               endTime: selectedSlotGroup.endTime
             }
