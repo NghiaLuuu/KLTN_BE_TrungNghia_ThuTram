@@ -270,10 +270,24 @@ class ChatbotController {
           const selectedSlotGroup = latestContext.selectedSlotGroup;
           
           console.log('🔍 Selected slot group:', JSON.stringify(selectedSlotGroup, null, 2));
+          console.log('🔍 selectedSlotGroup type:', typeof selectedSlotGroup);
+          console.log('🔍 selectedSlotGroup.slotIds:', selectedSlotGroup ? selectedSlotGroup.slotIds : 'undefined');
+          console.log('🔍 slotIds type:', selectedSlotGroup && selectedSlotGroup.slotIds ? typeof selectedSlotGroup.slotIds : 'undefined');
+          console.log('🔍 slotIds isArray:', selectedSlotGroup && selectedSlotGroup.slotIds ? Array.isArray(selectedSlotGroup.slotIds) : false);
           
           // Extract slot IDs - slotIds is an array from handleSlotSelection
-          const slotIds = selectedSlotGroup?.slotIds || [];
+          // Handle both plain object and MongoDB document
+          let slotIds = [];
+          if (selectedSlotGroup && selectedSlotGroup.slotIds) {
+            // Convert to plain array if needed (MongoDB might return special array type)
+            slotIds = Array.isArray(selectedSlotGroup.slotIds) 
+              ? [...selectedSlotGroup.slotIds] 
+              : (selectedSlotGroup.slotIds.toArray ? selectedSlotGroup.slotIds.toArray() : []);
+          }
+          console.log('🔍 Extracted slotIds:', slotIds, 'length:', slotIds.length);
+          
           const slotId = slotIds.length > 0 ? slotIds[0] : (selectedSlotGroup?._id || selectedSlotGroup?.slotId || selectedSlotGroup?.id);
+          console.log('🔍 Final slotId:', slotId);
           
           if (!slotId) {
             console.error('❌ No slot ID found in selectedSlotGroup:', selectedSlotGroup);
