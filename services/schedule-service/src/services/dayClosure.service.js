@@ -141,15 +141,17 @@ async function getDayClosureById(id) {
     let enrichedClosedBy = record.closedBy || {};
     if (enrichedClosedBy.userId && (!enrichedClosedBy.userName || enrichedClosedBy.userName === 'System')) {
       try {
+        // Note: auth-service route is /api/user/:id (without 's')
         const userResponse = await axios.get(
-          `${AUTH_SERVICE_URL}/api/users/${enrichedClosedBy.userId}`,
+          `${AUTH_SERVICE_URL}/api/user/${enrichedClosedBy.userId}`,
           { timeout: 3000 }
         );
         
-        if (userResponse.data?.success && userResponse.data?.data?.fullName) {
+        // auth-service returns: { success: true, user: { fullName, ... } }
+        if (userResponse.data?.success && userResponse.data?.user?.fullName) {
           enrichedClosedBy = {
             ...enrichedClosedBy,
-            userName: userResponse.data.data.fullName
+            userName: userResponse.data.user.fullName
           };
         }
       } catch (fetchError) {
@@ -161,15 +163,17 @@ async function getDayClosureById(id) {
     let enrichedRestoredBy = record.restoredBy || null;
     if (enrichedRestoredBy?.userId && (!enrichedRestoredBy.userName || enrichedRestoredBy.userName === 'System')) {
       try {
+        // Note: auth-service route is /api/user/:id (without 's')
         const userResponse = await axios.get(
-          `${AUTH_SERVICE_URL}/api/users/${enrichedRestoredBy.userId}`,
+          `${AUTH_SERVICE_URL}/api/user/${enrichedRestoredBy.userId}`,
           { timeout: 3000 }
         );
         
-        if (userResponse.data?.success && userResponse.data?.data?.fullName) {
+        // auth-service returns: { success: true, user: { fullName, ... } }
+        if (userResponse.data?.success && userResponse.data?.user?.fullName) {
           enrichedRestoredBy = {
             ...enrichedRestoredBy,
-            userName: userResponse.data.data.fullName
+            userName: userResponse.data.user.fullName
           };
         }
       } catch (fetchError) {
@@ -183,13 +187,16 @@ async function getDayClosureById(id) {
       
       if (roomName === 'Unknown Room' && room.roomId) {
         try {
+          // Note: room-service route is /api/room/:roomId
+          // Response format: { room: { name, ... } }
           const roomResponse = await axios.get(
             `${ROOM_SERVICE_URL}/api/room/${room.roomId}`,
             { timeout: 3000 }
           );
           
-          if (roomResponse.data?.name) {
-            roomName = roomResponse.data.name;
+          // room-service returns: { room: { name, ... } }
+          if (roomResponse.data?.room?.name) {
+            roomName = roomResponse.data.room.name;
           }
         } catch (fetchError) {
           console.warn(`⚠️ Could not fetch room name for roomId ${room.roomId}:`, fetchError.message);
@@ -230,14 +237,15 @@ async function getDayClosureById(id) {
           }
           
           // Fetch room name if missing
+          // Note: room-service returns { room: { name, ... } }
           if (roomName === 'Unknown Room' && p.roomId) {
             const roomResponse = await axios.get(
               `${ROOM_SERVICE_URL}/api/room/${p.roomId}`,
               { timeout: 3000 }
             );
             
-            if (roomResponse.data?.name) {
-              roomName = roomResponse.data.name;
+            if (roomResponse.data?.room?.name) {
+              roomName = roomResponse.data.room.name;
             }
           }
         } catch (fetchError) {
@@ -382,14 +390,15 @@ async function getCancelledPatients(closureId) {
           }
           
           // Fetch room name if missing
+          // Note: room-service returns { room: { name, ... } }
           if (roomName === 'Unknown Room' && p.roomId) {
             const roomResponse = await axios.get(
               `${ROOM_SERVICE_URL}/api/room/${p.roomId}`,
               { timeout: 3000 }
             );
             
-            if (roomResponse.data?.name) {
-              roomName = roomResponse.data.name;
+            if (roomResponse.data?.room?.name) {
+              roomName = roomResponse.data.room.name;
             }
           }
         } catch (fetchError) {
