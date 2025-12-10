@@ -1173,7 +1173,9 @@ class AppointmentService {
     console.log('🔄 [slotCancelAppointment] Appointment data:', {
       _id: appointment._id,
       appointmentCode: appointment.appointmentCode,
-      status: appointment.status
+      status: appointment.status,
+      invoiceId: appointment.invoiceId,
+      paymentId: appointment.paymentId
     });
     
     // Only cancel appointments that can be cancelled
@@ -1221,6 +1223,8 @@ class AppointmentService {
       } catch (error) {
         console.warn('⚠️ Failed to publish invoice cancellation event:', error.message);
       }
+    } else {
+      console.log(`ℹ️ [Slot Cancel] No invoiceId found for appointment ${appointmentCode}`);
     }
     
     // Cancel Payment if exists
@@ -1241,6 +1245,8 @@ class AppointmentService {
       } catch (error) {
         console.warn('⚠️ Failed to publish payment cancellation event:', error.message);
       }
+    } else {
+      console.log(`ℹ️ [Slot Cancel] No paymentId found for appointment ${appointmentCode}`);
     }
     
     return appointment;
@@ -1261,7 +1267,9 @@ class AppointmentService {
     console.log('🔄 [slotRestoreAppointment] Appointment data:', {
       _id: appointment._id,
       appointmentCode: appointment.appointmentCode,
-      status: appointment.status
+      status: appointment.status,
+      invoiceId: appointment.invoiceId,
+      paymentId: appointment.paymentId
     });
     
     // Only restore cancelled appointments
@@ -1312,6 +1320,8 @@ class AppointmentService {
       } catch (error) {
         console.warn('⚠️ Failed to publish invoice restoration event:', error.message);
       }
+    } else {
+      console.log(`ℹ️ [Slot Restore] No invoiceId found for appointment ${appointmentCode}`);
     }
     
     // Restore Payment if exists
@@ -1332,6 +1342,8 @@ class AppointmentService {
       } catch (error) {
         console.warn('⚠️ Failed to publish payment restoration event:', error.message);
       }
+    } else {
+      console.log(`ℹ️ [Slot Restore] No paymentId found for appointment ${appointmentCode}`);
     }
     
     return appointment;
