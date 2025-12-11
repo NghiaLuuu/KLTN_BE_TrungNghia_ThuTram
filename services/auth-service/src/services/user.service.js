@@ -291,7 +291,36 @@ exports.updateUserWithPermissions = async (currentUser, targetUserId, updateData
     }
   }
   
-  // 🔒 STAFF RULES (dentist, nurse, receptionist, etc.)
+  // 🔒 RECEPTIONIST RULES - Lễ tân có thể cập nhật thông tin bệnh nhân
+  else if (currentRole === 'receptionist') {
+    // Receptionist có thể cập nhật chính mình
+    if (isUpdatingSelf) {
+      // Không cho đổi email trực tiếp
+      if (updateData.email) {
+        throw new Error('Thay đổi email yêu cầu xác thực OTP. Vui lòng sử dụng chức năng đổi email.');
+      }
+      // Không cho thay đổi các trường nhạy cảm
+      const restrictedFields = ['role', 'employeeCode', 'certificates', 'isActive'];
+      const hasRestrictedField = restrictedFields.some(field => updateData[field] !== undefined);
+      if (hasRestrictedField) {
+        throw new Error('Bạn không có quyền thay đổi các trường này');
+      }
+    }
+    // Receptionist có thể cập nhật bệnh nhân
+    else if (targetUser.role === 'patient') {
+      // ✅ Cho phép cập nhật thông tin bệnh nhân
+      // Không cho thay đổi role của bệnh nhân
+      if (updateData.role) {
+        throw new Error('Bạn không có quyền thay đổi vai trò của bệnh nhân');
+      }
+    }
+    // Receptionist không thể cập nhật các role khác (admin, manager, dentist, nurse)
+    else {
+      throw new Error('Lễ tân chỉ có thể cập nhật thông tin bệnh nhân');
+    }
+  }
+  
+  // 🔒 STAFF RULES (dentist, nurse, etc.)
   else {
     // 🆕 Staff chỉ có thể cập nhật thông tin cá nhân của chính mình
     if (!isUpdatingSelf) {
@@ -343,8 +372,24 @@ exports.getUserById = async (currentUser, userId) => {
   if (currentUser) {
     // Có authentication: kiểm tra quyền
     const currentRole = getCurrentRole(currentUser);
-    if (!['admin', 'manager'].includes(currentRole) && currentUser.userId.toString() !== userId) {
+    
+    // ✅ Admin, manager có quyền xem tất cả
+    // ✅ Receptionist có thể xem thông tin bệnh nhân
+    // ✅ User có thể xem thông tin của chính mình
+    if (!['admin', 'manager', 'receptionist'].includes(currentRole) && currentUser.userId.toString() !== userId) {
       throw new Error('Bạn không có quyền truy cập thông tin người dùng này');
+    }
+    
+    // ✅ Nếu là receptionist, chỉ được xem thông tin bệnh nhân hoặc chính mình
+    if (currentRole === 'receptionist' && currentUser.userId.toString() !== userId) {
+      const targetUser = await userRepo.findById(userId);
+      if (!targetUser) {
+        throw new Error('Không tìm thấy người dùng');
+      }
+      if (targetUser.role !== 'patient') {
+        throw new Error('Lễ tân chỉ có thể xem thông tin bệnh nhân');
+      }
+      return targetUser;
     }
   }
   // Không có authentication: cho phép xem (public access)
