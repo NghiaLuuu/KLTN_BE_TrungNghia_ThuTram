@@ -307,16 +307,21 @@ exports.updateUserWithPermissions = async (currentUser, targetUserId, updateData
       }
     }
     // Receptionist có thể cập nhật bệnh nhân
-    else if (targetUser.role === 'patient') {
-      // ✅ Cho phép cập nhật thông tin bệnh nhân
-      // Không cho thay đổi role của bệnh nhân
-      if (updateData.role) {
-        throw new Error('Bạn không có quyền thay đổi vai trò của bệnh nhân');
-      }
-    }
-    // Receptionist không thể cập nhật các role khác (admin, manager, dentist, nurse)
+    // ✅ Kiểm tra cả role và roles array
     else {
-      throw new Error('Lễ tân chỉ có thể cập nhật thông tin bệnh nhân');
+      const targetRoles = Array.isArray(targetUser.roles) ? targetUser.roles : [targetUser.role];
+      const isPatient = targetUser.role === 'patient' || targetRoles.includes('patient');
+      
+      if (isPatient) {
+        // ✅ Cho phép cập nhật thông tin bệnh nhân (fullName, email, phone, gender, dateOfBirth, address)
+        // Không cho thay đổi role của bệnh nhân
+        if (updateData.role || updateData.roles) {
+          throw new Error('Bạn không có quyền thay đổi vai trò của bệnh nhân');
+        }
+      } else {
+        // Receptionist không thể cập nhật các role khác (admin, manager, dentist, nurse)
+        throw new Error('Lễ tân chỉ có thể cập nhật thông tin bệnh nhân');
+      }
     }
   }
   
