@@ -51,9 +51,9 @@ const canUpdateUser = (req, res, next) => {
 
   // ✅ Support both activeRole (new token structure) and role (old structure)
   const userRole = req.user.activeRole || req.user.role;
-  const allowedRoles = ['admin', 'manager', 'patient']; // ✅ Chỉ admin, manager, patient được phép
+  const allowedRoles = ['admin', 'manager', 'patient', 'receptionist']; // ✅ Thêm receptionist để có thể cập nhật thông tin bệnh nhân
   
-  // Chỉ admin, manager, patient có thể gọi endpoint này 
+  // Chỉ admin, manager, patient, receptionist có thể gọi endpoint này 
   // (logic phức tạp hơn sẽ được check ở service layer)
   if (allowedRoles.includes(userRole)) {
     return next();
@@ -61,7 +61,7 @@ const canUpdateUser = (req, res, next) => {
 
   return res.status(403).json({
     success: false,
-    message: `Quyền truy cập bị từ chối. Role '${userRole}' không có quyền cập nhật thông tin người dùng. Chỉ admin, manager, patient được phép.`
+    message: `Quyền truy cập bị từ chối. Role '${userRole}' không có quyền cập nhật thông tin người dùng. Chỉ admin, manager, patient, receptionist được phép.`
   });
 };
 
