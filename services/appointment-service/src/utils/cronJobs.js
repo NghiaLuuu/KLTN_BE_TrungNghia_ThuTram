@@ -169,10 +169,15 @@ function startReminderEmailCron() {
 
 /**
  * Auto mark no-show for confirmed appointments that passed half of appointment duration
- * Runs every 10 minutes
+ * Runs every 1 minute for more accurate timing
+ * 
+ * Example: Appointment 08:00-08:15 (15 min)
+ * - Mid-point = 08:07:30 (50% of 15 min = 7.5 min)
+ * - Cron checks at 08:08 → now (08:08) > midPoint (08:07:30) → Mark no-show
+ * - So no-show is marked at minute 8, not minute 7
  */
 function startNoShowCron() {
-  cron.schedule('*/10 * * * *', async () => {
+  cron.schedule('* * * * *', async () => {
     try {
       const now = new Date();
 
@@ -246,7 +251,7 @@ function startNoShowCron() {
     }
   });
 
-  console.log('⏰ No-show check cron started (every 10 minutes)');
+  console.log('⏰ No-show check cron started (every 1 minute)');
 }
 
 /**
