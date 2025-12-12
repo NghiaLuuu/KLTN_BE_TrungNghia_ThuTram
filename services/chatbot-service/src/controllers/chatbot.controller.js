@@ -304,30 +304,60 @@ class ChatbotController {
           console.log('✅ Slot ID extracted:', slotId);
           console.log('✅ All slot IDs:', slotIds);
           
-          // Prepare booking data to send to frontend
+          // Format displayTime for frontend (CreateAppointment.jsx uses this)
+          let startTimeDisplay = selectedSlotGroup.startTimeVN || selectedSlotGroup.startTime;
+          let endTimeDisplay = selectedSlotGroup.endTimeVN || selectedSlotGroup.endTime;
+          
+          // Convert ISO string to HH:mm if needed
+          if (startTimeDisplay && typeof startTimeDisplay === 'string' && (startTimeDisplay.includes('T') || startTimeDisplay.includes('Z'))) {
+            const date = new Date(startTimeDisplay);
+            const vnHours = date.getUTCHours() + 7;
+            const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
+            const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+            startTimeDisplay = `${hours}:${minutes}`;
+          }
+          
+          if (endTimeDisplay && typeof endTimeDisplay === 'string' && (endTimeDisplay.includes('T') || endTimeDisplay.includes('Z'))) {
+            const date = new Date(endTimeDisplay);
+            const vnHours = date.getUTCHours() + 7;
+            const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
+            const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+            endTimeDisplay = `${hours}:${minutes}`;
+          }
+          
+          const displayTime = endTimeDisplay ? `${startTimeDisplay} - ${endTimeDisplay}` : startTimeDisplay;
+          
+          // Prepare booking data to send to frontend (matching standard booking flow structure)
           const bookingData = {
             service: {
               _id: selectedServiceItem.serviceId,
-              name: selectedServiceItem.serviceName
+              name: selectedServiceItem.serviceName,
+              requireExamFirst: selectedServiceItem.requireExamFirst || false
             },
-            serviceAddOn: {
+            serviceAddOn: selectedServiceItem.addOnId ? {
               _id: selectedServiceItem.addOnId,
               name: selectedServiceItem.addOnName,
               price: selectedServiceItem.price,
               durationMinutes: selectedServiceItem.duration
-            },
+            } : null,
+            serviceAddOnUserSelected: !!selectedServiceItem.addOnId, // Flag for frontend to know addon was selected
             dentist: {
               _id: selectedDentist._id,
+              fullName: selectedDentist.fullName || selectedDentist.name,
               name: selectedDentist.fullName || selectedDentist.name,
-              fullName: selectedDentist.fullName || selectedDentist.name
+              gender: selectedDentist.gender,
+              title: selectedDentist.title
             },
             date: selectedDate,
             slotGroup: {
-              slotIds: slotIds.length > 0 ? slotIds : [slotId], // ✅ Use full slotIds array from handleSlotSelection
-              slots: slotIds.length > 0 ? slotIds : [slotId],   // Keep both for compatibility
+              slotIds: slotIds.length > 0 ? slotIds : [slotId],
+              slots: slotIds.length > 0 ? slotIds : [slotId],
               startTime: selectedSlotGroup.startTime,
-              endTime: selectedSlotGroup.endTime
-            }
+              endTime: selectedSlotGroup.endTime,
+              displayTime: displayTime // ✅ Add displayTime for CreateAppointment.jsx
+            },
+            // ✅ Include examRecordId if this is a recommended service (for hasBeenUsed update)
+            examRecordId: selectedServiceItem.recordId || null
           };
           
           console.log('📦 Final booking data:', JSON.stringify(bookingData, null, 2));
@@ -1161,13 +1191,13 @@ class ChatbotController {
         let serviceAddOnId = parsedParams.serviceAddOnId !== '0' ? parsedParams.serviceAddOnId : null;
         let selectedServiceItem = null;
         
+        // Get booking context first to check if user already selected a service
+        const bookingContext = await chatSessionRepo.getBookingContext(session.sessionId);
+        
         // GPT may return service NUMBER (1, 2, 3...) instead of MongoDB _id
         // Check if serviceId is a small number (likely list position)
         const serviceNumber = parseInt(serviceId);
         if (!isNaN(serviceNumber) && serviceNumber > 0 && serviceNumber < 100) {
-          // Get booking context to find flatServiceList
-          const bookingContext = await chatSessionRepo.getBookingContext(session.sessionId);
-          
           if (bookingContext && bookingContext.flatServiceList) {
             // Find service by number in flatServiceList
             selectedServiceItem = bookingContext.flatServiceList.find(item => item.number === serviceNumber);
@@ -1179,6 +1209,22 @@ class ChatbotController {
               console.log(`🔄 Mapped service number ${serviceNumber} to serviceId: ${serviceId}`);
             }
           }
+        }
+        
+        // Fallback: If serviceId is still missing, try to get from booking context (selectedServiceItem)
+        // This happens when user says "có" (yes) after GPT asks "do you want to choose a dentist?"
+        if (!serviceId && bookingContext && bookingContext.selectedServiceItem) {
+          console.log('🔄 Fallback: Using selectedServiceItem from booking context');
+          selectedServiceItem = bookingContext.selectedServiceItem;
+          serviceId = selectedServiceItem.serviceId;
+          serviceAddOnId = selectedServiceItem.addOnId;
+        }
+        
+        // Also try selectedService if selectedServiceItem is not available
+        if (!serviceId && bookingContext && bookingContext.selectedService) {
+          console.log('🔄 Fallback: Using selectedService from booking context');
+          serviceId = bookingContext.selectedService.serviceId;
+          serviceAddOnId = bookingContext.selectedService.serviceAddOnId;
         }
         
         if (!serviceId) {
@@ -1967,6 +2013,7 @@ class ChatbotController {
   /**
    * Parse Vietnamese number words to integer
    * Supports: một (1), hai (2), ..., mười (10), mười một (11), ..., hai mươi (20), ...
+   * Also supports: "số một", "số 1", "thứ hai", etc.
    */
   parseVietnameseNumber(input) {
     const vnNumbers = {
@@ -1975,7 +2022,17 @@ class ChatbotController {
       'mươi': 10, 'linh': 0, 'lẻ': 0
     };
     
-    const text = input.trim().toLowerCase();
+    let text = input.trim().toLowerCase();
+    
+    // Handle "số X" pattern (e.g., "số bốn" -> "bốn", "số 4" -> "4")
+    if (text.startsWith('số ')) {
+      text = text.substring(3).trim();
+      // If it's now a digit, return it directly
+      const digitMatch = text.match(/^(\d+)$/);
+      if (digitMatch) {
+        return parseInt(digitMatch[1]);
+      }
+    }
     
     // Direct match for simple numbers
     if (vnNumbers[text] !== undefined) {
