@@ -1157,8 +1157,29 @@ class ChatbotController {
       }
       
       case 'GET_DENTISTS': {
-        const serviceId = parsedParams.serviceId;
-        const serviceAddOnId = parsedParams.serviceAddOnId !== '0' ? parsedParams.serviceAddOnId : null;
+        let serviceId = parsedParams.serviceId;
+        let serviceAddOnId = parsedParams.serviceAddOnId !== '0' ? parsedParams.serviceAddOnId : null;
+        let selectedServiceItem = null;
+        
+        // GPT may return service NUMBER (1, 2, 3...) instead of MongoDB _id
+        // Check if serviceId is a small number (likely list position)
+        const serviceNumber = parseInt(serviceId);
+        if (!isNaN(serviceNumber) && serviceNumber > 0 && serviceNumber < 100) {
+          // Get booking context to find flatServiceList
+          const bookingContext = await chatSessionRepo.getBookingContext(session.sessionId);
+          
+          if (bookingContext && bookingContext.flatServiceList) {
+            // Find service by number in flatServiceList
+            selectedServiceItem = bookingContext.flatServiceList.find(item => item.number === serviceNumber);
+            
+            if (selectedServiceItem) {
+              // Use real MongoDB _id
+              serviceId = selectedServiceItem.serviceId;
+              serviceAddOnId = selectedServiceItem.addOnId;
+              console.log(`🔄 Mapped service number ${serviceNumber} to serviceId: ${serviceId}`);
+            }
+          }
+        }
         
         if (!serviceId) {
           return { message: 'Vui lòng chọn dịch vụ trước khi chọn nha sĩ.', data: null };
@@ -1177,11 +1198,12 @@ class ChatbotController {
         });
         message += '\n💡 Chọn nha sĩ bằng số hoặc gõ tên';
         
-        // Update booking context
+        // Update booking context with selectedServiceItem for later steps
         await chatSessionRepo.updateBookingContext(session.sessionId, {
           isInBookingFlow: true,
           step: 'DENTIST_SELECTION',
           selectedService: { serviceId, serviceAddOnId },
+          selectedServiceItem: selectedServiceItem, // Include full service item for later use
           availableDentists: dentists
         });
         
@@ -1195,10 +1217,10 @@ class ChatbotController {
           return { message: 'Vui lòng chọn nha sĩ trước khi chọn ngày.', data: null };
         }
         
-        // For now, return next 7 available days
+        // Return next 30 available days
         const today = new Date();
         const availableDates = [];
-        for (let i = 1; i <= 7; i++) {
+        for (let i = 1; i <= 30; i++) {
           const date = new Date(today);
           date.setDate(date.getDate() + i);
           availableDates.push(date.toISOString().split('T')[0]);
