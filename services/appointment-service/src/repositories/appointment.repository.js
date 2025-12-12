@@ -260,7 +260,7 @@ class AppointmentRepository {
     try {
       const matchStage = {
         appointmentDate: { $gte: startDate, $lte: endDate }, // ✅ Filter by appointment date (not createdAt)
-        status: 'completed', // ✅ Only count completed appointments
+        // ✅ Get ALL appointments (not just completed)
         bookedByRole: { $exists: true, $ne: null } // ✅ Only count appointments with bookedByRole
       };
 

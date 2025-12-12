@@ -1185,8 +1185,29 @@ class ChatbotController {
           return { message: 'Vui lòng chọn dịch vụ trước khi chọn nha sĩ.', data: null };
         }
         
-        // Fetch dentists for service
-        const dentists = await bookingService.getAvailableDentists(serviceId, serviceAddOnId);
+        // Fetch dentists using schedule-service API (same as handleDentistSelection)
+        const SCHEDULE_SERVICE_URL = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
+        const serviceDuration = selectedServiceItem?.duration || 30;
+        
+        const dentistsResponse = await axios.get(
+          `${SCHEDULE_SERVICE_URL}/api/slot/dentists-with-nearest-slot`,
+          {
+            params: {
+              serviceId: serviceId,
+              serviceDuration: serviceDuration
+            }
+          }
+        );
+        
+        // Extract dentists array from response
+        let dentists = [];
+        if (dentistsResponse.data.success && dentistsResponse.data.data) {
+          if (dentistsResponse.data.data.dentists && Array.isArray(dentistsResponse.data.data.dentists)) {
+            dentists = dentistsResponse.data.data.dentists;
+          } else if (Array.isArray(dentistsResponse.data.data)) {
+            dentists = dentistsResponse.data.data;
+          }
+        }
         
         if (!dentists || dentists.length === 0) {
           return { message: 'Hiện tại không có nha sĩ nào khả dụng cho dịch vụ này.', data: null };
@@ -1217,31 +1238,74 @@ class ChatbotController {
           return { message: 'Vui lòng chọn nha sĩ trước khi chọn ngày.', data: null };
         }
         
-        // Return next 30 available days
-        const today = new Date();
-        const availableDates = [];
-        for (let i = 1; i <= 30; i++) {
-          const date = new Date(today);
-          date.setDate(date.getDate() + i);
-          availableDates.push(date.toISOString().split('T')[0]);
+        // Get booking context to retrieve selectedServiceItem
+        const bookingContext = await chatSessionRepo.getBookingContext(session.sessionId);
+        const selectedServiceItem = bookingContext?.selectedServiceItem;
+        const serviceId = selectedServiceItem?.serviceId || bookingContext?.selectedService?.serviceId;
+        const serviceDuration = selectedServiceItem?.duration || 30;
+        
+        // Call schedule-service API to get real working dates
+        const SCHEDULE_SERVICE_URL = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
+        
+        const datesResponse = await axios.get(
+          `${SCHEDULE_SERVICE_URL}/api/slot/dentist/${dentistId}/working-dates`,
+          {
+            params: {
+              serviceId: serviceId,
+              serviceDuration: serviceDuration
+            }
+          }
+        );
+        
+        // Extract working dates array
+        let workingDates = [];
+        let maxBookingDays = 30;
+        
+        if (datesResponse.data.success && datesResponse.data.data) {
+          if (datesResponse.data.data.maxBookingDays) {
+            maxBookingDays = datesResponse.data.data.maxBookingDays;
+          }
+          if (datesResponse.data.data.workingDates && Array.isArray(datesResponse.data.data.workingDates)) {
+            workingDates = datesResponse.data.data.workingDates;
+          } else if (Array.isArray(datesResponse.data.data)) {
+            workingDates = datesResponse.data.data;
+          }
         }
         
-        let message = '📅 **Ngày làm việc có lịch trống:**\n\n';
-        availableDates.forEach((date, index) => {
-          const d = new Date(date);
-          const formatted = d.toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit' });
-          message += `${index + 1}. ${formatted}\n`;
+        if (workingDates.length === 0) {
+          return { message: 'Nha sĩ này hiện không có lịch trống. Vui lòng chọn nha sĩ khác.', data: null };
+        }
+        
+        // Normalize dates to YYYY-MM-DD format
+        const normalizedDates = workingDates.map(dateItem => {
+          const dateStr = typeof dateItem === 'string' ? dateItem : (dateItem.date || dateItem);
+          const date = new Date(dateStr);
+          return date.toISOString().split('T')[0];
         });
+        
+        // Format message
+        let message = '📅 **Ngày làm việc có lịch trống:**\n\n';
+        const maxDates = Math.min(normalizedDates.length, maxBookingDays);
+        normalizedDates.slice(0, maxDates).forEach((dateStr, index) => {
+          const d = new Date(dateStr);
+          const dayName = d.toLocaleDateString('vi-VN', { weekday: 'long' });
+          const formatted = d.toLocaleDateString('vi-VN');
+          message += `${index + 1}. ${dayName}, ${formatted}\n`;
+        });
+        
+        if (normalizedDates.length > maxDates) {
+          message += `\n... và ${normalizedDates.length - maxDates} ngày khác.\n`;
+        }
         message += '\n💡 Chọn ngày bằng số (1, 2, 3...)';
         
         // Update booking context
         await chatSessionRepo.updateBookingContext(session.sessionId, {
           step: 'DATE_SELECTION',
           selectedDentist: { _id: dentistId },
-          availableDates: availableDates
+          availableDates: normalizedDates
         });
         
-        return { message, data: { availableDates } };
+        return { message, data: { availableDates: normalizedDates } };
       }
       
       case 'GET_SLOTS': {
