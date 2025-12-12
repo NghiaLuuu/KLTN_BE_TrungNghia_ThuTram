@@ -1364,6 +1364,13 @@ class ChatbotController {
       if (found) return found;
     }
     
+    // Try match Vietnamese number words
+    const vietnameseNumber = this.parseVietnameseNumber(input);
+    if (vietnameseNumber !== null && vietnameseNumber > 0) {
+      const found = flatServiceList.find(item => item.number === vietnameseNumber);
+      if (found) return found;
+    }
+    
     // Try match by service name or addon name (fuzzy)
     for (const item of flatServiceList) {
       const fullName = item.addOnName 
@@ -1548,6 +1555,15 @@ class ChatbotController {
       }
     }
     
+    // Try match Vietnamese number words
+    const vietnameseNumber = this.parseVietnameseNumber(input);
+    if (vietnameseNumber !== null && vietnameseNumber > 0) {
+      const index = vietnameseNumber - 1;
+      if (index >= 0 && index < availableDentists.length) {
+        return availableDentists[index];
+      }
+    }
+    
     // Try match by dentist name (fuzzy)
     for (const dentist of availableDentists) {
       const name = (dentist.fullName || dentist.name || '').toLowerCase();
@@ -1691,12 +1707,21 @@ class ChatbotController {
   async matchDateSelection(userInput, availableDates) {
     if (!availableDates || availableDates.length === 0) return null;
     
-    const input = userInput.trim();
+    const input = userInput.trim().toLowerCase();
     
     // Try match by number
     const numberMatch = input.match(/^(\d+)$/);
     if (numberMatch) {
       const index = parseInt(numberMatch[1]) - 1;
+      if (index >= 0 && index < availableDates.length) {
+        return availableDates[index];
+      }
+    }
+    
+    // Try match Vietnamese number words
+    const vietnameseNumber = this.parseVietnameseNumber(input);
+    if (vietnameseNumber !== null && vietnameseNumber > 0) {
+      const index = vietnameseNumber - 1;
       if (index >= 0 && index < availableDates.length) {
         return availableDates[index];
       }
@@ -1905,7 +1930,7 @@ class ChatbotController {
   async matchSlotGroupSelection(userInput, availableSlotGroups) {
     if (!availableSlotGroups || availableSlotGroups.length === 0) return null;
     
-    const input = userInput.trim();
+    const input = userInput.trim().toLowerCase();
     
     // Try match by number
     const numberMatch = input.match(/^(\d+)$/);
@@ -1913,6 +1938,74 @@ class ChatbotController {
       const index = parseInt(numberMatch[1]) - 1;
       if (index >= 0 && index < availableSlotGroups.length) {
         return availableSlotGroups[index];
+      }
+    }
+    
+    // Try match Vietnamese number words (một, hai, ba, ..., mười ba, hai mươi, ...)
+    const vietnameseNumber = this.parseVietnameseNumber(input);
+    if (vietnameseNumber !== null && vietnameseNumber > 0) {
+      const index = vietnameseNumber - 1;
+      if (index >= 0 && index < availableSlotGroups.length) {
+        return availableSlotGroups[index];
+      }
+    }
+    
+    // Try match by time format (e.g., "16:00" or "16h00")
+    const timeMatch = input.match(/(\d{1,2})[h:](\d{2})/);
+    if (timeMatch) {
+      const targetTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
+      const found = availableSlotGroups.find(slot => {
+        const slotTime = slot.startTimeVN || slot.startTime;
+        return slotTime && slotTime.includes(targetTime);
+      });
+      if (found) return found;
+    }
+    
+    return null;
+  }
+
+  /**
+   * Parse Vietnamese number words to integer
+   * Supports: một (1), hai (2), ..., mười (10), mười một (11), ..., hai mươi (20), ...
+   */
+  parseVietnameseNumber(input) {
+    const vnNumbers = {
+      'không': 0, 'một': 1, 'hai': 2, 'ba': 3, 'bốn': 4, 'năm': 5,
+      'sáu': 6, 'bảy': 7, 'tám': 8, 'chín': 9, 'mười': 10,
+      'mươi': 10, 'linh': 0, 'lẻ': 0
+    };
+    
+    const text = input.trim().toLowerCase();
+    
+    // Direct match for simple numbers
+    if (vnNumbers[text] !== undefined) {
+      return vnNumbers[text];
+    }
+    
+    // Handle compound numbers like "mười ba" (13), "hai mươi mốt" (21)
+    const parts = text.split(/\s+/);
+    
+    if (parts.length === 2) {
+      // "mười X" pattern (11-19)
+      if (parts[0] === 'mười') {
+        const unit = vnNumbers[parts[1]];
+        if (unit !== undefined) {
+          return 10 + (parts[1] === 'mốt' ? 1 : unit);
+        }
+      }
+      // "X mươi" pattern (20, 30, ...)
+      const tens = vnNumbers[parts[0]];
+      if (tens !== undefined && (parts[1] === 'mươi' || parts[1] === 'chục')) {
+        return tens * 10;
+      }
+    }
+    
+    if (parts.length === 3) {
+      // "X mươi Y" pattern (21, 32, ...)
+      const tens = vnNumbers[parts[0]];
+      const unit = parts[2] === 'mốt' ? 1 : vnNumbers[parts[2]];
+      if (tens !== undefined && unit !== undefined && (parts[1] === 'mươi' || parts[1] === 'mươi')) {
+        return tens * 10 + unit;
       }
     }
     
