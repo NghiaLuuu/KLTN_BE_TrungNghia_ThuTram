@@ -567,7 +567,15 @@ class StatisticService {
         }
       });
 
-      const transformedTimeline = Object.values(timelineByDate).sort((a, b) => 
+      // Calculate completion rates for timeline
+      const transformedTimeline = Object.values(timelineByDate).map(item => {
+        const total = item.completed + item.cancelled + item['no-show'] + item.pending + item.confirmed + item.other;
+        return {
+          ...item,
+          noShow: item['no-show'], // Rename for frontend compatibility
+          completedRate: total > 0 ? (item.completed / total) * 100 : 0
+        };
+      }).sort((a, b) => 
         a.date.localeCompare(b.date)
       );
       console.timeEnd('⏱️ [StatisticService] Transform timeline');
@@ -606,7 +614,17 @@ class StatisticService {
         }
       });
 
-      const transformedByDentist = Object.values(dentistMap).sort((a, b) => 
+      // Calculate percentage rates for each dentist
+      const transformedByDentist = Object.values(dentistMap).map(dentist => {
+        const total = dentist.total || 0;
+        return {
+          ...dentist,
+          noShow: dentist['no-show'], // Rename for frontend compatibility
+          completedRate: total > 0 ? (dentist.completed / total) * 100 : 0,
+          cancelledRate: total > 0 ? (dentist.cancelled / total) * 100 : 0,
+          noShowRate: total > 0 ? (dentist['no-show'] / total) * 100 : 0
+        };
+      }).sort((a, b) => 
         b.total - a.total
       );
       console.timeEnd('⏱️ [StatisticService] Transform byDentist');
