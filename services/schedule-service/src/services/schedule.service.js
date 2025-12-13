@@ -725,7 +725,7 @@ async function generateQuarterSchedule(quarter, year) {
   try {
     const config = await cfgService.getConfig();
     if (!config) {
-      throw new Error('Chưa có cấu hình hệ thống');
+      throw new Error('Chưa có Cấu hình phòng khám');
     }
 
     // Validate quarter
@@ -922,7 +922,7 @@ async function generateQuarterScheduleForSingleRoom(roomId, quarter, year) {
   try {
     const config = await cfgService.getConfig();
     if (!config) {
-      throw new Error('Chưa có cấu hình hệ thống');
+      throw new Error('Chưa có Cấu hình phòng khám');
     }
 
     // Validate quarter
@@ -3731,20 +3731,20 @@ async function createSchedulesForNewRoom(roomData) {
   try {
     console.log(`📅 Tạo lịch cho room mới: ${roomData.roomId}, hasSubRooms: ${roomData.hasSubRooms}`);
     
-    // ✅ KIỂM TRA CẤU HÌNH HỆ THỐNG
+    // ✅ KIỂM TRA Cấu hình phòng khám
     const config = await cfgService.getConfig();
     if (!config) {
-      console.warn(`⚠️ Chưa có cấu hình hệ thống. Bỏ qua tạo lịch cho room ${roomData.roomId}`);
+      console.warn(`⚠️ Chưa có Cấu hình phòng khám. Bỏ qua tạo lịch cho room ${roomData.roomId}`);
       return {
         success: true,
         roomId: roomData.roomId,
         hasSubRooms: roomData.hasSubRooms,
         totalSchedulesCreated: 0,
         quartersProcessed: 0,
-        message: `Bỏ qua tạo lịch do chưa có cấu hình hệ thống`
+        message: `Bỏ qua tạo lịch do chưa có Cấu hình phòng khám`
       };
     }
-    console.log(`✅ Đã tìm thấy cấu hình hệ thống`);
+    console.log(`✅ Đã tìm thấy Cấu hình phòng khám`);
     
     // 🆕 LOGIC NGÀY CUỐI QUÝ: Kiểm tra ngày hiện tại
     const nowVN = getVietnamDate();

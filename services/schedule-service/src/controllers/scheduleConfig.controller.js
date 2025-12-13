@@ -13,7 +13,7 @@ exports.getConfig = async (req, res) => {
     if (!configExists) {
       return res.status(404).json({
         success: false,
-        message: 'Chưa có cấu hình hệ thống. Vui lòng khởi tạo cấu hình trước.',
+        message: 'Chưa có Cấu hình phòng khám. Vui lòng khởi tạo cấu hình trước.',
         needInitialization: true
       });
     }
@@ -51,7 +51,7 @@ exports.initializeConfig = async (req, res) => {
     const config = await cfgService.initializeConfig();
     res.status(201).json({
       success: true,
-      message: 'Khởi tạo cấu hình hệ thống thành công',
+      message: 'Khởi tạo Cấu hình phòng khám thành công',
       data: config
     });
   } catch (error) {

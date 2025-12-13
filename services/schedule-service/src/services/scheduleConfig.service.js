@@ -81,7 +81,7 @@ exports.initializeConfig = async () => {
   // Check if config already exists
   const existing = await ScheduleConfig.findOne({ singletonKey: 'SCHEDULE_CONFIG_SINGLETON' });
   if (existing) {
-    throw new Error('Cấu hình hệ thống đã tồn tại');
+    throw new Error('Cấu hình phòng khám đã tồn tại');
   }
 
   // Create default config with required shift times
