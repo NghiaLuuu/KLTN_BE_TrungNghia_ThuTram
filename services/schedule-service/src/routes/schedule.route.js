@@ -69,7 +69,7 @@ router.get('/room-shifts', scheduleController.getRoomScheduleShifts);
 // Get staff availability with conflict checking
 router.get('/staff-availability', scheduleController.getStaffAvailabilityForShift);
 
-// Get staff schedule (lịch làm việc của nhân sự)
+// Get staff schedule (lịch làm việc của nhân viên)
 router.get('/staff-schedule', scheduleController.getStaffSchedule);
 
 // ⚡ OPTIMIZED: Check conflicts for selected slots (new approach)

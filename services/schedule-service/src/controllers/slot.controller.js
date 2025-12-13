@@ -125,7 +125,7 @@ exports.assignStaffToSlots = async (req, res) => {
   } catch (error) {
     res.status(500).json({ 
       success: false,
-      message: error.message || 'Không thể phân công nhân sự' 
+      message: error.message || 'Không thể phân công nhân viên' 
     });
   }
 };
@@ -135,7 +135,7 @@ exports.reassignStaffToSlots = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({ 
       success: false,
-      message: 'Chỉ quản lý hoặc admin mới được phép phân công lại nhân sự' 
+      message: 'Chỉ quản lý hoặc admin mới được phép phân công lại nhân viên' 
     });
   }
   
@@ -230,7 +230,7 @@ exports.reassignStaffToSlots = async (req, res) => {
   } catch (error) {
     res.status(500).json({ 
       success: false,
-      message: error.message || 'Không thể phân công lại nhân sự' 
+      message: error.message || 'Không thể phân công lại nhân viên' 
     });
   }
 };
@@ -240,7 +240,7 @@ exports.removeStaffFromSlots = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({ 
       success: false,
-      message: 'Chỉ quản lý hoặc admin mới được phép xóa nhân sự' 
+      message: 'Chỉ quản lý hoặc admin mới được phép xóa nhân viên' 
     });
   }
   
@@ -257,7 +257,7 @@ exports.removeStaffFromSlots = async (req, res) => {
     if (!removeDentists && !removeNurses) {
       return res.status(400).json({
         success: false,
-        message: 'Phải chọn ít nhất một loại nhân sự để xóa (removeDentists hoặc removeNurses)'
+        message: 'Phải chọn ít nhất một loại nhân viên để xóa (removeDentists hoặc removeNurses)'
       });
     }
 
@@ -275,7 +275,7 @@ exports.removeStaffFromSlots = async (req, res) => {
     
     return res.status(200).json({
       success: true,
-      message: `Đã xóa nhân sự khỏi ${result.modifiedCount} slot`,
+      message: `Đã xóa nhân viên khỏi ${result.modifiedCount} slot`,
       data: result
     });
     
@@ -283,7 +283,7 @@ exports.removeStaffFromSlots = async (req, res) => {
     console.error('❌ Remove staff error:', error);
     res.status(500).json({ 
       success: false,
-      message: error.message || 'Không thể xóa nhân sự' 
+      message: error.message || 'Không thể xóa nhân viên' 
     });
   }
 };
@@ -293,7 +293,7 @@ exports.updateSlotStaff = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({ 
       success: false,
-      message: 'Chỉ quản lý hoặc admin mới được phép cập nhật nhân sự' 
+      message: 'Chỉ quản lý hoặc admin mới được phép cập nhật nhân viên' 
     });
   }
   
@@ -334,14 +334,14 @@ exports.updateSlotStaff = async (req, res) => {
     
     res.json({
       success: true,
-      message: `Cập nhật nhân sự cho ${updatedSlots.length} slot thành công`,
+      message: `Cập nhật nhân viên cho ${updatedSlots.length} slot thành công`,
       data: updatedSlots
     });
     
   } catch (error) {
     res.status(500).json({ 
       success: false,
-      message: error.message || 'Không thể cập nhật nhân sự slot' 
+      message: error.message || 'Không thể cập nhật nhân viên slot' 
     });
   }
 };

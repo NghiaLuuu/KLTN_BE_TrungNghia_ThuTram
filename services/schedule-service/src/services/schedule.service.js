@@ -7567,7 +7567,7 @@ exports.getStaffAvailabilityForShift = async ({ roomId, subRoomId, shiftName, mo
   }
 };
 
-// 🆕 API 4: GET AVAILABLE REPLACEMENT STAFF (Lấy nhân sự thay thế + conflict checking)
+// 🆕 API 4: GET AVAILABLE REPLACEMENT STAFF (Lấy nhân viên thay thế + conflict checking)
 exports.getAvailableReplacementStaff = async ({ originalStaffId, role, slots, fromDate }) => {
   try {
     // 1. Lấy tất cả staff cùng role (trừ original staff) từ cache
@@ -7688,7 +7688,7 @@ exports.getAvailableReplacementStaff = async ({ originalStaffId, role, slots, fr
   }
 };
 
-// 🆕 API 5: REPLACE STAFF (Thực hiện thay thế nhân sự)
+// 🆕 API 5: REPLACE STAFF (Thực hiện thay thế nhân viên)
 exports.replaceStaff = async ({ originalStaffId, replacementStaffId, slots, fromDate, replaceAll }) => {
   try {
     let updatedCount = 0;

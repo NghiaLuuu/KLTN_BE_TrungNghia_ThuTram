@@ -372,7 +372,7 @@ async function validateStaffIds(dentistIds, nurseIds) {
       }
     }
   } catch (error) {
-    throw new Error(`Lỗi kiểm tra thông tin nhân sự: ${error.message}`);
+    throw new Error(`Lỗi kiểm tra thông tin nhân viên: ${error.message}`);
   }
 }
 
@@ -925,8 +925,8 @@ async function assignStaffToSlots({
     return {
       success: true,
       message: slotsUpdated > 0 
-        ? `Phân công nhân sự thành công cho ${slotsUpdated}/${totalSlotsFound} slot`
-        : `Tìm thấy ${totalSlotsFound} slot nhưng tất cả đã có đầy đủ nhân sự`,
+        ? `Phân công nhân viên thành công cho ${slotsUpdated}/${totalSlotsFound} slot`
+        : `Tìm thấy ${totalSlotsFound} slot nhưng tất cả đã có đầy đủ nhân viên`,
       totalSlotsRequested,
       totalSlotsFound,
       slotsUpdated,
@@ -936,7 +936,7 @@ async function assignStaffToSlots({
     };
     
   } catch (error) {
-    throw new Error(`Lỗi phân công nhân sự: ${error.message}`);
+    throw new Error(`Lỗi phân công nhân viên: ${error.message}`);
   }
 }
 
@@ -965,7 +965,7 @@ async function updateSlotStaff({ slotIds, dentistId, nurseId }) {
       
       // ⭐ Only allow updating slots that already have staff assigned
       if (!s.dentist && !s.nurse) {
-        throw new Error(`Slot ${s._id} chưa được phân công nhân sự, không thể cập nhật. Vui lòng sử dụng API phân công thay thế.`);
+        throw new Error(`Slot ${s._id} chưa được phân công nhân viên, không thể cập nhật. Vui lòng sử dụng API phân công thay thế.`);
       }
     }
 
@@ -1055,7 +1055,7 @@ async function updateSlotStaff({ slotIds, dentistId, nurseId }) {
 
     return updated;
   } catch (error) {
-    throw new Error(`Lỗi cập nhật nhân sự slot: ${error.message}`);
+    throw new Error(`Lỗi cập nhật nhân viên slot: ${error.message}`);
   }
 }
 
@@ -1145,7 +1145,7 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
         console.log('🔍 Looking for nurse (single):', slot.nurse.toString(), 'Found:', !!nurse);
       }
       
-      // Slot có thể cập nhật nếu đã có ít nhất 1 nhân sự (dentist hoặc nurse)
+      // Slot có thể cập nhật nếu đã có ít nhất 1 nhân viên (dentist hoặc nurse)
       const hasDentist = Array.isArray(slot.dentist) ? slot.dentist.length > 0 : Boolean(slot.dentist);
       const hasNurse = Array.isArray(slot.nurse) ? slot.nurse.length > 0 : Boolean(slot.nurse);
       const hasStaff = hasDentist || hasNurse;
@@ -1204,7 +1204,7 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
         slotStatus: slot.status,
         appointmentId: slot.appointmentId || null,
         hasStaff: hasStaff,
-        canUpdate: hasStaff, // Chỉ slot đã có nhân sự mới có thể cập nhật
+        canUpdate: hasStaff, // Chỉ slot đã có nhân viên mới có thể cập nhật
         status: hasStaff ? 'assigned' : 'not_assigned'
       };
     });
@@ -2373,7 +2373,7 @@ async function reassignStaffToSlots({
 
   } catch (error) {
     console.error('❌ Error in reassignStaffToSlots:', error);
-    throw new Error(`Lỗi phân công lại nhân sự: ${error.message}`);
+    throw new Error(`Lỗi phân công lại nhân viên: ${error.message}`);
   }
 }
 
@@ -2829,7 +2829,7 @@ async function checkStaffHasSchedule(staffIds, role) {
     
     return results;
   } catch (error) {
-    throw new Error(`Lỗi kiểm tra lịch nhân sự: ${error.message}`);
+    throw new Error(`Lỗi kiểm tra lịch nhân viên: ${error.message}`);
   }
 }
 
@@ -3416,7 +3416,7 @@ async function removeStaffFromSlots({ slotIds, removeDentists, removeNurses }) {
     };
   } catch (error) {
     console.error('❌ Error removing staff from slots:', error);
-    throw new Error('Lỗi khi xóa nhân sự: ' + error.message);
+    throw new Error('Lỗi khi xóa nhân viên: ' + error.message);
   }
 }
 
@@ -5376,14 +5376,14 @@ async function logAppointmentCancellation({
 module.exports = {
   assignStaffToSlots,              // ⭐ NEW: Phân công theo slotIds
   assignStaffToSpecificSlots,      // Phân công cho specific slots
-  reassignStaffToSlots,            // ⭐ NEW: Thay thế nhân sự theo slotIds (replace old staff with new)
-  reassignStaffToSpecificSlots,    // Thay thế nhân sự cho specific slots
-  removeStaffFromSlots,            // 🆕 Xóa nhân sự khỏi slots
+  reassignStaffToSlots,            // ⭐ NEW: Thay thế nhân viên theo slotIds (replace old staff with new)
+  reassignStaffToSpecificSlots,    // Thay thế nhân viên cho specific slots
+  removeStaffFromSlots,            // 🆕 Xóa nhân viên khỏi slots
   toggleSlotsIsActive,             // 🆕 Toggle isActive status of slots
   disableAllDaySlots,              // 🆕 Disable all slots in a day (emergency)
   enableAllDaySlots,               // 🆕 Enable all slots in a day (reactivate)
   logAppointmentCancellation,      // 🔥 Log appointment cancellation to DayClosure
-  updateSlotStaff,                 // Cập nhật nhân sự cho slots
+  updateSlotStaff,                 // Cập nhật nhân viên cho slots
   getSlotsByShiftAndDate,          // Lấy slots theo ca và ngày
   getRoomCalendar,                 // Lịch phòng
   getDentistCalendar,              // Lịch nha sĩ
@@ -5394,7 +5394,7 @@ module.exports = {
   getVietnamDate,                  // Helper: Lấy ngày giờ VN
   validateStaffIds,                // Validate staff IDs
   getAvailableShifts,              // Lấy danh sách ca làm việc
-  checkStaffHasSchedule            // Kiểm tra nhân sự có lịch hay không
+  checkStaffHasSchedule            // Kiểm tra nhân viên có lịch hay không
 };
 
 

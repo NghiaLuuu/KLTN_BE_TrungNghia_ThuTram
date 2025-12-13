@@ -716,7 +716,7 @@ exports.assignStaffToSlot = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({ 
       success: false,
-      message: 'Chỉ quản lý hoặc admin mới được phép phân công nhân sự' 
+      message: 'Chỉ quản lý hoặc admin mới được phép phân công nhân viên' 
     });
   }
   
@@ -740,14 +740,14 @@ exports.assignStaffToSlot = async (req, res) => {
     
     res.json({
       success: true,
-      message: 'Phân công nhân sự thành công',
+      message: 'Phân công nhân viên thành công',
       data: result
     });
     
   } catch (error) {
     res.status(500).json({ 
       success: false,
-      message: error.message || 'Không thể phân công nhân sự' 
+      message: error.message || 'Không thể phân công nhân viên' 
     });
   }
 };
@@ -757,7 +757,7 @@ exports.bulkAssignStaff = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({ 
       success: false,
-      message: 'Chỉ quản lý hoặc admin mới được phép phân công nhân sự' 
+      message: 'Chỉ quản lý hoặc admin mới được phép phân công nhân viên' 
     });
   }
   
@@ -787,7 +787,7 @@ exports.bulkAssignStaff = async (req, res) => {
   } catch (error) {
     res.status(500).json({ 
       success: false,
-      message: error.message || 'Không thể phân công nhân sự hàng loạt' 
+      message: error.message || 'Không thể phân công nhân viên hàng loạt' 
     });
   }
 };
@@ -852,7 +852,7 @@ exports.getStaffAvailabilityForShift = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message || 'Không thể lấy danh sách nhân sự'
+      message: error.message || 'Không thể lấy danh sách nhân viên'
     });
   }
 };
@@ -950,7 +950,7 @@ exports.getAvailableReplacementStaff = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message || 'Không thể lấy danh sách nhân sự thay thế'
+      message: error.message || 'Không thể lấy danh sách nhân viên thay thế'
     });
   }
 };
@@ -960,7 +960,7 @@ exports.replaceStaff = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({ 
       success: false,
-      message: 'Chỉ quản lý hoặc admin mới được phép thay thế nhân sự' 
+      message: 'Chỉ quản lý hoặc admin mới được phép thay thế nhân viên' 
     });
   }
   
@@ -1005,7 +1005,7 @@ exports.replaceStaff = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message || 'Không thể thay thế nhân sự'
+      message: error.message || 'Không thể thay thế nhân viên'
     });
   }
 };

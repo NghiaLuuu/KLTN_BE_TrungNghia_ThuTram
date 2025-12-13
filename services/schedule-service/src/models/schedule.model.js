@@ -73,7 +73,7 @@ const scheduleSchema = new mongoose.Schema({
     }
   },
   
-  // 🆕 Thống kê phân công nhân sự
+  // 🆕 Thống kê phân công nhân viên
   staffAssignment: {
     morning: {
       assigned: { type: Number, default: 0 },
