@@ -1,5 +1,60 @@
 const DayClosure = require('../models/dayClosure.model');
 const axios = require('axios');
+const { sendRpcRequest } = require('../utils/rabbitmq.client');
+
+// Helper: Get user info by ID from auth-service
+async function getUserById(userId) {
+  try {
+    if (!userId) return null;
+    console.log(`   📞 Calling auth_queue.getUserById(${userId})...`);
+    const userData = await sendRpcRequest('auth_queue', {
+      action: 'getUserById',
+      payload: { userId: userId.toString() }
+    }, 5000);
+    
+    console.log(`   📨 Response from auth_queue:`, JSON.stringify(userData).substring(0, 200));
+    
+    // Handle various response formats
+    if (userData && userData.success && userData.data) {
+      return userData.data;
+    }
+    // Sometimes RPC returns data directly without success wrapper
+    if (userData && (userData.fullName || userData.email || userData.phone)) {
+      return userData;
+    }
+    return null;
+  } catch (error) {
+    console.error(`❌ Cannot get user ${userId}:`, error.message);
+    return null;
+  }
+}
+
+// Helper: Get room info by ID from room-service
+async function getRoomById(roomId) {
+  try {
+    if (!roomId) return null;
+    console.log(`   📞 Calling room_queue.getRoomById(${roomId})...`);
+    const roomData = await sendRpcRequest('room_queue', {
+      action: 'getRoomById',
+      payload: { roomId: roomId.toString() }
+    }, 5000);
+    
+    console.log(`   📨 Response from room_queue:`, JSON.stringify(roomData).substring(0, 200));
+    
+    // Handle various response formats
+    if (roomData && roomData.success && roomData.data) {
+      return roomData.data;
+    }
+    // Sometimes RPC returns data directly without success wrapper
+    if (roomData && roomData.name) {
+      return roomData;
+    }
+    return null;
+  } catch (error) {
+    console.error(`❌ Cannot get room ${roomId}:`, error.message);
+    return null;
+  }
+}
 
 /**
  * Get all day closure records with optional filters
@@ -494,6 +549,55 @@ async function getAllCancelledPatients(filters = {}) {
 
     // Flatten all cancelled appointments from all records
     let allPatients = [];
+    
+    // Collect ALL unique patientIds and roomIds to fetch fresh data
+    // This ensures we always have the latest info even if stored data was incomplete
+    const allPatientIds = new Set();
+    const allRoomIds = new Set();
+    
+    records.forEach(record => {
+      (record.cancelledAppointments || []).forEach(p => {
+        // Collect all patientIds (not just Unknown ones)
+        if (p.patientId) {
+          allPatientIds.add(p.patientId.toString());
+        }
+        // Collect all roomIds (not just Unknown ones)
+        if (p.roomId) {
+          allRoomIds.add(p.roomId.toString());
+        }
+      });
+    });
+    
+    // Batch fetch all patients and rooms via RPC
+    const patientCache = new Map();
+    const roomCache = new Map();
+    
+    // Fetch ALL patients in parallel
+    if (allPatientIds.size > 0) {
+      console.log(`🔍 Fetching ${allPatientIds.size} patients from auth-service...`);
+      const patientPromises = Array.from(allPatientIds).map(async (patientId) => {
+        const userData = await getUserById(patientId);
+        if (userData) {
+          patientCache.set(patientId, userData);
+        }
+      });
+      await Promise.all(patientPromises);
+      console.log(`✅ Fetched ${patientCache.size}/${allPatientIds.size} patients from auth-service`);
+    }
+    
+    // Fetch ALL rooms in parallel
+    if (allRoomIds.size > 0) {
+      console.log(`🔍 Fetching ${allRoomIds.size} rooms from room-service...`);
+      const roomPromises = Array.from(allRoomIds).map(async (roomId) => {
+        const roomData = await getRoomById(roomId);
+        if (roomData) {
+          roomCache.set(roomId, roomData);
+        }
+      });
+      await Promise.all(roomPromises);
+      console.log(`✅ Fetched ${roomCache.size}/${allRoomIds.size} rooms from room-service`);
+    }
+    
     records.forEach(record => {
       const patients = (record.cancelledAppointments || []).map(p => {
         // Debug: Check if paymentInfo/invoiceInfo exists in raw data
@@ -515,13 +619,40 @@ async function getAllCancelledPatients(filters = {}) {
         const appointmentDateUTC = p.appointmentDate ? new Date(p.appointmentDate) : null;
         const appointmentDateVN = appointmentDateUTC ? new Date(appointmentDateUTC.getTime() + 7 * 60 * 60 * 1000) : null;
         
+        // Always try to get patient info from cache first (fresh data from auth-service)
+        // Fallback to stored data if cache miss
+        let patientName = p.patientName;
+        let patientEmail = p.patientEmail;
+        let patientPhone = p.patientPhone;
+        
+        if (p.patientId) {
+          const cachedPatient = patientCache.get(p.patientId.toString());
+          if (cachedPatient) {
+            // Use fresh data from auth-service
+            patientName = cachedPatient.fullName || cachedPatient.name || patientName || 'Unknown';
+            patientEmail = cachedPatient.email || patientEmail || '';
+            patientPhone = cachedPatient.phone || cachedPatient.phoneNumber || patientPhone || '';
+          }
+        }
+        
+        // Always try to get room info from cache first (fresh data from room-service)
+        // Fallback to stored data if cache miss
+        let roomName = p.roomName;
+        if (p.roomId) {
+          const cachedRoom = roomCache.get(p.roomId.toString());
+          if (cachedRoom) {
+            // Use fresh data from room-service
+            roomName = cachedRoom.name || cachedRoom.roomName || roomName || 'Unknown Room';
+          }
+        }
+        
         return {
           // Patient info
           appointmentId: p.appointmentId,
           patientId: p.patientId,
-          patientName: p.patientName,
-          patientEmail: p.patientEmail,
-          patientPhone: p.patientPhone,
+          patientName: patientName || 'Unknown',
+          patientEmail: patientEmail || '',
+          patientPhone: patientPhone || '',
           
           // Appointment info
           appointmentDate: p.appointmentDate,
@@ -533,7 +664,7 @@ async function getAllCancelledPatients(filters = {}) {
           
           // Room & Staff
           roomId: p.roomId,
-          roomName: p.roomName,
+          roomName: roomName || 'Unknown Room',
           dentists: p.dentists?.map(d => d.dentistName).join(', ') || 'N/A',
           dentistIds: p.dentists?.map(d => d.dentistId) || [],
           nurses: p.nurses?.map(n => n.nurseName).join(', ') || 'N/A',
