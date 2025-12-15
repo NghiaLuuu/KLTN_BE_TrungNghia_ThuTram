@@ -1488,7 +1488,7 @@ class AppointmentService {
             roomId: appointment.roomId.toString(),
             date: date,
             patientName: appointment.patientInfo?.name,
-            message: `${appointment.patientInfo?.name || 'Bệnh nhân'} đã hủy lịch hẹn`
+            message: `${appointment.patientInfo?.name || 'Bệnh nhân'} đã hủy phiếu hẹn`
           }
         });
         

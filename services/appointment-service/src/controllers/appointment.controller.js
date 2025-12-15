@@ -502,7 +502,7 @@ class AppointmentController {
       console.log('✅ [rejectCancellation] Success');
       res.json({
         success: true,
-        message: 'Đã từ chối yêu cầu hủy lịch, trạng thái phiếu khám về lại "Đã xác nhận"',
+        message: 'Đã từ chối yêu cầu hủy phiếu, trạng thái phiếu khám về lại "Đã xác nhận"',
         data: result
       });
     } catch (error) {

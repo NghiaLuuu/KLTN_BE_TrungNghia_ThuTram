@@ -240,7 +240,7 @@ const updateStatusValidation = [
   body('cancellationReason')
     .if(body('status').equals('cancelled'))
     .notEmpty()
-    .withMessage('Lý do hủy là bắt buộc khi hủy lịch hẹn')
+    .withMessage('Lý do hủy là bắt buộc khi hủy phiếu hẹn')
     .isLength({ max: 200 })
     .withMessage('Lý do hủy không được quá 200 ký tự')
     .trim(),

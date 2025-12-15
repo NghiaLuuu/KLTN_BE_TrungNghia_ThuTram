@@ -8109,7 +8109,7 @@ async function getAffectedPatientsAndNotify(bookedSlots) {
           // TODO: Gọi email service thực tế
           // await axios.post(`${EMAIL_SERVICE_URL}/send`, {
           //   to: patient.email,
-          //   subject: 'Thông báo hủy lịch khám',
+          //   subject: 'Thông báo hủy phiếu khám',
           //   body: `Xin chào ${patient.fullName}, lịch khám của bạn vào ${slot.startTime} đã bị hủy...`
           // });
           

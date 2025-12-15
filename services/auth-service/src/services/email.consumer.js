@@ -302,7 +302,7 @@ const createCancellationRejectedEmail = (notification) => {
   const text = `
 Kính gửi ${name},
 
-Chúng tôi xin thông báo yêu cầu hủy lịch khám của bạn tại Smile Dental đã bị từ chối.
+Chúng tôi xin thông báo yêu cầu hủy phiếu khám của bạn tại Smile Dental đã bị từ chối.
 
 📅 THÔNG TIN LỊCH KHÁM:
 - Mã lịch hẹn: ${appointmentCode}
@@ -320,7 +320,7 @@ Chúng tôi xin thông báo yêu cầu hủy lịch khám của bạn tại Smil
 Lịch khám của bạn vẫn được GIỮ NGUYÊN và có hiệu lực. Vui lòng đến đúng giờ theo lịch đã đặt.
 
 📋 LƯU Ý:
-- Nếu bạn vẫn muốn hủy lịch, vui lòng liên hệ trực tiếp với phòng khám
+- Nếu bạn vẫn muốn hủy phiếu, vui lòng liên hệ trực tiếp với phòng khám
 - Đến trước 15 phút để làm thủ tục
 - Mang theo giấy tờ tùy thân
 
