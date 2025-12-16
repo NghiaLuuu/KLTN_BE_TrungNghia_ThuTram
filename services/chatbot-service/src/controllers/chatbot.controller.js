@@ -64,13 +64,30 @@ function isRejectionMessage(message) {
   
   const rejectKeywords = [
     'không', 'ko', 'k', 'no', 'nope',
-    'thôi', 'hủy', 'bỏ', 'cancel',
-    'không muốn', 'không đặt', 'không cần',
-    'lúc khác', 'để sau', 'chưa', 'chưa muốn'
+    'thôi', 'hủy', 'bỏ', 'cancel', 'dừng', 'stop',
+    'không muốn', 'không đặt', 'không cần', 'không book',
+    'lúc khác', 'để sau', 'chưa', 'chưa muốn',
+    'đặt nữa', 'bỏ qua', 'thoát', 'exit', 'quit',
+    'kệ', 'thôi đi', 'bỏ đi', 'khỏi', 'đừng'
   ];
   
   for (const keyword of rejectKeywords) {
     if (input === keyword || input.includes(keyword)) {
+      return true;
+    }
+  }
+  
+  // Kiểm tra các pattern từ chối tự nhiên
+  const rejectPatterns = [
+    /không.*đặt/i,      // "không đặt nữa", "không muốn đặt"
+    /thôi.*đặt/i,       // "thôi đặt", "thôi không đặt"
+    /hủy.*lịch/i,       // "hủy lịch", "hủy đặt lịch"
+    /bỏ.*qua/i,         // "bỏ qua"
+    /để.*sau/i,         // "để sau", "để lúc khác"
+  ];
+  
+  for (const pattern of rejectPatterns) {
+    if (pattern.test(input)) {
       return true;
     }
   }
@@ -203,6 +220,15 @@ class ChatbotController {
       if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'SERVICE_SELECTION') {
         console.log('🎯 [HANDLER] User đang ở bước SERVICE_SELECTION');
         
+        // Kiểm tra user muốn hủy đặt lịch
+        if (isRejectionMessage(message)) {
+          console.log('❌ User hủy đặt lịch ở bước SERVICE_SELECTION');
+          const cancelMessage = '❌ Đã hủy đặt lịch.\n\nNếu bạn cần đặt lại, vui lòng nói "đặt lịch" hoặc liên hệ hotline! 📞';
+          await chatSessionRepo.clearBookingContext(session.sessionId);
+          await chatSessionRepo.addMessage(session.sessionId, 'assistant', cancelMessage);
+          return res.json({ success: true, response: cancelMessage, sessionId: session.sessionId, timestamp: new Date().toISOString() });
+        }
+        
         let selectedItem = await this.matchServiceFromFlatList(
           message,
           bookingContext.flatServiceList
@@ -237,6 +263,15 @@ class ChatbotController {
       // 2. DENTIST_SELECTION - User đang chọn nha sĩ
       if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'DENTIST_SELECTION') {
         console.log('🎯 [HANDLER] User đang ở bước DENTIST_SELECTION');
+        
+        // Kiểm tra user muốn hủy đặt lịch
+        if (isRejectionMessage(message)) {
+          console.log('❌ User hủy đặt lịch ở bước DENTIST_SELECTION');
+          const cancelMessage = '❌ Đã hủy đặt lịch.\n\nNếu bạn cần đặt lại, vui lòng nói "đặt lịch" hoặc liên hệ hotline! 📞';
+          await chatSessionRepo.clearBookingContext(session.sessionId);
+          await chatSessionRepo.addMessage(session.sessionId, 'assistant', cancelMessage);
+          return res.json({ success: true, response: cancelMessage, sessionId: session.sessionId, timestamp: new Date().toISOString() });
+        }
         
         let selectedDentist = await this.matchDentistSelection(
           message,
@@ -275,6 +310,15 @@ class ChatbotController {
         console.log('🎯 [HANDLER] User đang ở bước DATE_SELECTION');
         console.log('📦 availableDates:', bookingContext.availableDates?.length || 0, 'ngày');
         
+        // Kiểm tra user muốn hủy đặt lịch
+        if (isRejectionMessage(message)) {
+          console.log('❌ User hủy đặt lịch ở bước DATE_SELECTION');
+          const cancelMessage = '❌ Đã hủy đặt lịch.\n\nNếu bạn cần đặt lại, vui lòng nói "đặt lịch" hoặc liên hệ hotline! 📞';
+          await chatSessionRepo.clearBookingContext(session.sessionId);
+          await chatSessionRepo.addMessage(session.sessionId, 'assistant', cancelMessage);
+          return res.json({ success: true, response: cancelMessage, sessionId: session.sessionId, timestamp: new Date().toISOString() });
+        }
+        
         let selectedDate = await this.matchDateSelection(
           message,
           bookingContext.availableDates
@@ -311,6 +355,15 @@ class ChatbotController {
       if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'SLOT_SELECTION') {
         console.log('🎯 [HANDLER] User đang ở bước SLOT_SELECTION');
         console.log('📦 availableSlotGroups:', bookingContext.availableSlotGroups?.length || 0, 'slots');
+        
+        // Kiểm tra user muốn hủy đặt lịch
+        if (isRejectionMessage(message)) {
+          console.log('❌ User hủy đặt lịch ở bước SLOT_SELECTION');
+          const cancelMessage = '❌ Đã hủy đặt lịch.\n\nNếu bạn cần đặt lại, vui lòng nói "đặt lịch" hoặc liên hệ hotline! 📞';
+          await chatSessionRepo.clearBookingContext(session.sessionId);
+          await chatSessionRepo.addMessage(session.sessionId, 'assistant', cancelMessage);
+          return res.json({ success: true, response: cancelMessage, sessionId: session.sessionId, timestamp: new Date().toISOString() });
+        }
         
         let selectedSlotGroup = await this.matchSlotGroupSelection(
           message,
