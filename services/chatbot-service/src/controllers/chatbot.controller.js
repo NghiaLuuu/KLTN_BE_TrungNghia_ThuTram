@@ -1527,10 +1527,26 @@ class ChatbotController {
     
     const input = userInput.trim().toLowerCase();
     
-    // Thử khớp theo số
-    const numberMatch = input.match(/^(\d+)$/);
-    if (numberMatch) {
-      const number = parseInt(numberMatch[1]);
+    // Thử khớp theo số - exact match
+    const exactNumberMatch = input.match(/^(\d+)$/);
+    if (exactNumberMatch) {
+      const number = parseInt(exactNumberMatch[1]);
+      const found = flatServiceList.find(item => item.number === number);
+      if (found) return found;
+    }
+    
+    // Thử trích xuất số từ câu tự nhiên như "tôi muốn chọn số 4", "chọn 4", "số 4"
+    const naturalNumberMatch = input.match(/(?:chọn|số|chon|so|lấy|lay|muốn|muon|đặt|dat)\s*(?:số|so)?\s*(\d+)/i);
+    if (naturalNumberMatch) {
+      const number = parseInt(naturalNumberMatch[1]);
+      const found = flatServiceList.find(item => item.number === number);
+      if (found) return found;
+    }
+    
+    // Thử khớp số đứng một mình trong câu
+    const anyNumberMatch = input.match(/(\d+)/);
+    if (anyNumberMatch) {
+      const number = parseInt(anyNumberMatch[1]);
       const found = flatServiceList.find(item => item.number === number);
       if (found) return found;
     }
@@ -1717,10 +1733,28 @@ class ChatbotController {
       return availableDentists[0];
     }
     
-    // Thử khớp theo số
-    const numberMatch = input.match(/^(\d+)$/);
-    if (numberMatch) {
-      const index = parseInt(numberMatch[1]) - 1;
+    // Thử khớp theo số - exact match
+    const exactNumberMatch = input.match(/^(\d+)$/);
+    if (exactNumberMatch) {
+      const index = parseInt(exactNumberMatch[1]) - 1;
+      if (index >= 0 && index < availableDentists.length) {
+        return availableDentists[index];
+      }
+    }
+    
+    // Thử trích xuất số từ câu tự nhiên như "chọn nha sĩ số 1", "bác sĩ 2", "số 3"
+    const naturalNumberMatch = input.match(/(?:chọn|số|chon|so|bác sĩ|bac si|nha sĩ|nha si|muốn|muon)\s*(?:số|so)?\s*(\d+)/i);
+    if (naturalNumberMatch) {
+      const index = parseInt(naturalNumberMatch[1]) - 1;
+      if (index >= 0 && index < availableDentists.length) {
+        return availableDentists[index];
+      }
+    }
+    
+    // Thử khớp số đứng một mình trong câu
+    const anyNumberMatch = input.match(/(\d+)/);
+    if (anyNumberMatch) {
+      const index = parseInt(anyNumberMatch[1]) - 1;
       if (index >= 0 && index < availableDentists.length) {
         return availableDentists[index];
       }
@@ -1735,11 +1769,21 @@ class ChatbotController {
       }
     }
     
-    // Thử khớp theo tên nha sĩ (fuzzy)
+    // Thử khớp theo tên nha sĩ (fuzzy) - bao gồm tên riêng
     for (const dentist of availableDentists) {
-      const name = (dentist.fullName || dentist.name || '').toLowerCase();
-      if (name.includes(input) || input.includes(name)) {
+      const fullName = (dentist.fullName || dentist.name || '').toLowerCase();
+      // Tách tên thành các phần để match linh hoạt hơn
+      const nameParts = fullName.split(/\s+/);
+      
+      if (fullName.includes(input) || input.includes(fullName)) {
         return dentist;
+      }
+      
+      // Kiểm tra xem input có chứa bất kỳ phần nào của tên không
+      for (const part of nameParts) {
+        if (part.length > 2 && input.includes(part)) {
+          return dentist;
+        }
       }
     }
     
@@ -1880,10 +1924,19 @@ class ChatbotController {
     
     const input = userInput.trim().toLowerCase();
     
-    // Thử khớp theo số
-    const numberMatch = input.match(/^(\d+)$/);
-    if (numberMatch) {
-      const index = parseInt(numberMatch[1]) - 1;
+    // Thử khớp theo số - exact match
+    const exactNumberMatch = input.match(/^(\d+)$/);
+    if (exactNumberMatch) {
+      const index = parseInt(exactNumberMatch[1]) - 1;
+      if (index >= 0 && index < availableDates.length) {
+        return availableDates[index];
+      }
+    }
+    
+    // Thử trích xuất số từ câu tự nhiên như "chọn ngày số 1", "ngày 2"
+    const naturalNumberMatch = input.match(/(?:chọn|số|chon|so|ngày|ngay|muốn|muon)\s*(?:số|so)?\s*(\d+)/i);
+    if (naturalNumberMatch) {
+      const index = parseInt(naturalNumberMatch[1]) - 1;
       if (index >= 0 && index < availableDates.length) {
         return availableDates[index];
       }
@@ -1906,6 +1959,15 @@ class ChatbotController {
       
       if (availableDates.includes(inputDate)) {
         return inputDate;
+      }
+    }
+    
+    // Thử khớp số đứng một mình trong câu (cuối cùng)
+    const anyNumberMatch = input.match(/(\d+)/);
+    if (anyNumberMatch) {
+      const index = parseInt(anyNumberMatch[1]) - 1;
+      if (index >= 0 && index < availableDates.length) {
+        return availableDates[index];
       }
     }
     
@@ -2103,10 +2165,19 @@ class ChatbotController {
     
     const input = userInput.trim().toLowerCase();
     
-    // Thử khớp theo số
-    const numberMatch = input.match(/^(\d+)$/);
-    if (numberMatch) {
-      const index = parseInt(numberMatch[1]) - 1;
+    // Thử khớp theo số - exact match
+    const exactNumberMatch = input.match(/^(\d+)$/);
+    if (exactNumberMatch) {
+      const index = parseInt(exactNumberMatch[1]) - 1;
+      if (index >= 0 && index < availableSlotGroups.length) {
+        return availableSlotGroups[index];
+      }
+    }
+    
+    // Thử trích xuất số từ câu tự nhiên như "chọn giờ số 2", "khung 3", "slot 1"
+    const naturalNumberMatch = input.match(/(?:chọn|số|chon|so|giờ|gio|khung|slot|muốn|muon)\s*(?:số|so)?\s*(\d+)/i);
+    if (naturalNumberMatch) {
+      const index = parseInt(naturalNumberMatch[1]) - 1;
       if (index >= 0 && index < availableSlotGroups.length) {
         return availableSlotGroups[index];
       }
@@ -2130,6 +2201,15 @@ class ChatbotController {
         return slotTime && slotTime.includes(targetTime);
       });
       if (found) return found;
+    }
+    
+    // Thử khớp số đứng một mình trong câu (cuối cùng)
+    const anyNumberMatch = input.match(/(\d+)/);
+    if (anyNumberMatch) {
+      const index = parseInt(anyNumberMatch[1]) - 1;
+      if (index >= 0 && index < availableSlotGroups.length) {
+        return availableSlotGroups[index];
+      }
     }
     
     return null;
