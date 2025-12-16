@@ -203,17 +203,28 @@ class ChatbotController {
       if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'SERVICE_SELECTION') {
         console.log('🎯 [HANDLER] User đang ở bước SERVICE_SELECTION');
         
-        const selectedItem = await this.matchServiceFromFlatList(
+        let selectedItem = await this.matchServiceFromFlatList(
           message,
           bookingContext.flatServiceList
         );
+        
+        // Nếu không match được, thử dùng GPT parse
+        if (!selectedItem && bookingContext.flatServiceList?.length > 0) {
+          console.log('🧠 Thử dùng GPT để parse lựa chọn dịch vụ...');
+          const gptResult = await aiService.parseSelectionWithGPT(message, bookingContext.flatServiceList, 'service');
+          
+          if (gptResult.success && gptResult.selectedIndex !== null) {
+            selectedItem = bookingContext.flatServiceList[gptResult.selectedIndex];
+            console.log(`✅ GPT parse thành công: ${selectedItem.serviceName}`);
+          }
+        }
         
         if (selectedItem) {
           console.log('✅ Đã chọn dịch vụ:', selectedItem.serviceName);
           return await this.handleDentistSelection(req, res, session, selectedItem, userId, authToken);
         }
         
-        // Nếu không match được, hiển thị thông báo lỗi thân thiện
+        // Nếu vẫn không match được, hiển thị thông báo lỗi thân thiện
         const errorMessage = `❓ Tôi không hiểu lựa chọn "${message}". Vui lòng:\n\n` +
           `📝 Chọn số (1, 2, 3...) tương ứng với dịch vụ\n` +
           `📝 Hoặc gõ tên dịch vụ bạn muốn\n\n` +
@@ -227,17 +238,28 @@ class ChatbotController {
       if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'DENTIST_SELECTION') {
         console.log('🎯 [HANDLER] User đang ở bước DENTIST_SELECTION');
         
-        const selectedDentist = await this.matchDentistSelection(
+        let selectedDentist = await this.matchDentistSelection(
           message,
           bookingContext.availableDentists
         );
+        
+        // Nếu không match được, thử dùng GPT parse
+        if (!selectedDentist && bookingContext.availableDentists?.length > 0) {
+          console.log('🧠 Thử dùng GPT để parse lựa chọn nha sĩ...');
+          const gptResult = await aiService.parseSelectionWithGPT(message, bookingContext.availableDentists, 'dentist');
+          
+          if (gptResult.success && gptResult.selectedIndex !== null) {
+            selectedDentist = bookingContext.availableDentists[gptResult.selectedIndex];
+            console.log(`✅ GPT parse thành công: ${selectedDentist.fullName}`);
+          }
+        }
         
         if (selectedDentist) {
           console.log('✅ Đã chọn nha sĩ:', selectedDentist.fullName);
           return await this.handleDateSelection(req, res, session, bookingContext.selectedServiceItem, selectedDentist, userId, authToken);
         }
         
-        // Nếu không match được
+        // Nếu vẫn không match được
         const errorMessage = `❓ Tôi không hiểu lựa chọn "${message}". Vui lòng:\n\n` +
           `📝 Chọn số (1, 2, 3...) tương ứng với nha sĩ\n` +
           `📝 Hoặc gõ tên nha sĩ (VD: "bác sĩ Sơn")\n` +
@@ -253,17 +275,28 @@ class ChatbotController {
         console.log('🎯 [HANDLER] User đang ở bước DATE_SELECTION');
         console.log('📦 availableDates:', bookingContext.availableDates?.length || 0, 'ngày');
         
-        const selectedDate = await this.matchDateSelection(
+        let selectedDate = await this.matchDateSelection(
           message,
           bookingContext.availableDates
         );
+        
+        // Nếu không match được, thử dùng GPT parse
+        if (!selectedDate && bookingContext.availableDates?.length > 0) {
+          console.log('🧠 Thử dùng GPT để parse lựa chọn ngày...');
+          const gptResult = await aiService.parseSelectionWithGPT(message, bookingContext.availableDates, 'date');
+          
+          if (gptResult.success && gptResult.selectedIndex !== null) {
+            selectedDate = bookingContext.availableDates[gptResult.selectedIndex];
+            console.log(`✅ GPT parse thành công: ${selectedDate}`);
+          }
+        }
         
         if (selectedDate) {
           console.log('✅ Đã chọn ngày:', selectedDate);
           return await this.handleSlotSelection(req, res, session, bookingContext.selectedServiceItem, bookingContext.selectedDentist, selectedDate, userId, authToken);
         }
         
-        // Nếu không match được
+        // Nếu vẫn không match được
         const errorMessage = `❓ Tôi không hiểu lựa chọn "${message}". Vui lòng:\n\n` +
           `📝 Chọn số (1, 2, 3...) tương ứng với ngày\n` +
           `📝 Hoặc gõ ngày theo định dạng DD/MM/YYYY (VD: "27/12/2025")\n` +
@@ -279,10 +312,21 @@ class ChatbotController {
         console.log('🎯 [HANDLER] User đang ở bước SLOT_SELECTION');
         console.log('📦 availableSlotGroups:', bookingContext.availableSlotGroups?.length || 0, 'slots');
         
-        const selectedSlotGroup = await this.matchSlotGroupSelection(
+        let selectedSlotGroup = await this.matchSlotGroupSelection(
           message,
           bookingContext.availableSlotGroups
         );
+        
+        // Nếu không match được, thử dùng GPT parse
+        if (!selectedSlotGroup && bookingContext.availableSlotGroups?.length > 0) {
+          console.log('🧠 Thử dùng GPT để parse lựa chọn khung giờ...');
+          const gptResult = await aiService.parseSelectionWithGPT(message, bookingContext.availableSlotGroups, 'slot');
+          
+          if (gptResult.success && gptResult.selectedIndex !== null) {
+            selectedSlotGroup = bookingContext.availableSlotGroups[gptResult.selectedIndex];
+            console.log(`✅ GPT parse thành công: ${selectedSlotGroup.startTime}`);
+          }
+        }
         
         if (selectedSlotGroup) {
           console.log('✅ Đã chọn khung giờ:', selectedSlotGroup.startTime);
@@ -294,7 +338,7 @@ class ChatbotController {
           }, userId, authToken);
         }
         
-        // Nếu không match được
+        // Nếu vẫn không match được
         const errorMessage = `❓ Tôi không hiểu lựa chọn "${message}". Vui lòng:\n\n` +
           `📝 Chọn số (1, 2, 3...) tương ứng với khung giờ\n` +
           `📝 Hoặc gõ giờ (VD: "10:00" hoặc "10h00")\n\n` +

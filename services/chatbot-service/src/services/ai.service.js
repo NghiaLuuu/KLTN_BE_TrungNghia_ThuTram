@@ -216,6 +216,106 @@ class AIService {
   }
 
   /**
+   * Sử dụng GPT để parse lựa chọn của user từ danh sách options
+   * Dùng khi các hàm match không nhận diện được lựa chọn
+   * @param {String} userMessage - Tin nhắn của user
+   * @param {Array} options - Danh sách options để chọn
+   * @param {String} selectionType - Loại lựa chọn (service, dentist, date, slot)
+   * @returns {Promise<Object>} - { success: boolean, selectedIndex: number|null, reasoning: string }
+   */
+  async parseSelectionWithGPT(userMessage, options, selectionType) {
+    try {
+      // Tạo danh sách options cho GPT
+      let optionsList = '';
+      const typeDescriptions = {
+        service: 'dịch vụ nha khoa',
+        dentist: 'nha sĩ',
+        date: 'ngày khám',
+        slot: 'khung giờ'
+      };
+      
+      options.forEach((opt, idx) => {
+        if (selectionType === 'service') {
+          optionsList += `${idx + 1}. ${opt.serviceName}${opt.addOnName ? ' - ' + opt.addOnName : ''}\n`;
+        } else if (selectionType === 'dentist') {
+          optionsList += `${idx + 1}. ${opt.fullName || opt.name}${opt.specialization ? ' (' + opt.specialization + ')' : ''}\n`;
+        } else if (selectionType === 'date') {
+          const dateObj = new Date(opt);
+          const formatted = dateObj.toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric' });
+          optionsList += `${idx + 1}. ${formatted}\n`;
+        } else if (selectionType === 'slot') {
+          optionsList += `${idx + 1}. ${opt.startTimeVN || opt.startTime} - ${opt.endTimeVN || opt.endTime}\n`;
+        }
+      });
+
+      const parsePrompt = `Bạn là hệ thống phân tích lựa chọn của người dùng.
+
+DANH SÁCH ${typeDescriptions[selectionType]?.toUpperCase() || 'LỰA CHỌN'}:
+${optionsList}
+
+TIN NHẮN NGƯỜI DÙNG: "${userMessage}"
+
+NHIỆM VỤ: Phân tích tin nhắn và xác định người dùng muốn chọn mục nào từ danh sách trên.
+
+QUY TẮC:
+- Nếu người dùng nhắc đến số (VD: "số 1", "cái 2", "chọn 3") → trả về số đó
+- Nếu người dùng nhắc đến tên/từ khóa khớp với một mục → trả về số thứ tự của mục đó
+- Nếu không rõ hoặc không khớp mục nào → trả về 0
+- CHỈ trả về số nguyên, không trả lời gì thêm
+
+VÍ DỤ:
+- "tôi muốn cái đầu tiên" → 1
+- "cho tôi số 3" → 3
+- "khám tổng quát" (nếu có trong danh sách) → số thứ tự của nó
+- "bác sĩ Nguyễn Văn A" (nếu có trong danh sách) → số thứ tự của bác sĩ đó
+- "abc xyz không liên quan" → 0
+
+TRẢ LỜI (CHỈ SỐ):`;
+
+      const response = await openai.chat.completions.create({
+        model: config.model,
+        messages: [{ role: 'user', content: parsePrompt }],
+        temperature: 0.1, // Giảm temperature để có kết quả deterministic hơn
+        max_tokens: 10
+      });
+
+      const gptAnswer = response.choices[0].message.content.trim();
+      console.log(`🧠 GPT parse "${userMessage}" → "${gptAnswer}"`);
+      
+      // Parse kết quả từ GPT
+      const selectedIndex = parseInt(gptAnswer);
+      
+      if (!isNaN(selectedIndex) && selectedIndex > 0 && selectedIndex <= options.length) {
+        return {
+          success: true,
+          selectedIndex: selectedIndex - 1, // Convert sang 0-based index
+          reasoning: `GPT nhận diện: lựa chọn số ${selectedIndex}`
+        };
+      } else if (selectedIndex === 0) {
+        return {
+          success: false,
+          selectedIndex: null,
+          reasoning: 'GPT không nhận diện được lựa chọn'
+        };
+      } else {
+        return {
+          success: false,
+          selectedIndex: null,
+          reasoning: `GPT trả về giá trị không hợp lệ: ${gptAnswer}`
+        };
+      }
+      
+    } catch (error) {
+      console.error('❌ GPT parse selection error:', error);
+      return {
+        success: false,
+        selectedIndex: null,
+        reasoning: `Lỗi GPT: ${error.message}`
+      };
+    }
+  }
+
+  /**
    * Kiểm tra tin nhắn có liên quan đến nha khoa không
    * @param {String} message - Tin nhắn của user
    * @returns {Boolean}
