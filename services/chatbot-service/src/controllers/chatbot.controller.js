@@ -189,12 +189,163 @@ class ChatbotController {
           historyLimit = 10; // Bước xác nhận bình thường
         }
       }
-      
-      const history = await chatSessionRepo.getHistory(userId, historyLimit);
-      const formattedMessages = aiService.formatMessagesForGPT(history);
 
       // Lấy auth token từ request (cho các API call có xác thực)
       const authToken = req.headers.authorization?.split(' ')[1] || null;
+
+      // ====================================================================
+      // BOOKING FLOW HANDLERS - XỬ LÝ TRƯỚC KHI GỌI GPT
+      // Khi user đang trong booking flow, handlers sẽ xử lý trực tiếp
+      // mà không cần gọi GPT (tiết kiệm token và response nhanh hơn)
+      // ====================================================================
+      
+      // 1. SERVICE_SELECTION - User đang chọn dịch vụ
+      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'SERVICE_SELECTION') {
+        console.log('🎯 [HANDLER] User đang ở bước SERVICE_SELECTION');
+        
+        const selectedItem = await this.matchServiceFromFlatList(
+          message,
+          bookingContext.flatServiceList
+        );
+        
+        if (selectedItem) {
+          console.log('✅ Đã chọn dịch vụ:', selectedItem.serviceName);
+          return await this.handleDentistSelection(req, res, session, selectedItem, userId, authToken);
+        }
+        
+        // Nếu không match được, hiển thị thông báo lỗi thân thiện
+        const errorMessage = `❓ Tôi không hiểu lựa chọn "${message}". Vui lòng:\n\n` +
+          `📝 Chọn số (1, 2, 3...) tương ứng với dịch vụ\n` +
+          `📝 Hoặc gõ tên dịch vụ bạn muốn\n\n` +
+          `💡 Ví dụ: "4" hoặc "Khám tổng quát"`;
+        
+        await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
+        return res.json({ success: true, response: errorMessage, sessionId: session.sessionId, timestamp: new Date().toISOString() });
+      }
+      
+      // 2. DENTIST_SELECTION - User đang chọn nha sĩ
+      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'DENTIST_SELECTION') {
+        console.log('🎯 [HANDLER] User đang ở bước DENTIST_SELECTION');
+        
+        const selectedDentist = await this.matchDentistSelection(
+          message,
+          bookingContext.availableDentists
+        );
+        
+        if (selectedDentist) {
+          console.log('✅ Đã chọn nha sĩ:', selectedDentist.fullName);
+          return await this.handleDateSelection(req, res, session, bookingContext.selectedServiceItem, selectedDentist, userId, authToken);
+        }
+        
+        // Nếu không match được
+        const errorMessage = `❓ Tôi không hiểu lựa chọn "${message}". Vui lòng:\n\n` +
+          `📝 Chọn số (1, 2, 3...) tương ứng với nha sĩ\n` +
+          `📝 Hoặc gõ tên nha sĩ (VD: "bác sĩ Sơn")\n` +
+          `📝 Hoặc gõ "bất kỳ" để hệ thống chọn tự động\n\n` +
+          `💡 Ví dụ: "1" hoặc "Nguyễn Trường Sơn"`;
+        
+        await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
+        return res.json({ success: true, response: errorMessage, sessionId: session.sessionId, timestamp: new Date().toISOString() });
+      }
+      
+      // 3. DATE_SELECTION - User đang chọn ngày
+      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'DATE_SELECTION') {
+        console.log('🎯 [HANDLER] User đang ở bước DATE_SELECTION');
+        console.log('📦 availableDates:', bookingContext.availableDates?.length || 0, 'ngày');
+        
+        const selectedDate = await this.matchDateSelection(
+          message,
+          bookingContext.availableDates
+        );
+        
+        if (selectedDate) {
+          console.log('✅ Đã chọn ngày:', selectedDate);
+          return await this.handleSlotSelection(req, res, session, bookingContext.selectedServiceItem, bookingContext.selectedDentist, selectedDate, userId, authToken);
+        }
+        
+        // Nếu không match được
+        const errorMessage = `❓ Tôi không hiểu lựa chọn "${message}". Vui lòng:\n\n` +
+          `📝 Chọn số (1, 2, 3...) tương ứng với ngày\n` +
+          `📝 Hoặc gõ ngày theo định dạng DD/MM/YYYY (VD: "27/12/2025")\n` +
+          `📝 Hoặc gõ "thứ bảy ngày 27 tháng 12"\n\n` +
+          `💡 Ví dụ: "1" hoặc "27/12/2025"`;
+        
+        await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
+        return res.json({ success: true, response: errorMessage, sessionId: session.sessionId, timestamp: new Date().toISOString() });
+      }
+      
+      // 4. SLOT_SELECTION - User đang chọn khung giờ
+      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'SLOT_SELECTION') {
+        console.log('🎯 [HANDLER] User đang ở bước SLOT_SELECTION');
+        console.log('📦 availableSlotGroups:', bookingContext.availableSlotGroups?.length || 0, 'slots');
+        
+        const selectedSlotGroup = await this.matchSlotGroupSelection(
+          message,
+          bookingContext.availableSlotGroups
+        );
+        
+        if (selectedSlotGroup) {
+          console.log('✅ Đã chọn khung giờ:', selectedSlotGroup.startTime);
+          return await this.handleFinalConfirmation(req, res, session, {
+            selectedServiceItem: bookingContext.selectedServiceItem,
+            selectedDentist: bookingContext.selectedDentist,
+            selectedDate: bookingContext.selectedDate,
+            selectedSlotGroup: selectedSlotGroup
+          }, userId, authToken);
+        }
+        
+        // Nếu không match được
+        const errorMessage = `❓ Tôi không hiểu lựa chọn "${message}". Vui lòng:\n\n` +
+          `📝 Chọn số (1, 2, 3...) tương ứng với khung giờ\n` +
+          `📝 Hoặc gõ giờ (VD: "10:00" hoặc "10h00")\n\n` +
+          `💡 Ví dụ: "2" hoặc "10:00"`;
+        
+        await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
+        return res.json({ success: true, response: errorMessage, sessionId: session.sessionId, timestamp: new Date().toISOString() });
+      }
+      
+      // 5. CONFIRMATION - User đang xác nhận đặt lịch
+      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'CONFIRMATION') {
+        console.log('🎯 [HANDLER] User đang ở bước CONFIRMATION');
+        
+        if (isConfirmationMessage(message)) {
+          console.log('✅ User xác nhận đặt lịch');
+          // Xử lý xác nhận - lấy lại context mới nhất
+          const latestContext = await chatSessionRepo.getBookingContext(session.sessionId);
+          
+          if (!latestContext || !latestContext.selectedSlotGroup) {
+            const errorMessage = '❌ Không tìm thấy thông tin đặt lịch. Vui lòng thử đặt lại từ đầu!';
+            await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
+            return res.json({ success: false, response: errorMessage, sessionId: session.sessionId, timestamp: new Date().toISOString() });
+          }
+          
+          // Trích xuất thông tin và tạo booking
+          return await this.processBookingConfirmation(req, res, session, latestContext, userId, authToken);
+        }
+        
+        if (isRejectionMessage(message)) {
+          console.log('❌ User từ chối đặt lịch');
+          const cancelMessage = '❌ Đã hủy đặt lịch.\n\nNếu bạn cần đặt lại, vui lòng nói "đặt lịch" hoặc liên hệ hotline! 📞';
+          await chatSessionRepo.clearBookingContext(session.sessionId);
+          await chatSessionRepo.addMessage(session.sessionId, 'assistant', cancelMessage);
+          return res.json({ success: true, response: cancelMessage, sessionId: session.sessionId, timestamp: new Date().toISOString() });
+        }
+        
+        // Nếu không phải xác nhận hay từ chối, nhắc user
+        const promptMessage = `🤔 Bạn muốn xác nhận đặt lịch không?\n\n` +
+          `✅ Trả lời "Có" hoặc "Đồng ý" để xác nhận\n` +
+          `❌ Trả lời "Không" hoặc "Hủy" để hủy bỏ`;
+        
+        await chatSessionRepo.addMessage(session.sessionId, 'assistant', promptMessage);
+        return res.json({ success: true, response: promptMessage, sessionId: session.sessionId, timestamp: new Date().toISOString() });
+      }
+      
+      // ====================================================================
+      // NẾU KHÔNG TRONG BOOKING FLOW, GỌI GPT XỬ LÝ
+      // ====================================================================
+      
+      const history = await chatSessionRepo.getHistory(userId, historyLimit);
+      const formattedMessages = aiService.formatMessagesForGPT(history);
 
       // Tạo dynamic system prompt với booking context để GPT hiểu user đang ở step nào
       const bookingContextPrompt = buildBookingContextPrompt(bookingContext);
@@ -208,303 +359,11 @@ class ChatbotController {
       // Lấy phản hồi GPT (với tích hợp Query Engine và booking context)
       const result = await aiService.sendMessageToGPT(formattedMessages, dynamicSystemPrompt, authToken);
 
-      // Kiểm tra user có đang chọn dịch vụ không (sau khi xem danh sách dịch vụ)
-      // bookingContext đã được lấy ở trên
-      
-      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'SERVICE_SELECTION') {
-        console.log('🎯 User đang ở bước SERVICE_SELECTION');
-        
-        // Thử khớp lựa chọn dịch vụ từ danh sách phẳng
-        const selectedItem = await this.matchServiceFromFlatList(
-          message,
-          bookingContext.flatServiceList
-        );
-        
-        if (selectedItem) {
-          console.log('✅ Đã chọn dịch vụ:', selectedItem);
-          
-          // Xử lý luồng chọn nha sĩ (bỏ qua việc chọn addon)
-          return await this.handleDentistSelection(
-            req,
-            res,
-            session,
-            selectedItem,
-            userId,
-            authToken
-          );
-        }
-      }
-
-      // Kiểm tra user có đang chọn nha sĩ không
-      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'DENTIST_SELECTION') {
-        console.log('🎯 User đang ở bước DENTIST_SELECTION');
-        
-        // Thử khớp lựa chọn nha sĩ
-        const selectedDentist = await this.matchDentistSelection(
-          message,
-          bookingContext.availableDentists
-        );
-        
-        if (selectedDentist) {
-          console.log('✅ Đã chọn nha sĩ:', selectedDentist.fullName);
-          
-          // Xử lý luồng chọn ngày
-          return await this.handleDateSelection(
-            req,
-            res,
-            session,
-            bookingContext.selectedServiceItem,
-            selectedDentist,
-            userId,
-            authToken
-          );
-        }
-      }
-
-      // Kiểm tra user có đang chọn ngày không
-      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'DATE_SELECTION') {
-        console.log('🎯 User đang ở bước DATE_SELECTION');
-        console.log('📦 availableDates:', bookingContext.availableDates?.length || 0, 'ngày');
-        
-        // Thử khớp lựa chọn ngày
-        const selectedDate = await this.matchDateSelection(
-          message,
-          bookingContext.availableDates
-        );
-        
-        if (selectedDate) {
-          console.log('✅ Đã chọn ngày:', selectedDate);
-          
-          // Xử lý luồng chọn slot
-          return await this.handleSlotSelection(
-            req,
-            res,
-            session,
-            bookingContext.selectedServiceItem,
-            bookingContext.selectedDentist,
-            selectedDate,
-            userId,
-            authToken
-          );
-        }
-        
-        // Fallback: Nếu user nhập số nhưng không khớp ngày nào
-        const isNumberInput = /^\d+$/.test(message.trim());
-        if (isNumberInput && bookingContext.availableDates && bookingContext.availableDates.length > 0) {
-          const errorMessage = `❌ Số "${message}" không hợp lệ. Vui lòng chọn từ 1 đến ${bookingContext.availableDates.length}!\n\n💡 Gợi ý: Chọn ngày bằng số (1, 2, 3...) hoặc gõ định dạng DD/MM/YYYY`;
-          
-          await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
-          
-          return res.json({
-            success: true,
-            response: errorMessage,
-            sessionId: session.sessionId,
-            timestamp: new Date().toISOString()
-          });
-        }
-      }
-
-      // Kiểm tra user có đang chọn slot không
-      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'SLOT_SELECTION') {
-        console.log('🎯 User đang ở bước SLOT_SELECTION');
-        console.log('📦 availableSlotGroups:', bookingContext.availableSlotGroups?.length || 0, 'slots');
-        
-        // Thử khớp lựa chọn nhóm slot
-        const selectedSlotGroup = await this.matchSlotGroupSelection(
-          message,
-          bookingContext.availableSlotGroups
-        );
-        
-        if (selectedSlotGroup) {
-          console.log('✅ Đã chọn nhóm slot:', selectedSlotGroup);
-          
-          // Xử lý xác nhận cuối cùng
-          return await this.handleFinalConfirmation(
-            req,
-            res,
-            session,
-            {
-              selectedServiceItem: bookingContext.selectedServiceItem,
-              selectedDentist: bookingContext.selectedDentist,
-              selectedDate: bookingContext.selectedDate,
-              selectedSlotGroup: selectedSlotGroup
-            },
-            userId,
-            authToken
-          );
-        }
-        
-        // Fallback: Nếu user nhập số nhưng không khớp, thông báo và yêu cầu chọn lại
-        const isNumberInput = /^\d+$/.test(message.trim());
-        if (isNumberInput && bookingContext.availableSlotGroups && bookingContext.availableSlotGroups.length > 0) {
-          const errorMessage = `❌ Số "${message}" không hợp lệ. Vui lòng chọn từ 1 đến ${bookingContext.availableSlotGroups.length}!\n\n💡 Gợi ý: Chọn khung giờ bằng số (1, 2, 3...)`;
-          
-          await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
-          
-          return res.json({
-            success: true,
-            response: errorMessage,
-            sessionId: session.sessionId,
-            timestamp: new Date().toISOString()
-          });
-        }
-      }
-
-      // Kiểm tra user có đang xác nhận đặt lịch không
-      if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'CONFIRMATION') {
-        console.log('🎯 User đang ở bước CONFIRMATION');
-        console.log('📝 Tin nhắn user:', message);
-        
-        // Kiểm tra xác nhận bằng helper function thông minh
-        if (isConfirmationMessage(message)) {
-          // User xác nhận - Lấy lại booking context để đảm bảo có dữ liệu mới nhất
-          console.log('✅ User xác nhận đặt lịch (nhận diện: "' + message + '"), đang lấy lại booking context...');
-          
-          const latestContext = await chatSessionRepo.getBookingContext(session.sessionId);
-          
-          if (!latestContext || !latestContext.selectedSlotGroup) {
-            console.error('❌ No booking context or selectedSlotGroup found after re-fetch');
-            const errorMessage = '❌ Không tìm thấy thông tin đặt lịch. Vui lòng thử đặt lại từ đầu!';
-            await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
-            return res.json({
-              success: false,
-              response: errorMessage,
-              sessionId: session.sessionId,
-              timestamp: new Date().toISOString()
-            });
-          }
-          
-          console.log('📦 Latest booking context:', JSON.stringify(latestContext, null, 2));
-          
-          const selectedServiceItem = latestContext.selectedServiceItem;
-          const selectedDentist = latestContext.selectedDentist;
-          const selectedDate = latestContext.selectedDate;
-          const selectedSlotGroup = latestContext.selectedSlotGroup;
-          
-          console.log('🔍 Selected slot group:', JSON.stringify(selectedSlotGroup, null, 2));
-          console.log('🔍 selectedSlotGroup type:', typeof selectedSlotGroup);
-          console.log('🔍 selectedSlotGroup.slotIds:', selectedSlotGroup ? selectedSlotGroup.slotIds : 'undefined');
-          console.log('🔍 slotIds type:', selectedSlotGroup && selectedSlotGroup.slotIds ? typeof selectedSlotGroup.slotIds : 'undefined');
-          console.log('🔍 slotIds isArray:', selectedSlotGroup && selectedSlotGroup.slotIds ? Array.isArray(selectedSlotGroup.slotIds) : false);
-          
-          // Trích xuất slot IDs - slotIds là mảng từ handleSlotSelection
-          // Xử lý cả plain object và MongoDB document
-          let slotIds = [];
-          if (selectedSlotGroup && selectedSlotGroup.slotIds) {
-            // Chuyển thành plain array nếu cần (MongoDB có thể trả về kiểu mảng đặc biệt)
-            slotIds = Array.isArray(selectedSlotGroup.slotIds) 
-              ? [...selectedSlotGroup.slotIds] 
-              : (selectedSlotGroup.slotIds.toArray ? selectedSlotGroup.slotIds.toArray() : []);
-          }
-          console.log('🔍 Extracted slotIds:', slotIds, 'length:', slotIds.length);
-          
-          const slotId = slotIds.length > 0 ? slotIds[0] : (selectedSlotGroup?._id || selectedSlotGroup?.slotId || selectedSlotGroup?.id);
-          console.log('🔍 Final slotId:', slotId);
-          
-          if (!slotId) {
-            console.error('❌ No slot ID found in selectedSlotGroup:', selectedSlotGroup);
-            const errorMessage = '❌ Không thể lấy thông tin slot. Vui lòng thử đặt lại lịch!';
-            await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
-            return res.json({
-              success: false,
-              response: errorMessage,
-              sessionId: session.sessionId,
-              timestamp: new Date().toISOString()
-            });
-          }
-          
-          console.log('✅ Slot ID extracted:', slotId);
-          console.log('✅ All slot IDs:', slotIds);
-          
-          // Định dạng displayTime cho frontend (CreateAppointment.jsx sử dụng)
-          let startTimeDisplay = selectedSlotGroup.startTimeVN || selectedSlotGroup.startTime;
-          let endTimeDisplay = selectedSlotGroup.endTimeVN || selectedSlotGroup.endTime;
-          
-          // Chuyển ISO string thành HH:mm nếu cần
-          if (startTimeDisplay && typeof startTimeDisplay === 'string' && (startTimeDisplay.includes('T') || startTimeDisplay.includes('Z'))) {
-            const date = new Date(startTimeDisplay);
-            const vnHours = date.getUTCHours() + 7;
-            const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
-            const minutes = date.getUTCMinutes().toString().padStart(2, '0');
-            startTimeDisplay = `${hours}:${minutes}`;
-          }
-          
-          if (endTimeDisplay && typeof endTimeDisplay === 'string' && (endTimeDisplay.includes('T') || endTimeDisplay.includes('Z'))) {
-            const date = new Date(endTimeDisplay);
-            const vnHours = date.getUTCHours() + 7;
-            const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
-            const minutes = date.getUTCMinutes().toString().padStart(2, '0');
-            endTimeDisplay = `${hours}:${minutes}`;
-          }
-          
-          const displayTime = endTimeDisplay ? `${startTimeDisplay} - ${endTimeDisplay}` : startTimeDisplay;
-          
-          // Chuẩn bị booking data để gửi về frontend (khớp với cấu trúc luồng đặt lịch tiêu chuẩn)
-          const bookingData = {
-            service: {
-              _id: selectedServiceItem.serviceId,
-              name: selectedServiceItem.serviceName,
-              requireExamFirst: selectedServiceItem.requireExamFirst || false
-            },
-            serviceAddOn: selectedServiceItem.addOnId ? {
-              _id: selectedServiceItem.addOnId,
-              name: selectedServiceItem.addOnName,
-              price: selectedServiceItem.price,
-              durationMinutes: selectedServiceItem.duration
-            } : null,
-            serviceAddOnUserSelected: !!selectedServiceItem.addOnId, // Flag cho frontend biết đã chọn addon
-            dentist: {
-              _id: selectedDentist._id,
-              fullName: selectedDentist.fullName || selectedDentist.name,
-              name: selectedDentist.fullName || selectedDentist.name,
-              gender: selectedDentist.gender,
-              title: selectedDentist.title
-            },
-            date: selectedDate,
-            slotGroup: {
-              slotIds: slotIds.length > 0 ? slotIds : [slotId],
-              slots: slotIds.length > 0 ? slotIds : [slotId],
-              startTime: selectedSlotGroup.startTime,
-              endTime: selectedSlotGroup.endTime,
-              displayTime: displayTime // ✅ Thêm displayTime cho CreateAppointment.jsx
-            },
-            // ✅ Bao gồm examRecordId nếu là dịch vụ được chỉ định (cho cập nhật hasBeenUsed)
-            examRecordId: selectedServiceItem.recordId || null
-          };
-          
-          console.log('📦 Final booking data:', JSON.stringify(bookingData, null, 2));
-          
-          const successMessage = `✅ **Đặt lịch thành công!**\n\n🔄 Đang chuyển đến trang thanh toán...\n\n💡 Vui lòng hoàn tất thanh toán để xác nhận lịch hẹn của bạn.`;
-          
-          // Xóa booking context
-          await chatSessionRepo.clearBookingContext(session.sessionId);
-          await chatSessionRepo.addMessage(session.sessionId, 'assistant', successMessage);
-          
-          return res.json({
-            success: true,
-            response: successMessage,
-            sessionId: session.sessionId,
-            timestamp: new Date().toISOString(),
-            bookingData: bookingData, // 🔥 Trả về booking data cho frontend xử lý
-            redirectToPayment: true // Flag chỉ ra frontend nên chuyển hướng
-          });
-        } else if (isRejectionMessage(message)) {
-          // User hủy
-          console.log('❌ User từ chối đặt lịch (nhận diện: "' + message + '")');
-          const cancelMessage = '❌ Đã hủy đặt lịch.\n\nNếu bạn cần đặt lại, vui lòng nói "đặt lịch" hoặc liên hệ hotline! 📞';
-          
-          // Xóa booking context
-          await chatSessionRepo.clearBookingContext(session.sessionId);
-          await chatSessionRepo.addMessage(session.sessionId, 'assistant', cancelMessage);
-          
-          return res.json({
-            success: true,
-            response: cancelMessage,
-            sessionId: session.sessionId,
-            timestamp: new Date().toISOString()
-          });
-        }
-      }
+      // ====================================================================
+      // NOTE: Các booking flow handlers đã được xử lý TRƯỚC GPT call (dòng 199-342)
+      // Nếu đến đây nghĩa là user đang hỏi chuyện ngoài booking flow
+      // hoặc tin nhắn không match với bất kỳ handler nào
+      // ====================================================================
 
       // Kiểm tra tin nhắn user có chứa ý định đặt lịch không (trước khi xử lý GPT)
       // CHỈ khi user KHÔNG đang trong booking flow
@@ -1962,6 +1821,69 @@ class ChatbotController {
       }
     }
     
+    // Thử khớp theo định dạng "ngày DD tháng MM" hoặc "ngày DD/MM"
+    // Ví dụ: "ngày 27 tháng 12", "ngày 27/12", "27 tháng 12"
+    const vietnameseDateMatch = input.match(/(?:ngày\s*)?(\d{1,2})(?:\s*[\/\-]\s*|\s*tháng\s*)(\d{1,2})/i);
+    if (vietnameseDateMatch) {
+      const [, day, month] = vietnameseDateMatch;
+      const currentYear = new Date().getFullYear();
+      const inputDate = `${currentYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      
+      if (availableDates.includes(inputDate)) {
+        return inputDate;
+      }
+      
+      // Thử năm sau nếu không tìm thấy
+      const nextYear = currentYear + 1;
+      const inputDateNextYear = `${nextYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      if (availableDates.includes(inputDateNextYear)) {
+        return inputDateNextYear;
+      }
+    }
+    
+    // Thử khớp theo thứ trong tuần - "thứ hai", "thứ bảy", "chủ nhật"
+    const dayOfWeekMap = {
+      'chủ nhật': 0, 'chu nhat': 0, 'cn': 0,
+      'thứ hai': 1, 'thu hai': 1, 't2': 1,
+      'thứ ba': 2, 'thu ba': 2, 't3': 2,
+      'thứ tư': 3, 'thu tu': 3, 't4': 3,
+      'thứ năm': 4, 'thu nam': 4, 't5': 4,
+      'thứ sáu': 5, 'thu sau': 5, 't6': 5,
+      'thứ bảy': 6, 'thu bay': 6, 't7': 6
+    };
+    
+    // Tìm thứ trong input
+    let targetDayOfWeek = null;
+    for (const [dayName, dayNum] of Object.entries(dayOfWeekMap)) {
+      if (input.includes(dayName)) {
+        targetDayOfWeek = dayNum;
+        break;
+      }
+    }
+    
+    if (targetDayOfWeek !== null) {
+      // Nếu input cũng có ngày cụ thể (VD: "thứ bảy ngày 27"), ưu tiên ngày đó
+      const dayInInput = input.match(/ngày\s*(\d{1,2})/i);
+      if (dayInInput) {
+        const targetDay = parseInt(dayInInput[1]);
+        // Tìm ngày có thứ khớp và ngày trong tháng khớp
+        for (const dateStr of availableDates) {
+          const date = new Date(dateStr);
+          if (date.getDay() === targetDayOfWeek && date.getDate() === targetDay) {
+            return dateStr;
+          }
+        }
+      }
+      
+      // Nếu không có ngày cụ thể, tìm ngày gần nhất có thứ khớp
+      for (const dateStr of availableDates) {
+        const date = new Date(dateStr);
+        if (date.getDay() === targetDayOfWeek) {
+          return dateStr;
+        }
+      }
+    }
+    
     // Thử khớp số đứng một mình trong câu (cuối cùng)
     const anyNumberMatch = input.match(/(\d+)/);
     if (anyNumberMatch) {
@@ -2272,6 +2194,121 @@ class ChatbotController {
     }
     
     return null;
+  }
+
+  /**
+   * Xử lý khi user xác nhận đặt lịch - trích xuất dữ liệu và redirect sang thanh toán
+   */
+  async processBookingConfirmation(req, res, session, bookingContext, userId, authToken) {
+    try {
+      console.log('✅ Đang xử lý xác nhận đặt lịch...');
+      console.log('📦 Booking context:', JSON.stringify(bookingContext, null, 2));
+      
+      const selectedServiceItem = bookingContext.selectedServiceItem;
+      const selectedDentist = bookingContext.selectedDentist;
+      const selectedDate = bookingContext.selectedDate;
+      const selectedSlotGroup = bookingContext.selectedSlotGroup;
+      
+      console.log('🔍 Selected slot group:', JSON.stringify(selectedSlotGroup, null, 2));
+      
+      // Trích xuất slot IDs - slotIds là mảng từ handleSlotSelection
+      let slotIds = [];
+      if (selectedSlotGroup && selectedSlotGroup.slotIds) {
+        slotIds = Array.isArray(selectedSlotGroup.slotIds) 
+          ? [...selectedSlotGroup.slotIds] 
+          : (selectedSlotGroup.slotIds.toArray ? selectedSlotGroup.slotIds.toArray() : []);
+      }
+      console.log('🔍 Extracted slotIds:', slotIds, 'length:', slotIds.length);
+      
+      const slotId = slotIds.length > 0 ? slotIds[0] : (selectedSlotGroup?._id || selectedSlotGroup?.slotId || selectedSlotGroup?.id);
+      
+      if (!slotId) {
+        console.error('❌ No slot ID found in selectedSlotGroup:', selectedSlotGroup);
+        const errorMessage = '❌ Không thể lấy thông tin slot. Vui lòng thử đặt lại lịch!';
+        await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
+        return res.json({ success: false, response: errorMessage, sessionId: session.sessionId, timestamp: new Date().toISOString() });
+      }
+      
+      console.log('✅ Slot ID extracted:', slotId);
+      
+      // Định dạng displayTime cho frontend
+      let startTimeDisplay = selectedSlotGroup.startTimeVN || selectedSlotGroup.startTime;
+      let endTimeDisplay = selectedSlotGroup.endTimeVN || selectedSlotGroup.endTime;
+      
+      // Chuyển ISO string thành HH:mm nếu cần
+      if (startTimeDisplay && typeof startTimeDisplay === 'string' && (startTimeDisplay.includes('T') || startTimeDisplay.includes('Z'))) {
+        const date = new Date(startTimeDisplay);
+        const vnHours = date.getUTCHours() + 7;
+        const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
+        const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+        startTimeDisplay = `${hours}:${minutes}`;
+      }
+      
+      if (endTimeDisplay && typeof endTimeDisplay === 'string' && (endTimeDisplay.includes('T') || endTimeDisplay.includes('Z'))) {
+        const date = new Date(endTimeDisplay);
+        const vnHours = date.getUTCHours() + 7;
+        const hours = (vnHours >= 24 ? vnHours - 24 : vnHours).toString().padStart(2, '0');
+        const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+        endTimeDisplay = `${hours}:${minutes}`;
+      }
+      
+      const displayTime = endTimeDisplay ? `${startTimeDisplay} - ${endTimeDisplay}` : startTimeDisplay;
+      
+      // Chuẩn bị booking data để gửi về frontend
+      const bookingData = {
+        service: {
+          _id: selectedServiceItem.serviceId,
+          name: selectedServiceItem.serviceName,
+          requireExamFirst: selectedServiceItem.requireExamFirst || false
+        },
+        serviceAddOn: selectedServiceItem.addOnId ? {
+          _id: selectedServiceItem.addOnId,
+          name: selectedServiceItem.addOnName,
+          price: selectedServiceItem.price,
+          durationMinutes: selectedServiceItem.duration
+        } : null,
+        serviceAddOnUserSelected: !!selectedServiceItem.addOnId,
+        dentist: {
+          _id: selectedDentist._id,
+          fullName: selectedDentist.fullName || selectedDentist.name,
+          name: selectedDentist.fullName || selectedDentist.name,
+          gender: selectedDentist.gender,
+          title: selectedDentist.title
+        },
+        date: selectedDate,
+        slotGroup: {
+          slotIds: slotIds.length > 0 ? slotIds : [slotId],
+          slots: slotIds.length > 0 ? slotIds : [slotId],
+          startTime: selectedSlotGroup.startTime,
+          endTime: selectedSlotGroup.endTime,
+          displayTime: displayTime
+        },
+        examRecordId: selectedServiceItem.recordId || null
+      };
+      
+      console.log('📦 Final booking data:', JSON.stringify(bookingData, null, 2));
+      
+      const successMessage = `✅ **Đặt lịch thành công!**\n\n🔄 Đang chuyển đến trang thanh toán...\n\n💡 Vui lòng hoàn tất thanh toán để xác nhận lịch hẹn của bạn.`;
+      
+      // Xóa booking context
+      await chatSessionRepo.clearBookingContext(session.sessionId);
+      await chatSessionRepo.addMessage(session.sessionId, 'assistant', successMessage);
+      
+      return res.json({
+        success: true,
+        response: successMessage,
+        sessionId: session.sessionId,
+        timestamp: new Date().toISOString(),
+        bookingData: bookingData,
+        redirectToPayment: true
+      });
+      
+    } catch (error) {
+      console.error('❌ Process booking confirmation error:', error);
+      const errorMessage = `❌ Không thể xử lý đặt lịch: ${error.message}. Vui lòng thử lại!`;
+      await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
+      return res.json({ success: false, response: errorMessage, sessionId: session.sessionId, timestamp: new Date().toISOString() });
+    }
   }
 
   /**
