@@ -3,12 +3,12 @@ const { getChannel } = require('./rabbitmq.client');
 
 class RPCClient {
   /**
-   * Make RPC call to another service
-   * @param {string} serviceName - Target service name (e.g., 'schedule-service')
-   * @param {string} method - Method name to call
-   * @param {object} params - Parameters to pass
-   * @param {object} options - Options (timeoutMs)
-   * @returns {Promise<any>} Response from service
+   * Thực hiện RPC call đến service khác
+   * @param {string} serviceName - Tên service đích (vd: 'schedule-service')
+   * @param {string} method - Tên method cần gọi
+   * @param {object} params - Tham số truyền vào
+   * @param {object} options - Tùy chọn (timeoutMs)
+   * @returns {Promise<any>} Response từ service
    */
   async call(serviceName, method, params, options = {}) {
     const timeoutMs = options.timeoutMs || 20000;
@@ -16,9 +16,9 @@ class RPCClient {
     const payload = { method, params };
 
     try {
-      const ch = getChannel(); // Get RabbitMQ channel
+      const ch = getChannel(); // Lấy channel RabbitMQ
       if (!ch) {
-        throw new Error('RabbitMQ channel not available');
+        throw new Error('RabbitMQ channel không khả dụng');
       }
 
       const { queue: replyTo } = await ch.assertQueue('', { exclusive: true });
@@ -38,7 +38,7 @@ class RPCClient {
           try {
             const data = JSON.parse(msg.content.toString());
             
-            // Check if response contains error
+            // Kiểm tra response có lỗi không
             if (data.error) {
               reject(new Error(data.error));
             } else {
@@ -59,19 +59,23 @@ class RPCClient {
 
             timer = setTimeout(() => {
               ch.cancel(consumerTag).catch(() => {});
-              reject(new Error(`RPC timeout after ${timeoutMs}ms: ${serviceName}.${method}`));
+              reject(new Error(`RPC timeout sau ${timeoutMs}ms: ${serviceName}.${method}`));
             }, timeoutMs);
           })
           .catch(reject);
       });
     } catch (error) {
-      console.error(`[RPC Client] Error calling ${serviceName}.${method}:`, error.message);
+      console.error(`[RPC Client] Lỗi khi gọi ${serviceName}.${method}:`, error.message);
       throw error;
     }
   }
 
   /**
-   * Legacy request method for backward compatibility
+   * Phương thức request cũ để tương thích ngược
+   * @param {string} queueName - Tên queue RPC
+   * @param {object} payload - Dữ liệu request
+   * @param {object} options - Tùy chọn (timeoutMs)
+   * @returns {Promise<object>} Response từ server
    */
   async request(queueName, payload, options = {}) {
     const timeoutMs = options.timeoutMs || 20000;
@@ -79,7 +83,7 @@ class RPCClient {
     try {
       const ch = getChannel();
       if (!ch) {
-        throw new Error('RabbitMQ channel not available');
+        throw new Error('RabbitMQ channel không khả dụng');
       }
 
       const { queue: replyTo } = await ch.assertQueue('', { exclusive: true });
@@ -113,13 +117,13 @@ class RPCClient {
 
             timer = setTimeout(() => {
               ch.cancel(consumerTag).catch(() => {});
-              reject(new Error(`RPC timeout after ${timeoutMs}ms: ${queueName}`));
+              reject(new Error(`RPC timeout sau ${timeoutMs}ms: ${queueName}`));
             }, timeoutMs);
           })
           .catch(reject);
       });
     } catch (error) {
-      console.error(`[RPC Client] Error in request to ${queueName}:`, error.message);
+      console.error(`[RPC Client] Lỗi trong request đến ${queueName}:`, error.message);
       throw error;
     }
   }

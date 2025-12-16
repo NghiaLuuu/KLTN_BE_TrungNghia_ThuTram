@@ -27,16 +27,16 @@ dayjs.extend(isSameOrAfter);
 function computeDaysOff(startDate, endDate, recurringHolidays = [], nonRecurringHolidays = []) {
   const daysOffMap = new Map(); // Dùng Map để tránh trùng lặp, key = date string
   
-  // Normalize dates
+  // Chuẩn hóa ngày tháng
   const start = dayjs(startDate).startOf('day');
   const end = dayjs(endDate).endOf('day');
   
   // 1. Tính recurring holidays (ngày nghỉ cố định theo tuần)
   let currentDate = start;
   while (currentDate.isSameOrBefore(end, 'day')) {
-    // Convention: 1=Sunday, 2=Monday, 3=Tuesday, ..., 7=Saturday
-    // dayjs.day(): 0=Sunday, 1=Monday, ..., 6=Saturday
-    const dayOfWeek = currentDate.day() + 1; // Convert: 0->1, 1->2, ..., 6->7
+    // Quy ước: 1=Chủ nhật, 2=Thứ Hai, 3=Thứ Ba, ..., 7=Thứ Bảy
+    // dayjs.day(): 0=Chủ nhật, 1=Thứ Hai, ..., 6=Thứ Bảy
+    const dayOfWeek = currentDate.day() + 1; // Chuyển đổi: 0->1, 1->2, ..., 6->7
     
     // Kiểm tra xem ngày này có phải ngày nghỉ cố định không
     const matchingRecurring = recurringHolidays.find(h => h.dayOfWeek === dayOfWeek);
@@ -90,12 +90,12 @@ function computeDaysOff(startDate, endDate, recurringHolidays = [], nonRecurring
     }
   }
   
-  // Convert Map to Array và sort theo date
+  // Chuyển Map thành Array và sắp xếp theo ngày
   return Array.from(daysOffMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-// ✅ dayjs installed successfully
-// Helper functions
+// ✅ Cài đặt dayjs thành công
+// Các hàm hỗ trợ
 function toVNDateOnlyString(d) {
   const vn = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
   const y = vn.getFullYear();
@@ -104,7 +104,7 @@ function toVNDateOnlyString(d) {
   return `${y}-${m}-${day}`;
 }
 
-// ⭐ Helper to format Date to HH:mm in Vietnam timezone
+// ⭐ Hỗ trợ định dạng Date thành HH:mm theo múi giờ Việt Nam
 function toVNTimeString(d) {
   if (!d) return null;
   const vn = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
@@ -113,7 +113,7 @@ function toVNTimeString(d) {
   return `${h}:${m}`;
 }
 
-// ⭐ Helper to format Date to full ISO string in Vietnam timezone
+// ⭐ Hỗ trợ định dạng Date thành chuỗi ISO đầy đủ theo múi giờ Việt Nam
 function toVNDateTimeString(d) {
   if (!d) return null;
   const vn = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
@@ -122,7 +122,7 @@ function toVNDateTimeString(d) {
   return `${dateStr} ${timeStr}`;
 }
 
-// 🆕 MOVED TO TOP: GET STAFF SCHEDULE (Fix export issue)
+// 🆕 CHUYỂN LÊN TRÊN: LẤY LỊCH NHÂN VIÊN (Sửa lỗi export)
 async function getStaffSchedule({ staffId, fromDate, toDate }) {
   try {
     const startDate = new Date(fromDate);
@@ -143,7 +143,7 @@ async function getStaffSchedule({ staffId, fromDate, toDate }) {
     ])
     .sort({ date: 1, startTime: 1 });
     
-    // Format schedule
+    // Định dạng lịch
     const schedule = slots.map(slot => {
       const assignedAs = slot.dentist?.toString() === staffId ? 'dentist' : 'nurse';
       const roomName = slot.scheduleId?.roomId?.name || 'N/A';
@@ -152,8 +152,8 @@ async function getStaffSchedule({ staffId, fromDate, toDate }) {
         _id: slot._id,
         slotId: slot._id,
         scheduleId: slot.scheduleId?._id,
-        date: slot.date, // Date object (UTC)
-        dateStr: toVNDateOnlyString(slot.date), // YYYY-MM-DD (VN timezone)
+        date: slot.date, // Đối tượng Date (UTC)
+        dateStr: toVNDateOnlyString(slot.date), // YYYY-MM-DD (múi giờ VN)
         shiftName: slot.shiftName,
         startTime: toVNTimeString(slot.startTime), // ⭐ HH:mm string (VN timezone)
         endTime: toVNTimeString(slot.endTime), // ⭐ HH:mm string (VN timezone)
@@ -181,14 +181,14 @@ async function getStaffSchedule({ staffId, fromDate, toDate }) {
     return { schedule, stats };
     
   } catch (error) {
-    console.error('❌ Error getting staff schedule:', error);
+    console.error('❌ Lỗi khi lấy lịch nhân viên:', error);
     throw error;
   }
 }
 
 exports.getStaffSchedule = getStaffSchedule;
 
-// 🆕 SERVICE: Check conflicts for selected slots (Optimized approach)
+// 🆕 SERVICE: Kiểm tra xung đột cho các slots đã chọn (Cách tiếp cận tối ưu)
 async function checkConflictsForSlots({ slots }) {
   try {
     const slotRepo = require('../repositories/slot.repository');
@@ -209,7 +209,7 @@ async function checkConflictsForSlots({ slots }) {
     
     console.log(`📌 Selected slot IDs:`, Array.from(selectedSlotIds));
     
-    // Build OR queries for overlapping slots
+    // Xây dựng các truy vấn OR cho các slots chồng chéo
     const conflictQueries = slots.map(slot => {
       const slotDate = new Date(slot.date);
       const slotStart = new Date(slot.startTime);
@@ -220,7 +220,7 @@ async function checkConflictsForSlots({ slots }) {
           $gte: new Date(slotDate.setHours(0, 0, 0, 0)),
           $lt: new Date(slotDate.setHours(23, 59, 59, 999))
         },
-        // Time overlap: existing.start < new.end AND new.start < existing.end
+        // Chồng chéo thời gian: existing.start < new.end AND new.start < existing.end
         $and: [
           { startTime: { $lt: slotEnd } },
           { endTime: { $gt: slotStart } }
@@ -228,7 +228,7 @@ async function checkConflictsForSlots({ slots }) {
       };
     });
     
-    // Query: Find all slots that overlap with selected slots
+    // Truy vấn: Tìm tất cả slots chồng chéo với các slots đã chọn
     const Slot = require('../models/slot.model');
     const allOverlappingSlots = await Slot.find({
       $or: conflictQueries
@@ -238,14 +238,14 @@ async function checkConflictsForSlots({ slots }) {
     
     
     
-    // ⭐⭐ CRITICAL FIX: Loại bỏ các slot đang được chọn khỏi danh sách conflict
+    // ⭐⭐ SỬA QUAN TRỌNG: Loại bỏ các slot đang được chọn khỏi danh sách xung đột
     // Chỉ giữ lại các slot KHÁC với slot đang chọn
     const conflictingSlots = allOverlappingSlots.filter(slot => {
       const slotId = slot._id.toString();
       const isSelected = selectedSlotIds.has(slotId);
       
       if (isSelected) {
-        console.log(`🔸 Skipping selected slot ${slotId} - not a conflict`);
+        console.log(`🔸 Bỏ qua slot đã chọn ${slotId} - không phải xung đột`);
       }
       
       return !isSelected; // Chỉ giữ slot KHÔNG nằm trong danh sách đang chọn
@@ -253,14 +253,14 @@ async function checkConflictsForSlots({ slots }) {
     
     console.log(`📊 After filtering: ${conflictingSlots.length} actual conflicting slots (excluded ${allOverlappingSlots.length - conflictingSlots.length} selected slots)`);
     
-    // Extract conflicting staff IDs and build conflict details
+    // Trích xuất ID nhân viên xung đột và xây dựng chi tiết xung đột
     const conflictingDentists = new Set();
     const conflictingNurses = new Set();
     const conflictDetails = {}; // { staffId: [conflicts] }
     const staffStats = {}; // { staffId: { total, asDentist, asNurse } }
     
     conflictingSlots.forEach(slot => {
-      // Process dentists
+      // Xử lý nha sĩ
       const dentists = Array.isArray(slot.dentist) 
         ? slot.dentist.map(d => d?.toString()).filter(Boolean)
         : (slot.dentist ? [slot.dentist.toString()] : []);
@@ -268,7 +268,7 @@ async function checkConflictsForSlots({ slots }) {
       dentists.forEach(dentistId => {
         conflictingDentists.add(dentistId);
         
-        // Add conflict detail
+        // Thêm chi tiết xung đột
         if (!conflictDetails[dentistId]) conflictDetails[dentistId] = [];
         conflictDetails[dentistId].push({
           slotId: slot._id,
@@ -284,7 +284,7 @@ async function checkConflictsForSlots({ slots }) {
           assignedAs: 'dentist'
         });
         
-        // Update stats
+        // Cập nhật thống kê
         if (!staffStats[dentistId]) {
           staffStats[dentistId] = { total: 0, asDentist: 0, asNurse: 0 };
         }
@@ -292,7 +292,7 @@ async function checkConflictsForSlots({ slots }) {
         staffStats[dentistId].asDentist++;
       });
       
-      // Process nurses
+      // Xử lý y tá
       const nurses = Array.isArray(slot.nurse)
         ? slot.nurse.map(n => n?.toString()).filter(Boolean)
         : (slot.nurse ? [slot.nurse.toString()] : []);
@@ -300,7 +300,7 @@ async function checkConflictsForSlots({ slots }) {
       nurses.forEach(nurseId => {
         conflictingNurses.add(nurseId);
         
-        // Add conflict detail
+        // Thêm chi tiết xung đột
         if (!conflictDetails[nurseId]) conflictDetails[nurseId] = [];
         conflictDetails[nurseId].push({
           slotId: slot._id,
@@ -316,7 +316,7 @@ async function checkConflictsForSlots({ slots }) {
           assignedAs: 'nurse'
         });
         
-        // Update stats
+        // Cập nhật thống kê
         if (!staffStats[nurseId]) {
           staffStats[nurseId] = { total: 0, asDentist: 0, asNurse: 0 };
         }
@@ -336,46 +336,46 @@ async function checkConflictsForSlots({ slots }) {
     };
     
   } catch (error) {
-    console.error('❌ Error checking conflicts for slots:', error);
+    console.error('❌ Lỗi kiểm tra xung đột cho slots:', error);
     throw error;
   }
 }
 
 exports.checkConflictsForSlots = checkConflictsForSlots;
 
-// Helper: Get Vietnam timezone date
+// Hỗ trợ: Lấy ngày theo múi giờ Việt Nam
 function getVietnamDate() {
   const now = new Date();
   return new Date(now.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
 }
 
-// Helper: Check if current date is exactly the last day of month
+// Hỗ trợ: Kiểm tra ngày hiện tại có phải ngày cuối tháng không
 function isLastDayOfMonth(date = null) {
   const checkDate = date || getVietnamDate();
   const currentDay = checkDate.getDate();
   
-  // Get last day of current month
+  // Lấy ngày cuối của tháng hiện tại
   const year = checkDate.getFullYear();
   const month = checkDate.getMonth(); // 0-based
   const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
   
-  // Check if current day is exactly the last day
+  // Kiểm tra ngày hiện tại có đúng là ngày cuối không
   return currentDay === lastDayOfMonth;
 }
 
-// Convert a Vietnam local date-time (y-m-d h:m) to a UTC Date instance
+// Chuyển đổi ngày giờ Việt Nam (y-m-d h:m) thành instance Date UTC
 function fromVNToUTC(y, m, d, h, min) {
-  // Stable regardless of server TZ: VN is UTC+7 => subtract 7 hours in UTC
+  // Ổn định bất kể TZ server: VN là UTC+7 => trừ 7 giờ theo UTC
   return new Date(Date.UTC(y, m - 1, d, h - 7, min, 0, 0));
 }
 
-// Get UTC Date that represents Vietnam local midnight for a y-m-d
+// Lấy Date UTC biểu diễn nửa đêm Việt Nam cho y-m-d
 function vnMidnightUTC(y, m, d) {
-  // 00:00 VN = previous day 17:00Z; using -7 hours in UTC avoids server TZ issues
+  // 00:00 VN = ngày trước 17:00Z; dùng -7 giờ theo UTC tránh vấn đề TZ server
   return new Date(Date.UTC(y, m - 1, d, -7, 0, 0, 0));
 }
 
-// Helper: Calculate quarter info
+// Hỗ trợ: Tính thông tin quý
 function getQuarterInfo(date = null) {
   const vnDate = date ? new Date(date.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"})) : getVietnamDate();
   const quarter = Math.ceil((vnDate.getMonth() + 1) / 3);
@@ -420,7 +420,7 @@ function getNextQuarterForScheduling(date = null) {
   }
 }
 
-// Helper: Get quarter date range (Vietnam timezone)
+// Hỗ trợ: Lấy khoảng ngày quý (múi giờ Việt Nam)
 function getQuarterDateRange(quarter, year) {
   const startMonth = (quarter - 1) * 3;
   
@@ -433,7 +433,7 @@ function getQuarterDateRange(quarter, year) {
   return { startDate, endDate };
 }
 
-// Helper: Quarter dates normalized to UTC (for API response)
+// Hỗ trợ: Ngày quý chuẩn hóa theo UTC (cho response API)
 function getQuarterUTCDates(quarter, year) {
   const startMonth = (quarter - 1) * 3;
   const startDateUTC = new Date(Date.UTC(year, startMonth, 1, 0, 0, 0, 0));
@@ -441,7 +441,7 @@ function getQuarterUTCDates(quarter, year) {
   return { startDateUTC, endDateUTC };
 }
 
-// Helper: VN date-only strings for display
+// Hỗ trợ: Chuỗi ngày VN chỉ hiển thị
 function getQuarterVNDateStrings(quarter, year) {
   const startMonth = (quarter - 1) * 3;
   const startVN = new Date(Date.UTC(year, startMonth, 1, 17, 0, 0, 0)); // 00:00+07:00
@@ -593,7 +593,7 @@ async function isHoliday(date) {
   // dayjs.day(): 0=Sunday, 1=Monday, ..., 6=Saturday
   const dayOfWeek = checkDateVN.day() === 0 ? 1 : checkDateVN.day() + 1; // Convert: 0->1, 1->2, ..., 6->7
   
-  // Get current date in VN timezone (00:00:00)
+  // Lấy ngày hiện tại theo múi giờ Việt Nam (00:00:00)
   const nowVN = dayjs().tz('Asia/Ho_Chi_Minh').startOf('day');
   
   const result = holidays.some(holiday => {
@@ -720,7 +720,7 @@ function isHolidayFromSnapshot(date, holidaySnapshot) {
   return isNonRecurringHoliday;
 }
 
-// Main function: Generate schedules for a quarter (all rooms)
+// Hàm chính: Tạo lịch cho một quý (tất cả phòng)
 async function generateQuarterSchedule(quarter, year) {
   try {
     const config = await cfgService.getConfig();
@@ -728,12 +728,12 @@ async function generateQuarterSchedule(quarter, year) {
       throw new Error('Chưa có Cấu hình phòng khám');
     }
 
-    // Validate quarter
+    // Kiểm tra quý hợp lệ
     if (quarter < 1 || quarter > 4) {
       throw new Error('Quý phải từ 1 đến 4');
     }
 
-    // Config marker of last generated quarter (may be missing or partial)
+    // Dấu hiệu cấu hình của quý đã tạo cuối cùng (có thể thiếu hoặc không đầy đủ)
     const lastGenerated = config.lastQuarterGenerated;
 
     // Get quarter date range (local VN for internal calculation)
@@ -741,7 +741,7 @@ async function generateQuarterSchedule(quarter, year) {
     const originalStartDate = new Date(startDate);
     const originalEndDate = new Date(endDate);
 
-    // Hard guard: if any schedules already exist for this quarter, block duplicate generation
+    // Kiểm tra nghiêm ngặt: nếu đã có lịch cho quý này, chặn tạo trùng
     const existingInQuarter = await scheduleRepo.findByDateRange(originalStartDate, originalEndDate);
     if (existingInQuarter && existingInQuarter.length > 0) {
       throw new Error(`Quý ${quarter}/${year} đã được tạo trước đó. Không thể tạo lại.`);
@@ -771,7 +771,7 @@ async function generateQuarterSchedule(quarter, year) {
       if (startNextDay > startDate) startDate = startNextDay;
     }
     
-    // Get current Vietnam time
+    // Lấy thời gian hiện tại theo giờ Việt Nam
     const currentQuarter = getQuarterInfo();
     
     // Validate: không tạo lịch quá trong quá khứ
@@ -779,11 +779,11 @@ async function generateQuarterSchedule(quarter, year) {
       throw new Error('Không thể tạo lịch cho quý trong quá khứ');
     }
 
-    // Duplicate prevention based on config marker (only if marker is valid)
-    // NOTE: previous behavior blocked recreation purely based on the config.marker even if DB records were removed.
-    // To allow manual cleanup (delete schedules/slots) followed by recreation, we first check the DB: if there are
-    // no schedules in the requested quarter, allow recreation regardless of the config marker. If schedules exist,
-    // keep enforcing the config marker to avoid accidental duplicate generation.
+    // Ngăn chặn trùng lặp dựa trên dấu hiệu cấu hình (chỉ khi dấu hiệu hợp lệ)
+    // GHI CHÚ: hành vi trước đây chặn tái tạo hoàn toàn dựa trên config.marker ngay cả khi bản ghi DB đã bị xóa.
+    // Để cho phép dọn dẹp thủ công (xóa schedules/slots) sau đó tái tạo, chúng ta kiểm tra DB trước: nếu không có
+    // schedules trong quý yêu cầu, cho phép tái tạo bất kể dấu hiệu cấu hình. Nếu schedules tồn tại,
+    // tiếp tục áp dụng dấu hiệu cấu hình để tránh tạo trùng vô tình.
     const hasValidMarker = lastGenerated && Number.isInteger(lastGenerated.quarter) && Number.isInteger(lastGenerated.year);
     if (hasValidMarker) {
       const requestedIdx = year * 4 + quarter;
@@ -798,29 +798,29 @@ async function generateQuarterSchedule(quarter, year) {
           throw new Error(`Quý ${quarter}/${year} đã được tạo rồi. Không thể tạo lại.`);
         }
       } else {
-        // No schedules exist in DB for this quarter: allow recreation even if config marker indicates it was generated before.
-        // This supports manual deletion flows where operator removed schedules and expects to recreate the quarter.
+        // Không có schedules trong DB cho quý này: cho phép tái tạo ngay cả khi dấu hiệu cấu hình chỉ ra đã tạo trước đó.
+        // Điều này hỗ trợ quy trình xóa thủ công nơi operator đã xóa schedules và mong đợi tái tạo quý.
       }
     }
 
-    // Enforce sequence from current quarter onward
+    // Áp dụng trình tự từ quý hiện tại trở đi
     const requestedIdx = year * 4 + quarter;
     const currentIdx = currentQuarter.year * 4 + currentQuarter.quarter;
     if (requestedIdx > currentIdx) {
       if (!hasValidMarker || (lastGenerated.year * 4 + lastGenerated.quarter) < currentIdx) {
-        // Must create current quarter first
+        // Phải tạo quý hiện tại trước
         throw new Error(`Phải tạo lịch quý hiện tại (Quý ${currentQuarter.quarter}/${currentQuarter.year}) trước`);
       }
       const lastIdx = lastGenerated.year * 4 + lastGenerated.quarter;
       if (requestedIdx !== lastIdx + 1) {
-        // Compute next expected quarter after lastGenerated
+        // Tính quý tiếp theo mong đợi sau lastGenerated
         const nextQ = lastGenerated.quarter === 4 ? 1 : lastGenerated.quarter + 1;
         const nextY = lastGenerated.quarter === 4 ? lastGenerated.year + 1 : lastGenerated.year;
         throw new Error(`Phải tạo lịch quý ${nextQ}/${nextY} trước khi tạo quý ${quarter}/${year}`);
       }
     }
 
-    // Get all rooms
+    // Lấy tất cả các phòng
     const rooms = await getAllRooms();
     if (!rooms || rooms.length === 0) {
       throw new Error('Không có phòng nào để tạo lịch');
@@ -828,7 +828,7 @@ async function generateQuarterSchedule(quarter, year) {
 
     const results = [];
     
-    // Generate schedule for each room
+    // Tạo lịch cho từng phòng
     for (const room of rooms) {
       try {
         const roomSchedules = await generateScheduleForRoom(room, startDate, endDate, config);
@@ -849,7 +849,7 @@ async function generateQuarterSchedule(quarter, year) {
       }
     }
 
-    // Mark quarter as generated if at least some rooms succeeded
+    // Đánh dấu quý đã được tạo nếu ít nhất một số phòng thành công
     const successCount = results.filter(r => r.success).length;
     if (successCount > 0) {
       await cfgService.markQuarterGenerated(quarter, year);
@@ -925,32 +925,32 @@ async function generateQuarterScheduleForSingleRoom(roomId, quarter, year) {
       throw new Error('Chưa có Cấu hình phòng khám');
     }
 
-    // Validate quarter
+    // Kiểm tra quý hợp lệ
     if (quarter < 1 || quarter > 4) {
       throw new Error('Quý phải từ 1 đến 4');
     }
 
-    // Get quarter date range (local VN for internal calculation)
+    // Lấy khoảng ngày của quý (local VN để tính toán nội bộ)
     let { startDate, endDate } = getQuarterDateRange(quarter, year);
     const originalStartDate = new Date(startDate);
     const originalEndDate = new Date(endDate);
 
-    // Hard guard: if any schedules already exist for this quarter AND room, block duplicate
+    // Kiểm tra nghiêm ngặt: nếu phòng này đã có lịch cho quý này, chặn tạo trùng
     const existingInQuarter = await scheduleRepo.findByRoomAndDateRange(roomId, originalStartDate, originalEndDate);
     if (existingInQuarter && existingInQuarter.length > 0) {
-      throw new Error(`Room ${roomId} already has schedules for Q${quarter}/${year}. Cannot recreate.`);
+      throw new Error(`Phòng ${roomId} đã có lịch cho Q${quarter}/${year}. Không thể tạo lại.`);
     }
 
-    // If the requested quarter has fully ended before now (VN), block generation
+    // Nếu quý yêu cầu đã kết thúc trước hiện tại (giờ VN), chặn tạo
     const nowVN = getVietnamDate();
     if (endDate < nowVN) {
-      throw new Error(`Cannot create schedule for Q${quarter}/${year} as it has already ended (VN time)`);
+      throw new Error(`Không thể tạo lịch cho Q${quarter}/${year} vì đã kết thúc (giờ VN)`);
     }
 
     // 🆕 KIỂM TRA NGÀY CUỐI QUÝ cho single room
     if (isLastDayOfQuarter(nowVN)) {
       const nextQuarter = getNextQuarterForScheduling(nowVN);
-      throw new Error(`Today is the last day of quarter. Please create schedule for Q${nextQuarter.quarter}/${nextQuarter.year} instead.`);
+      throw new Error(`Hôm nay là ngày cuối quý. Vui lòng tạo lịch cho Q${nextQuarter.quarter}/${nextQuarter.year} thay thế.`);
     }
 
     // If current quarter, start from the NEXT day (VN), not from today or the 1st
@@ -971,7 +971,7 @@ async function generateQuarterScheduleForSingleRoom(roomId, quarter, year) {
       throw new Error('Không thể tạo lịch cho quý trong quá khứ');
     }
 
-    // Get room from getAllRooms (already calls API)
+    // Lấy phòng từ getAllRooms (đã gọi API)
     let rooms = await getAllRooms();
     let room = rooms.find(r => r._id.toString() === roomId.toString());
     
@@ -1115,7 +1115,7 @@ async function createDailySchedule(room, date, config) {
   // For proper slot generation, use createPeriodSchedule instead
   console.warn('⚠️ createDailySchedule is deprecated - single day schedules cannot generate multi-day slots');
   
-  // Get work shifts - chỉ lấy các shift đang hoạt động
+  // Lấy các ca làm việc - chỉ lấy các shift đang hoạt động
   const allWorkShifts = config.getWorkShifts();
   const activeWorkShifts = allWorkShifts.filter(shift => shift.isActive === true);
   
@@ -1164,7 +1164,7 @@ async function generateSlotsForSchedule(schedule, room, config) {
     return slots;
   }
   
-  // Get date range from schedule
+  // Lấy khoảng ngày từ schedule
   const scheduleStartDate = schedule.startDate;
   const scheduleEndDate = schedule.endDate;
   
@@ -1403,7 +1403,7 @@ function createSlotData(schedule, room, subRoom, shift, startTime, endTime) {
   };
 }
 
-// Get available quarters to generate
+// Lấy các quý có thể tạo lịch
 async function getAvailableQuarters() {
   const currentQuarter = getQuarterInfo();
   const availableQuarters = [];
@@ -1519,7 +1519,7 @@ async function countSlotsForQuarter(subRoomIds, quarter, year) {
   return counts.reduce((sum, val) => sum + (val || 0), 0);
 }
 
-// Get schedules by room and date range
+// Lấy lịch theo phòng và khoảng ngày
 async function getSchedulesByRoom(roomId, startDate, endDate) {
   const schedules = await scheduleRepo.findByRoomAndDateRange(roomId, startDate, endDate);
   
@@ -1541,7 +1541,7 @@ async function getSchedulesByRoom(roomId, startDate, endDate) {
   return schedules;
 }
 
-// Get schedules by date range (all rooms)
+// Lấy lịch theo khoảng ngày (tất cả các phòng)
 async function getSchedulesByDateRange(startDate, endDate) {
   const schedules = await scheduleRepo.findByDateRange(startDate, endDate);
   
@@ -1576,7 +1576,7 @@ async function getSchedulesByDateRange(startDate, endDate) {
 
 
 
-// Get quarter status
+// Lấy trạng thái quý
 async function getQuarterStatus(quarter, year) {
   const { startDate, endDate } = getQuarterDateRange(quarter, year);
   const { startDateUTC, endDateUTC } = getQuarterUTCDates(quarter, year);

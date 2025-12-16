@@ -3,11 +3,14 @@ const queueService = require('../services/queue.service');
 
 class AppointmentController {
   
+  /**
+   * Lấy danh sách slot khả dụng theo nha sĩ, ngày và thời lượng dịch vụ
+   */
   async getAvailableSlots(req, res) {
     try {
       const { dentistId, date, serviceDuration } = req.query;
       
-      // Validation middleware đã check required params
+      // Validation middleware đã kiểm tra các tham số bắt buộc
       const result = await appointmentService.getAvailableSlotGroups(
         dentistId, date, parseInt(serviceDuration)
       );
@@ -15,38 +18,47 @@ class AppointmentController {
       res.json({ success: true, data: result });
       
     } catch (error) {
-      console.error('getAvailableSlots error:', error);
+      console.error('Lỗi getAvailableSlots:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }
   
+  /**
+   * Đặt giữ slot tạm thời trong 3 phút để thanh toán
+   */
   async reserve(req, res) {
     try {
       const result = await appointmentService.reserveAppointment(req.body, req.user);
       
       res.status(201).json({
         success: true,
-        message: 'Reservation created successfully. Please pay within 15 minutes.',
+        message: 'Đặt giữ slot thành công. Vui lòng thanh toán trong vòng 15 phút.',
         data: result
       });
       
     } catch (error) {
-      console.error('reserve error:', error);
+      console.error('Lỗi reserve:', error);
       res.status(400).json({ success: false, message: error.message });
     }
   }
   
+  /**
+   * Lấy lịch hẹn theo mã phiếu khám
+   */
   async getByCode(req, res) {
     try {
       const appointment = await appointmentService.getByCode(req.params.appointmentCode);
       res.json({ success: true, data: appointment });
       
     } catch (error) {
-      console.error('getByCode error:', error);
+      console.error('Lỗi getByCode:', error);
       res.status(404).json({ success: false, message: error.message });
     }
   }
   
+  /**
+   * Lấy danh sách lịch hẹn theo ID bệnh nhân
+   */
   async getByPatient(req, res) {
     try {
       const filters = {
@@ -59,18 +71,18 @@ class AppointmentController {
       res.json({ success: true, data: appointments });
       
     } catch (error) {
-      console.error('getByPatient error:', error);
+      console.error('Lỗi getByPatient:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }
   
-  // ⭐ Get logged-in patient's own appointments
+  // ⭐ Lấy danh sách lịch hẹn của bệnh nhân đang đăng nhập
   async getMyAppointments(req, res) {
     try {
       const patientId = req.user?.userId || req.user?._id;
       
       if (!patientId) {
-        return res.status(401).json({ success: false, message: 'Unauthorized' });
+        return res.status(401).json({ success: false, message: 'Chưa đăng nhập' });
       }
       
       const filters = {
@@ -83,16 +95,19 @@ class AppointmentController {
       
       const appointments = await appointmentService.getByPatient(patientId, filters);
       
-      console.log('🔍 [DEBUG] getMyAppointments - Found:', appointments.length);
+      console.log('🔍 [DEBUG] getMyAppointments - Tìm thấy:', appointments.length);
       
       res.json({ success: true, data: appointments });
       
     } catch (error) {
-      console.error('getMyAppointments error:', error);
+      console.error('Lỗi getMyAppointments:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }
   
+  /**
+   * Lấy danh sách lịch hẹn theo ID nha sĩ
+   */
   async getByDentist(req, res) {
     try {
       const filters = {
@@ -104,95 +119,107 @@ class AppointmentController {
       res.json({ success: true, data: appointments });
       
     } catch (error) {
-      console.error('getByDentist error:', error);
+      console.error('Lỗi getByDentist:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }
   
+  /**
+   * Check-in bệnh nhân khi đến phòng khám
+   */
   async checkIn(req, res) {
     try {
       const userId = req.user?.userId || req.user?._id;
       const appointment = await appointmentService.checkIn(req.params.id, userId);
-      res.json({ success: true, message: 'Check-in successful', data: appointment });
+      res.json({ success: true, message: 'Check-in thành công', data: appointment });
       
     } catch (error) {
-      console.error('checkIn error:', error);
+      console.error('Lỗi checkIn:', error);
       res.status(400).json({ success: false, message: error.message });
     }
   }
   
+  /**
+   * Hoàn thành lịch hẹn sau khi khám xong
+   */
   async complete(req, res) {
     try {
       const userId = req.user?.userId || req.user?._id;
       const appointmentId = req.params.id;
       
-      // Complete current appointment
+      // Hoàn thành lịch hẹn hiện tại
       const appointment = await appointmentService.complete(
         appointmentId, userId, req.body
       );
       
-      // 🔥 Auto-activate next patient in queue
+      // 🔥 Tự động kích hoạt bệnh nhân tiếp theo trong hàng đợi
       try {
         const nextPatient = await queueService.activateNextPatient(appointmentId);
         
         if (nextPatient) {
-          console.log(`✅ [Complete] Auto-activated next patient: ${nextPatient.appointmentCode}`);
+          console.log(`✅ [Complete] Đã kích hoạt bệnh nhân tiếp theo: ${nextPatient.appointmentCode}`);
         }
       } catch (queueError) {
-        // Don't fail the completion if queue activation fails
-        console.error('⚠️ [Complete] Queue activation failed:', queueError);
+        // Không làm thất bại việc hoàn thành nếu kích hoạt hàng đợi thất bại
+        console.error('⚠️ [Complete] Kích hoạt hàng đợi thất bại:', queueError);
       }
       
-      res.json({ success: true, message: 'Appointment completed successfully', data: appointment });
+      res.json({ success: true, message: 'Hoàn thành lịch hẹn thành công', data: appointment });
       
     } catch (error) {
-      console.error('complete error:', error);
+      console.error('Lỗi complete:', error);
       res.status(400).json({ success: false, message: error.message });
     }
   }
   
+  /**
+   * Hủy lịch hẹn với lý do
+   */
   async cancel(req, res) {
     try {
       const userId = req.user?.userId || req.user?._id;
       const appointment = await appointmentService.cancel(
         req.params.id, userId, req.body.reason
       );
-      res.json({ success: true, message: 'Appointment cancelled successfully', data: appointment });
+      res.json({ success: true, message: 'Hủy lịch hẹn thành công', data: appointment });
       
     } catch (error) {
-      console.error('cancel error:', error);
+      console.error('Lỗi cancel:', error);
       res.status(400).json({ success: false, message: error.message });
     }
   }
 
-  // 🆕 Cancel appointment - internal (no auth required, for schedule-service)
+  // 🆕 Hủy lịch hẹn - nội bộ (không cần xác thực, cho schedule-service)
   async cancelInternal(req, res) {
     try {
       const { cancelledBy, cancellationReason } = req.body;
       const appointment = await appointmentService.cancel(
         req.params.id, 
         cancelledBy || 'system', 
-        cancellationReason || 'Slot disabled by system'
+        cancellationReason || 'Slot bị vô hiệu hóa bởi hệ thống'
       );
       res.json({ 
         success: true, 
-        message: 'Appointment cancelled successfully (internal)', 
+        message: 'Hủy lịch hẹn thành công (nội bộ)', 
         data: appointment 
       });
       
     } catch (error) {
-      console.error('cancelInternal error:', error);
+      console.error('Lỗi cancelInternal:', error);
       res.status(400).json({ success: false, message: error.message });
     }
   }
   
+  /**
+   * Tạo lịch hẹn offline (đặt tại quầy)
+   */
   async createOffline(req, res) {
     try {
-      console.log('📝 createOffline received body:', JSON.stringify(req.body, null, 2));
+      console.log('📝 createOffline nhận body:', JSON.stringify(req.body, null, 2));
       console.log('👤 patientInfo:', req.body.patientInfo);
       console.log('🔐 req.user:', req.user);
       
-      // Use req.user if available, otherwise use createdBy from body
+      // Sử dụng req.user nếu có, ngược lại dùng createdBy từ body
       const currentUser = req.user || { 
         _id: req.body.createdBy, 
         role: 'staff' 
@@ -202,16 +229,19 @@ class AppointmentController {
       
       res.status(201).json({
         success: true,
-        message: 'Offline appointment created successfully',
+        message: 'Tạo lịch hẹn offline thành công',
         data: appointment
       });
       
     } catch (error) {
-      console.error('createOffline error:', error);
+      console.error('Lỗi createOffline:', error);
       res.status(400).json({ success: false, message: error.message });
     }
   }
 
+  /**
+   * Lấy tất cả lịch hẹn với bộ lọc và phân quyền theo vai trò
+   */
   async getAllAppointments(req, res) {
     try {
       const filters = {
@@ -223,30 +253,30 @@ class AppointmentController {
         limit: parseInt(req.query.limit) || 50
       };
 
-      // 🔒 Filter by activeRole (selected role at login)
-      const activeRole = req.user?.activeRole || req.user?.role; // Use activeRole if available
-      const userRoles = req.user?.roles || [req.user?.role]; // All roles for checking admin/manager
+      // 🔒 Lọc theo activeRole (vai trò được chọn khi đăng nhập)
+      const activeRole = req.user?.activeRole || req.user?.role; // Sử dụng activeRole nếu có
+      const userRoles = req.user?.roles || [req.user?.role]; // Tất cả vai trò để kiểm tra admin/manager
       const userId = req.user?.userId || req.user?._id;
 
       console.log('🔍 [APPOINTMENT DEBUG] activeRole:', activeRole);
       console.log('🔍 [APPOINTMENT DEBUG] userRoles:', userRoles);
 
-      // ✅ Filter based on ACTIVE ROLE (role selected at login)
+      // ✅ Lọc dựa trên VAI TRÒ ĐANG HOẠT ĐỘNG (vai trò chọn khi đăng nhập)
       if (activeRole === 'dentist') {
-        // Logged in as dentist - only see their appointments
+        // Đăng nhập với vai trò nha sĩ - chỉ xem lịch hẹn của mình
         filters.dentistId = userId;
-        console.log('🔒 [DENTIST FILTER] dentistId:', userId);
+        console.log('🔒 [LỌC NHA SĨ] dentistId:', userId);
       } else if (activeRole === 'nurse') {
-        // Logged in as nurse - only see their appointments
+        // Đăng nhập với vai trò y tá - chỉ xem lịch hẹn của mình
         filters.nurseId = userId;
-        console.log('🔒 [NURSE FILTER] nurseId:', userId);
+        console.log('🔒 [LỌC Y TÁ] nurseId:', userId);
       } else if (activeRole === 'admin' || activeRole === 'manager') {
-        // Logged in as admin/manager - see all appointments
-        console.log('🔓 [NO FILTER] User logged in as admin/manager');
+        // Đăng nhập với vai trò admin/manager - xem tất cả lịch hẹn
+        console.log('🔓 [KHÔNG LỌC] User đăng nhập với vai trò admin/manager');
       } else {
-        console.log('🔓 [NO FILTER] Role:', activeRole);
+        console.log('🔓 [KHÔNG LỌC] Vai trò:', activeRole);
       }
-      // Receptionist sees all
+      // Lễ tân xem tất cả
       
       const result = await appointmentService.getAllAppointments(filters);
       res.json({ 
@@ -255,11 +285,14 @@ class AppointmentController {
       });
       
     } catch (error) {
-      console.error('getAllAppointments error:', error);
+      console.error('Lỗi getAllAppointments:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }
 
+  /**
+   * Lấy danh sách lịch hẹn theo nhân viên và ngày
+   */
   async getByStaff(req, res) {
     try {
       const { staffId } = req.params;
@@ -268,7 +301,7 @@ class AppointmentController {
       if (!date) {
         return res.status(400).json({ 
           success: false, 
-          message: 'Date parameter is required (format: yyyy-MM-dd)' 
+          message: 'Tham số date là bắt buộc (định dạng: yyyy-MM-dd)' 
         });
       }
       
@@ -279,12 +312,12 @@ class AppointmentController {
       });
       
     } catch (error) {
-      console.error('getByStaff error:', error);
+      console.error('Lỗi getByStaff:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }
 
-  // 🆕 GET APPOINTMENTS BY IDS (for schedule-service)
+  // 🆕 LẤY LỊCH HẸN THEO DANH SÁCH IDS (cho schedule-service)
   async getByIds(req, res) {
     try {
       const { ids } = req.query;
@@ -292,7 +325,7 @@ class AppointmentController {
       if (!ids) {
         return res.status(400).json({ 
           success: false, 
-          message: 'ids parameter is required (comma-separated)' 
+          message: 'Tham số ids là bắt buộc (phân cách bằng dấu phẩy)' 
         });
       }
       
@@ -310,14 +343,14 @@ class AppointmentController {
       });
       
     } catch (error) {
-      console.error('getByIds error:', error);
+      console.error('Lỗi getByIds:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   }
 
   /**
-   * ✅ Request cancellation (for online patients only)
-   * Patient can request cancellation if appointment is >= 1 day away
+   * ✅ Yêu cầu hủy phiếu (chỉ dành cho bệnh nhân đặt online)
+   * Bệnh nhân có thể yêu cầu hủy nếu lịch hẹn còn >= 1 ngày
    */
   async requestCancellation(req, res) {
     try {
@@ -328,7 +361,7 @@ class AppointmentController {
       if (!patientId) {
         return res.status(401).json({ 
           success: false, 
-          message: 'Unauthorized' 
+          message: 'Chưa đăng nhập' 
         });
       }
 
@@ -344,7 +377,7 @@ class AppointmentController {
         data: result
       });
     } catch (error) {
-      console.error('requestCancellation error:', error);
+      console.error('Lỗi requestCancellation:', error);
       res.status(400).json({ 
         success: false, 
         message: error.message 
@@ -353,17 +386,17 @@ class AppointmentController {
   }
 
   /**
-   * ✅ Admin/Manager/Receptionist cancel appointment
-   * No time restrictions
+   * ✅ Admin/Manager/Lễ tân hủy lịch hẹn
+   * Không giới hạn thời gian
    */
   async adminCancelAppointment(req, res) {
     try {
       const { appointmentId } = req.params;
       const { reason } = req.body;
       const staffId = req.user?.userId || req.user?._id;
-      const staffRole = req.user?.activeRole || req.user?.role; // ✅ Fix: Read activeRole from JWT token
+      const staffRole = req.user?.activeRole || req.user?.role; // ✅ Fix: Đọc activeRole từ JWT token
 
-      console.log('🔍 [adminCancelAppointment] Request received:', {
+      console.log('🔍 [adminCancelAppointment] Nhận request:', {
         appointmentId,
         staffId,
         staffRole,
@@ -371,10 +404,10 @@ class AppointmentController {
       });
 
       if (!staffId || !staffRole) {
-        console.error('❌ [adminCancelAppointment] Missing auth info:', { staffId, staffRole, user: req.user });
+        console.error('❌ [adminCancelAppointment] Thiếu thông tin xác thực:', { staffId, staffRole, user: req.user });
         return res.status(401).json({ 
           success: false, 
-          message: 'Unauthorized' 
+          message: 'Chưa đăng nhập' 
         });
       }
 
@@ -390,14 +423,14 @@ class AppointmentController {
         }
       );
 
-      console.log('✅ [adminCancelAppointment] Success');
+      console.log('✅ [adminCancelAppointment] Thành công');
       res.json({
         success: true,
         message: 'Phiếu khám đã được hủy thành công',
         data: result
       });
     } catch (error) {
-      console.error('❌ [adminCancelAppointment] error:', error);
+      console.error('❌ [adminCancelAppointment] lỗi:', error);
       res.status(400).json({ 
         success: false, 
         message: error.message 
@@ -406,29 +439,29 @@ class AppointmentController {
   }
 
   /**
-   * 🆕 Cancel appointment due to slot toggle (internal API - no auth required)
-   * Does NOT clear appointmentId in slots - allows restoration when slots are re-enabled
+   * 🆕 Hủy lịch hẹn do slot bị tắt (API nội bộ - không cần xác thực)
+   * KHÔNG xóa appointmentId trong slots - cho phép khôi phục khi slots được bật lại
    */
   async slotCancelAppointment(req, res) {
     try {
       const { appointmentId } = req.params;
       const { reason } = req.body;
 
-      console.log('🔍 [slotCancelAppointment] Request received:', {
+      console.log('🔍 [slotCancelAppointment] Nhận request:', {
         appointmentId,
         reason: reason?.substring(0, 50)
       });
 
       const result = await appointmentService.slotCancelAppointment(appointmentId, reason);
 
-      console.log('✅ [slotCancelAppointment] Success');
+      console.log('✅ [slotCancelAppointment] Thành công');
       res.json({
         success: true,
         message: 'Phiếu khám đã được hủy do slot bị tắt',
         data: result
       });
     } catch (error) {
-      console.error('❌ [slotCancelAppointment] error:', error);
+      console.error('❌ [slotCancelAppointment] lỗi:', error);
       res.status(400).json({ 
         success: false, 
         message: error.message 
@@ -437,28 +470,28 @@ class AppointmentController {
   }
 
   /**
-   * 🆕 Restore appointment when slot is re-enabled (internal API - no auth required)
+   * 🆕 Khôi phục lịch hẹn khi slot được bật lại (API nội bộ - không cần xác thực)
    */
   async slotRestoreAppointment(req, res) {
     try {
       const { appointmentId } = req.params;
       const { reason } = req.body;
 
-      console.log('🔍 [slotRestoreAppointment] Request received:', {
+      console.log('🔍 [slotRestoreAppointment] Nhận request:', {
         appointmentId,
         reason: reason?.substring(0, 50)
       });
 
       const result = await appointmentService.slotRestoreAppointment(appointmentId, reason);
 
-      console.log('✅ [slotRestoreAppointment] Success');
+      console.log('✅ [slotRestoreAppointment] Thành công');
       res.json({
         success: true,
         message: 'Phiếu khám đã được khôi phục',
         data: result
       });
     } catch (error) {
-      console.error('❌ [slotRestoreAppointment] error:', error);
+      console.error('❌ [slotRestoreAppointment] lỗi:', error);
       res.status(400).json({ 
         success: false, 
         message: error.message 
@@ -467,8 +500,8 @@ class AppointmentController {
   }
 
   /**
-   * ✅ Admin/Manager/Receptionist reject cancellation request
-   * Changes status from 'pending-cancellation' back to 'confirmed'
+   * ✅ Admin/Manager/Lễ tân từ chối yêu cầu hủy
+   * Đổi status từ 'pending-cancellation' về 'confirmed'
    */
   async rejectCancellation(req, res) {
     try {
@@ -477,7 +510,7 @@ class AppointmentController {
       const staffId = req.user?.userId || req.user?._id;
       const staffRole = req.user?.activeRole || req.user?.role;
 
-      console.log('🔍 [rejectCancellation] Request received:', {
+      console.log('🔍 [rejectCancellation] Nhận request:', {
         appointmentId,
         staffId,
         staffRole,
@@ -485,10 +518,10 @@ class AppointmentController {
       });
 
       if (!staffId || !staffRole) {
-        console.error('❌ [rejectCancellation] Missing auth info:', { staffId, staffRole, user: req.user });
+        console.error('❌ [rejectCancellation] Thiếu thông tin xác thực:', { staffId, staffRole, user: req.user });
         return res.status(401).json({ 
           success: false, 
-          message: 'Unauthorized' 
+          message: 'Chưa đăng nhập' 
         });
       }
 
@@ -499,14 +532,14 @@ class AppointmentController {
         reason
       );
 
-      console.log('✅ [rejectCancellation] Success');
+      console.log('✅ [rejectCancellation] Thành công');
       res.json({
         success: true,
         message: 'Đã từ chối yêu cầu hủy phiếu, trạng thái phiếu khám về lại "Đã xác nhận"',
         data: result
       });
     } catch (error) {
-      console.error('❌ [rejectCancellation] error:', error);
+      console.error('❌ [rejectCancellation] lỗi:', error);
       res.status(400).json({ 
         success: false, 
         message: error.message 
@@ -515,7 +548,7 @@ class AppointmentController {
   }
 
   /**
-   * ✅ Get booking channel statistics (Online vs Offline)
+   * ✅ Lấy thống kê kênh đặt hẹn (Online vs Offline)
    */
   async getBookingChannelStats(req, res) {
     try {
@@ -524,7 +557,7 @@ class AppointmentController {
       if (!startDate || !endDate) {
         return res.status(400).json({
           success: false,
-          message: 'startDate and endDate are required'
+          message: 'startDate và endDate là bắt buộc'
         });
       }
 
@@ -543,7 +576,7 @@ class AppointmentController {
         data: stats
       });
     } catch (error) {
-      console.error('getBookingChannelStats error:', error);
+      console.error('Lỗi getBookingChannelStats:', error);
       res.status(500).json({ 
         success: false, 
         message: error.message || 'Lỗi khi lấy thống kê kênh đặt hẹn'

@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
-// Patient Info Sub-schema
+// Schema con - Thông tin bệnh nhân
 const patientInfoSchema = new Schema({
   name: { 
     type: String, 
@@ -27,18 +27,18 @@ const patientInfoSchema = new Schema({
   }
 }, { _id: false });
 
-// Main Appointment Schema (Simplified for Booking Flow)
+// Schema chính - Lịch hẹn (Đơn giản hóa cho quy trình đặt lịch)
 const appointmentSchema = new Schema({
-  // Appointment Code: AP000001-03102025 (số thứ tự trong ngày)
+  // Mã lịch hẹn: AP000001-03102025 (số thứ tự trong ngày)
   appointmentCode: {
     type: String,
     unique: true,
     required: true
   },
   
-  // Patient Information
-  // patientId is required for online booking (patient has account)
-  // patientId is null for offline booking (walk-in patient without account)
+  // Thông tin bệnh nhân
+  // patientId bắt buộc khi đặt online (bệnh nhân có tài khoản)
+  // patientId là null khi đặt offline (bệnh nhân walk-in không có tài khoản)
   patientId: {
     type: mongoose.Schema.Types.ObjectId,
     default: null
@@ -48,7 +48,7 @@ const appointmentSchema = new Schema({
     required: true
   },
   
-  // Service Information (ServiceAddOn - dịch vụ con)
+  // Thông tin dịch vụ (ServiceAddOn - dịch vụ con)
   serviceId: {
     type: mongoose.Schema.Types.ObjectId,
     required: true
@@ -65,12 +65,12 @@ const appointmentSchema = new Schema({
   },
   serviceAddOnId: {
     type: mongoose.Schema.Types.ObjectId,
-    required: false, // ✅ Not required - service might not have addon
+    required: false, // ✅ Không bắt buộc - dịch vụ có thể không có addon
     default: null
   },
   serviceAddOnName: {
     type: String,
-    required: false, // ✅ Not required
+    required: false, // ✅ Không bắt buộc
     trim: true,
     default: null
   },
@@ -80,7 +80,7 @@ const appointmentSchema = new Schema({
   },
   servicePrice: {
     type: Number,
-    required: false, // ✅ Not required - will be calculated from service
+    required: false, // ✅ Không bắt buộc - sẽ được tính từ service
     min: 0,
     default: 0
   },
@@ -91,7 +91,7 @@ const appointmentSchema = new Schema({
     default: 0
   },
   
-  // Dentist Assignment
+  // Phân công nha sĩ
   dentistId: {
     type: mongoose.Schema.Types.ObjectId,
     required: true
@@ -102,7 +102,7 @@ const appointmentSchema = new Schema({
     trim: true
   },
   
-  // Nurse Assignment
+  // Phân công y tá
   nurseId: {
     type: mongoose.Schema.Types.ObjectId,
     default: null
@@ -113,7 +113,7 @@ const appointmentSchema = new Schema({
     default: null
   },
   
-  // Slot Information
+  // Thông tin slot
   slotIds: [{
     type: mongoose.Schema.Types.ObjectId,
     required: true
@@ -140,7 +140,7 @@ const appointmentSchema = new Schema({
   },
   subroomId: {
     type: mongoose.Schema.Types.ObjectId,
-    default: null // null for rooms without subrooms
+    default: null // null nếu phòng không có subroom
   },
   subroomName: {
     type: String,
@@ -148,7 +148,7 @@ const appointmentSchema = new Schema({
     default: null
   },
   
-  // Payment & Invoice
+  // Thanh toán & Hóa đơn
   paymentId: {
     type: mongoose.Schema.Types.ObjectId,
     default: null
@@ -163,27 +163,27 @@ const appointmentSchema = new Schema({
     min: 0
   },
   
-  // Reservation tracking (for linking with invoice)
+  // Theo dõi đặt chỗ (để liên kết với hóa đơn)
   reservationId: {
     type: String,
     index: true
   },
   
-  // ⭐ Exam Record Reference (for services that require exam first)
+  // ⭐ Tham chiếu hồ sơ khám (cho dịch vụ yêu cầu khám trước)
   examRecordId: {
     type: mongoose.Schema.Types.ObjectId,
     default: null,
     index: true
   },
   
-  // Status
+  // Trạng thái
   status: {
     type: String,
     enum: ['confirmed', 'pending-cancellation', 'checked-in', 'in-progress', 'completed', 'cancelled', 'no-show'],
     default: 'confirmed'
   },
   
-  // Booking Information
+  // Thông tin đặt lịch
   bookedAt: {
     type: Date,
     default: Date.now
@@ -198,14 +198,14 @@ const appointmentSchema = new Schema({
     default: 'patient'
   },
   
-  // Notes
+  // Ghi chú
   notes: {
     type: String,
     trim: true,
     maxlength: 500
   },
   
-  // Check-in Information
+  // Thông tin check-in
   checkedInAt: {
     type: Date
   },
@@ -213,7 +213,7 @@ const appointmentSchema = new Schema({
     type: Date
   },
   
-  // Completion Information
+  // Thông tin hoàn thành
   completedAt: {
     type: Date
   },
@@ -221,10 +221,10 @@ const appointmentSchema = new Schema({
     type: mongoose.Schema.Types.ObjectId
   },
   actualDuration: {
-    type: Number // minutes
+    type: Number // phút
   },
   
-  // Cancellation Information
+  // Thông tin hủy
   cancelledAt: {
     type: Date
   },
@@ -248,7 +248,7 @@ const appointmentSchema = new Schema({
     maxlength: 300
   },
   
-  // Email Reminder
+  // Email nhắc nhở
   reminderEmailSent: {
     type: Boolean,
     default: false,
@@ -260,13 +260,13 @@ const appointmentSchema = new Schema({
   toObject: { virtuals: true }
 });
 
-// Indexes for performance (appointmentCode unique index is auto-created by unique: true)
+// Indexes để tối ưu hiệu năng (index unique appointmentCode tự động tạo bởi unique: true)
 appointmentSchema.index({ patientId: 1, appointmentDate: -1 });
 appointmentSchema.index({ dentistId: 1, appointmentDate: 1 });
 appointmentSchema.index({ status: 1, appointmentDate: 1 });
-appointmentSchema.index({ paymentId: 1 }, { unique: true, sparse: true }); // ✅ Unique to prevent duplicate appointments from same payment
+appointmentSchema.index({ paymentId: 1 }, { unique: true, sparse: true }); // ✅ Unique để tránh trùng lịch hẹn từ cùng một thanh toán
 appointmentSchema.index({ appointmentDate: 1 });
-// ⚡ Compound index for reminder email cron (highly optimized)
+// ⚡ Index kết hợp cho cron gửi email nhắc nhở (tối ưu cao)
 appointmentSchema.index({ 
   reminderEmailSent: 1, 
   bookedByRole: 1, 
@@ -274,9 +274,9 @@ appointmentSchema.index({
   appointmentDate: 1 
 });
 
-// ✅ Pre-save hook: Auto-retry if appointmentCode is duplicate
+// ✅ Pre-save hook: Tự động thử lại nếu appointmentCode bị trùng
 appointmentSchema.pre('save', async function(next) {
-  // Only handle new documents that need appointmentCode generation
+  // Chỉ xử lý document mới cần tạo appointmentCode
   if (!this.isNew || !this.appointmentCode) {
     return next();
   }
@@ -286,30 +286,30 @@ appointmentSchema.pre('save', async function(next) {
   
   while (attempt < maxRetries) {
     try {
-      // Validate uniqueness by checking if code exists
+      // Kiểm tra tính duy nhất bằng cách tìm code đã tồn tại
       const existing = await this.constructor.findOne({ 
         appointmentCode: this.appointmentCode 
       });
       
       if (!existing) {
-        // Code is unique, proceed with save
+        // Code là duy nhất, tiếp tục lưu
         return next();
       }
       
-      // Code is duplicate, increment sequence
+      // Code bị trùng, tăng số thứ tự
       attempt++;
-      console.warn(`⚠️ Duplicate appointmentCode detected: ${this.appointmentCode}, incrementing... (${attempt}/${maxRetries})`);
+      console.warn(`⚠️ Phát hiện appointmentCode trùng: ${this.appointmentCode}, đang tăng... (${attempt}/${maxRetries})`);
       
-      // Extract current sequence and increment it
+      // Tách số thứ tự hiện tại và tăng nó
       const match = this.appointmentCode.match(/^AP(\d{6})-(.+)$/);
       if (match) {
         const currentSeq = parseInt(match[1], 10);
         const dateStr = match[2];
         const newSeq = currentSeq + 1;
         this.appointmentCode = `AP${String(newSeq).padStart(6, '0')}-${dateStr}`;
-        console.log(`🔄 Retry with code: ${this.appointmentCode}`);
+        console.log(`🔄 Thử lại với code: ${this.appointmentCode}`);
       } else {
-        // If pattern doesn't match, regenerate from scratch
+        // Nếu pattern không khớp, tạo lại từ đầu
         this.appointmentCode = await this.constructor.generateAppointmentCode(this.appointmentDate);
       }
       
@@ -318,18 +318,18 @@ appointmentSchema.pre('save', async function(next) {
     }
   }
   
-  // Max retries exceeded
-  return next(new Error(`Failed to generate unique appointmentCode after ${maxRetries} attempts`));
+  // Vượt quá số lần thử
+  return next(new Error(`Không thể tạo appointmentCode duy nhất sau ${maxRetries} lần thử`));
 });
 
-// Virtual: Check if appointment is today
+// Virtual: Kiểm tra lịch hẹn có phải hôm nay không
 appointmentSchema.virtual('isToday').get(function() {
   const today = new Date();
   const appointmentDate = new Date(this.appointmentDate);
   return today.toDateString() === appointmentDate.toDateString();
 });
 
-// Virtual: Check if appointment is upcoming
+// Virtual: Kiểm tra lịch hẹn sắp tới
 appointmentSchema.virtual('isUpcoming').get(function() {
   const now = new Date();
   const appointmentDate = new Date(this.appointmentDate);
@@ -340,20 +340,20 @@ appointmentSchema.virtual('bookingChannel').get(function() {
   return this.bookedByRole === 'patient' ? 'online' : 'offline';
 });
 
-// Static: Generate appointment code (AP000001-03102025)
+// Static: Tạo mã lịch hẹn (AP000001-03102025)
 appointmentSchema.statics.generateAppointmentCode = async function(date) {
-  // ✅ Get date parts in Vietnam timezone
+  // ✅ Lấy các phần ngày theo múi giờ Việt Nam
   const vietnamDateStr = date.toLocaleString('en-US', { 
     timeZone: 'Asia/Ho_Chi_Minh',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'
-  }); // Returns MM/DD/YYYY
+  }); // Trả về MM/DD/YYYY
   
   const [month, day, year] = vietnamDateStr.split('/');
   const dateStr = `${day}${month}${year}`; // ddmmyyyy
   
-  // Find the highest sequence number for this date
+  // Tìm số thứ tự cao nhất trong ngày
   const startOfDay = new Date(date);
   startOfDay.setUTCHours(0, 0, 0, 0);
   
@@ -377,17 +377,17 @@ appointmentSchema.statics.generateAppointmentCode = async function(date) {
     }
   }
   
-  // Sequential numbering (no random)
+  // Đánh số thứ tự tuần tự (không random)
   const sequence = maxSequence + 1;
   return `AP${String(sequence).padStart(6, '0')}-${dateStr}`;
 };
 
-// Static: Find by appointment code
+// Static: Tìm theo mã lịch hẹn
 appointmentSchema.statics.findByCode = function(code) {
   return this.findOne({ appointmentCode: code });
 };
 
-// Static: Find by patient
+// Static: Tìm theo bệnh nhân
 appointmentSchema.statics.findByPatient = function(patientId, filters = {}) {
   const query = { patientId };
   
@@ -407,7 +407,7 @@ appointmentSchema.statics.findByPatient = function(patientId, filters = {}) {
   return this.find(query).sort({ appointmentDate: -1 });
 };
 
-// Static: Find by dentist
+// Static: Tìm theo nha sĩ
 appointmentSchema.statics.findByDentist = function(dentistId, filters = {}) {
   const query = { dentistId };
   
@@ -426,41 +426,41 @@ appointmentSchema.statics.findByDentist = function(dentistId, filters = {}) {
   return this.find(query).sort({ appointmentDate: 1, startTime: 1 });
 };
 
-// Instance: Check if can be cancelled
+// Instance: Kiểm tra có thể hủy không
 appointmentSchema.methods.canBeCancelled = function() {
   return this.status === 'confirmed' && this.isUpcoming;
 };
 
-// Instance: Check if can request cancellation (for online patients)
+// Instance: Kiểm tra có thể yêu cầu hủy không (cho bệnh nhân online)
 appointmentSchema.methods.canRequestCancellation = function() {
-  // Must be confirmed status and booked online by patient
+  // Phải có status confirmed và đặt online bởi bệnh nhân
   if (this.status !== 'confirmed' || this.bookedByRole !== 'patient') {
     return { canRequest: false, reason: 'Chỉ bệnh nhân đặt online mới có thể yêu cầu hủy' };
   }
   
-  // ✅ Calculate time difference in Vietnam timezone
+  // ✅ Tính khoảng cách thời gian theo múi giờ Việt Nam
   const now = new Date();
   
-  // appointmentDate is stored as UTC midnight representing Vietnam date
-  // e.g., 2025-12-03T17:00:00.000Z = 2025-12-04 00:00 Vietnam
-  // Parse startTime (format: "HH:MM") and create Vietnam datetime
+  // appointmentDate được lưu dạng UTC nửa đêm đại diện cho ngày Việt Nam
+  // vd: 2025-12-03T17:00:00.000Z = 2025-12-04 00:00 Việt Nam
+  // Parse startTime (định dạng: "HH:MM") và tạo datetime Việt Nam
   const [hours, minutes] = this.startTime.split(':').map(Number);
   
-  // Convert appointmentDate from UTC to Vietnam datetime
+  // Chuyển appointmentDate từ UTC sang datetime Việt Nam
   const vietnamDateStr = this.appointmentDate.toLocaleString('en-US', { 
     timeZone: 'Asia/Ho_Chi_Minh',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'
-  }); // Returns MM/DD/YYYY
+  }); // Trả về MM/DD/YYYY
   
   const [month, day, year] = vietnamDateStr.split('/');
   
-  // Create appointment datetime in Vietnam timezone
+  // Tạo datetime lịch hẹn theo múi giờ Việt Nam
   const appointmentDateTime = new Date(`${year}-${month}-${day}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00+07:00`);
   
   const timeDiff = appointmentDateTime - now;
-  const oneDayInMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+  const oneDayInMs = 24 * 60 * 60 * 1000; // 24 giờ tính bằng mili giây
   
   if (timeDiff < oneDayInMs) {
     return { 
@@ -472,14 +472,14 @@ appointmentSchema.methods.canRequestCancellation = function() {
   return { canRequest: true };
 };
 
-// Instance: Check if can check-in
+// Instance: Kiểm tra có thể check-in không
 appointmentSchema.methods.canCheckIn = function() {
-  // Allow check-in if status is 'confirmed' regardless of date
-  // Staff can check-in appointments from past or future dates
+  // Cho phép check-in nếu status là 'confirmed' bất kể ngày nào
+  // Nhân viên có thể check-in lịch hẹn từ ngày quá khứ hoặc tương lai
   return this.status === 'confirmed';
 };
 
-// Instance: Check if can complete
+// Instance: Kiểm tra có thể hoàn thành không
 appointmentSchema.methods.canComplete = function() {
   return ['checked-in', 'in-progress'].includes(this.status);
 };

@@ -1,4 +1,5 @@
 // rpcServer.js (Payment Service)
+// Máy chủ RPC cho Payment Service - xử lý các cuộc gọi RPC từ các service khác
 const amqp = require('amqplib');
 const paymentService = require('../services/payment.service'); // dùng service thay vì repo
 
@@ -6,10 +7,10 @@ async function startRpcServer() {
   const connection = await amqp.connect(process.env.RABBITMQ_URL);
   const channel = await connection.createChannel();
 
-  const queue = 'payment_rpc_queue'; // ✅ CHANGED: Use separate queue for RPC
+  const queue = 'payment_rpc_queue'; // ✅ ĐÃ ĐỔI: Sử dụng queue riêng cho RPC
 
-  // ❌ REMOVED: Don't delete queue - causes message loss!
-  // Messages sent before consumer starts will be lost
+  // ❌ ĐÃ XÓA: Không xóa queue - gây mất tin nhắn!
+  // Các tin nhắn gửi trước khi consumer bắt đầu sẽ bị mất
   
   await channel.assertQueue(queue, { durable: true });
 
@@ -27,7 +28,7 @@ async function startRpcServer() {
           try {
             response = await paymentService.createTemporaryPayment(payload);
           } catch (err) {
-            console.error('Failed to createTemporaryPayment:', err);
+            console.error('Tạo thanh toán tạm thất bại:', err);
             response = { error: err.message };
           }
           break;
@@ -36,23 +37,23 @@ async function startRpcServer() {
           try {
             response = await paymentService.confirmPaymentRPC(payload);
           } catch (err) {
-            console.error('Failed to confirmPayment:', err);
+            console.error('Xác nhận thanh toán thất bại:', err);
             response = { error: err.message };
           }
           break;
 
         case 'getPaymentById':
           try {
-            console.log('🔍 [RPC Server] Received getPaymentById:', payload);
+            console.log('🔍 [RPC Server] Nhận getPaymentById:', payload);
             if (!payload.id) {
-              response = { error: 'paymentId is required' };
+              response = { error: 'paymentId là bắt buộc' };
               break;
             }
             const startTime = Date.now();
             response = await paymentService.getPaymentByIdRPC(payload);
-            console.log(`✅ [RPC Server] getPaymentById completed in ${Date.now() - startTime}ms:`, response ? 'Success' : 'Not found');
+            console.log(`✅ [RPC Server] getPaymentById hoàn tất trong ${Date.now() - startTime}ms:`, response ? 'Thành công' : 'Không tìm thấy');
           } catch (err) {
-            console.error('❌ [RPC Server] Failed to getPaymentById:', err.message);
+            console.error('❌ [RPC Server] getPaymentById thất bại:', err.message);
             response = { error: err.message };
           }
           break;
@@ -60,13 +61,13 @@ async function startRpcServer() {
             try {
               response = await paymentService.createPaymentStaff(payload);
             } catch (err) {
-              console.error('Failed to createPayment:', err);
+              console.error('Tạo thanh toán thất bại:', err);
               response = { error: err.message };
             }
             break;
           case 'updateAppointmentCode':
             try {
-              console.log('✅ RPC received updateAppointmentCode payload:', payload); // 🔹 Thêm log debug
+              console.log('✅ RPC nhận được updateAppointmentCode payload:', payload); // 🔹 Thêm log debug
 
               const { paymentId, appointmentCode } = payload; 
               if (!paymentId || !appointmentCode) {
@@ -75,10 +76,10 @@ async function startRpcServer() {
               }
 
               response = await paymentService.updateAppointmentCode(paymentId, appointmentCode);
-              console.log('✅ AppointmentCode updated successfully for paymentId:', paymentId);
+              console.log('✅ Đã cập nhật AppointmentCode thành công cho paymentId:', paymentId);
 
             } catch (err) {
-              console.error('Failed to updateAppointmentCode:', err);
+              console.error('Cập nhật appointmentCode thất bại:', err);
               response = { error: err.message };
             }
             break;
@@ -89,7 +90,7 @@ async function startRpcServer() {
       }
 
     } catch (err) {
-      console.error('RPC server error:', err);
+      console.error('Lỗi RPC server:', err);
       response = { error: err.message };
     }
 
@@ -98,7 +99,7 @@ async function startRpcServer() {
       if (msg.properties.replyTo) {
         const payloadToSend = response
           ? JSON.stringify(response)
-          : JSON.stringify({ error: 'No response' });
+          : JSON.stringify({ error: 'Không có phản hồi' });
 
         channel.sendToQueue(
           msg.properties.replyTo,
@@ -106,10 +107,10 @@ async function startRpcServer() {
           { correlationId: msg.properties.correlationId }
         );
       } else {
-        console.warn('RPC message has no replyTo, cannot send response');
+        console.warn('Tin nhắn RPC không có replyTo, không thể gửi phản hồi');
       }
     } catch (err) {
-      console.error('Failed to send RPC response:', err);
+      console.error('Gửi phản hồi RPC thất bại:', err);
     }
 
     channel.ack(msg);

@@ -1,31 +1,31 @@
-// API Integration Service - Execute API calls and inject results into conversation
+// API Integration Service - Thực thi các API call và chèn kết quả vào hội thoại
 
 const { callInternalApi } = require('../utils/internalApiClient');
 const { parseApiRequest, hasApiRequest } = require('../utils/apiRequestParser');
 const { RESPONSE_TEMPLATES } = require('../config/apiMapping');
 
 /**
- * Check if GPT response needs API call
- * @param {string} gptResponse - Response from GPT
- * @returns {boolean} True if needs API call
+ * Kiểm tra phản hồi GPT có cần API call không
+ * @param {string} gptResponse - Phản hồi từ GPT
+ * @returns {boolean} True nếu cần API call
  */
 function needsApiCall(gptResponse) {
   return hasApiRequest(gptResponse);
 }
 
 /**
- * Execute API call based on GPT's request
- * @param {string} gptResponse - Response from GPT containing API request
- * @param {string} authToken - Optional JWT token for authenticated calls
+ * Thực thi API call dựa trên yêu cầu của GPT
+ * @param {string} gptResponse - Phản hồi từ GPT chứa API request
+ * @param {string} authToken - JWT token tùy chọn cho các call có xác thực
  * @returns {Promise<object>} { success: boolean, data: any, error: string }
  */
 async function executeApiCall(gptResponse, authToken = null) {
   try {
-    // Parse API request from GPT response
+    // Phân tích API request từ phản hồi GPT
     const parseResult = parseApiRequest(gptResponse);
     
     if (!parseResult.success) {
-      console.error('[API Integration] Parse failed:', parseResult.error);
+      console.error('[API Integration] Parse thất bại:', parseResult.error);
       return {
         success: false,
         data: null,
@@ -35,14 +35,14 @@ async function executeApiCall(gptResponse, authToken = null) {
 
     const { action, params } = parseResult.apiRequest;
 
-    // Call internal API
-    console.log(`[API Integration] Executing ${action} with params:`, params);
+    // Gọi internal API
+    console.log(`[API Integration] Thực thi ${action} với params:`, params);
     const apiResult = await callInternalApi(action, params, authToken);
 
     return apiResult;
 
   } catch (error) {
-    console.error('[API Integration] Execution error:', error.message);
+    console.error('[API Integration] Lỗi thực thi:', error.message);
     return {
       success: false,
       data: null,
@@ -52,10 +52,10 @@ async function executeApiCall(gptResponse, authToken = null) {
 }
 
 /**
- * Format API result into human-readable response
- * @param {string} action - API action name
- * @param {object} apiResult - Result from API call
- * @returns {string} Formatted response text
+ * Định dạng kết quả API thành phản hồi dễ đọc cho người dùng
+ * @param {string} action - Tên action API
+ * @param {object} apiResult - Kết quả từ API call
+ * @returns {string} Phản hồi đã định dạng
  */
 function formatApiResult(action, apiResult) {
   if (!apiResult.success) {
@@ -124,7 +124,7 @@ function formatApiResult(action, apiResult) {
       return scheduleResponse;
 
     default:
-      // Generic response for unknown actions
+      // Phản hồi chung cho các action không xác định
       if (Array.isArray(data)) {
         return `Tìm thấy ${data.length} kết quả. Bạn cần thông tin gì thêm không?`;
       }
@@ -133,13 +133,13 @@ function formatApiResult(action, apiResult) {
 }
 
 /**
- * Inject API result into conversation context
- * @param {Array} messages - Current conversation messages
- * @param {string} apiResponse - Formatted API response
- * @returns {Array} Updated messages with API result
+ * Chèn kết quả API vào ngữ cảnh hội thoại
+ * @param {Array} messages - Các tin nhắn hội thoại hiện tại
+ * @param {string} apiResponse - Phản hồi API đã định dạng
+ * @returns {Array} Tin nhắn đã cập nhật với kết quả API
  */
 function injectApiResult(messages, apiResponse) {
-  // Add API result as system message
+  // Thêm kết quả API như system message
   const systemMessage = {
     role: 'system',
     content: `API Result: ${apiResponse}\n\nHãy sử dụng thông tin này để trả lời người dùng một cách tự nhiên và thân thiện.`
@@ -149,15 +149,15 @@ function injectApiResult(messages, apiResponse) {
 }
 
 /**
- * Complete API integration flow
- * @param {string} gptResponse - Initial GPT response
- * @param {Array} conversationMessages - Current conversation
- * @param {string} authToken - Optional JWT token
+ * Luồng tích hợp API hoàn chỉnh
+ * @param {string} gptResponse - Phản hồi GPT ban đầu
+ * @param {Array} conversationMessages - Hội thoại hiện tại
+ * @param {string} authToken - JWT token tùy chọn
  * @returns {Promise<object>} { needsApi: boolean, finalResponse: string, updatedMessages: Array }
  */
 async function processApiIntegration(gptResponse, conversationMessages, authToken = null) {
   try {
-    // Check if API call is needed
+    // Kiểm tra có cần API call không
     if (!needsApiCall(gptResponse)) {
       return {
         needsApi: false,
@@ -167,10 +167,10 @@ async function processApiIntegration(gptResponse, conversationMessages, authToke
       };
     }
 
-    // Parse and extract action
+    // Phân tích và trích xuất action
     const parseResult = parseApiRequest(gptResponse);
     if (!parseResult.success) {
-      console.error('[API Integration] Parse failed, returning original response');
+      console.error('[API Integration] Parse thất bại, trả về phản hồi gốc');
       return {
         needsApi: false,
         finalResponse: gptResponse,
@@ -179,14 +179,14 @@ async function processApiIntegration(gptResponse, conversationMessages, authToke
       };
     }
 
-    // Execute API call
+    // Thực thi API call
     const apiResult = await executeApiCall(gptResponse, authToken);
     
-    // Format API result
+    // Định dạng kết quả API
     const action = parseResult.apiRequest.action;
     const formattedResult = formatApiResult(action, apiResult);
 
-    // Inject into conversation (optional - for context)
+    // Chèn vào hội thoại (tùy chọn - cho ngữ cảnh)
     const updatedMessages = injectApiResult(conversationMessages, formattedResult);
 
     return {

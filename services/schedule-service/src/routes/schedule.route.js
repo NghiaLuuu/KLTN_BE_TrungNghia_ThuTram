@@ -3,97 +3,97 @@ const router = express.Router();
 const scheduleController = require('../controllers/schedule.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
 
-// ❌ DEPRECATED: Quarter-based schedule generation (commented out)
+// ❌ KHÔNG DÙNG NỮA: Tạo lịch theo quý (đã bỏ comment)
 // router.post('/quarter', authMiddleware, scheduleController.generateQuarterSchedule);
 // router.get('/quarters/available', scheduleController.getAvailableQuarters);
 // router.get('/room/:roomId/quarters/status', scheduleController.checkQuartersStatus);
 // router.get('/quarter/status', scheduleController.getQuarterStatus);
 
-// 🆕 Manual schedule generation for specific room with shift selection (MONTHLY RANGE)
+// 🆕 Tạo lịch thủ công cho phòng cụ thể với lựa chọn ca (THEO THÁNG)
 router.post('/room/generate', authMiddleware, scheduleController.generateRoomSchedule);
 
 // 🆕 BULK OPERATIONS - Tạo lịch cho nhiều phòng cùng lúc
 router.get('/rooms/bulk-shifts', scheduleController.getBulkRoomSchedulesInfo);
 router.post('/rooms/bulk-generate', authMiddleware, scheduleController.generateBulkRoomSchedules);
 
-// 🆕 Get holiday preview for schedule creation
+// 🆕 Lấy xem trước ngày nghỉ khi tạo lịch
 router.get('/holiday-preview', scheduleController.getHolidayPreview);
 
-// 🆕 Get room schedules with shift info (for create schedule UI) - MUST BE BEFORE /room/:roomId
+// 🆕 Lấy lịch phòng với thông tin ca (cho UI tạo lịch) - PHẢI ĐẶT TRƯỚC /room/:roomId
 router.get('/room/:roomId/shifts', scheduleController.getRoomSchedulesWithShifts);
 
-// 🆕 Update schedule (reactive scheduling - admin only)
+// 🆕 Cập nhật lịch (lịch phản ứng - chỉ admin)
 router.put('/:scheduleId', authMiddleware, scheduleController.updateSchedule);
 
-// 🆕 Add missing shifts to existing schedule (admin only)
+// 🆕 Thêm các ca còn thiếu vào lịch hiện có (chỉ admin)
 router.post('/add-missing-shifts', authMiddleware, scheduleController.addMissingShifts);
 
-// 🆕 Get schedule summary by room (for staff assignment) - MUST BE BEFORE /room/:roomId
+// 🆕 Lấy tóm tắt lịch theo phòng (để phân công nhân viên) - PHẢI ĐẶT TRƯỚC /room/:roomId
 router.get('/room/:roomId/summary', scheduleController.getScheduleSummaryByRoom);
 
-// Get schedules by room and date range - MUST BE AFTER specific paths
+// Lấy lịch theo phòng và khoảng thời gian - PHẢI ĐẶT SAU các path cụ thể
 router.get('/room/:roomId', scheduleController.getSchedulesByRoom);
 
-// Get schedules by date range (all rooms)
+// Lấy lịch theo khoảng thời gian (tất cả phòng)
 router.get('/', scheduleController.getSchedulesByDateRange);
 
-// Toggle schedule active/inactive (manager/admin)
+// Chuyển đổi trạng thái active/inactive của lịch (quản lý/admin)
 router.patch('/:id/active', authMiddleware, scheduleController.toggleScheduleActive);
 
-// 🆕 Get rooms with schedule summary (for staff assignment list)
+// 🆕 Lấy danh sách phòng với tóm tắt lịch (để danh sách phân công nhân viên)
 router.get('/rooms-summary', scheduleController.getRoomsWithScheduleSummary);
 
-// 🆕 Get slots by shift for calendar view (monthly)
+// 🆕 Lấy slots theo ca cho xem lịch (theo tháng)
 router.get('/slots/shift-calendar', scheduleController.getSlotsByShiftCalendar);
 
-// 🆕 STAFF ASSIGNMENT APIs
-// Get rooms for staff assignment (with shift summary)
+// 🆕 APIs PHÂN CÔNG NHÂN VIÊN
+// Lấy phòng để phân công nhân viên (với tóm tắt ca)
 router.get('/staff-assignment/rooms', scheduleController.getRoomsForStaffAssignment);
 
-// Get shift calendar for assignment (click vào ca)
+// Lấy lịch ca để phân công (click vào ca)
 router.get('/staff-assignment/shift-calendar', scheduleController.getShiftCalendarForAssignment);
 
-// Get slots for a specific day (click vào ngày)
+// Lấy slots cho ngày cụ thể (click vào ngày)
 router.get('/staff-assignment/slots/day', scheduleController.getSlotsByDayAndShift);
 
-// Assign staff to single slot (manager/admin)
+// Phân công nhân viên cho một slot (quản lý/admin)
 router.patch('/staff-assignment/slots/:slotId/assign', authMiddleware, scheduleController.assignStaffToSlot);
 
-// Bulk assign staff to multiple slots (manager/admin)
+// Phân công nhân viên cho nhiều slots cùng lúc (quản lý/admin)
 router.post('/staff-assignment/slots/bulk-assign', authMiddleware, scheduleController.bulkAssignStaff);
 
-// 🆕 NEW: APIs for Unified Staff Assignment and Replacement
-// Get room schedule shifts (ca đã có lịch)
+// 🆕 MỚI: APIs cho Phân công và Thay thế Nhân viên Thống nhất
+// Lấy ca lịch phòng (ca đã có lịch)
 router.get('/room-shifts', scheduleController.getRoomScheduleShifts);
 
-// Get staff availability with conflict checking
+// Lấy khả năng của nhân viên với kiểm tra xung đột
 router.get('/staff-availability', scheduleController.getStaffAvailabilityForShift);
 
-// Get staff schedule (lịch làm việc của nhân viên)
+// Lấy lịch nhân viên (lịch làm việc của nhân viên)
 router.get('/staff-schedule', scheduleController.getStaffSchedule);
 
-// ⚡ OPTIMIZED: Check conflicts for selected slots (new approach)
+// ⚡ TỐI ƯU: Kiểm tra xung đột cho các slots đã chọn (cách tiếp cận mới)
 router.post('/check-conflicts', scheduleController.checkConflictsForSlots);
 
-// Get available replacement staff (with conflict checking)
+// Lấy nhân viên thay thế khả dụng (với kiểm tra xung đột)
 router.post('/replacement-staff', scheduleController.getAvailableReplacementStaff);
 
-// Replace staff (manager/admin)
+// Thay thế nhân viên (quản lý/admin)
 router.post('/replace-staff', authMiddleware, scheduleController.replaceStaff);
 
 // 🆕 Nhiệm vụ 2.3: Tạo lịch override trong ngày nghỉ
 router.post('/override-holiday', authMiddleware, scheduleController.createScheduleOverrideHoliday);
 
-// 🆕 Batch create override holiday for multiple schedules (room with subrooms)
+// 🆕 Tạo override ngày nghỉ hàng loạt cho nhiều lịch (phòng có buồng con)
 router.post('/batch-override-holiday', authMiddleware, scheduleController.createBatchScheduleOverrideHoliday);
 
-// 🆕 Get available shifts for override holiday (check which shifts can be created)
+// 🆕 Lấy các ca khả dụng cho override ngày nghỉ (kiểm tra ca nào có thể tạo)
 router.post('/get-available-override-shifts', scheduleController.getAvailableOverrideShifts);
 
 // 🆕 Nhiệm vụ 2.4: Validate incomplete schedule
 router.get('/validate-incomplete', scheduleController.validateIncompleteSchedule);
 
-// 🆕 Validate holiday từ holidaySnapshot của schedule cụ thể
+// 🆕 Validate ngày nghỉ từ holidaySnapshot của schedule cụ thể
 router.get('/validate-holiday-from-schedule', scheduleController.validateHolidayFromSchedule);
 
 // 🆕 Bulk disable schedule cho nhiều ngày/ca/buồng

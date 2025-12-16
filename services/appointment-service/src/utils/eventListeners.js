@@ -8,16 +8,22 @@ const {
   handlePaymentTimeout 
 } = require('./paymentEventHandlers');
 
+/**
+ * Xác định kênh đặt lịch từ role người đặt
+ * @param {string} bookedByRole - Role của người đặt (patient/dentist/receptionist)
+ * @returns {string} Kênh đặt lịch (online/offline)
+ */
 const resolveBookingChannel = (bookedByRole) => (
   bookedByRole === 'patient' ? 'online' : 'offline'
 );
 
 /**
- * Setup event listeners for Appointment Service
+ * Thiết lập các event listener cho Appointment Service
+ * Lắng nghe các sự kiện từ payment-service, record-service
  */
 async function setupEventListeners() {
   try {
-    // Listen to payment events
+    // Lắng nghe các sự kiện thanh toán
     await consumeQueue('payment.completed', async (message) => {
       await handlePaymentCompleted(message.data);
     });
@@ -30,7 +36,7 @@ async function setupEventListeners() {
       await handlePaymentTimeout(message.data);
     });
     
-    // 🔥 Listen to record events
+    // 🔥 Lắng nghe các sự kiện từ record-service
     await consumeQueue('appointment_queue', async (message) => {
       const { event, data } = message;
       
@@ -44,15 +50,15 @@ async function setupEventListeners() {
           break;
           
         case 'appointment.completed':
-          // Already handled internally
+          // Đã được xử lý nội bộ
           break;
           
         default:
-          console.warn(`⚠️ Unknown event in appointment_queue: ${event}`);
+          console.warn(`⚠️ Sự kiện không xác định trong appointment_queue: ${event}`);
       }
     });
     
-    // Legacy: Listen to payment_success events for backward compatibility
+    // Legacy: Lắng nghe sự kiện payment_success để tương thích ngược
     await consumeQueue('appointment_payment_queue', async (message) => {
       const { event, data } = message;
       
@@ -66,94 +72,94 @@ async function setupEventListeners() {
           break;
           
         default:
-          console.warn(`⚠️ Unknown event: ${event}`);
+          console.warn(`⚠️ Sự kiện không xác định: ${event}`);
       }
     });
     
-    console.log('✅ Appointment event listeners setup complete');
+    console.log('✅ Thiết lập event listeners cho Appointment Service hoàn tất');
     
   } catch (error) {
-    console.error('❌ Failed to setup event listeners:', error);
+    console.error('❌ Thiết lập event listeners thất bại:', error);
     throw error;
   }
 }
 
 /**
- * Handle payment_success event
- * Create real appointment from reservation
+ * Xử lý sự kiện payment_success
+ * Tạo lịch hẹn thật từ reservation
  */
 async function handlePaymentSuccess(data) {
   try {
-    console.log('🎉 Payment success - Creating appointment:', data.reservationId);
+    console.log('🎉 Thanh toán thành công - Tạo lịch hẹn:', data.reservationId);
     
     const appointment = await appointmentService.createAppointmentFromPayment(data);
     
-    console.log(`✅ Appointment created: ${appointment.appointmentCode}`);
+    console.log(`✅ Lịch hẹn đã tạo: ${appointment.appointmentCode}`);
     
   } catch (error) {
-    console.error('❌ Error handling payment success:', error);
-    // Don't throw - let RabbitMQ ACK the message to avoid infinite retry
+    console.error('❌ Lỗi xử lý thanh toán thành công:', error);
+    // Không throw - để RabbitMQ ACK message tránh retry vô hạn
   }
 }
 
 /**
- * Handle payment_expired event
- * Clean up reservation and release slots
+ * Xử lý sự kiện payment_expired
+ * Dọn dẹp reservation và giải phóng slots
  */
 async function handlePaymentExpired(data) {
   try {
-    console.log('⏰ Payment expired - Cleaning up reservation:', data.reservationId);
+    console.log('⏰ Thanh toán hết hạn - Dọn dẹp reservation:', data.reservationId);
     
     const redisClient = require('./redis.client');
     
-    // Get reservation
+    // Lấy thông tin reservation
     const reservationStr = await redisClient.get(`temp_reservation:${data.reservationId}`);
     if (reservationStr) {
       const reservation = JSON.parse(reservationStr);
       
-      // Delete reservation
+      // Xóa reservation
       await redisClient.del(`temp_reservation:${data.reservationId}`);
       
-      // Delete slot locks
+      // Xóa khóa slot
       for (const slotId of reservation.slotIds) {
         await redisClient.del(`temp_slot_lock:${slotId}`);
       }
       
-      console.log(`✅ Reservation cleaned up: ${data.reservationId}`);
+      console.log(`✅ Reservation đã được dọn dẹp: ${data.reservationId}`);
     }
     
   } catch (error) {
-    console.error('❌ Error handling payment expired:', error);
+    console.error('❌ Lỗi xử lý thanh toán hết hạn:', error);
   }
 }
 
 /**
- * Handle record.in-progress event
- * Update appointment status to 'in-progress'
+ * Xử lý sự kiện record.in-progress
+ * Cập nhật trạng thái lịch hẹn thành 'in-progress'
  */
 async function handleRecordInProgress(data) {
   try {
-    console.log('🔄 Record in progress - Updating appointment:', data.appointmentId);
+    console.log('🔄 Bệnh án đang xử lý - Cập nhật lịch hẹn:', data.appointmentId);
     
     if (!data.appointmentId) {
-      console.warn('⚠️ No appointmentId provided in record.in-progress event');
+      console.warn('⚠️ Không có appointmentId trong sự kiện record.in-progress');
       return;
     }
     
     const appointment = await Appointment.findById(data.appointmentId);
     if (!appointment) {
-      console.warn(`⚠️ Appointment not found: ${data.appointmentId}`);
+      console.warn(`⚠️ Không tìm thấy lịch hẹn: ${data.appointmentId}`);
       return;
     }
     
-    // Update appointment status to in-progress
+    // Cập nhật trạng thái lịch hẹn thành in-progress
     if (appointment.status !== 'in-progress') {
       appointment.status = 'in-progress';
       appointment.startedAt = data.startedAt || new Date();
       await appointment.save();
-      console.log(`✅ Appointment ${appointment.appointmentCode} status updated to in-progress`);
+      console.log(`✅ Lịch hẹn ${appointment.appointmentCode} đã cập nhật trạng thái thành in-progress`);
 
-      // Notify queue clients
+      // Thông báo cho các client về cập nhật hàng đợi
       try {
         const io = getIO();
         if (io) {
@@ -163,24 +169,24 @@ async function handleRecordInProgress(data) {
           });
         }
       } catch (emitError) {
-        console.warn('⚠️ Failed to emit queue update after record start:', emitError.message);
+        console.warn('⚠️ Không thể emit cập nhật hàng đợi sau khi bắt đầu bệnh án:', emitError.message);
       }
     }
     
   } catch (error) {
-    console.error('❌ Error handling record.in-progress:', error);
+    console.error('❌ Lỗi xử lý record.in-progress:', error);
   }
 }
 
 /**
- * Handle record.completed event
- * Update appointment status to 'completed' and create payment for treatment indications
+ * Xử lý sự kiện record.completed
+ * Cập nhật trạng thái lịch hẹn thành 'completed' và tạo hóa đơn
  */
 async function handleRecordCompleted(data) {
   try {
     console.log('='.repeat(100));
-    console.log('🔥🔥🔥 [Appointment Service] Received record.completed event');
-    console.log('📋 Full Event Data:', JSON.stringify({
+    console.log('🔥🔥🔥 [Appointment Service] Nhận sự kiện record.completed');
+    console.log('📋 Dữ liệu sự kiện đầy đủ:', JSON.stringify({
       recordId: data.recordId,
       recordCode: data.recordCode,
       appointmentId: data.appointmentId,
@@ -193,31 +199,31 @@ async function handleRecordCompleted(data) {
     console.log('='.repeat(100));
     
     if (!data.appointmentId) {
-      console.warn('⚠️⚠️⚠️ No appointmentId provided in record.completed event - cannot update appointment!');
-      console.warn('⚠️ This means the record was created without an appointment (walk-in patient)');
+      console.warn('⚠️⚠️⚠️ Không có appointmentId trong sự kiện record.completed - không thể cập nhật lịch hẹn!');
+      console.warn('⚠️ Điều này có nghĩa bệnh án được tạo mà không có lịch hẹn (bệnh nhân walk-in)');
       return;
     }
     
-    console.log(`🔍 [Appointment Service] Looking up appointment: ${data.appointmentId}`);
+    console.log(`🔍 [Appointment Service] Đang tìm kiếm lịch hẹn: ${data.appointmentId}`);
     const appointment = await Appointment.findById(data.appointmentId);
     if (!appointment) {
-      console.warn(`❌❌❌ Appointment not found: ${data.appointmentId}`);
+      console.warn(`❌❌❌ Không tìm thấy lịch hẹn: ${data.appointmentId}`);
       return;
     }
     
-    console.log(`✅ [Appointment Service] Found appointment: ${appointment.appointmentCode}`);
-    console.log(`📊 Current appointment status: ${appointment.status}`);
-    console.log(`🏥 Room: ${appointment.roomName || appointment.roomId}`);
+    console.log(`✅ [Appointment Service] Tìm thấy lịch hẹn: ${appointment.appointmentCode}`);
+    console.log(`📊 Trạng thái hiện tại: ${appointment.status}`);
+    console.log(`🏥 Phòng: ${appointment.roomName || appointment.roomId}`);
     
-    // Update appointment status to completed
+    // Cập nhật trạng thái lịch hẹn thành completed
     if (appointment.status !== 'completed') {
       const oldStatus = appointment.status;
       appointment.status = 'completed';
       appointment.completedAt = data.completedAt || new Date();
       await appointment.save();
-      console.log(`✅✅✅ Appointment ${appointment.appointmentCode} status: ${oldStatus} → completed`);
+      console.log(`✅✅✅ Lịch hẹn ${appointment.appointmentCode} trạng thái: ${oldStatus} → completed`);
 
-      // Notify queue clients to refresh room info
+      // Thông báo cho các client để làm mới thông tin phòng
       try {
         const io = getIO();
         if (io) {
@@ -226,29 +232,29 @@ async function handleRecordCompleted(data) {
             timestamp: new Date()
           };
           io.emit('queue_updated', eventData);
-          console.log('📡 [Socket.IO] Emitted queue_updated event:', eventData);
-          console.log('🔔 Frontend Queue Dashboard should refresh now!');
+          console.log('📡 [Socket.IO] Đã emit sự kiện queue_updated:', eventData);
+          console.log('🔔 Frontend Queue Dashboard sẽ làm mới ngay!');
         } else {
-          console.warn('⚠️ Socket.IO not initialized - cannot emit queue_updated event');
+          console.warn('⚠️ Socket.IO chưa khởi tạo - không thể emit sự kiện queue_updated');
         }
       } catch (emitError) {
-        console.error('❌ Failed to emit queue update after record completion:', emitError.message);
+        console.error('❌ Emit cập nhật hàng đợi sau hoàn thành bệnh án thất bại:', emitError.message);
       }
     } else {
-      console.log(`⚠️ Appointment ${appointment.appointmentCode} already completed, skipping status update`);
+      console.log(`⚠️ Lịch hẹn ${appointment.appointmentCode} đã completed, bỏ qua cập nhật trạng thái`);
     }
     
-    // 🔥 Create payment/invoice request
+    // 🔥 Tạo yêu cầu hóa đơn
     try {
       const { publishToQueue } = require('./rabbitmq.client');
       const serviceClient = require('./serviceClient');
       
-      // Calculate service amounts
+      // Tính toán số tiền dịch vụ
       let services = [];
       let totalAmount = 0;
       
-      // 1. Add main serviceAddOn (dịch vụ phụ được chọn khi đặt lịch)
-      // Note: Service chính (exam/treatment) KHÔNG có giá, chỉ ServiceAddOn mới có giá
+      // 1. Thêm serviceAddOn chính (dịch vụ phụ được chọn khi đặt lịch)
+      // Lưu ý: Service chính (khám/điều trị) KHÔNG có giá, chỉ ServiceAddOn mới có giá
       if (appointment.serviceAddOnId && appointment.serviceAddOnName) {
         const mainServiceAddOnPrice = appointment.totalAmount || 0; // Giá đã lưu từ lúc booking
         services.push({
@@ -262,17 +268,17 @@ async function handleRecordCompleted(data) {
           type: 'main' // Dịch vụ chính khi đặt lịch
         });
         totalAmount += mainServiceAddOnPrice;
-        console.log(`📋 Main ServiceAddOn: ${appointment.serviceAddOnName} - ${mainServiceAddOnPrice} VND`);
+        console.log(`📋 ServiceAddOn chính: ${appointment.serviceAddOnName} - ${mainServiceAddOnPrice} VND`);
       } else {
         // Trường hợp không có serviceAddOn (có thể xảy ra với lịch offline)
-        console.warn('⚠️ No serviceAddOn found in appointment - this may be an issue');
+        console.warn('⚠️ Không tìm thấy serviceAddOn trong lịch hẹn - có thể có vấn đề');
       }
       
-      // 2. Add treatment indications (các serviceAddOn được thêm trong quá trình điều trị)
+      // 2. Thêm các chỉ định điều trị (các serviceAddOn được thêm trong quá trình điều trị)
       if (data.treatmentIndications && data.treatmentIndications.length > 0) {
         for (const indication of data.treatmentIndications) {
           if (indication.used) {
-            // ✅ Fetch giá từ service-service API
+            // ✅ Lấy giá từ service-service API
             let indicationPrice = 0;
             
             if (indication.serviceAddOnId) {
@@ -284,12 +290,12 @@ async function handleRecordCompleted(data) {
                 
                 if (addOnData && addOnData.price !== undefined) {
                   indicationPrice = addOnData.price;
-                  console.log(`✅ Fetched price for ${indication.serviceAddOnName}: ${indicationPrice} VND`);
+                  console.log(`✅ Đã lấy giá cho ${indication.serviceAddOnName}: ${indicationPrice} VND`);
                 } else {
-                  console.warn(`⚠️ No price found for ServiceAddOn: ${indication.serviceAddOnName}`);
+                  console.warn(`⚠️ Không tìm thấy giá cho ServiceAddOn: ${indication.serviceAddOnName}`);
                 }
               } catch (fetchError) {
-                console.error(`❌ Failed to fetch price for ${indication.serviceAddOnName}:`, fetchError.message);
+                console.error(`❌ Lấy giá cho ${indication.serviceAddOnName} thất bại:`, fetchError.message);
               }
             }
             
@@ -304,40 +310,40 @@ async function handleRecordCompleted(data) {
               type: 'treatment' // Dịch vụ được thêm trong điều trị
             });
             totalAmount += indicationPrice;
-            console.log(`📋 Treatment indication: ${indication.serviceAddOnName || indication.serviceName} - ${indicationPrice} VND`);
+            console.log(`📋 Chỉ định điều trị: ${indication.serviceAddOnName || indication.serviceName} - ${indicationPrice} VND`);
           }
         }
       }
       
-      // 3. Check if appointment was online booking (has deposit)
+      // 3. Kiểm tra nếu lịch hẹn online (có đặt cọc)
       let depositPaid = 0;
       let originalPaymentId = null;
       
       const bookingChannel = resolveBookingChannel(appointment.bookedByRole);
 
       if (bookingChannel === 'online' && appointment.paymentId) {
-        // Patient paid deposit - need to fetch payment details
+        // Bệnh nhân đã đặt cọc - cần lấy chi tiết thanh toán
         originalPaymentId = appointment.paymentId;
         
-        // TODO: Query payment-service to get exact deposit amount
-        // For now, calculate from slot count
+        // TODO: Query payment-service để lấy số tiền đặt cọc chính xác
+        // Tạm thời tính từ số slot
         const slotCount = appointment.slotIds ? appointment.slotIds.length : 1;
-        const depositPerSlot = 100000; // Default from schedule config
+        const depositPerSlot = 100000; // Mặc định từ schedule config
         depositPaid = depositPerSlot * slotCount;
         
-        console.log(`💰 Online booking - Deposit paid: ${depositPaid} VND (${slotCount} slots)`);
+        console.log(`💰 Đặt lịch online - Đặt cọc đã trả: ${depositPaid} VND (${slotCount} slots)`);
       }
       
-      // 4. Calculate final amount (total services - deposit)
+      // 4. Tính số tiền cuối cùng (tổng dịch vụ - đặt cọc)
       const finalAmount = Math.max(0, totalAmount - depositPaid);
       
-      console.log(`💵 Payment calculation:
-        - Total services: ${totalAmount} VND
-        - Deposit paid: ${depositPaid} VND
-        - Final amount: ${finalAmount} VND
+      console.log(`💵 Tính toán thanh toán:
+        - Tổng dịch vụ: ${totalAmount} VND
+        - Đặt cọc đã trả: ${depositPaid} VND
+        - Số tiền cuối: ${finalAmount} VND
       `);
       
-      // 5. Publish invoice.create event to invoice-service
+      // 5. Publish sự kiện invoice.create đến invoice-service
       await publishToQueue('invoice_queue', {
         event: 'invoice.create_from_record',
         data: {
@@ -363,15 +369,15 @@ async function handleRecordCompleted(data) {
           completedAt: data.completedAt
         }
       });
-      console.log(`✅ Published invoice.create_from_record event for record ${data.recordCode}`);
+      console.log(`✅ Đã publish sự kiện invoice.create_from_record cho bệnh án ${data.recordCode}`);
       
     } catch (paymentError) {
-      console.error('❌ Failed to create invoice:', paymentError);
-      // Don't throw - appointment completion already successful
+      console.error('❌ Tạo hóa đơn thất bại:', paymentError);
+      // Không throw - hoàn thành lịch hẹn đã thành công
     }
     
   } catch (error) {
-    console.error('❌ Error handling record.completed:', error);
+    console.error('❌ Lỗi xử lý record.completed:', error);
   }
 }
 

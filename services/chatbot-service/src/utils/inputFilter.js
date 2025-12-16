@@ -1,9 +1,9 @@
 /**
- * Input Filter
- * Check if user message is related to dental/healthcare topics
+ * Bộ lọc Input
+ * Kiểm tra xem tin nhắn người dùng có liên quan đến nha khoa/chăm sóc sức khỏe không
  */
 
-// Dental-related keywords (Vietnamese)
+// Các từ khóa liên quan nha khoa (tiếng Việt)
 const DENTAL_KEYWORDS = [
   'răng', 'nha khoa', 'Nha sĩ', 'nha sĩ', 'khám', 'điều trị',
   'dịch vụ', 'giá', 'chi phí', 'đặt lịch', 'hẹn', 'booking',
@@ -16,7 +16,7 @@ const DENTAL_KEYWORDS = [
   'lịch làm việc', 'thời gian', 'slot', 'ca', 'làm việc'
 ];
 
-// Topics to reject (off-topic)
+// Các chủ đề bị từ chối (ngoài phạm vi)
 const REJECT_KEYWORDS = [
   'chính trị', 'bầu cử', 'tổng thống', 'quốc hội',
   'thể thao', 'bóng đá', 'world cup', 'olympic',
@@ -26,53 +26,53 @@ const REJECT_KEYWORDS = [
 ];
 
 /**
- * Check if message is dental-related
- * @param {string} message - User message
+ * Kiểm tra xem tin nhắn có liên quan nha khoa không
+ * @param {string} message - Tin nhắn người dùng
  * @returns {object} { isValid: boolean, reason: string }
  */
 const isDentalRelated = (message) => {
   if (!message || typeof message !== 'string') {
-    return { isValid: false, reason: 'Empty message' };
+    return { isValid: false, reason: 'Tin nhắn trống' };
   }
 
   const lowerMessage = message.toLowerCase();
 
-  // Check for reject keywords first
+  // Kiểm tra từ khóa bị từ chối trước
   for (const keyword of REJECT_KEYWORDS) {
     if (lowerMessage.includes(keyword)) {
       return {
         isValid: false,
-        reason: 'Off-topic: Not related to dental care'
+        reason: 'Ngoài phạm vi: Không liên quan đến nha khoa'
       };
     }
   }
 
-  // Check for dental keywords
+  // Kiểm tra từ khóa nha khoa
   for (const keyword of DENTAL_KEYWORDS) {
     if (lowerMessage.includes(keyword)) {
       return {
         isValid: true,
-        reason: 'Related to dental care'
+        reason: 'Liên quan đến nha khoa'
       };
     }
   }
 
-  // If no dental keywords found but message is a question, allow it
-  // (GPT will handle politely declining if truly off-topic)
+  // Nếu không tìm thấy từ khóa nha khoa nhưng tin nhắn là câu hỏi, cho phép
+  // (GPT sẽ xử lý từ chối lịch sự nếu thực sự ngoài phạm vi)
   if (lowerMessage.includes('?') || 
       lowerMessage.includes('sao') ||
       lowerMessage.includes('thế nào') ||
       lowerMessage.includes('như thế nào')) {
     return {
       isValid: true,
-      reason: 'Question - let GPT evaluate'
+      reason: 'Câu hỏi - để GPT đánh giá'
     };
   }
 
-  // Default: reject if no clear dental context
+  // Mặc định: từ chối nếu không có ngữ cảnh nha khoa rõ ràng
   return {
     isValid: false,
-    reason: 'No clear dental context found'
+    reason: 'Không tìm thấy ngữ cảnh nha khoa rõ ràng'
   };
 };
 

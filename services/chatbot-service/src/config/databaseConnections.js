@@ -1,25 +1,25 @@
 /**
- * Multi-Database Connection Manager
- * Manages connections to different microservice databases
+ * Quản lý kết nối đa cơ sở dữ liệu
+ * Quản lý các kết nối đến các database của các microservice khác nhau
  */
 const mongoose = require('mongoose');
 
-// Store database connections
+// Lưu trữ các kết nối database
 const connections = {};
 
 /**
- * Collection to Database mapping
- * Defines which collection belongs to which microservice database
+ * Ánh xạ Collection sang Database
+ * Xác định collection nào thuộc database của microservice nào
  */
 const COLLECTION_DB_MAP = {
-  users: 'auth',       // auth-service database
-  services: 'service', // service-service database
-  slots: 'schedule',   // schedule-service database
-  rooms: 'room'        // room-service database
+  users: 'auth',       // database auth-service
+  services: 'service', // database service-service
+  slots: 'schedule',   // database schedule-service
+  rooms: 'room'        // database room-service
 };
 
 /**
- * Get database URI for a specific microservice
+ * Lấy URI database cho microservice cụ thể
  */
 function getDatabaseURI(serviceName) {
   const uriMap = {
@@ -37,17 +37,17 @@ function getDatabaseURI(serviceName) {
 }
 
 /**
- * Get or create connection to a specific microservice database
+ * Lấy hoặc tạo kết nối đến database của microservice cụ thể
  */
 async function getConnection(serviceName) {
-  // Return existing connection if already created
+  // Trả về kết nối hiện có nếu đã được tạo
   if (connections[serviceName]) {
     return connections[serviceName];
   }
 
-  // Create new connection
+  // Tạo kết nối mới
   const uri = getDatabaseURI(serviceName);
-  console.log(`🔗 Creating connection to ${serviceName} database...`);
+  console.log(`🔗 Đang tạo kết nối đến database ${serviceName}...`);
   
   const connection = mongoose.createConnection(uri, {
     maxPoolSize: 10,
@@ -55,19 +55,19 @@ async function getConnection(serviceName) {
     serverSelectionTimeoutMS: 5000
   });
 
-  // Wait for connection to be ready
+  // Đợi kết nối sẵn sàng
   await new Promise((resolve, reject) => {
     connection.once('open', resolve);
     connection.once('error', reject);
   });
 
-  console.log(`✅ Connected to ${serviceName} database`);
+  console.log(`✅ Đã kết nối đến database ${serviceName}`);
   connections[serviceName] = connection;
   return connection;
 }
 
 /**
- * Get connection for a specific collection
+ * Lấy kết nối cho collection cụ thể
  */
 async function getConnectionForCollection(collectionName) {
   const serviceName = COLLECTION_DB_MAP[collectionName];
@@ -80,23 +80,23 @@ async function getConnectionForCollection(collectionName) {
 }
 
 /**
- * Close all database connections
+ * Đóng tất cả kết nối database
  */
 async function closeAllConnections() {
   const serviceNames = Object.keys(connections);
-  console.log(`🔌 Closing ${serviceNames.length} database connections...`);
+  console.log(`🔌 Đang đóng ${serviceNames.length} kết nối database...`);
   
   for (const serviceName of serviceNames) {
     await connections[serviceName].close();
-    console.log(`✅ Closed ${serviceName} connection`);
+    console.log(`✅ Đã đóng kết nối ${serviceName}`);
   }
   
-  // Clear connections object
+  // Xóa object connections
   Object.keys(connections).forEach(key => delete connections[key]);
 }
 
 /**
- * Get all registered models for schema extraction
+ * Lấy tất cả model đã đăng ký để trích xuất schema
  */
 function getRegisteredModels() {
   const models = {};

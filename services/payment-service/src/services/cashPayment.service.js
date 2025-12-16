@@ -5,30 +5,30 @@ const rabbitmqClient = require('../utils/rabbitmq.client');
 
 class CashPaymentService {
   /**
-   * Confirm cash payment and trigger invoice creation
-   * @param {String} paymentId - Payment ID
-   * @param {String} confirmedBy - User ID who confirms the payment
+   * Xác nhận thanh toán tiền mặt và kích hoạt tạo hóa đơn
+   * @param {String} paymentId - Mã thanh toán
+   * @param {String} confirmedBy - Mã người dùng xác nhận thanh toán
    * @returns {Object} { payment, message }
    */
   async confirmCashPayment(paymentId, confirmedBy) {
     try {
-      // Get payment
+      // Lấy thông tin thanh toán
       const payment = await paymentRepository.findById(paymentId);
       if (!payment) {
         throw new NotFoundError('Không tìm thấy thanh toán');
       }
 
-      // Validate payment status
+      // Kiểm tra trạng thái thanh toán
       if (payment.status !== PaymentStatus.PENDING) {
         throw new BadRequestError(`Thanh toán đang ở trạng thái ${payment.status}, không thể xác nhận`);
       }
 
-      // Validate payment method is cash
+      // Kiểm tra phương thức thanh toán là tiền mặt
       if (payment.method !== PaymentMethod.CASH) {
         throw new BadRequestError('Chỉ có thể xác nhận thanh toán tiền mặt');
       }
 
-      // Update payment status to completed
+      // Cập nhật trạng thái thanh toán thành completed
       const updatedPayment = await paymentRepository.updateStatus(paymentId, PaymentStatus.COMPLETED, {
         completedAt: new Date(),
         verifiedBy: confirmedBy,
@@ -36,15 +36,15 @@ class CashPaymentService {
         isVerified: true
       });
 
-      // Publish event to invoice queue to create invoice
+      // Publish sự kiện đến invoice queue để tạo hóa đơn
       await rabbitmqClient.publishToQueue('invoice_queue', {
         event: 'payment.completed.cash',
         data: {
           paymentId: payment._id.toString(),
           paymentCode: payment.paymentCode,
-          amount: payment.finalAmount, // ✅ This is the amount to be paid (after deposit deduction)
-          originalAmount: payment.originalAmount, // ✅ Original service amount
-          discountAmount: payment.discountAmount, // ✅ Deposit amount (already deducted)
+          amount: payment.finalAmount, // ✅ Đây là số tiền cần thanh toán (sau khi trừ đặt cọc)
+          originalAmount: payment.originalAmount, // ✅ Số tiền dịch vụ gốc
+          discountAmount: payment.discountAmount, // ✅ Số tiền đặt cọc (đã được trừ)
           method: payment.method,
           patientId: payment.patientId,
           patientInfo: payment.patientInfo,

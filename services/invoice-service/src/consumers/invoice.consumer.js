@@ -5,8 +5,8 @@ const invoiceDetailRepository = require('../repositories/invoiceDetail.repositor
 const invoiceService = require('../services/invoice.service');
 
 /**
- * Generate unique invoice number
- * Format: INV-YYYYMMDD-000001
+ * Tạo mã hóa đơn duy nhất
+ * Định dạng: INV-YYYYMMDD-000001
  */
 async function generateInvoiceNumber() {
   const today = new Date();
@@ -19,7 +19,7 @@ async function generateInvoiceNumber() {
 }
 
 /**
- * Start consuming messages from invoice_queue
+ * Bắt đầu lắng nghe tin nhắn từ invoice_queue
  */
 async function startConsumer() {
   try {
@@ -33,23 +33,23 @@ async function startConsumer() {
         }
 
         try {
-          // Generate invoice number
+          // Tạo mã hóa đơn
           const invoiceNumber = await generateInvoiceNumber();
 
-          // Build invoice document
+          // Xây dựng document hóa đơn
           const invoiceDoc = {
             invoiceNumber,
             
-            // Reference IDs
+            // Các ID tham chiếu
             patientId: appointmentData.patientId || null,
-            appointmentId: null, // Will be updated by appointment-service event
+            appointmentId: null, // Sẽ được cập nhật bởi sự kiện từ appointment-service
             recordId: null,
             
-            // Type and Status
+            // Loại và Trạng thái
             type: 'appointment',
-            status: 'paid', // Already paid via VNPay
+            status: 'paid', // Đã thanh toán qua VNPay
             
-            // Patient Info
+            // Thông tin Bệnh nhân
             patientInfo: {
               name: patientInfo?.name || appointmentData.patientInfo?.fullName || 'Patient',
               phone: patientInfo?.phone || appointmentData.patientInfo?.phone || '0000000000',
@@ -58,14 +58,14 @@ async function startConsumer() {
               dateOfBirth: appointmentData.patientInfo?.dateOfBirth || null
             },
             
-            // Dentist Info
+            // Thông tin Nha sĩ
             dentistInfo: {
               name: appointmentData.dentistName || 'Dentist',
               specialization: null,
               licenseNumber: null
             },
             
-            // Financial Info
+            // Thông tin Tài chính
             subtotal: amount,
             discountInfo: {
               type: 'none',
@@ -79,7 +79,7 @@ async function startConsumer() {
             },
             totalAmount: amount,
             
-            // Payment Summary
+            // Tổng hợp Thanh toán
             paymentSummary: {
               totalPaid: amount,
               remainingAmount: 0,
@@ -88,7 +88,7 @@ async function startConsumer() {
               paymentIds: [paymentId]
             },
             
-            // Dates
+            // Các Ngày
             issueDate: new Date(),
             dueDate: new Date(),
             paidDate: new Date(),
@@ -100,7 +100,7 @@ async function startConsumer() {
             createdByRole: appointmentData.bookedByRole || 'patient'
           };
 
-          // Create invoice in database
+          // Tạo hóa đơn trong database
           const invoice = await invoiceRepository.createInvoice(invoiceDoc);
 
           console.log('✅ Invoice created:', {
@@ -108,12 +108,12 @@ async function startConsumer() {
             invoiceNumber: invoice.invoiceNumber
           });
 
-          // Create invoice detail for the service
+          // Tạo chi tiết hóa đơn cho dịch vụ
           const invoiceDetailDoc = {
-            // Required: Invoice reference
+            // Bắt buộc: Tham chiếu Hóa đơn
             invoiceId: invoice._id,
             
-            // Required: Service Info
+            // Bắt buộc: Thông tin Dịch vụ
             serviceInfo: {
               name: appointmentData.serviceAddOnName || appointmentData.serviceName,
               code: null,
@@ -122,14 +122,14 @@ async function startConsumer() {
               description: `${appointmentData.serviceName}${appointmentData.serviceAddOnName ? ' - ' + appointmentData.serviceAddOnName : ''}`
             },
             
-            // Optional: Service reference
+            // Tùy chọn: Tham chiếu dịch vụ
             serviceId: appointmentData.serviceAddOnId || appointmentData.serviceId,
             
-            // Required: Pricing
+            // Bắt buộc: Giá
             quantity: 1,
             unitPrice: amount,
             
-            // Optional: Discount
+            // Tùy chọn: Giảm giá
             discount: {
               type: 'none',
               value: 0,
@@ -137,26 +137,26 @@ async function startConsumer() {
               approvedBy: null
             },
             
-            // Required: Calculated amounts
+            // Bắt buộc: Số tiền đã tính
             subtotal: amount,
             discountAmount: 0,
-            totalPrice: amount,  // ✅ REQUIRED
+            totalPrice: amount,  // ✅ BẮT BUỘC
             
-            // Optional: Treatment info
+            // Tùy chọn: Thông tin điều trị
             dentistId: appointmentData.dentistId || null,
             
-            // Optional: Service delivery dates (use correct field names)
+            // Tùy chọn: Ngày cung cấp dịch vụ (dùng đúng tên trường)
             scheduledDate: appointmentData.appointmentDate ? new Date(appointmentData.appointmentDate) : null,
-            completedDate: new Date(), // Service completed when payment successful
+            completedDate: new Date(), // Dịch vụ hoàn thành khi thanh toán thành công
             
-            // Optional: Status
+            // Tùy chọn: Trạng thái
             status: 'completed',
             
-            // Optional: Notes
+            // Tùy chọn: Ghi chú
             description: appointmentData.notes || null,
             notes: appointmentData.notes || null,
             
-            // Optional: Audit
+            // Tùy chọn: Kiểm toán
             createdBy: appointmentData.patientId || new mongoose.Types.ObjectId()
           };
 
@@ -170,10 +170,10 @@ async function startConsumer() {
             reservationId,
             stack: error.stack
           });
-          throw error; // Will trigger RabbitMQ retry
+          throw error; // Sẽ kích hoạt RabbitMQ thử lại
         }
       } else if (message.event === 'appointment.created') {
-        // Update invoice with appointmentId after appointment is created
+        // Cập nhật hóa đơn với appointmentId sau khi lịch hẹn được tạo
         const { appointmentId, paymentId } = message.data;
 
         if (!appointmentId || !paymentId) {
@@ -182,17 +182,17 @@ async function startConsumer() {
         }
 
         try {
-          // Find invoice by paymentId
+          // Tìm hóa đơn theo paymentId
           const invoice = await invoiceRepository.findOne({ 
             'paymentSummary.paymentIds': paymentId 
           });
 
           if (!invoice) {
-            console.warn('⚠️ Invoice not found for paymentId:', paymentId);
+            console.warn('⚠️ Không tìm thấy hóa đơn cho paymentId:', paymentId);
             return;
           }
 
-          // Update invoice with appointmentId
+          // Cập nhật hóa đơn với appointmentId
           await invoiceRepository.updateAppointmentId(invoice._id, appointmentId);
           
           console.log('✅ Invoice linked to appointment:', {
@@ -201,17 +201,17 @@ async function startConsumer() {
           });
 
         } catch (error) {
-          console.error('❌ Error linking invoice:', error.message);
+          console.error('❌ Lỗi liên kết hóa đơn:', error.message);
           throw error;
         }
       } else if (message.event === 'payment.completed.cash') {
-        // ✅ Handle cash payment completion - use createInvoiceFromPayment with full record details
+        // ✅ Xử lý hoàn tất thanh toán tiền mặt - dùng createInvoiceFromPayment với đầy đủ chi tiết hồ sơ
         const { 
           paymentId, 
           paymentCode, 
-          amount,  // finalAmount (already deducted deposit)
-          originalAmount,  // ✅ NEW: Original service amount before deposit
-          discountAmount,  // ✅ NEW: Deposit amount
+          amount,  // finalAmount (số tiền đã trừ cọc)
+          originalAmount,  // ✅ MỚI: Số tiền dịch vụ gốc trước khi trừ cọc
+          discountAmount,  // ✅ MỚI: Số tiền cọc
           method,
           patientId, 
           patientInfo, 
@@ -233,9 +233,9 @@ async function startConsumer() {
         });
 
         try {
-          // 🔥 FIX: Use createInvoiceFromPayment to get FULL service details from record
+          // 🔥 SỬA LỖI: Dùng createInvoiceFromPayment để lấy ĐẦY ĐỦ chi tiết dịch vụ từ hồ sơ
           if (!paymentId) {
-            console.error('❌ Missing paymentId in payment.completed.cash event');
+            console.error('❌ Thiếu paymentId trong sự kiện payment.completed.cash');
             return;
           }
 
@@ -256,11 +256,11 @@ async function startConsumer() {
             paymentId,
             stack: error.stack
           });
-          throw error; // Will trigger RabbitMQ retry
+          throw error; // Sẽ kích hoạt RabbitMQ thử lại
         }
       } else if (message.event === 'payment.success') {
-        // ✅ Handle payment success from record completion (VNPay, Stripe, or Cash)
-        // Use createInvoiceFromPayment for consistency and to avoid code duplication
+        // ✅ Xử lý thanh toán thành công từ hoàn tất hồ sơ (VNPay, Stripe, hoặc Tiền mặt)
+        // Dùng createInvoiceFromPayment để đồng nhất và tránh trùng lặp code
         const { 
           paymentId,
           paymentCode,
@@ -280,9 +280,9 @@ async function startConsumer() {
         });
 
         try {
-          // ✅ Use createInvoiceFromPayment to ensure consistent invoice creation
-          // This function fetches full record details and creates invoice with all services
-          console.log('📄 [Invoice Consumer] Creating invoice from payment using service:', paymentId);
+          // ✅ Dùng createInvoiceFromPayment để đảm bảo tạo hóa đơn đồng nhất
+          // Hàm này lấy đầy đủ chi tiết hồ sơ và tạo hóa đơn với tất cả dịch vụ
+          console.log('📄 [Invoice Consumer] Đang tạo hóa đơn từ thanh toán dùng service:', paymentId);
           
           const invoice = await invoiceService.createInvoiceFromPayment(paymentId);
 
@@ -301,10 +301,10 @@ async function startConsumer() {
           recordId,
           stack: error.stack
         });
-        throw error; // Will trigger RabbitMQ retry
+        throw error; // Sẽ kích hoạt RabbitMQ thử lại
       }
     } else if (message.event === 'appointment_cancelled') {
-      // ✅ Handle appointment cancellation - update invoice and invoice details to cancelled
+      // ✅ Xử lý hủy lịch hẹn - cập nhật hóa đơn và chi tiết hóa đơn thành đã hủy
       const { 
         appointmentId, 
         invoiceId, 
@@ -332,28 +332,28 @@ async function startConsumer() {
           return;
         }
 
-        // Check if invoice can be cancelled
+        // Kiểm tra xem hóa đơn có thể hủy được không
         if (invoice.status === 'cancelled') {
-          console.log('ℹ️ [Invoice Consumer] Invoice already cancelled:', invoice.invoiceNumber);
+          console.log('ℹ️ [Invoice Consumer] Hóa đơn đã được hủy rồi:', invoice.invoiceNumber);
           return;
         }
 
-        // Update invoice status to cancelled
+        // Cập nhật trạng thái hóa đơn thành đã hủy
         invoice.status = 'cancelled';
-        invoice.cancelReason = cancelReason || 'Appointment cancelled';
-        // 🔥 FIX: cancelledBy must be ObjectId or null, not string 'system'
+        invoice.cancelReason = cancelReason || 'Lịch hẹn đã hủy';
+        // 🔥 SỬA LỖI: cancelledBy phải là ObjectId hoặc null, không phải string 'system'
         invoice.cancelledBy = (cancelledBy && cancelledBy !== 'system') ? cancelledBy : null;
         invoice.cancelledAt = cancelledAt || new Date();
         invoice.notes = `${invoice.notes || ''}\n\nĐã hủy bởi ${cancelledByRole || 'system'}: ${cancelReason || 'Không rõ lý do'}`.trim();
 
         await invoice.save();
 
-        console.log('✅ [Invoice Consumer] Invoice cancelled:', {
+        console.log('✅ [Invoice Consumer] Đã hủy hóa đơn:', {
           invoiceId: invoice._id.toString(),
           invoiceNumber: invoice.invoiceNumber
         });
 
-        // Update all invoice details to cancelled
+        // Cập nhật tất cả chi tiết hóa đơn thành đã hủy
         const invoiceDetails = await InvoiceDetail.find({ 
           invoiceId: invoice._id,
           isActive: true 
@@ -364,7 +364,7 @@ async function startConsumer() {
           await detail.save();
         }
 
-        console.log(`✅ [Invoice Consumer] Updated ${invoiceDetails.length} invoice detail(s) to cancelled`);
+        console.log(`✅ [Invoice Consumer] Đã cập nhật ${invoiceDetails.length} chi tiết hóa đơn thành đã hủy`);
 
       } catch (error) {
         console.error('❌ [Invoice Consumer] Error cancelling invoice:', {
@@ -376,7 +376,7 @@ async function startConsumer() {
         throw error;
       }
     } else if (message.event === 'appointment_restored') {
-      // 🆕 Handle appointment restoration - restore invoice and invoice details to paid
+      // 🆕 Xử lý khôi phục lịch hẹn - khôi phục hóa đơn và chi tiết hóa đơn thành đã thanh toán
       const { 
         appointmentId, 
         invoiceId, 
@@ -396,21 +396,21 @@ async function startConsumer() {
         const { Invoice } = require('../models/invoice.model');
         const { InvoiceDetail } = require('../models/invoiceDetail.model');
 
-        // Find invoice by invoiceId
+        // Tìm hóa đơn theo invoiceId
         const invoice = await Invoice.findById(invoiceId);
         
         if (!invoice) {
-          console.warn('⚠️ [Invoice Consumer] Invoice not found:', invoiceId);
+          console.warn('⚠️ [Invoice Consumer] Không tìm thấy hóa đơn:', invoiceId);
           return;
         }
 
-        // Check if invoice can be restored (must be cancelled)
+        // Kiểm tra xem hóa đơn có thể khôi phục được không (phải đang bị hủy)
         if (invoice.status !== 'cancelled') {
-          console.log('ℹ️ [Invoice Consumer] Invoice is not cancelled, skipping restore:', invoice.invoiceNumber);
+          console.log('ℹ️ [Invoice Consumer] Hóa đơn chưa bị hủy, bỏ qua khôi phục:', invoice.invoiceNumber);
           return;
         }
 
-        // Restore invoice status to paid
+        // Khôi phục trạng thái hóa đơn thành đã thanh toán
         invoice.status = 'paid';
         invoice.cancelReason = null;
         invoice.cancelledBy = null;
@@ -419,12 +419,12 @@ async function startConsumer() {
 
         await invoice.save();
 
-        console.log('✅ [Invoice Consumer] Invoice restored:', {
+        console.log('✅ [Invoice Consumer] Đã khôi phục hóa đơn:', {
           invoiceId: invoice._id.toString(),
           invoiceNumber: invoice.invoiceNumber
         });
 
-        // Restore all invoice details to completed
+        // Khôi phục tất cả chi tiết hóa đơn thành hoàn tất
         const invoiceDetails = await InvoiceDetail.find({ 
           invoiceId: invoice._id
         });
@@ -434,7 +434,7 @@ async function startConsumer() {
           await detail.save();
         }
 
-        console.log(`✅ [Invoice Consumer] Restored ${invoiceDetails.length} invoice detail(s) to completed`);
+        console.log(`✅ [Invoice Consumer] Đã khôi phục ${invoiceDetails.length} chi tiết hóa đơn thành hoàn tất`);
 
       } catch (error) {
         console.error('❌ [Invoice Consumer] Error restoring invoice:', {
@@ -446,13 +446,13 @@ async function startConsumer() {
         throw error;
       }
     } else {
-      console.log('ℹ️ [Invoice Consumer] Unhandled event type:', message.event);
+      console.log('ℹ️ [Invoice Consumer] Loại sự kiện chưa xử lý:', message.event);
     }
   });
 
-  console.log('👂 [Invoice Consumer] Listening to invoice_queue...');
+  console.log('👂 [Invoice Consumer] Đang lắng nghe invoice_queue...');
 } catch (error) {
-  console.error('❌ [Invoice Consumer] Failed to start consumer:', error);
+  console.error('❌ [Invoice Consumer] Không thể khởi động consumer:', error);
   throw error;
 }
 }module.exports = { startConsumer };

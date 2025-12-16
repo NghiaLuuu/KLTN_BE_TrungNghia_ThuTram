@@ -58,9 +58,9 @@ exports.findOne = async (filter) => {
 };
 
 // 🔹 Lấy tất cả schedules (có filter roomId, phân trang)
-// Note: shiftIds was removed from the schema. We accept the arg for compatibility but do not
-// filter by it; callers should filter by room/date or by workShifts on the service layer.
-exports.findSchedules = async ({ roomId, /* shiftIds ignored */ skip = 0, limit = 10 }) => {
+// Ghi chú: shiftIds đã bị xóa khỏi schema. Chúng ta nhận arg để tương thích nhưng không
+// lọc theo nó; callers nên lọc theo room/date hoặc workShifts ở service layer.
+exports.findSchedules = async ({ roomId, /* shiftIds bỏ qua */ skip = 0, limit = 10 }) => {
   const filter = {};
   if (roomId) filter.roomId = roomId;
 
@@ -156,7 +156,7 @@ exports.findByRoomAndDate = async (roomId, date) => {
   const byVN = await Schedule.findOne({ roomId, dateVNStr: vnStr }).lean();
   if (byVN) return byVN;
 
-  // No fallback: we rely solely on dateVNStr to avoid TZ ambiguity
+  // Không fallback: chỉ dựa vào dateVNStr để tránh nhập nhằng múi giờ
   return null;
 };
 

@@ -8,19 +8,19 @@ class InvoiceDetailService {
   constructor() {
     this.redis = RedisClient;
     this.rpcClient = RPCClient;
-    this.cacheTimeout = 300; // 5 minutes
+    this.cacheTimeout = 300; // 5 phút
   }
 
-  // ============ CORE DETAIL OPERATIONS ============
+  // ============ THAO TÁC CHI TIẾT CHÍNH ============
   async createDetail(detailData, userId) {
     try {
-      // Validate invoice exists
+      // Kiểm tra hóa đơn tồn tại
       const invoice = await invoiceRepo.findById(detailData.invoiceId);
       if (!invoice) {
         throw new Error('Hóa đơn không tồn tại');
       }
 
-      // Validate service exists via RPC
+      // Kiểm tra dịch vụ tồn tại qua RPC
       if (detailData.serviceId) {
         const service = await this.rpcClient.call('service-service', 'getService', {
           serviceId: detailData.serviceId
@@ -30,7 +30,7 @@ class InvoiceDetailService {
           throw new Error('Dịch vụ không tồn tại');
         }
 
-        // Auto-fill service info
+        // Tự động điền thông tin dịch vụ
         detailData.serviceInfo = {
           name: service.name,
           description: service.description,
@@ -47,16 +47,16 @@ class InvoiceDetailService {
 
       const detail = await invoiceDetailRepo.create(detailData);
 
-      // Recalculate invoice amounts
+      // Tính lại số tiền hóa đơn
       await this.recalculateInvoiceTotals(detailData.invoiceId);
 
-      // Clear cache
+      // Xóa cache
       await this.clearDetailCache(detailData.invoiceId);
 
-      console.log("✅ Invoice detail created:", detail);
+      console.log("✅ Đã tạo chi tiết hóa đơn:", detail);
       return detail;
     } catch (error) {
-      console.error("❌ Error creating invoice detail:", error);
+      console.error("❌ Lỗi tạo chi tiết hóa đơn:", error);
       throw error;
     }
   }
@@ -68,7 +68,7 @@ class InvoiceDetailService {
         throw new Error('Chi tiết hóa đơn không tồn tại');
       }
 
-      // Check if invoice allows updates
+      // Kiểm tra hóa đơn có cho phép cập nhật không
       const invoice = await invoiceRepo.findById(detail.invoiceId);
       if (invoice.status === 'paid') {
         throw new Error('Không thể cập nhật chi tiết hóa đơn đã thanh toán');
@@ -77,7 +77,7 @@ class InvoiceDetailService {
       updateData.updatedBy = userId;
       const updatedDetail = await invoiceDetailRepo.update(id, updateData);
 
-      // Recalculate invoice amounts if pricing changed
+      // Tính lại số tiền hóa đơn nếu giá thay đổi
       if (updateData.quantity || updateData.unitPrice || updateData.discountInfo) {
         await this.recalculateInvoiceTotals(detail.invoiceId);
       }
@@ -86,29 +86,29 @@ class InvoiceDetailService {
 
       return updatedDetail;
     } catch (error) {
-      console.error("❌ Error updating invoice detail:", error);
+      console.error("❌ Lỗi cập nhật chi tiết hóa đơn:", error);
       throw error;
     }
   }
 
   async getDetailsByInvoice(invoiceId, options = {}) {
     try {
-      console.log(`🔍 [InvoiceDetail Service] Getting details for invoice: ${invoiceId}`);
+      console.log(`🔍 [InvoiceDetail Service] Lấy chi tiết cho hóa đơn: ${invoiceId}`);
       
-      // ⚠️ Temporarily disable cache for debugging
+      // ⚠️ Tạm thời tắt cache để debug
       const useCache = false;
       const cacheKey = `invoice_details:${invoiceId}:${JSON.stringify(options)}`;
       
       if (useCache) {
         const cached = await this.redis.get(cacheKey);
         if (cached) {
-          console.log(`✅ [InvoiceDetail Service] Found cached details`);
+          console.log(`✅ [InvoiceDetail Service] Tìm thấy chi tiết trong cache`);
           return JSON.parse(cached);
         }
       }
 
       const details = await invoiceDetailRepo.findByInvoice(invoiceId, options);
-      console.log(`📋 [InvoiceDetail Service] Found ${details.length} details for invoice ${invoiceId}`);
+      console.log(`📋 [InvoiceDetail Service] Tìm thấy ${details.length} chi tiết cho hóa đơn ${invoiceId}`);
       
       if (useCache) {
         await this.redis.setex(cacheKey, this.cacheTimeout, JSON.stringify(details));
@@ -116,7 +116,7 @@ class InvoiceDetailService {
 
       return details;
     } catch (error) {
-      console.error("❌ Error getting invoice details:", error);
+      console.error("❌ Lỗi lấy chi tiết hóa đơn:", error);
       throw error;
     }
   }
@@ -139,12 +139,12 @@ class InvoiceDetailService {
 
       return detail;
     } catch (error) {
-      console.error("❌ Error getting detail:", error);
+      console.error("❌ Lỗi lấy chi tiết:", error);
       throw error;
     }
   }
 
-  // ============ TREATMENT TRACKING ============
+  // ============ THEO DÕI ĐIỀU TRỊ ============
   async markTreatmentCompleted(detailId, completionData, userId) {
     try {
       const completionInfo = {
@@ -158,7 +158,7 @@ class InvoiceDetailService {
 
       return updatedDetail;
     } catch (error) {
-      console.error("❌ Error marking treatment completed:", error);
+      console.error("❌ Lỗi đánh dấu điều trị hoàn thành:", error);
       throw error;
     }
   }
@@ -176,12 +176,12 @@ class InvoiceDetailService {
 
       return updatedDetail;
     } catch (error) {
-      console.error("❌ Error updating treatment progress:", error);
+      console.error("❌ Lỗi cập nhật tiến trình điều trị:", error);
       throw error;
     }
   }
 
-  // ============ STATISTICS & REPORTING ============
+  // ============ THỐNG KÊ & BÁO CÁO ============
   async getServiceStatistics(startDate, endDate) {
     try {
       const cacheKey = `service_stats:${startDate.toISOString()}:${endDate.toISOString()}`;
@@ -197,21 +197,21 @@ class InvoiceDetailService {
 
       return stats;
     } catch (error) {
-      console.error("❌ Error getting service statistics:", error);
+      console.error("❌ Lỗi lấy thống kê dịch vụ:", error);
       throw error;
     }
   }
 
-  // ============ HELPER METHODS ============
+  // ============ CÁC PHƯƠNG THỨC HỖ TRỢ ============
   async recalculateInvoiceTotals(invoiceId) {
     try {
-      // Get all active details for this invoice
+      // Lấy tất cả chi tiết đang hoạt động của hóa đơn này
       const details = await invoiceDetailRepo.findByInvoice(invoiceId);
       
-      // Calculate subtotal from all details
+      // Tính subtotal từ tất cả chi tiết
       const subtotal = details.reduce((sum, detail) => sum + detail.totalAmount, 0);
 
-      // Get current invoice to preserve tax and discount info
+      // Lấy hóa đơn hiện tại để giữ thông tin thuế và giảm giá
       const invoice = await invoiceRepo.findById(invoiceId);
       if (!invoice) return;
 
@@ -219,34 +219,34 @@ class InvoiceDetailService {
       const discountAmount = invoice.discountInfo?.discountAmount || 0;
       const totalAmount = subtotal + taxAmount - discountAmount;
 
-      // Update invoice totals
+      // Cập nhật tổng hóa đơn
       await invoiceRepo.update(invoiceId, {
         subtotalAmount: subtotal,
-        totalAmount: Math.max(0, totalAmount) // Ensure total is not negative
+        totalAmount: Math.max(0, totalAmount) // Đảm bảo tổng không âm
       });
 
-      console.log(`✅ Recalculated invoice ${invoiceId} totals: ${totalAmount}`);
+      console.log(`✅ Đã tính lại tổng hóa đơn ${invoiceId}: ${totalAmount}`);
     } catch (error) {
-      console.error("❌ Error recalculating invoice totals:", error);
+      console.error("❌ Lỗi tính lại tổng hóa đơn:", error);
       throw error;
     }
   }
 
   async clearDetailCache(invoiceId) {
     try {
-      // Clear invoice details cache
+      // Xóa cache chi tiết hóa đơn
       const detailKeys = await this.redis.keys(`invoice_details:${invoiceId}:*`);
       if (detailKeys.length > 0) {
         await this.redis.del(...detailKeys);
       }
 
-      // Clear stats caches
+      // Xóa cache thống kê
       const statsKeys = await this.redis.keys('service_stats:*');
       if (statsKeys.length > 0) {
         await this.redis.del(...statsKeys);
       }
     } catch (error) {
-      console.warn("⚠️ Warning: Could not clear detail cache:", error.message);
+      console.warn("⚠️ Cảnh báo: Không thể xóa cache chi tiết:", error.message);
     }
   }
 }

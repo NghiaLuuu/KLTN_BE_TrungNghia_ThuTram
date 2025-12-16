@@ -2,8 +2,8 @@ const Record = require('../models/record.model');
 const { publishToQueue } = require('./rabbitmq.client');
 
 /**
- * Handle appointment_checked-in event
- * Auto-create record when appointment is checked in
+ * Xử lý sự kiện appointment_checked-in
+ * Tự động tạo hồ sơ khi cuộc hẹn được check-in
  */
 async function handleAppointmentCheckedIn(eventData) {
   try {
@@ -11,14 +11,14 @@ async function handleAppointmentCheckedIn(eventData) {
     
     console.log(`🔄 [handleAppointmentCheckedIn] Processing appointment ${data.appointmentCode}`);
     
-    // Check if record already exists for this appointment
+    // Kiểm tra xem hồ sơ đã tồn tại cho cuộc hẹn này chưa
     const existingRecord = await Record.findOne({ appointmentId: data.appointmentId });
     if (existingRecord) {
       console.log(`⚠️ [handleAppointmentCheckedIn] Record already exists for appointment ${data.appointmentCode}: ${existingRecord.recordCode}`);
       return;
     }
     
-    // Prepare record data
+    // Chuẩn bị dữ liệu hồ sơ
     const recordData = {
       appointmentId: data.appointmentId,
       patientId: data.patientId || null,
@@ -40,16 +40,16 @@ async function handleAppointmentCheckedIn(eventData) {
       subroomName: data.subroomName || null,
       status: 'pending', // ✅ Record chờ khám cho tới khi Nha sĩ bắt đầu
       priority: 'normal',
-      totalCost: (data.servicePrice || 0) + (data.serviceAddOnPrice || 0), // ✅ Calculate initial totalCost from service + addon
-      createdBy: data.createdBy || data.dentistId // Use createdBy from appointment or fallback to dentistId
+      totalCost: (data.servicePrice || 0) + (data.serviceAddOnPrice || 0), // ✅ Tính totalCost ban đầu từ dịch vụ + addon
+      createdBy: data.createdBy || data.dentistId // Sử dụng createdBy từ cuộc hẹn hoặc dự phòng về dentistId
     };
     
     console.log('🔍 [DEBUG] Creating record with patientId:', data.patientId);
     
-    // If missing patient info and have patientId, fetch from user-service
+    // Nếu thiếu thông tin bệnh nhân và có patientId, lấy từ user-service
     if (!recordData.patientInfo && recordData.patientId) {
       try {
-        // Publish request to get patient info from user-service
+        // Gửi yêu cầu lấy thông tin bệnh nhân từ user-service
         await publishToQueue('user_request_queue', {
           event: 'get_patient_info',
           data: {
@@ -60,8 +60,8 @@ async function handleAppointmentCheckedIn(eventData) {
         });
         console.log(`📤 [handleAppointmentCheckedIn] Requested patient info for ${data.patientId}`);
         
-        // For now, create record without full patient info
-        // It will be updated when response comes back
+        // Hiện tại, tạo hồ sơ mà không có đầy đủ thông tin bệnh nhân
+        // Sẽ được cập nhật khi nhận được phản hồi
         recordData.patientInfo = {
           name: 'Updating...',
           phone: '0000000000',
@@ -69,17 +69,17 @@ async function handleAppointmentCheckedIn(eventData) {
         };
       } catch (error) {
         console.error('❌ Failed to request patient info:', error);
-        // Continue with minimal patient info
+        // Tiếp tục với thông tin bệnh nhân tối thiểu
       }
     }
     
-    // Create record
+    // Tạo hồ sơ
     const record = new Record(recordData);
     await record.save();
     
     console.log(`✅ [handleAppointmentCheckedIn] Record created: ${record.recordCode} for appointment ${data.appointmentCode}`);
     
-    // 🔥 EMIT SOCKET: Notify queue dashboard about new record
+    // 🔥 PHÁT SOCKET: Thông báo dashboard hàng đợi về hồ sơ mới
     try {
       const { emitRecordUpdate, emitQueueUpdate } = require('./socket');
       const date = new Date(record.date).toISOString().split('T')[0];
@@ -93,7 +93,7 @@ async function handleAppointmentCheckedIn(eventData) {
       console.warn('⚠️ Socket emit failed:', socketError.message);
     }
     
-    // Publish record_created event (for other services if needed)
+    // Phát sự kiện record_created (cho các dịch vụ khác nếu cần)
     try {
       await publishToQueue('record_created_queue', {
         event: 'record_created',
@@ -118,25 +118,25 @@ async function handleAppointmentCheckedIn(eventData) {
 }
 
 /**
- * Handle get_patient_info_response event (from user-service)
- * Update record with full patient info
+ * Xử lý sự kiện get_patient_info_response (từ user-service)
+ * Cập nhật hồ sơ với đầy đủ thông tin bệnh nhân
  */
 async function handlePatientInfoResponse(eventData) {
   try {
     const { data } = eventData;
     const { requestId, patientInfo } = data;
     
-    // Extract appointmentId from requestId
+    // Trích xuất appointmentId từ requestId
     const appointmentId = requestId.split('_patient_info')[0];
     
-    // Find record by appointmentId and update patient info
+    // Tìm hồ sơ theo appointmentId và cập nhật thông tin bệnh nhân
     const record = await Record.findOne({ appointmentId });
     if (!record) {
       console.log(`⚠️ [handlePatientInfoResponse] Record not found for appointment ${appointmentId}`);
       return;
     }
     
-    // Update patient info
+    // Cập nhật thông tin bệnh nhân
     record.patientInfo = {
       name: patientInfo.fullName || patientInfo.name,
       phone: patientInfo.phoneNumber || patientInfo.phone,
@@ -156,8 +156,8 @@ async function handlePatientInfoResponse(eventData) {
 }
 
 /**
- * ⭐ Handle record.mark_as_used event (from payment-service)
- * Mark exam record as used when patient books treatment based on that exam
+ * ⭐ Xử lý sự kiện record.mark_as_used (từ payment-service)
+ * Đánh dấu hồ sơ khám là đã sử dụng khi bệnh nhân đặt lịch điều trị dựa trên kết quả khám đó
  */
 async function handleMarkRecordAsUsed(eventData) {
   try {
@@ -166,23 +166,23 @@ async function handleMarkRecordAsUsed(eventData) {
     
     console.log(`🔄 [handleMarkRecordAsUsed] Processing record ${recordId} for reservation ${reservationId}`);
     
-    // Find the exam record
+    // Tìm hồ sơ khám
     const record = await Record.findById(recordId);
     if (!record) {
       console.log(`⚠️ [handleMarkRecordAsUsed] Record not found: ${recordId}`);
       return;
     }
     
-    // Verify it's an exam record
+    // Xác minh đây là hồ sơ khám
     if (record.type !== 'exam') {
       console.log(`⚠️ [handleMarkRecordAsUsed] Record ${record.recordCode} is not an exam record (type: ${record.type})`);
       return;
     }
     
-    // Mark as used
+    // Đánh dấu là đã sử dụng
     record.hasBeenUsed = true;
     
-    // Add note about which service it was used for
+    // Thêm ghi chú về dịch vụ đã sử dụng
     const usageNote = `Đã sử dụng để đặt lịch điều trị: ${appointmentData.serviceName || 'Unknown'} (Payment: ${paymentId})`;
     record.notes = record.notes 
       ? `${record.notes}\n${usageNote}` 
@@ -194,13 +194,13 @@ async function handleMarkRecordAsUsed(eventData) {
     
   } catch (error) {
     console.error('❌ [handleMarkRecordAsUsed] Error:', error);
-    // Don't throw - this is non-critical, payment already succeeded
+    // Không throw - đây không quan trọng, thanh toán đã thành công
   }
 }
 
 /**
- * 🆕 Handle appointment.service_booked event (from appointment-service)
- * Mark treatmentIndications[x].used = true when patient books that indicated service
+ * 🆕 Xử lý sự kiện appointment.service_booked (từ appointment-service)
+ * Đánh dấu treatmentIndications[x].used = true khi bệnh nhân đặt lịch dịch vụ đã chỉ định
  */
 async function handleAppointmentServiceBooked(eventData) {
   try {
@@ -220,13 +220,13 @@ async function handleAppointmentServiceBooked(eventData) {
       return;
     }
     
-    // Find all exam records for this patient that have treatmentIndications
+    // Tìm tất cả hồ sơ khám của bệnh nhân này có chỉ định điều trị
     const examRecords = await Record.find({
       patientId: patientId,
       type: 'exam',
       status: 'completed',
-      'treatmentIndications.0': { $exists: true } // Has at least one indication
-    }).sort({ createdAt: -1 }); // Newest first
+      'treatmentIndications.0': { $exists: true } // Có ít nhất một chỉ định
+    }).sort({ createdAt: -1 }); // Mới nhất trước
     
     console.log(`🔍 [handleAppointmentServiceBooked] Found ${examRecords.length} exam records with indications for patient ${patientId}`);
     
@@ -248,28 +248,28 @@ async function handleAppointmentServiceBooked(eventData) {
     
     let updated = false;
     
-    // Loop through records to find matching indication
+    // Duyệt qua các hồ sơ để tìm chỉ định khớp
     for (const record of examRecords) {
       for (const indication of record.treatmentIndications) {
-        // Check if this indication matches the booked service
+        // Kiểm tra xem chỉ định này có khớp với dịch vụ đã đặt không
         const serviceMatch = indication.serviceId?.toString() === serviceId.toString();
         
-        // Handle serviceAddOnId comparison (can be String or ObjectId)
-        let addOnMatch = true; // Default to match if no addon specified
+        // Xử lý so sánh serviceAddOnId (có thể là String hoặc ObjectId)
+        let addOnMatch = true; // Mặc định là khớp nếu không chỉ định addon
         if (serviceAddOnId && indication.serviceAddOnId) {
-          // Both exist - compare as strings
+          // Cả hai đều tồn tại - so sánh như chuỗi
           addOnMatch = indication.serviceAddOnId.toString() === serviceAddOnId.toString();
         } else if (serviceAddOnId && !indication.serviceAddOnId) {
-          // Appointment has addon but indication doesn't - no match
+          // Cuộc hẹn có addon nhưng chỉ định không có - không khớp
           addOnMatch = false;
         } else if (!serviceAddOnId && indication.serviceAddOnId) {
-          // Indication has addon but appointment doesn't - no match
+          // Chỉ định có addon nhưng cuộc hẹn không có - không khớp
           addOnMatch = false;
         }
-        // else both are null/undefined - match = true
+        // nếu không cả hai đều là null/undefined - match = true
         
         if (serviceMatch && addOnMatch && !indication.used) {
-          // Mark as used
+          // Đánh dấu đã sử dụng
           indication.used = true;
           indication.usedAt = new Date();
           indication.usedForAppointmentId = appointmentId;
@@ -286,11 +286,11 @@ async function handleAppointmentServiceBooked(eventData) {
           });
           
           updated = true;
-          break; // Only mark the first matching indication
+          break; // Chỉ đánh dấu chỉ định khớp đầu tiên
         }
       }
       
-      if (updated) break; // Stop searching other records
+      if (updated) break; // Dừng tìm kiếm các hồ sơ khác
     }
     
     if (!updated) {
@@ -299,7 +299,7 @@ async function handleAppointmentServiceBooked(eventData) {
     
   } catch (error) {
     console.error('❌ [handleAppointmentServiceBooked] Error:', error);
-    // Don't throw - this is non-critical, appointment already created
+    // Không throw - đây không quan trọng, cuộc hẹn đã được tạo
   }
 }
 

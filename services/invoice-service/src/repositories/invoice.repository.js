@@ -1,7 +1,7 @@
 const { Invoice, InvoiceStatus } = require("../models/invoice.model");
 
 class InvoiceRepository {
-  // ============ CREATE METHODS ============
+  // ============ CÁC PHƯƠNG THỨC TẠO ============
   async create(invoiceData) {
     const invoice = new Invoice(invoiceData);
     return await invoice.save();
@@ -15,7 +15,7 @@ class InvoiceRepository {
     return await this.create(draftData);
   }
 
-  // ============ READ METHODS ============
+  // ============ CÁC PHƯƠNG THỨC ĐỌC ============
   async findById(id) {
     return await Invoice.findById(id);
   }
@@ -124,7 +124,7 @@ class InvoiceRepository {
     return await Invoice.find(query).sort({ issueDate: -1 });
   }
 
-  // ============ UPDATE METHODS ============
+  // ============ CÁC PHƯƠNG THỨC CẬP NHẬT ============
   async update(id, updateData) {
     return await Invoice.findByIdAndUpdate(
       id,
@@ -136,7 +136,7 @@ class InvoiceRepository {
   async updateStatus(id, status, additionalData = {}) {
     const updateData = { status, ...additionalData };
 
-    // Add timestamps for specific status changes
+    // Thêm timestamps cho các thay đổi trạng thái cụ thể
     switch (status) {
       case InvoiceStatus.PAID:
         updateData.paidDate = new Date();
@@ -149,7 +149,7 @@ class InvoiceRepository {
     return await this.update(id, updateData);
   }
 
-  // ============ PAYMENT INTEGRATION METHODS ============
+  // ============ CÁC PHƯƠNG THỨC TÍCH HỢP THANH TOÁN ============
   async markAsPaid(id, paymentInfo) {
     const updateData = {
       status: InvoiceStatus.PAID,
@@ -172,10 +172,10 @@ class InvoiceRepository {
   async addPaymentToInvoice(invoiceId, paymentInfo) {
     const invoice = await Invoice.findById(invoiceId);
     if (!invoice) {
-      throw new Error('Invoice not found');
+      throw new Error('Không tìm thấy hóa đơn');
     }
 
-    // Add payment to invoice
+    // Thêm thanh toán vào hóa đơn
     invoice.addPayment(paymentInfo.paymentId, paymentInfo.amount, paymentInfo.method);
     return await invoice.save();
   }
@@ -184,11 +184,11 @@ class InvoiceRepository {
     return await this.update(id, { paymentSummary });
   }
 
-  // ============ BUSINESS LOGIC METHODS ============
+  // ============ CÁC PHƯƠNG THỨC NGHIỆP VỤ ============
   async convertDraftToPending(id, finalizeData = {}) {
     const invoice = await Invoice.findById(id);
     if (!invoice || invoice.status !== InvoiceStatus.DRAFT) {
-      throw new Error('Only draft invoices can be converted to pending');
+      throw new Error('Chỉ có thể chuyển hóa đơn nháp sang chờ xử lý');
     }
 
     const updateData = {
@@ -203,7 +203,7 @@ class InvoiceRepository {
   async cancelInvoice(id, cancelReason, cancelledBy) {
     const invoice = await Invoice.findById(id);
     if (!invoice || !invoice.canBeCancelled()) {
-      throw new Error('Invoice cannot be cancelled');
+      throw new Error('Không thể hủy hóa đơn này');
     }
 
     return await this.updateStatus(id, InvoiceStatus.CANCELLED, {
@@ -213,7 +213,7 @@ class InvoiceRepository {
     });
   }
 
-  // ============ SEARCH & FILTER METHODS ============
+  // ============ CÁC PHƯƠNG THỨC TÌM KIẾM & LỌC ============
   async search(searchTerm, options = {}) {
     const { page = 1, limit = 20 } = options;
     const skip = (page - 1) * limit;
@@ -248,7 +248,7 @@ class InvoiceRepository {
     };
   }
 
-  // ============ STATISTICS METHODS ============
+  // ============ CÁC PHƯƠNG THỨC THỐNG KÊ ============
   async getInvoiceStatistics(startDate, endDate, groupBy = 'day') {
     const matchStage = {
       issueDate: { $gte: startDate, $lte: endDate },
@@ -307,7 +307,7 @@ class InvoiceRepository {
     const InvoiceDetailRepo = require('./invoiceDetail.repository');
     const { getServiceAddOnIds } = require('../utils/serviceHelper');
     
-    // Build filters for InvoiceDetail aggregation
+    // Xây dựng bộ lọc cho aggregation InvoiceDetail
     const filters = {
       completedDate: { $gte: startDate, $lte: endDate },
       status: 'completed',
@@ -321,12 +321,12 @@ class InvoiceRepository {
         : dentistId;
     }
     
-    // 🆕 If serviceId is provided, get all serviceAddOn IDs and filter by them
+    // 🆕 Nếu có serviceId, lấy tất cả serviceAddOn IDs và lọc theo chúng
     if (serviceId) {
       const serviceInfo = await getServiceAddOnIds(serviceId);
       
       if (serviceInfo.hasAddOns && serviceInfo.addOns.length > 0) {
-        // Filter by serviceAddOn IDs (which are stored as serviceId in InvoiceDetail)
+        // Lọc theo các serviceAddOn IDs (lưu như serviceId trong InvoiceDetail)
         const mongoose = require('mongoose');
         const addOnIds = serviceInfo.addOns
           .map(addon => addon._id)
@@ -335,15 +335,15 @@ class InvoiceRepository {
         
         if (addOnIds.length > 0) {
           filters.serviceId = { $in: addOnIds };
-          console.log(`🔍 Filtering by ${addOnIds.length} serviceAddOns of parent service ${serviceId}`);
+          console.log(`🔍 Lọc theo ${addOnIds.length} serviceAddOns của dịch vụ cha ${serviceId}`);
         } else {
-          // No valid addOn IDs, filter by parent serviceId
+          // Không có addOn IDs hợp lệ, lọc theo parent serviceId
           filters.serviceId = mongoose.Types.ObjectId.isValid(serviceId) 
             ? new mongoose.Types.ObjectId(serviceId) 
             : serviceId;
         }
       } else {
-        // No addOns or error, filter by parent serviceId directly
+        // Không có addOns hoặc lỗi, lọc trực tiếp theo parent serviceId
         const mongoose = require('mongoose');
         filters.serviceId = mongoose.Types.ObjectId.isValid(serviceId) 
           ? new mongoose.Types.ObjectId(serviceId) 
@@ -351,17 +351,17 @@ class InvoiceRepository {
       }
     }
 
-    // Get summary, trends, byDentist, byService, and rawDetails in parallel
+    // Lấy summary, trends, byDentist, byService, và rawDetails song song
     const [summary, trends, byDentist, byService, rawDetails] = await Promise.all([
       InvoiceDetailRepo.getRevenueSummary(startDate, endDate, filters),
       InvoiceDetailRepo.getRevenueTrends(startDate, endDate, groupBy, filters),
       InvoiceDetailRepo.getRevenueByDentist(startDate, endDate, filters),
       InvoiceDetailRepo.getRevenueByService(startDate, endDate, filters),
-      // ✅ Thêm raw details có cả dentistId và serviceId để FE filter chéo
+      // ✅ Thêm raw details có cả dentistId và serviceId để FE lọc chéo
       InvoiceDetailRepo.getRawRevenueDetails(startDate, endDate, filters)
     ]);
 
-    console.log('✅ getRevenueStats returning:', {
+    console.log('✅ getRevenueStats trả về:', {
       hasRawDetails: !!rawDetails,
       rawDetailsLength: rawDetails?.length,
       byDentistLength: byDentist?.length,
@@ -378,11 +378,11 @@ class InvoiceRepository {
       trends,
       byDentist,
       byService,
-      rawDetails // ✅ Array of { dentistId, serviceId, revenue, count }
+      rawDetails // ✅ Mảng các { dentistId, serviceId, revenue, count }
     };
   }
 
-  // ============ DELETE METHODS ============
+  // ============ CÁC PHƯƠNG THỨC XÓA ============
   async softDelete(id, deletedBy) {
     return await this.update(id, {
       isActive: false,
@@ -395,11 +395,11 @@ class InvoiceRepository {
     return await Invoice.findByIdAndDelete(id);
   }
 
-  // ============ HELPER METHODS ============
+  // ============ CÁC PHƯƠNG THỨC HỖ TRỢ ============
   buildQuery(filter) {
     const query = { isActive: true };
 
-    // Keyword search
+    // Tìm kiếm theo từ khóa
     if (filter.keyword && filter.keyword.trim()) {
       const searchRegex = new RegExp(filter.keyword.trim(), 'i');
       query.$or = [
@@ -430,7 +430,7 @@ class InvoiceRepository {
       query.type = filter.type;
     }
 
-    // Date filters
+    // Lọc theo ngày
     if (filter.dateFrom || filter.dateTo) {
       query.issueDate = {};
       if (filter.dateFrom) {
@@ -445,7 +445,7 @@ class InvoiceRepository {
       }
     }
 
-    // Due date filters
+    // Lọc theo ngày đến hạn
     if (filter.dueDateFrom || filter.dueDateTo) {
       query.dueDate = {};
       if (filter.dueDateFrom) {
@@ -456,7 +456,7 @@ class InvoiceRepository {
       }
     }
 
-    // Amount filters
+    // Lọc theo số tiền
     if (filter.minAmount) {
       query.totalAmount = { $gte: filter.minAmount };
     }
@@ -464,17 +464,17 @@ class InvoiceRepository {
       query.totalAmount = { ...query.totalAmount, $lte: filter.maxAmount };
     }
 
-    // Search by phone
+    // Tìm theo số điện thoại
     if (filter.phone) {
       query['patientInfo.phone'] = new RegExp(filter.phone, 'i');
     }
 
-    // Search by patient name
+    // Tìm theo tên bệnh nhân
     if (filter.patientName) {
       query['patientInfo.name'] = new RegExp(filter.patientName, 'i');
     }
 
-    // Search overdue invoices
+    // Tìm các hóa đơn quá hạn
     if (filter.overdue === true) {
       query.dueDate = { $lt: new Date() };
       query.status = { $in: [InvoiceStatus.PENDING, InvoiceStatus.PARTIAL_PAID] };
@@ -483,11 +483,11 @@ class InvoiceRepository {
     return query;
   }
 
-  // ============ HELPER METHODS FOR CONSUMER ============
+  // ============ CÁC PHƯƠNG THỨC HỖ TRỢ CHO CONSUMER ============
   
   /**
-   * Count invoices created today
-   * Used for generating invoice number sequence
+   * Đếm số hóa đơn tạo trong ngày hôm nay
+   * Dùng để tạo số thứ tự hóa đơn
    */
   async countInvoicesToday() {
     const startOfDay = new Date();
@@ -502,14 +502,14 @@ class InvoiceRepository {
   }
 
   /**
-   * Create invoice from consumer event
+   * Tạo hóa đơn từ sự kiện consumer
    */
   async createInvoice(invoiceData) {
     return await this.create(invoiceData);
   }
 
   /**
-   * Update appointmentId after appointment creation
+   * Cập nhật appointmentId sau khi tạo cuộc hẹn
    */
   async updateAppointmentId(invoiceId, appointmentId) {
     return await Invoice.findByIdAndUpdate(

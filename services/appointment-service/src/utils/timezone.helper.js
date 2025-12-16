@@ -1,65 +1,65 @@
 /**
  * Timezone Helper Utilities
- * Handle timezone conversions for Vietnam (UTC+7)
+ * Xử lý chuyển đổi múi giờ cho Việt Nam (UTC+7)
  */
 
 /**
- * Parse a date string (YYYY-MM-DD) as midnight in Vietnam timezone
- * Then return as UTC Date object for MongoDB storage
+ * Parse một chuỗi ngày (YYYY-MM-DD) thành nửa đêm theo múi giờ Việt Nam
+ * Sau đó trả về đối tượng Date UTC để lưu vào MongoDB
  * 
- * Example:
- * Input: "2025-11-27"
- * Output: Date object representing 2025-11-26T17:00:00.000Z (which is 2025-11-27 00:00 VN time)
+ * Ví dụ:
+ * Đầu vào: "2025-11-27"
+ * Đầu ra: Date object đại diện cho 2025-11-26T17:00:00.000Z (tức 2025-11-27 00:00 giờ VN)
  * 
- * @param {String|Date} dateInput - Date string in YYYY-MM-DD format or Date object
- * @returns {Date} UTC Date object
+ * @param {String|Date} dateInput - Chuỗi ngày định dạng YYYY-MM-DD hoặc Date object
+ * @returns {Date} Đối tượng Date UTC
  */
 function parseVNDate(dateInput) {
   if (!dateInput) return null;
   
-  // If already a Date object, return as-is
+  // Nếu đã là Date object, trả về nguyên trạng
   if (dateInput instanceof Date) {
     return dateInput;
   }
   
-  // Parse string date
+  // Parse chuỗi ngày
   const dateStr = String(dateInput);
   
-  // If it's ISO format with timezone info, parse directly
+  // Nếu là định dạng ISO có thông tin timezone, parse trực tiếp
   if (dateStr.includes('T') || dateStr.includes('+')) {
     return new Date(dateStr);
   }
   
-  // For YYYY-MM-DD format, add VN timezone offset
+  // Với định dạng YYYY-MM-DD, thêm offset múi giờ VN
   const [year, month, day] = dateStr.split('-');
   
   if (!year || !month || !day) {
-    throw new Error(`Invalid date format: ${dateStr}. Expected YYYY-MM-DD`);
+    throw new Error(`Định dạng ngày không hợp lệ: ${dateStr}. Yêu cầu YYYY-MM-DD`);
   }
   
-  // Create date at midnight Vietnam time (UTC+7)
+  // Tạo date tại nửa đêm giờ Việt Nam (UTC+7)
   const vnDate = new Date(`${year}-${month}-${day}T00:00:00+07:00`);
   
   return vnDate;
 }
 
 /**
- * Get current date/time in Vietnam timezone
- * @returns {Date} Current time adjusted to VN timezone
+ * Lấy ngày/giờ hiện tại theo múi giờ Việt Nam
+ * @returns {Date} Thời gian hiện tại đã điều chỉnh về múi giờ VN
  */
 function getNowVN() {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
 }
 
 /**
- * Get start of day (00:00:00) in Vietnam timezone, returned as UTC
- * @param {Date} date - Optional date (defaults to today)
- * @returns {Date} Start of day in VN timezone (as UTC)
+ * Lấy đầu ngày (00:00:00) theo múi giờ Việt Nam, trả về dạng UTC
+ * @param {Date} date - Ngày tùy chọn (mặc định là hôm nay)
+ * @returns {Date} Đầu ngày theo múi giờ VN (dạng UTC)
  */
 function getStartOfDayVN(date = null) {
   const targetDate = date || new Date();
   
-  // Get VN date/time components
+  // Lấy các thành phần ngày/giờ VN
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Ho_Chi_Minh',
     year: 'numeric',
@@ -72,19 +72,19 @@ function getStartOfDayVN(date = null) {
   const month = parts.find(p => p.type === 'month').value;
   const day = parts.find(p => p.type === 'day').value;
   
-  // Create midnight VN time: YYYY-MM-DDT00:00:00+07:00
+  // Tạo nửa đêm giờ VN: YYYY-MM-DDT00:00:00+07:00
   return new Date(`${year}-${month}-${day}T00:00:00+07:00`);
 }
 
 /**
- * Get end of day (23:59:59.999) in Vietnam timezone, returned as UTC
- * @param {Date} date - Optional date (defaults to today)
- * @returns {Date} End of day in VN timezone (as UTC)
+ * Lấy cuối ngày (23:59:59.999) theo múi giờ Việt Nam, trả về dạng UTC
+ * @param {Date} date - Ngày tùy chọn (mặc định là hôm nay)
+ * @returns {Date} Cuối ngày theo múi giờ VN (dạng UTC)
  */
 function getEndOfDayVN(date = null) {
   const targetDate = date || new Date();
   
-  // Get VN date/time components
+  // Lấy các thành phần ngày/giờ VN
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Ho_Chi_Minh',
     year: 'numeric',
@@ -97,14 +97,14 @@ function getEndOfDayVN(date = null) {
   const month = parts.find(p => p.type === 'month').value;
   const day = parts.find(p => p.type === 'day').value;
   
-  // Create end of day VN time: YYYY-MM-DDT23:59:59.999+07:00
+  // Tạo cuối ngày giờ VN: YYYY-MM-DDT23:59:59.999+07:00
   return new Date(`${year}-${month}-${day}T23:59:59.999+07:00`);
 }
 
 /**
- * Format date to YYYY-MM-DD in Vietnam timezone
- * @param {Date} date - Date object
- * @returns {String} Date string in YYYY-MM-DD format
+ * Format date thành YYYY-MM-DD theo múi giờ Việt Nam
+ * @param {Date} date - Đối tượng Date
+ * @returns {String} Chuỗi ngày định dạng YYYY-MM-DD
  */
 function formatDateVN(date) {
   const vnDate = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));

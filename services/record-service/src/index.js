@@ -1,7 +1,7 @@
-// Load environment variables first
+// Tải biến môi trường trước tiên
 const dotenv = require('dotenv');
 dotenv.config();
-// ✅ Load .env ngay từ đầu - Restart to apply RabbitMQ fixes
+// ✅ Tải .env ngay từ đầu - Khởi động lại để áp dụng các bản sửa RabbitMQ
 const cors = require('cors');
 const http = require('http');
 
@@ -23,7 +23,7 @@ connectDB();
 const app = express();
 const server = http.createServer(app);
 
-// ✅ Initialize Socket.IO
+// ✅ Khởi tạo Socket.IO
 initializeSocket(server);
 
 app.use(express.json());
@@ -54,7 +54,7 @@ app.use(express.urlencoded({ extended: true }));
 // ✅ Routes
 app.use('/api/record', recordRoutes);
 
-// ✅ RabbitMQ Event Listeners
+// ✅ Bộ lắng nghe sự kiện RabbitMQ
 async function startEventListeners() {
   try {
     const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
@@ -62,18 +62,18 @@ async function startEventListeners() {
     
     console.log('📋 Initializing RabbitMQ queues...');
     
-    // Listen for appointment_checked-in events
+    // Lắng nghe sự kiện appointment_checked-in
     await consumeQueue('record_queue', async (message) => {
       if (message.event === 'appointment_checked-in') {
         await handleAppointmentCheckedIn(message);
       } else if (message.event === 'appointment.service_booked') {
-        // 🆕 Handle appointment.service_booked from appointment-service
-        // Mark treatmentIndications[x].used = true
+        // 🆕 Xử lý sự kiện appointment.service_booked từ appointment-service
+        // Đánh dấu treatmentIndications[x].used = true
         const { handleAppointmentServiceBooked } = require('./utils/eventHandlers');
         await handleAppointmentServiceBooked(message);
       } else if (message.event === 'delete_records_by_appointment') {
-        // ⭐ Handle delete_records_by_appointment from appointment-service
-        // Delete all records linked to cancelled appointment
+        // ⭐ Xử lý sự kiện delete_records_by_appointment từ appointment-service
+        // Xóa tất cả hồ sơ liên kết với cuộc hẹn đã hủy
         try {
           const { data } = message;
           const { appointmentId, deletedBy, deletedByRole, reason, deletedAt } = data;
@@ -86,7 +86,7 @@ async function startEventListeners() {
 
           const Record = require('./models/record.model');
 
-          // Find all records for this appointment
+          // Tìm tất cả hồ sơ cho cuộc hẹn này
           const records = await Record.find({ appointmentId: appointmentId });
 
           if (records.length === 0) {
@@ -96,7 +96,7 @@ async function startEventListeners() {
 
           console.log(`📋 [Record Service] Found ${records.length} record(s) to delete`);
 
-          // Delete each record
+          // Xóa từng hồ sơ
           for (const record of records) {
             await Record.findByIdAndDelete(record._id);
             console.log(`✅ [Record Service] Deleted record: ${record.recordCode} (ID: ${record._id})`);
@@ -112,8 +112,8 @@ async function startEventListeners() {
           });
         }
       } else if (message.event === 'appointment.status_changed') {
-        // 🔥 NEW: Handle appointment status changes from appointment-service
-        // Emit socket to notify queue dashboard
+        // 🔥 MỚI: Xử lý thay đổi trạng thái cuộc hẹn từ appointment-service
+        // Phát socket để thông báo dashboard hàng đợi
         try {
           const { data } = message;
           console.log('🔄 [Record Service] Received appointment.status_changed:', JSON.stringify(data, null, 2));
@@ -135,7 +135,7 @@ async function startEventListeners() {
           console.error('❌ Error handling appointment.status_changed:', error);
         }
       } else if (message.event === 'invoice.created') {
-        // Update record with invoiceId when invoice is created
+        // Cập nhật hồ sơ với invoiceId khi hóa đơn được tạo
         try {
           const { recordId, invoiceId, invoiceCode } = message.data;
           const Record = require('./models/record.model');
@@ -159,7 +159,7 @@ async function startEventListeners() {
       }
     });
     
-    // Listen for patient info responses (optional, if user-service implements)
+    // Lắng nghe phản hồi thông tin bệnh nhân (tùy chọn, nếu user-service triển khai)
     await consumeQueue('record_response_queue', async (message) => {
       if (message.event === 'get_patient_info_response') {
         await handlePatientInfoResponse(message);
@@ -172,18 +172,18 @@ async function startEventListeners() {
   } catch (error) {
     console.error('❌ Failed to start RabbitMQ event listeners:', error);
     console.error('Error details:', error.message);
-    // Don't crash the service if RabbitMQ fails
-    console.log('⚠️  Service will continue without RabbitMQ listeners');
+    // Không làm crash dịch vụ nếu RabbitMQ thất bại
+    console.log('⚠️  Dịch vụ sẽ tiếp tục mà không có bộ lắng nghe RabbitMQ');
   }
 }
 
-// ✅ RPC Server
+// ✅ Máy chủ RPC
 startRpcServer();
 
-// ✅ Start event listeners
+// ✅ Khởi động bộ lắng nghe sự kiện
 startEventListeners();
 
-// ✅ Server listen
+// ✅ Máy chủ lắng nghe
 const PORT = process.env.PORT || 3010;
 server.listen(PORT, () => {
   console.log(`🚀 Record service running on port ${PORT}`);

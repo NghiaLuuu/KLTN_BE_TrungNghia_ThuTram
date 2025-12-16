@@ -6,19 +6,19 @@ const { getStartOfDayVN, getEndOfDayVN, getNowVN } = require('../utils/timezone.
 
 class QueueService {
   /**
-   * Get queue for all rooms or specific room
-   * ✅ Group by room AND subroom (if exists)
-   * ✅ Don't filter by time - show all appointments today regardless of end time
-   * @param {String} roomId - Optional room ID filter
-   * @returns {Array} Queue data grouped by room/subroom
+   * Lấy hàng đợi cho tất cả phòng hoặc một phòng cụ thể
+   * ✅ Nhóm theo phòng VÀ phòng con (nếu có)
+   * ✅ Không lọc theo thời gian - hiển thị tất cả lịch hẹn hôm nay bất kể giờ kết thúc
+   * @param {String} roomId - ID phòng để lọc (tùy chọn)
+   * @returns {Array} Dữ liệu hàng đợi nhóm theo phòng/phòng con
    */
   async getQueue(roomId = null) {
     try {
-      // ✅ FIX: Use timezone helper for consistent VN timezone handling
+      // ✅ FIX: Sử dụng timezone helper để xử lý múi giờ VN nhất quán
       const startOfDayUTC = getStartOfDayVN();
       const endOfDayUTC = getEndOfDayVN();
 
-      console.log(`📅 [QueueService] Query range (UTC): ${startOfDayUTC.toISOString()} - ${endOfDayUTC.toISOString()}`);
+      console.log(`📅 [QueueService] Khoảng query (UTC): ${startOfDayUTC.toISOString()} - ${endOfDayUTC.toISOString()}`);
 
       const query = {
         // ✅ Chỉ lấy appointment chưa hoàn thành (bao gồm cả khám lố giờ)
@@ -37,12 +37,12 @@ class QueueService {
         .sort({ roomId: 1, subroomId: 1, startTime: 1 })
         .lean();
 
-      // console.log(`📊 [QueueService] Found ${appointments.length} appointments for queue`);
+      // console.log(`📊 [QueueService] Tìm thấy ${appointments.length} lịch hẹn cho hàng đợi`);
       // console.log(`🔍 [QueueService] Query:`, JSON.stringify(query, null, 2));
       
-      // Debug: Log first few appointments
+      // Debug: Log vài lịch hẹn đầu tiên
       if (appointments.length > 0) {
-        console.log(`📝 [QueueService] Sample appointments:`, 
+        console.log(`📝 [QueueService] Mẫu lịch hẹn:`, 
           appointments.slice(0, 3).map(apt => ({
             code: apt.appointmentCode,
             startTime: apt.startTime,
@@ -53,7 +53,7 @@ class QueueService {
         );
       }
 
-      // 🔥 Load rooms from room-service API (no more Redis cache)
+      // 🔥 Tải phòng từ room-service API (không còn cache Redis)
       const roomDataMap = new Map();
       const subroomDataMap = new Map();
       
@@ -66,12 +66,12 @@ class QueueService {
         if (roomsResult && roomsResult.success && Array.isArray(roomsResult.data)) {
           const roomsCache = roomsResult.data;
           
-          // Build maps for quick lookup
+          // Xây dựng maps để tra cứu nhanh
           roomsCache.forEach(room => {
             const roomIdStr = room._id.toString();
             roomDataMap.set(roomIdStr, room);
             
-            // Also map subrooms
+            // Cũng map phòng con
             if (room.subRooms && Array.isArray(room.subRooms)) {
               room.subRooms.forEach(subroom => {
                 const subroomIdStr = subroom._id.toString();
@@ -80,15 +80,15 @@ class QueueService {
             }
           });
           
-          console.log(`🏠 [QueueService] Loaded ${roomDataMap.size} rooms, ${subroomDataMap.size} subrooms from room-service API`);
+          console.log(`🏠 [QueueService] Đã tải ${roomDataMap.size} phòng, ${subroomDataMap.size} phòng con từ room-service API`);
         } else {
-          console.warn('⚠️ [QueueService] Could not get rooms from room-service API');
+          console.warn('⚠️ [QueueService] Không thể lấy phòng từ room-service API');
         }
       } catch (apiError) {
-        console.error('❌ [QueueService] Error loading rooms from API:', apiError.message);
+        console.error('❌ [QueueService] Lỗi tải phòng từ API:', apiError.message);
       }
 
-      // ✅ Group by room + subroom (nếu có subroom thì tách riêng)
+      // ✅ Nhóm theo phòng + phòng con (nếu có phòng con thì tách riêng)
       const queueByRoomSubroom = {};
       
       appointments.forEach(apt => {
@@ -100,7 +100,7 @@ class QueueService {
         const subroomKey = subroomIdStr || 'main';
         const uniqueKey = `${roomKey}_${subroomKey}`;
         
-        // ✅ Get room/subroom names from fetched data
+        // ✅ Lấy tên phòng/phòng con từ dữ liệu đã tải
         const roomData = roomDataMap.get(roomIdStr);
         const subroomData = subroomIdStr ? subroomDataMap.get(subroomIdStr) : null;
         
@@ -127,14 +127,14 @@ class QueueService {
         queueByRoomSubroom[uniqueKey].allAppointments.push(apt);
       });
 
-      // Process each room/subroom
+      // Xử lý từng phòng/phòng con
       Object.values(queueByRoomSubroom).forEach(room => {
         const appointmentsInRoom = room.allAppointments.sort((a, b) => {
           if (a.startTime === b.startTime) return 0;
           return a.startTime > b.startTime ? 1 : -1;
         });
 
-        // ✅ Current patient: status = 'in-progress' (đang khám)
+        // ✅ Bệnh nhân đang khám: status = 'in-progress'
         const current = appointmentsInRoom.find(apt => apt.status === 'in-progress');
         
         if (current) {
@@ -149,7 +149,7 @@ class QueueService {
         const checkedInQueue = appointmentsInRoom.filter(apt => apt.status === 'checked-in');
         const confirmedQueue = appointmentsInRoom.filter(apt => apt.status === 'confirmed');
 
-        // ✅ Next patient: Ưu tiên checked-in, sau đó confirmed
+        // ✅ Bệnh nhân tiếp theo: Ưu tiên checked-in, sau đó confirmed
         if (checkedInQueue.length > 0) {
           room.nextPatient = this._formatAppointment(checkedInQueue[0], roomDataMap, subroomDataMap);
           room.waitingList = checkedInQueue.slice(1).map(apt => this._formatAppointment(apt, roomDataMap, subroomDataMap));
@@ -164,40 +164,40 @@ class QueueService {
       });
 
       const result = Object.values(queueByRoomSubroom);
-      console.log(`✅ [QueueService] Returning ${result.length} rooms/subrooms`);
+      console.log(`✅ [QueueService] Trả về ${result.length} phòng/phòng con`);
       
       return result;
     } catch (error) {
-      console.error('❌ [QueueService] getQueue error:', error);
+      console.error('❌ [QueueService] Lỗi getQueue:', error);
       throw error;
     }
   }
 
   /**
-   * ✅ Sau khi complete, chỉ cần emit event để FE reload queue
-   * Không cần activate next patient vì tất cả đã có status 'in-progress' khi check-in
-   * @param {String} completedAppointmentId - ID of completed appointment
+   * ✅ Sau khi hoàn thành, chỉ cần emit event để FE reload queue
+   * Không cần activate bệnh nhân tiếp theo vì tất cả đã có status 'in-progress' khi check-in
+   * @param {String} completedAppointmentId - ID của lịch hẹn đã hoàn thành
    */
   async activateNextPatient(completedAppointmentId) {
     try {
       const completedApt = await Appointment.findById(completedAppointmentId);
       
       if (!completedApt) {
-        console.warn('⚠️ [QueueService] Completed appointment not found');
+        console.warn('⚠️ [QueueService] Không tìm thấy lịch hẹn đã hoàn thành');
         return null;
       }
 
       const roomId = completedApt.roomId;
 
-      console.log(`🔄 [QueueService] Appointment completed in room ${completedApt.roomName || roomId}`);
-      console.log(`ℹ️ [QueueService] Next patient in queue will automatically become current patient`);
+      console.log(`🔄 [QueueService] Lịch hẹn hoàn thành trong phòng ${completedApt.roomName || roomId}`);
+      console.log(`ℹ️ [QueueService] Bệnh nhân tiếp theo trong hàng đợi sẽ tự động trở thành bệnh nhân đang khám`);
 
-      // Emit socket event for realtime update - FE sẽ reload và hiển thị patient tiếp theo
+      // Emit socket event để cập nhật realtime - FE sẽ reload và hiển thị bệnh nhân tiếp theo
       this._emitQueueUpdate(roomId);
 
       return null; // Không cần return next patient vì logic đã tự động
     } catch (error) {
-      console.error('❌ [QueueService] activateNextPatient error:', error);
+      console.error('❌ [QueueService] Lỗi activateNextPatient:', error);
       throw error;
     }
   }
@@ -209,11 +209,11 @@ class QueueService {
    */
 
   /**
-   * Get queue statistics
+   * Lấy thống kê hàng đợi
    */
   async getQueueStats() {
     try {
-      // ✅ FIX: Use timezone helper for consistent VN timezone handling
+      // ✅ FIX: Sử dụng timezone helper để xử lý múi giờ VN nhất quán
       const startOfDayUTC = getStartOfDayVN();
       const endOfDayUTC = getEndOfDayVN();
 
@@ -273,17 +273,17 @@ class QueueService {
 
       return result;
     } catch (error) {
-      console.error('❌ [QueueService] getQueueStats error:', error);
+      console.error('❌ [QueueService] Lỗi getQueueStats:', error);
       throw error;
     }
   }
 
   /**
-   * Format appointment for queue response
+   * Format dữ liệu lịch hẹn cho response hàng đợi
    * @private
    */
   _formatAppointment(apt, roomDataMap = new Map(), subroomDataMap = new Map()) {
-    // ✅ Get room/subroom names from fetched data
+    // ✅ Lấy tên phòng/phòng con từ dữ liệu đã tải
     const roomIdStr = apt.roomId.toString();
     const subroomIdStr = apt.subroomId ? apt.subroomId.toString() : null;
     
@@ -319,17 +319,17 @@ class QueueService {
   }
 
   /**
-   * Calculate estimated wait time
+   * Tính toán thời gian chờ ước tính
    * @private
    */
   _calculateWaitTime(apt) {
-    // Simple estimation based on position and service duration
-    // Can be enhanced with ML or historical data
-    return apt.serviceDuration || 30; // Default 30 minutes
+    // Ước tính đơn giản dựa trên vị trí và thời lượng dịch vụ
+    // Có thể cải tiến với ML hoặc dữ liệu lịch sử
+    return apt.serviceDuration || 30; // Mặc định 30 phút
   }
 
   /**
-   * Emit socket event for queue update
+   * Phát sự kiện socket khi hàng đợi cập nhật
    * @private
    */
   _emitQueueUpdate(roomId) {
@@ -340,10 +340,10 @@ class QueueService {
           roomId: roomId.toString(),
           timestamp: new Date()
         });
-        console.log(`📡 [QueueService] Emitted queue_updated for room ${roomId}`);
+        console.log(`📡 [QueueService] Đã phát sự kiện queue_updated cho phòng ${roomId}`);
       }
     } catch (error) {
-      console.warn('⚠️ [QueueService] Socket emit failed:', error.message);
+      console.warn('⚠️ [QueueService] Phát sự kiện socket thất bại:', error.message);
     }
   }
 }

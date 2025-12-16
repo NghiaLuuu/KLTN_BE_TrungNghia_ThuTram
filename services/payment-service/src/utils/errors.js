@@ -1,4 +1,4 @@
-// Custom Error Classes for Payment Service
+// Các lớp Lỗi tùy chỉnh cho Payment Service
 
 class BadRequestError extends Error {
   constructor(message) {

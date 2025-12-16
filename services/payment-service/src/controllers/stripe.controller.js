@@ -4,7 +4,7 @@ const redis = require('../utils/redis.client');
 
 class StripeController {
   /**
-   * Create Stripe Payment Link (VNPay-style)
+   * Tạo liên kết thanh toán Stripe (theo kiểu VNPay)
    * POST /api/payments/stripe/create-payment-link
    * Body: { orderId, amount, orderInfo, customerEmail?, metadata? }
    */
@@ -17,7 +17,7 @@ class StripeController {
 
       const { orderId, amount, orderInfo, customerEmail, metadata } = req.body;
 
-      // Validation
+      // Kiểm tra dữ liệu đầu vào
       if (!orderId || !amount) {
         return res.status(400).json({
           success: false,
@@ -32,7 +32,7 @@ class StripeController {
         });
       }
 
-      // Create payment link (VNPay-style)
+      // Tạo liên kết thanh toán (theo kiểu VNPay)
       const userRole = req.user?.role || metadata?.userRole || 'patient';
       
       const result = await stripeService.createPaymentLink(
@@ -72,7 +72,7 @@ class StripeController {
   }
 
   /**
-   * Handle Stripe Callback/Return (VNPay-style)
+   * Xử lý Callback/Return từ Stripe (theo kiểu VNPay)
    * GET /api/payments/return/stripe?session_id={CHECKOUT_SESSION_ID}&status={success|cancel}
    */
   async handleCallback(req, res) {
@@ -88,16 +88,16 @@ class StripeController {
         });
       }
 
-      // Process callback (VNPay-style)
+      // Xử lý callback (theo kiểu VNPay)
       const result = await stripeService.processCallback(session_id, status);
 
-      // Get user role from Redis to determine redirect URL (SAME AS VNPAY)
+      // Lấy vai trò người dùng từ Redis để xác định URL chuyển hướng (GIỐNG VNPAY)
       const orderId = result.paymentCode || result.orderId;
       const roleKey = `payment:role:${orderId}`;
       let userRole = await redis.get(roleKey);
       
-      // Clean up role from Redis immediately after getting it
-      // This prevents memory leaks and ensures one-time use
+      // Dọn dẹp vai trò khỏi Redis ngay sau khi lấy được
+      // Điều này ngăn chặn rò rỉ bộ nhớ và đảm bảo sử dụng một lần
       if (userRole) {
         await redis.del(roleKey);
         console.log('🧹 [Stripe] Cleaned up role from Redis:', roleKey);
@@ -112,14 +112,14 @@ class StripeController {
       console.log('📊 Role Type:', typeof userRole);
       console.log('❓ Is null/undefined?:', userRole === null || userRole === undefined);
       
-      // Default to patient if not found
+      // Mặc định là patient nếu không tìm thấy
       if (!userRole) {
         console.log('⚠️  No role found in Redis, defaulting to patient');
         userRole = 'patient';
       }
       
-      // Determine redirect path based on role (SAME AS VNPAY)
-      // Always redirect to payment result page, let frontend handle role-based redirect
+      // Xác định đường dẫn chuyển hướng dựa trên vai trò (GIỐNG VNPAY)
+      // Luôn chuyển hướng đến trang kết quả thanh toán, để frontend xử lý chuyển hướng theo vai trò
       let redirectPath = '/patient/payment/result';
       
       console.log('🔗 Redirect Path:', redirectPath);
@@ -127,16 +127,16 @@ class StripeController {
       console.log('ℹ️  Frontend will handle role-based redirect after login check');
       console.log('='.repeat(60));
       
-      // Redirect to frontend with result
+      // Chuyển hướng đến frontend với kết quả
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
       
       if (status === 'success' && result._id) {
-        // Success - redirect to result page (SAME AS VNPAY)
+        // Thành công - chuyển hướng đến trang kết quả (GIỐNG VNPAY)
         const redirectUrl = `${frontendUrl}${redirectPath}?payment=success&orderId=${orderId}`;
         console.log('✅ [Stripe Callback] Payment successful, redirecting:', redirectUrl);
         return res.redirect(redirectUrl);
       } else {
-        // Cancel/failure - redirect to result page (SAME AS VNPAY)
+        // Hủy/thất bại - chuyển hướng đến trang kết quả (GIỐNG VNPAY)
         const redirectUrl = `${frontendUrl}${redirectPath}?payment=failed&orderId=${orderId}&method=stripe`;
         console.log('⏰ [Stripe Callback] Payment cancelled, redirecting:', redirectUrl);
         return res.redirect(redirectUrl);
@@ -147,7 +147,7 @@ class StripeController {
       console.error('❌ [Stripe Callback] Error stack:', error.stack);
       console.error('❌ [Stripe Callback] Error message:', error.message);
       
-      // Redirect to error page (SAME AS VNPAY)
+      // Chuyển hướng đến trang lỗi (GIỐNG VNPAY)
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
       const errorMessage = encodeURIComponent(error.message || 'Unknown error');
       const redirectUrl = `${frontendUrl}/patient/payment/result?payment=error&error=${errorMessage}`;
@@ -156,9 +156,9 @@ class StripeController {
   }
 
   /**
-   * Handle Stripe Webhook
+   * Xử lý Webhook từ Stripe
    * POST /api/payments/stripe/webhook
-   * Raw body required for signature verification
+   * Yêu cầu raw body để xác minh chữ ký
    */
   async handleWebhook(req, res) {
     try {
@@ -176,7 +176,7 @@ class StripeController {
       let event;
 
       try {
-        // Verify webhook signature
+        // Xác minh chữ ký webhook
         event = stripe.webhooks.constructEvent(
           req.body, // Raw body buffer
           sig,
@@ -192,7 +192,7 @@ class StripeController {
 
       console.log('🟣 [Stripe Webhook] Event received:', event.type);
 
-      // Handle the event
+      // Xử lý sự kiện
       const result = await stripeService.handleWebhookEvent(event);
 
       res.status(200).json({
@@ -211,7 +211,7 @@ class StripeController {
   }
 
   /**
-   * Verify checkout session (for frontend callback)
+   * Xác minh checkout session (cho frontend callback)
    * GET /api/payments/stripe/verify-session/:sessionId
    */
   async verifySession(req, res) {
@@ -244,7 +244,7 @@ class StripeController {
   }
 
   /**
-   * Get Stripe publishable key (for frontend)
+   * Lấy Stripe publishable key (cho frontend)
    * GET /api/payments/stripe/config
    */
   async getConfig(req, res) {

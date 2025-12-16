@@ -2,11 +2,11 @@ const cfgService = require('../services/scheduleConfig.service');
 
 const isManagerOrAdmin = (user) => {
   if (!user) return false;
-  const userRoles = user.roles || (user.role ? [user.role] : []); // Support both roles array and legacy role
+  const userRoles = user.roles || (user.role ? [user.role] : []); // Hỗ trợ cả mảng roles và role cũ
   return userRoles.includes('manager') || userRoles.includes('admin');
 };
 
-// Main Configuration Controllers
+// Quản lý Cấu hình Chính
 exports.getConfig = async (req, res) => {
   try {
     const configExists = await cfgService.checkConfigExists();
@@ -88,21 +88,21 @@ exports.updateConfig = async (req, res) => {
   try {
     const updates = req.body;
 
-    // Validate unit duration
+    // Kiểm tra thời lượng đơn vị
     if (updates.unitDuration && (updates.unitDuration <= 0 || updates.unitDuration > 240)) {
       return res.status(400).json({
         success: false,
-        message: 'Unit duration must be between 1 and 240 minutes'
+        message: 'Thời lượng đơn vị phải từ 1 đến 240 phút'
       });
     }
 
-    // Note: maxGenerateScheduleMonths removed (generation is strictly quarter-based)
+    // Ghi chú: maxGenerateScheduleMonths đã bị xóa (tạo lịch giới hạn theo quý)
 
-    // Validate max booking days
+    // Kiểm tra số ngày đặt lịch tối đa
     if (updates.maxBookingDays && (updates.maxBookingDays <= 0 || updates.maxBookingDays > 365)) {
       return res.status(400).json({
         success: false,
-        message: 'Max booking days must be between 1 and 365'
+        message: 'Số ngày đặt lịch tối đa phải từ 1 đến 365'
       });
     }
 
@@ -120,7 +120,7 @@ exports.updateConfig = async (req, res) => {
   }
 };
 
-// Holiday Management Controllers
+// Quản lý Ngày nghỉ
 exports.getHolidays = async (req, res) => {
   try {
     const holidays = await cfgService.getHolidays();
@@ -268,7 +268,7 @@ exports.removeHoliday = async (req, res) => {
   }
 };
 
-// Update single holiday by id (partial update)
+// Cập nhật một ngày nghỉ theo id (cập nhật một phần)
 exports.updateHoliday = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({
@@ -282,10 +282,10 @@ exports.updateHoliday = async (req, res) => {
     const updates = req.body || {};
 
     if (!holidayId) {
-      return res.status(400).json({ success: false, message: 'Holiday ID is required' });
+      return res.status(400).json({ success: false, message: 'Yêu cầu ID ngày nghỉ' });
     }
 
-    // Validate possible date updates
+    // Kiểm tra các cập nhật ngày tháng có thể
     if (updates.startDate && updates.endDate) {
       const sd = new Date(updates.startDate);
       const ed = new Date(updates.endDate);

@@ -3,9 +3,9 @@ const moment = require('moment-timezone');
 const TIMEZONE = 'Asia/Ho_Chi_Minh';
 
 /**
- * Parse date range và chuyển sang timezone Việt Nam
- * @param {string} startDateStr - Start date string (YYYY-MM-DD)
- * @param {string} endDateStr - End date string (YYYY-MM-DD)
+ * Parse khoảng thời gian và chuyển sang timezone Việt Nam
+ * @param {string} startDateStr - Chuỗi ngày bắt đầu (YYYY-MM-DD)
+ * @param {string} endDateStr - Chuỗi ngày kết thúc (YYYY-MM-DD)
  * @returns {Object} { startDate: Date, endDate: Date }
  */
 function parseDateRange(startDateStr, endDateStr) {
@@ -19,8 +19,8 @@ function parseDateRange(startDateStr, endDateStr) {
 }
 
 /**
- * Get start and end of day theo timezone VN
- * @param {Date} date 
+ * Lấy đầu ngày và cuối ngày theo timezone VN
+ * @param {Date} date - Đối tượng Date
  * @returns {Object} { startOfDay: Date, endOfDay: Date }
  */
 function getVietnamDayBounds(date) {
@@ -32,10 +32,10 @@ function getVietnamDayBounds(date) {
 }
 
 /**
- * Convert Date to Vietnam timezone string
- * @param {Date} date 
- * @param {string} format - moment format string
- * @returns {string}
+ * Chuyển Date sang chuỗi theo timezone Việt Nam
+ * @param {Date} date - Đối tượng Date
+ * @param {string} format - Chuỗi định dạng moment
+ * @returns {string} Chuỗi thời gian đã format
  */
 function toVietnamTime(date, format = 'YYYY-MM-DD HH:mm:ss') {
   return moment(date).tz(TIMEZONE).format(format);

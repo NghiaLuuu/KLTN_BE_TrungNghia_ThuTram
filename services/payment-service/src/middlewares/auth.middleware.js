@@ -1,9 +1,9 @@
 const jwt = require('jsonwebtoken');
 
 const authMiddleware = (req, res, next) => {
-  // ✅ Allow internal service-to-service calls
+  // ✅ Cho phép các cuộc gọi nội bộ giữa các service
   if (req.headers['x-internal-call'] === 'true') {
-    // Set a system user for internal calls
+    // Đặt người dùng hệ thống cho các cuộc gọi nội bộ
     req.user = {
       userId: 'system',
       role: 'system',

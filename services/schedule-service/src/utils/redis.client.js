@@ -1,18 +1,18 @@
 ﻿const redis = require('redis');
 
-// Debug environment variables
+// Debug biến môi trường
 console.log('🔍 Debug Redis Env:');
 console.log('   REDIS_URL:', process.env.REDIS_URL);
 console.log('   REDIS_HOST:', process.env.REDIS_HOST);
 console.log('   REDIS_PORT:', process.env.REDIS_PORT);
 console.log('   REDIS_PASSWORD:', process.env.REDIS_PASSWORD ? '***' : 'NOT SET');
 
-// Use REDIS_URL if available, otherwise fallback to host/port with password
+// Sử dụng REDIS_URL nếu có, nếu không thì fallback sang host/port với password
 const redisConfig = {
   url: process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`,
 };
 
-// Add password if provided
+// Thêm password nếu có
 if (process.env.REDIS_PASSWORD) {
   redisConfig.password = process.env.REDIS_PASSWORD;
 }

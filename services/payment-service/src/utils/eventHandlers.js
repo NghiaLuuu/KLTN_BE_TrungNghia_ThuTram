@@ -2,29 +2,29 @@ const { Payment, PaymentStatus, PaymentType, PaymentMethod } = require('../model
 const { publishToQueue } = require('./rabbitmq.client');
 
 /**
- * Handle payment.create event from record-service
- * Auto-create payment request when record is completed
+ * Xử lý sự kiện payment.create từ record-service
+ * Tự động tạo yêu cầu thanh toán khi hồ sơ hoàn tất
  */
 async function handlePaymentCreate(eventData) {
   try {
     const { data } = eventData;
     const timestamp = new Date().toISOString();
     
-    console.log(`\n🔔🔔🔔 [${timestamp}] [handlePaymentCreate] RECEIVED payment.create event`);
-    console.log(`📝 Creating payment for record ${data.recordId} (${data.recordCode})`);
+    console.log(`\n🔔🔔🔔 [${timestamp}] [handlePaymentCreate] ĐÃ NHẬN sự kiện payment.create`);
+    console.log(`📝 Đang tạo thanh toán cho hồ sơ ${data.recordId} (${data.recordCode})`);
     
-    // Check if payment already exists for this record
+    // Kiểm tra xem thanh toán đã tồn tại cho hồ sơ này chưa
     const existingPayment = await Payment.findOne({ recordId: data.recordId });
     if (existingPayment) {
-      console.log(`⚠️⚠️⚠️ [handlePaymentCreate] DUPLICATE DETECTED - Payment already exists for record ${data.recordId}: ${existingPayment.paymentCode}`);
-      console.log(`⏭️ Skipping payment creation (duplicate prevention)`);
+      console.log(`⚠️⚠️⚠️ [handlePaymentCreate] PHÁT HIỆN TRÙNG LẶP - Thanh toán đã tồn tại cho hồ sơ ${data.recordId}: ${existingPayment.paymentCode}`);
+      console.log(`⏭️ Bỏ qua tạo thanh toán (ngăn chặn trùng lặp)`);
       return;
     }
     
-    console.log('✅ No existing payment found - proceeding with creation');
-    console.log('📋 Payment data:', JSON.stringify(data, null, 2));
+    console.log('✅ Không tìm thấy thanh toán hiện có - tiếp tục tạo mới');
+    console.log('📋 Dữ liệu thanh toán:', JSON.stringify(data, null, 2));
     
-    // 🆕 Fetch deposit from invoice-service (if appointment has invoiceId)
+    // 🆕 Lấy tiền cọc từ invoice-service (nếu lịch hẹn có invoiceId)
     let depositAmount = 0;
     let bookingChannel = 'offline';
     let invoiceNumber = null;
@@ -33,7 +33,7 @@ async function handlePaymentCreate(eventData) {
       try {
         const axios = require('axios');
         
-        // Step 1: Get appointment to check if it has invoiceId
+        // Bước 1: Lấy thông tin lịch hẹn để kiểm tra có invoiceId không
         const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
         const appointmentResponse = await axios.get(`${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids`, {
           params: { ids: data.appointmentId }
@@ -44,9 +44,9 @@ async function handlePaymentCreate(eventData) {
           bookingChannel = appointment.bookingChannel || 'offline';
           const invoiceId = appointment.invoiceId;
           
-          console.log(`📄 [handlePaymentCreate] Appointment ${data.appointmentId} has invoiceId: ${invoiceId}`);
+          console.log(`📄 [handlePaymentCreate] Lịch hẹn ${data.appointmentId} có invoiceId: ${invoiceId}`);
           
-          // Step 2: If appointment has invoiceId, fetch invoice to get deposit amount
+          // Bước 2: Nếu lịch hẹn có invoiceId, lấy hóa đơn để biết số tiền cọc
           if (invoiceId) {
             try {
               const INVOICE_SERVICE_URL = process.env.INVOICE_SERVICE_URL || 'http://localhost:3008';
@@ -56,18 +56,18 @@ async function handlePaymentCreate(eventData) {
                 const invoice = invoiceResponse.data.data;
                 depositAmount = invoice.paymentSummary?.totalPaid || 0;
                 invoiceNumber = invoice.invoiceNumber || null;
-                bookingChannel = 'online'; // ✅ Has invoice = online booking
+                bookingChannel = 'online'; // ✅ Có hóa đơn = đặt lịch online
                 
-                console.log(`💰 [handlePaymentCreate] Invoice ${invoiceNumber} deposit: ${depositAmount.toLocaleString('vi-VN')}đ (online booking)`);
+                console.log(`💰 [handlePaymentCreate] Hóa đơn ${invoiceNumber} tiền cọc: ${depositAmount.toLocaleString('vi-VN')}đ (đặt lịch online)`);
               }
             } catch (invoiceError) {
-              console.error('⚠️ [handlePaymentCreate] Failed to fetch invoice:', invoiceError.message);
+              console.error('⚠️ [handlePaymentCreate] Lấy hóa đơn thất bại:', invoiceError.message);
             }
           } else {
-            console.log(`ℹ️ [handlePaymentCreate] Appointment has no invoice - no deposit`);
+            console.log(`ℹ️ [handlePaymentCreate] Lịch hẹn không có hóa đơn - không có tiền cọc`);
           }
           
-          console.log(`📋 [handlePaymentCreate] Appointment info:`, {
+          console.log(`📋 [handlePaymentCreate] Thông tin lịch hẹn:`, {
             appointmentId: data.appointmentId,
             bookingChannel: bookingChannel,
             invoiceId: invoiceId,
@@ -75,20 +75,20 @@ async function handlePaymentCreate(eventData) {
           });
         }
       } catch (error) {
-        console.error('⚠️ [handlePaymentCreate] Failed to fetch appointment:', error.message);
-        // Continue without deposit info
+        console.error('⚠️ [handlePaymentCreate] Lấy lịch hẹn thất bại:', error.message);
+        // Tiếp tục không có thông tin tiền cọc
       }
     }
     
-    // Calculate final amount (after deducting deposit)
+    // Tính số tiền cuối (sau khi trừ tiền cọc)
     const originalAmount = data.originalAmount || 0;
     const finalAmount = Math.max(0, originalAmount - depositAmount);
     
-    // 🆕 Handle processedBy - use a system default ObjectId if null
+    // 🆕 Xử lý processedBy - dùng ObjectId hệ thống mặc định nếu null
     const mongoose = require('mongoose');
-    const systemUserId = data.createdBy || new mongoose.Types.ObjectId('000000000000000000000000'); // System user
+    const systemUserId = data.createdBy || new mongoose.Types.ObjectId('000000000000000000000000'); // Người dùng hệ thống
     
-    // Prepare payment data
+    // Chuẩn bị dữ liệu thanh toán
     const paymentData = {
       recordId: data.recordId,
       appointmentId: data.appointmentId || null,
@@ -100,14 +100,14 @@ async function handlePaymentCreate(eventData) {
         address: data.patientInfo?.address || null
       },
       type: PaymentType.PAYMENT,
-      method: null, // ✅ No default method - receptionist will choose later
+      method: null, // ✅ Không có phương thức mặc định - lễ tân sẽ chọn sau
       status: PaymentStatus.PENDING,
       originalAmount: originalAmount,
-      depositAmount: depositAmount, // 💰 Deposit from invoice
-      discountAmount: 0, // Additional discount (if any)
+      depositAmount: depositAmount, // 💰 Tiền cọc từ hóa đơn
+      discountAmount: 0, // Giảm giá thêm (nếu có)
       finalAmount: finalAmount,
       paidAmount: 0,
-      processedBy: systemUserId, // ✅ Use system ID if null
+      processedBy: systemUserId, // ✅ Dùng ID hệ thống nếu null
       processedByName: data.createdByName || 'Hệ thống',
       description: `Thanh toán cho ${data.serviceName || 'dịch vụ'}${data.serviceAddOnName ? ` - ${data.serviceAddOnName}` : ''}`,
       notes: depositAmount > 0 
@@ -115,12 +115,12 @@ async function handlePaymentCreate(eventData) {
         : 'Chưa có cọc trước'
     };
     
-    // Create payment
+    // Tạo thanh toán
     const payment = new Payment(paymentData);
     await payment.save();
     
-    console.log(`✅ [handlePaymentCreate] Payment created: ${payment.paymentCode} for record ${data.recordId}`);
-    console.log(`💰 Payment details:`, {
+    console.log(`✅ [handlePaymentCreate] Đã tạo thanh toán: ${payment.paymentCode} cho hồ sơ ${data.recordId}`);
+    console.log(`💰 Chi tiết thanh toán:`, {
       originalAmount: payment.originalAmount,
       depositAmount: payment.depositAmount,
       discountAmount: payment.discountAmount,
@@ -128,7 +128,7 @@ async function handlePaymentCreate(eventData) {
       invoiceNumber: invoiceNumber
     });
     
-    // Publish payment.created event
+    // Phát sự kiện payment.created
     try {
       await publishToQueue('payment_created_queue', {
         event: 'payment.created',
@@ -142,9 +142,9 @@ async function handlePaymentCreate(eventData) {
           createdAt: payment.createdAt
         }
       });
-      console.log(`✅ Published payment.created event for ${payment.paymentCode}`);
+      console.log(`✅ Đã phát sự kiện payment.created cho ${payment.paymentCode}`);
     } catch (publishError) {
-      console.error('❌ Failed to publish payment.created event:', publishError);
+      console.error('❌ Phát sự kiện payment.created thất bại:', publishError);
     }
     
     return payment;
@@ -156,27 +156,27 @@ async function handlePaymentCreate(eventData) {
 }
 
 /**
- * Handle payment.cash_confirm event
- * Confirm cash payment and emit payment.success
+ * Xử lý sự kiện payment.cash_confirm
+ * Xác nhận thanh toán tiền mặt và phát payment.success
  */
 async function handleCashPaymentConfirm(eventData) {
   try {
     const { data } = eventData;
     const { paymentId, paidAmount, processedBy, processedByName } = data;
     
-    console.log(`🔄 [handleCashPaymentConfirm] Confirming payment ${paymentId}`);
+    console.log(`🔄 [handleCashPaymentConfirm] Đang xác nhận thanh toán ${paymentId}`);
     
     const payment = await Payment.findById(paymentId);
     if (!payment) {
-      throw new Error(`Payment not found: ${paymentId}`);
+      throw new Error(`Không tìm thấy thanh toán: ${paymentId}`);
     }
     
     if (payment.status === PaymentStatus.COMPLETED) {
-      console.log(`⚠️ Payment ${payment.paymentCode} already completed`);
+      console.log(`⚠️ Thanh toán ${payment.paymentCode} đã hoàn tất`);
       return payment;
     }
     
-    // Update payment
+    // Cập nhật thanh toán
     payment.status = PaymentStatus.COMPLETED;
     payment.paidAmount = paidAmount || payment.finalAmount;
     payment.changeAmount = Math.max(0, payment.paidAmount - payment.finalAmount);
@@ -186,9 +186,9 @@ async function handleCashPaymentConfirm(eventData) {
     
     await payment.save();
     
-    console.log(`✅ [handleCashPaymentConfirm] Payment ${payment.paymentCode} completed`);
+    console.log(`✅ [handleCashPaymentConfirm] Thanh toán ${payment.paymentCode} hoàn tất`);
     
-    // Publish payment.success event
+    // Phát sự kiện payment.success
     await publishPaymentSuccess(payment);
     
     return payment;
@@ -200,7 +200,7 @@ async function handleCashPaymentConfirm(eventData) {
 }
 
 /**
- * Publish payment.success event to trigger invoice creation
+ * Phát sự kiện payment.success để kích hoạt tạo hóa đơn
  */
 async function publishPaymentSuccess(payment) {
   try {
@@ -225,9 +225,9 @@ async function publishPaymentSuccess(payment) {
       }
     });
     
-    console.log(`✅ Published payment.success event for ${payment.paymentCode}`);
+    console.log(`✅ Đã phát sự kiện payment.success cho ${payment.paymentCode}`);
   } catch (error) {
-    console.error('❌ Failed to publish payment.success:', error);
+    console.error('❌ Phát payment.success thất bại:', error);
     throw error;
   }
 }

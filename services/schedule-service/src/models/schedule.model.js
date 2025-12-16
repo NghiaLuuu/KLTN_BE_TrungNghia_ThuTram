@@ -89,7 +89,7 @@ const scheduleSchema = new mongoose.Schema({
     }
   },
   
-  // Legacy fields (kept for backward compatibility)
+  // Các trường cũ (giữ lại để tương thích ngược)
   date: {
     type: Date,
     required: false
@@ -103,13 +103,13 @@ const scheduleSchema = new mongoose.Schema({
     default: 'monthly'
   },
   
-  // 🆕 User tracking
+  // 🆕 Theo dõi người dùng
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     default: null
   },
   
-  // 🆕 Holiday snapshot - lưu thông tin ngày nghỉ tại thời điểm tạo lịch
+  // 🆕 Snapshot ngày nghỉ - lưu thông tin ngày nghỉ tại thời điểm tạo lịch
   // Để khi tạo ca thiếu vẫn dùng đúng cấu hình cũ
   holidaySnapshot: {
     // Ngày nghỉ cố định (lặp lại mỗi tuần) có isActive = true
@@ -162,7 +162,7 @@ const scheduleSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Compound index for efficient queries (UPDATED: month instead of quarter)
+// Index kết hợp cho truy vấn hiệu quả (ĐÃ CẬP NHẬT: tháng thay vì quý)
 scheduleSchema.index({ roomId: 1, month: 1, year: 1 });
 scheduleSchema.index({ roomId: 1, subRoomId: 1, month: 1, year: 1 });
 scheduleSchema.index({ startDate: 1, endDate: 1 });

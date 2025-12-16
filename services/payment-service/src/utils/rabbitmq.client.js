@@ -1,6 +1,7 @@
 /**
  * @author: TrungNghia
- * RabbitMQ Client for Payment Service
+ * RabbitMQ Client cho Payment Service
+ * Xử lý kết nối và giao tiếp message queue
  */
 
 const amqp = require('amqplib');
@@ -12,15 +13,15 @@ async function connectRabbitMQ(url) {
   connection = await amqp.connect(url);
   channel = await connection.createChannel();
   
-  // ✅ Connection log removed - will log in index.js only
+  // ✅ Đã gỡ log kết nối - sẽ log trong index.js
   
-  // Handle connection errors
+  // Xử lý lỗi kết nối
   connection.on('error', (error) => {
-    console.error('❌ RabbitMQ connection error:', error);
+    console.error('❌ Lỗi kết nối RabbitMQ:', error);
   });
   
   connection.on('close', () => {
-    console.log('🔴 RabbitMQ connection closed');
+    console.log('🔴 Kết nối RabbitMQ đã đóng');
     setTimeout(() => connectRabbitMQ(url), 5000);
   });
   
@@ -33,65 +34,65 @@ function getChannel() {
 }
 
 /**
- * Publish message to queue
+ * Gửi tin nhắn đến queue
  */
 async function publishToQueue(queueName, message) {
   try {
-    // Check if channel is initialized
+    // Kiểm tra channel đã được khởi tạo chưa
     if (!channel) {
-      console.warn(`⚠️ RabbitMQ channel not initialized, skipping publish to ${queueName}`);
+      console.warn(`⚠️ Channel RabbitMQ chưa khởi tạo, bỏ qua gửi đến ${queueName}`);
       return;
     }
 
     const ch = getChannel();
     
-    // ✅ FIXED: Don't delete queue - just assert it exists
-    // Deleting queue removes all consumers listening to it!
+    // ✅ ĐÃ SỬA: Không xóa queue - chỉ kiểm tra tồn tại
+    // Xóa queue sẽ loại bỏ tất cả consumer đang lắng nghe!
     await ch.assertQueue(queueName, { durable: true });
     
     ch.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
       persistent: true
     });
-    console.log(`📤 Event sent to ${queueName}`);
+    console.log(`📤 Đã gửi sự kiện đến ${queueName}`);
   } catch (error) {
-    console.error(`❌ Failed to publish to ${queueName}:`, error.message);
-    // Don't throw - let the caller handle it
+    console.error(`❌ Gửi đến ${queueName} thất bại:`, error.message);
+    // Không throw - để caller xử lý
   }
 }
 
 /**
- * Consume messages from queue
+ * Tiêu thụ tin nhắn từ queue
  */
 async function consumeQueue(queueName, handler) {
   try {
     const ch = getChannel();
     await ch.assertQueue(queueName, { durable: true });
     
-    console.log(`👂 Listening to ${queueName}...`);
+    console.log(`👂 Đang lắng nghe ${queueName}...`);
     
     ch.consume(queueName, async (msg) => {
       if (msg) {
         try {
           const content = JSON.parse(msg.content.toString());
-          console.log(`📥 Received from ${queueName}:`, content.event || content.type);
+          console.log(`📥 Nhận từ ${queueName}:`, content.event || content.type);
           
           await handler(content);
           
           ch.ack(msg);
         } catch (error) {
-          console.error(`❌ Error processing message from ${queueName}:`, error);
-          ch.nack(msg, false, false); // Don't requeue
+          console.error(`❌ Lỗi xử lý tin nhắn từ ${queueName}:`, error);
+          ch.nack(msg, false, false); // Không requeue
         }
       }
     });
   } catch (error) {
-    console.error(`❌ Failed to consume from ${queueName}:`, error);
+    console.error(`❌ Không thể tiêu thụ từ ${queueName}:`, error);
     throw error;
   }
 }
 
 /**
- * Publish event to exchange (for event-driven architecture)
+ * Phát sự kiện đến exchange (cho kiến trúc event-driven)
  */
 async function publishEvent(exchange, routingKey, event) {
   try {
@@ -103,9 +104,9 @@ async function publishEvent(exchange, routingKey, event) {
       Buffer.from(JSON.stringify(event)),
       { persistent: true }
     );
-    console.log(`📤 Published event to ${exchange}/${routingKey}:`, event.event);
+    console.log(`📤 Đã phát sự kiện đến ${exchange}/${routingKey}:`, event.event);
   } catch (error) {
-    console.error(`❌ Failed to publish event:`, error);
+    console.error(`❌ Phát sự kiện thất bại:`, error);
     throw error;
   }
 }
@@ -115,6 +116,6 @@ module.exports = {
   getChannel,
   publishToQueue,
   consumeQueue,
-  consumeFromQueue: consumeQueue, // Alias for compatibility
+  consumeFromQueue: consumeQueue, // Alias để tương thích
   publishEvent
 };

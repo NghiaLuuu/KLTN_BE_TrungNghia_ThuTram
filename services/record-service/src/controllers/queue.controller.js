@@ -2,7 +2,7 @@ const queueService = require('../services/queue.service');
 
 class QueueController {
   /**
-   * Get next queue number for a room
+   * Lấy số thứ tự hàng đợi tiếp theo cho phòng
    * GET /api/record/queue/next-number?date=YYYY-MM-DD&roomId=xxx&subroomId=xxx
    */
   async getNextQueueNumber(req, res) {
@@ -45,7 +45,7 @@ class QueueController {
   }
 
   /**
-   * Call a record - assign queue number and update status to in-progress
+   * Gọi hồ sơ - gán số thứ tự và cập nhật trạng thái thành in-progress
    * POST /api/record/:recordId/call
    */
   async callRecord(req, res) {
@@ -77,7 +77,7 @@ class QueueController {
   }
 
   /**
-   * Complete a record - update status to completed and return payment data
+   * Hoàn thành hồ sơ - cập nhật trạng thái thành completed và trả về dữ liệu thanh toán
    * POST /api/record/:recordId/complete
    */
   async completeRecord(req, res) {
@@ -109,7 +109,7 @@ class QueueController {
   }
 
   /**
-   * Cancel a record - update status to cancelled
+   * Hủy hồ sơ - cập nhật trạng thái thành cancelled
    * POST /api/record/:recordId/cancel
    * Body: { reason: string }
    */
@@ -150,7 +150,7 @@ class QueueController {
   }
 
   /**
-   * Get queue status for a room
+   * Lấy trạng thái hàng đợi cho phòng
    * GET /api/record/queue/status?date=YYYY-MM-DD&roomId=xxx&subroomId=xxx
    */
   async getQueueStatus(req, res) {

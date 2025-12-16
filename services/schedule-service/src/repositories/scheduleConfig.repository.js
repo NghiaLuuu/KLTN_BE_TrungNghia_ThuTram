@@ -1,13 +1,13 @@
 const { ScheduleConfig } = require('../models/scheduleConfig.model');
 
 exports.getConfig = async () => {
-  // Return the single config document if exists, else null
+  // Trả về tài liệu cấu hình đơn nếu tồn tại, nếu không trả null
   const cfg = await ScheduleConfig.findOne();
   return cfg;
 };
 
 exports.createConfig = async (data) => {
-  // Remove existing and create single config for simplicity
+  // Xóa cái cũ và tạo cấu hình đơn để đơn giản
   await ScheduleConfig.deleteMany({});
   const cfg = new ScheduleConfig(data);
   return await cfg.save();
@@ -38,12 +38,12 @@ class ScheduleConfigRepository {
     const existingConfig = await ScheduleConfig.findOne({});
     
     if (existingConfig) {
-      // Update existing config
+      // Cập nhật cấu hình hiện có
       Object.assign(existingConfig, configData);
       existingConfig.updatedAt = new Date();
       return await existingConfig.save();
     } else {
-      // Create new config
+      // Tạo cấu hình mới
       return await ScheduleConfig.create(configData);
     }
   }
@@ -110,7 +110,7 @@ class ScheduleConfigRepository {
     return await this.updateConfig({ unitDuration });
   }
 
-  // maxGenerateScheduleMonths removed: generation is quarter-based only
+  // maxGenerateScheduleMonths đã xóa: việc tạo lịch chỉ dựa trên quý
 
   /**
    * Get configuration with validation
@@ -123,12 +123,12 @@ class ScheduleConfigRepository {
       throw new Error('Schedule configuration not found. Please initialize configuration first.');
     }
 
-    // Validate required fields
+    // Kiểm tra các trường bắt buộc
     if (!config.unitDuration || config.unitDuration <= 0) {
       throw new Error('Invalid unit duration in configuration');
     }
 
-    // maxGenerateScheduleMonths removed: no validation needed
+    // maxGenerateScheduleMonths đã xóa: không cần kiểm tra
 
     return config;
   }

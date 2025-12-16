@@ -9,7 +9,7 @@ const axios = require('axios');
 class ChatbotController {
   /**
    * POST /api/ai/chat
-   * Send message and get AI response
+   * Gửi tin nhắn và nhận phản hồi AI
    */
   async sendMessage(req, res) {
     try {
@@ -23,18 +23,18 @@ class ChatbotController {
         });
       }
 
-      // Get or create session first (needed for booking flow check)
+      // Lấy hoặc tạo session trước (cần thiết cho kiểm tra luồng đặt lịch)
       const session = await chatSessionRepo.getOrCreateSession(userId);
 
-      // Check booking context to see if user is in booking flow
+      // Kiểm tra booking context để xem user có đang trong luồng đặt lịch không
       const bookingContext = await chatSessionRepo.getBookingContext(session.sessionId);
       const isInBookingFlowContext = bookingContext && bookingContext.isInBookingFlow;
 
-      // Check if message is dental-related
+      // Kiểm tra tin nhắn có liên quan đến nha khoa không
       const isDentalRelated = aiService.isDentalRelated(message);
       
-      // Check if user is in booking flow (recently received service list)
-      const recentMessages = session.messages.slice(-7); // Last 7 messages for better context
+      // Kiểm tra user có đang trong luồng đặt lịch không (mới nhận danh sách dịch vụ)
+      const recentMessages = session.messages.slice(-7); // 7 tin nhắn gần nhất cho ngữ cảnh tốt hơn
       const isInBookingFlow = recentMessages.some(msg => 
         msg.role === 'assistant' && 
         (msg.content.includes('Dịch vụ khám và điều trị') || 
@@ -46,11 +46,11 @@ class ChatbotController {
          msg.content.includes('Bạn muốn đặt lịch cho dịch vụ nào'))
       );
       
-      // Skip off-topic check if:
-      // 1. User is in booking flow (context or messages)
-      // 2. Message is a number (service/dentist/date/slot selection)
-      // 3. Message contains booking keywords
-      // 4. Message looks like a person name (for dentist selection)
+      // Bỏ qua kiểm tra lạc chủ đề nếu:
+      // 1. User đang trong luồng đặt lịch (context hoặc messages)
+      // 2. Tin nhắn là số (chọn dịch vụ/nha sĩ/ngày/slot)
+      // 3. Tin nhắn chứa từ khóa đặt lịch
+      // 4. Tin nhắn trông giống tên người (cho việc chọn nha sĩ)
       const isNumberSelection = /^\d+$/.test(message.trim());
       const looksLikePersonName = /^[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ][a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]+(\s[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ][a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]+)+$/i.test(message.trim());
       const hasBookingKeywords = ['đặt lịch', 'dịch vụ', 'khám', 'hẹn', 'có', 'không', 'bất kỳ', 'nha sĩ', 'Nha sĩ', 'ngày', 'giờ'].some(kw => 
@@ -58,7 +58,7 @@ class ChatbotController {
       );
       
       if (!isDentalRelated && !isInBookingFlowContext && !isInBookingFlow && !isNumberSelection && !hasBookingKeywords && !looksLikePersonName) {
-        // Increment off-topic count (rate limiting)
+        // Tăng số lần lạc chủ đề (rate limiting)
         if (req.rateLimit && req.rateLimit.incrementOffTopicCount) {
           const rateStatus = await req.rateLimit.incrementOffTopicCount(userId);
           
@@ -84,7 +84,7 @@ class ChatbotController {
           });
         }
         
-        // Fallback if rate limiter not available
+        // Fallback nếu rate limiter không khả dụng
         const rejectMessage = 'Xin lỗi, tôi chỉ có thể hỗ trợ các vấn đề liên quan đến phòng khám nha khoa SmileCare. Bạn có câu hỏi nào về răng miệng không? 😊';
         
         return res.json({
@@ -95,55 +95,55 @@ class ChatbotController {
         });
       }
       
-      // Reset off-topic count on valid dental message
+      // Reset số lần lạc chủ đề khi có tin nhắn nha khoa hợp lệ
       if (req.rateLimit && req.rateLimit.resetOffTopicCount) {
         await req.rateLimit.resetOffTopicCount(userId);
       }
 
-      // Add user message to session
+      // Thêm tin nhắn user vào session
       await chatSessionRepo.addMessage(session.sessionId, 'user', message);
 
-      // Get conversation history (optimized for cost)
-      // Read 20 messages at CONFIRMATION step when user confirms (to get full booking context)
-      // Read 10 messages at CONFIRMATION step for GPT summary
-      // Other steps: 5 messages is enough for context
-      let historyLimit = 5; // Default for most steps
+      // Lấy lịch sử hội thoại (tối ưu cho chi phí)
+      // Đọc 20 tin nhắn ở bước CONFIRMATION khi user xác nhận (để có đủ ngữ cảnh đặt lịch)
+      // Đọc 10 tin nhắn ở bước CONFIRMATION cho GPT tóm tắt
+      // Các bước khác: 5 tin nhắn là đủ cho ngữ cảnh
+      let historyLimit = 5; // Mặc định cho hầu hết các bước
       
       if (bookingContext && bookingContext.step === 'CONFIRMATION') {
         const input = message.trim().toLowerCase();
-        // If user is confirming (Có), read more history to ensure we have all booking data
+        // Nếu user xác nhận (Có), đọc nhiều lịch sử hơn để đảm bảo có đủ dữ liệu đặt lịch
         if (input.includes('có') || input.includes('yes') || input.includes('ok') || input.includes('đồng ý') || input.includes('xác nhận')) {
-          historyLimit = 20; // Read full context when confirming
+          historyLimit = 20; // Đọc đầy đủ ngữ cảnh khi xác nhận
         } else {
-          historyLimit = 10; // Normal confirmation step
+          historyLimit = 10; // Bước xác nhận bình thường
         }
       }
       
       const history = await chatSessionRepo.getHistory(userId, historyLimit);
       const formattedMessages = aiService.formatMessagesForGPT(history);
 
-      // Get auth token from request (for authenticated API calls)
+      // Lấy auth token từ request (cho các API call có xác thực)
       const authToken = req.headers.authorization?.split(' ')[1] || null;
 
-      // Get GPT response (with Query Engine integration)
+      // Lấy phản hồi GPT (với tích hợp Query Engine)
       const result = await aiService.sendMessageToGPT(formattedMessages, undefined, authToken);
 
-      // Check if user is selecting a service (after seeing the service list)
-      // bookingContext already fetched above
+      // Kiểm tra user có đang chọn dịch vụ không (sau khi xem danh sách dịch vụ)
+      // bookingContext đã được lấy ở trên
       
       if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'SERVICE_SELECTION') {
-        console.log('🎯 User is in SERVICE_SELECTION step');
+        console.log('🎯 User đang ở bước SERVICE_SELECTION');
         
-        // Try to match service selection from flat list
+        // Thử khớp lựa chọn dịch vụ từ danh sách phẳng
         const selectedItem = await this.matchServiceFromFlatList(
           message,
           bookingContext.flatServiceList
         );
         
         if (selectedItem) {
-          console.log('✅ Service selected:', selectedItem);
+          console.log('✅ Đã chọn dịch vụ:', selectedItem);
           
-          // Handle dentist selection flow (skip addon selection)
+          // Xử lý luồng chọn nha sĩ (bỏ qua việc chọn addon)
           return await this.handleDentistSelection(
             req,
             res,
@@ -155,20 +155,20 @@ class ChatbotController {
         }
       }
 
-      // Check if user is selecting a dentist
+      // Kiểm tra user có đang chọn nha sĩ không
       if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'DENTIST_SELECTION') {
-        console.log('🎯 User is in DENTIST_SELECTION step');
+        console.log('🎯 User đang ở bước DENTIST_SELECTION');
         
-        // Try to match dentist selection
+        // Thử khớp lựa chọn nha sĩ
         const selectedDentist = await this.matchDentistSelection(
           message,
           bookingContext.availableDentists
         );
         
         if (selectedDentist) {
-          console.log('✅ Dentist selected:', selectedDentist.fullName);
+          console.log('✅ Đã chọn nha sĩ:', selectedDentist.fullName);
           
-          // Handle date selection flow
+          // Xử lý luồng chọn ngày
           return await this.handleDateSelection(
             req,
             res,
@@ -181,20 +181,20 @@ class ChatbotController {
         }
       }
 
-      // Check if user is selecting a date
+      // Kiểm tra user có đang chọn ngày không
       if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'DATE_SELECTION') {
-        console.log('🎯 User is in DATE_SELECTION step');
+        console.log('🎯 User đang ở bước DATE_SELECTION');
         
-        // Try to match date selection
+        // Thử khớp lựa chọn ngày
         const selectedDate = await this.matchDateSelection(
           message,
           bookingContext.availableDates
         );
         
         if (selectedDate) {
-          console.log('✅ Date selected:', selectedDate);
+          console.log('✅ Đã chọn ngày:', selectedDate);
           
-          // Handle slot selection flow
+          // Xử lý luồng chọn slot
           return await this.handleSlotSelection(
             req,
             res,
@@ -208,20 +208,20 @@ class ChatbotController {
         }
       }
 
-      // Check if user is selecting a slot
+      // Kiểm tra user có đang chọn slot không
       if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'SLOT_SELECTION') {
-        console.log('🎯 User is in SLOT_SELECTION step');
+        console.log('🎯 User đang ở bước SLOT_SELECTION');
         
-        // Try to match slot group selection
+        // Thử khớp lựa chọn nhóm slot
         const selectedSlotGroup = await this.matchSlotGroupSelection(
           message,
           bookingContext.availableSlotGroups
         );
         
         if (selectedSlotGroup) {
-          console.log('✅ Slot group selected:', selectedSlotGroup);
+          console.log('✅ Đã chọn nhóm slot:', selectedSlotGroup);
           
-          // Handle final confirmation
+          // Xử lý xác nhận cuối cùng
           return await this.handleFinalConfirmation(
             req,
             res,
@@ -238,15 +238,15 @@ class ChatbotController {
         }
       }
 
-      // Check if user is confirming booking
+      // Kiểm tra user có đang xác nhận đặt lịch không
       if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'CONFIRMATION') {
-        console.log('🎯 User is in CONFIRMATION step');
+        console.log('🎯 User đang ở bước CONFIRMATION');
         
         const input = message.trim().toLowerCase();
         
         if (input.includes('có') || input.includes('yes') || input.includes('ok') || input.includes('đồng ý') || input.includes('xác nhận')) {
-          // User confirmed - Re-fetch booking context to ensure we have latest data
-          console.log('✅ User confirmed booking, re-fetching booking context...');
+          // User xác nhận - Lấy lại booking context để đảm bảo có dữ liệu mới nhất
+          console.log('✅ User xác nhận đặt lịch, đang lấy lại booking context...');
           
           const latestContext = await chatSessionRepo.getBookingContext(session.sessionId);
           
@@ -275,11 +275,11 @@ class ChatbotController {
           console.log('🔍 slotIds type:', selectedSlotGroup && selectedSlotGroup.slotIds ? typeof selectedSlotGroup.slotIds : 'undefined');
           console.log('🔍 slotIds isArray:', selectedSlotGroup && selectedSlotGroup.slotIds ? Array.isArray(selectedSlotGroup.slotIds) : false);
           
-          // Extract slot IDs - slotIds is an array from handleSlotSelection
-          // Handle both plain object and MongoDB document
+          // Trích xuất slot IDs - slotIds là mảng từ handleSlotSelection
+          // Xử lý cả plain object và MongoDB document
           let slotIds = [];
           if (selectedSlotGroup && selectedSlotGroup.slotIds) {
-            // Convert to plain array if needed (MongoDB might return special array type)
+            // Chuyển thành plain array nếu cần (MongoDB có thể trả về kiểu mảng đặc biệt)
             slotIds = Array.isArray(selectedSlotGroup.slotIds) 
               ? [...selectedSlotGroup.slotIds] 
               : (selectedSlotGroup.slotIds.toArray ? selectedSlotGroup.slotIds.toArray() : []);
@@ -304,11 +304,11 @@ class ChatbotController {
           console.log('✅ Slot ID extracted:', slotId);
           console.log('✅ All slot IDs:', slotIds);
           
-          // Format displayTime for frontend (CreateAppointment.jsx uses this)
+          // Định dạng displayTime cho frontend (CreateAppointment.jsx sử dụng)
           let startTimeDisplay = selectedSlotGroup.startTimeVN || selectedSlotGroup.startTime;
           let endTimeDisplay = selectedSlotGroup.endTimeVN || selectedSlotGroup.endTime;
           
-          // Convert ISO string to HH:mm if needed
+          // Chuyển ISO string thành HH:mm nếu cần
           if (startTimeDisplay && typeof startTimeDisplay === 'string' && (startTimeDisplay.includes('T') || startTimeDisplay.includes('Z'))) {
             const date = new Date(startTimeDisplay);
             const vnHours = date.getUTCHours() + 7;
@@ -327,7 +327,7 @@ class ChatbotController {
           
           const displayTime = endTimeDisplay ? `${startTimeDisplay} - ${endTimeDisplay}` : startTimeDisplay;
           
-          // Prepare booking data to send to frontend (matching standard booking flow structure)
+          // Chuẩn bị booking data để gửi về frontend (khớp với cấu trúc luồng đặt lịch tiêu chuẩn)
           const bookingData = {
             service: {
               _id: selectedServiceItem.serviceId,
@@ -340,7 +340,7 @@ class ChatbotController {
               price: selectedServiceItem.price,
               durationMinutes: selectedServiceItem.duration
             } : null,
-            serviceAddOnUserSelected: !!selectedServiceItem.addOnId, // Flag for frontend to know addon was selected
+            serviceAddOnUserSelected: !!selectedServiceItem.addOnId, // Flag cho frontend biết đã chọn addon
             dentist: {
               _id: selectedDentist._id,
               fullName: selectedDentist.fullName || selectedDentist.name,
@@ -354,9 +354,9 @@ class ChatbotController {
               slots: slotIds.length > 0 ? slotIds : [slotId],
               startTime: selectedSlotGroup.startTime,
               endTime: selectedSlotGroup.endTime,
-              displayTime: displayTime // ✅ Add displayTime for CreateAppointment.jsx
+              displayTime: displayTime // ✅ Thêm displayTime cho CreateAppointment.jsx
             },
-            // ✅ Include examRecordId if this is a recommended service (for hasBeenUsed update)
+            // ✅ Bao gồm examRecordId nếu là dịch vụ được chỉ định (cho cập nhật hasBeenUsed)
             examRecordId: selectedServiceItem.recordId || null
           };
           
@@ -364,7 +364,7 @@ class ChatbotController {
           
           const successMessage = `✅ **Đặt lịch thành công!**\n\n🔄 Đang chuyển đến trang thanh toán...\n\n💡 Vui lòng hoàn tất thanh toán để xác nhận lịch hẹn của bạn.`;
           
-          // Clear booking context
+          // Xóa booking context
           await chatSessionRepo.clearBookingContext(session.sessionId);
           await chatSessionRepo.addMessage(session.sessionId, 'assistant', successMessage);
           
@@ -373,14 +373,14 @@ class ChatbotController {
             response: successMessage,
             sessionId: session.sessionId,
             timestamp: new Date().toISOString(),
-            bookingData: bookingData, // 🔥 Return booking data for frontend to handle
-            redirectToPayment: true // Flag to indicate frontend should redirect
+            bookingData: bookingData, // 🔥 Trả về booking data cho frontend xử lý
+            redirectToPayment: true // Flag chỉ ra frontend nên chuyển hướng
           });
         } else if (input.includes('không') || input.includes('no') || input.includes('hủy') || input.includes('cancel')) {
-          // User cancelled
+          // User hủy
           const cancelMessage = '❌ Đã hủy đặt lịch.\n\nNếu bạn cần đặt lại, vui lòng nói "đặt lịch" hoặc liên hệ hotline! 📞';
           
-          // Clear booking context
+          // Xóa booking context
           await chatSessionRepo.clearBookingContext(session.sessionId);
           await chatSessionRepo.addMessage(session.sessionId, 'assistant', cancelMessage);
           
@@ -393,7 +393,7 @@ class ChatbotController {
         }
       }
 
-      // Check if user message contains booking intent (before GPT processing)
+      // Kiểm tra tin nhắn user có chứa ý định đặt lịch không (trước khi xử lý GPT)
       const bookingKeywords = [
         'đặt lịch', 'dat lich', 'book', 'hẹn khám', 'muốn khám',
         'dịch vụ được chỉ định', 'dịch vụ chỉ định', 'chỉ định nha sĩ',
@@ -405,10 +405,10 @@ class ChatbotController {
       );
       
       if (hasBookingIntent) {
-        console.log('📅 Booking intent detected in user message!');
+        console.log('📅 Phát hiện ý định đặt lịch trong tin nhắn user!');
         
         try {
-          // Automatically get user's available services
+          // Tự động lấy danh sách dịch vụ khả dụng của user
           const servicesResult = await bookingService.getUserAvailableServices(userId, authToken);
           
           if (servicesResult.services.length === 0) {
@@ -423,22 +423,22 @@ class ChatbotController {
             });
           }
           
-          // Format services list with FLAT structure (all service + addon combinations)
+          // Định dạng danh sách dịch vụ với cấu trúc PHẲNG (tất cả tổ hợp dịch vụ + addon)
           let servicesMessage = '📋 **Danh sách dịch vụ có thể đặt lịch:**\n\n';
           
           const recommended = servicesResult.services.filter(s => s.isRecommended);
           const regular = servicesResult.services.filter(s => !s.isRecommended);
           
-          // Flatten all services into a single numbered list
+          // Làm phẳng tất cả dịch vụ thành danh sách đánh số
           let flatServiceList = [];
           let counter = 1;
           
-          // Add recommended services (from treatmentIndications)
-          // IMPORTANT: For recommended services, only show the SPECIFIC addon that was indicated
+          // Thêm dịch vụ được khuyến nghị (từ treatmentIndications)
+          // QUAN TRỌNG: Với dịch vụ được khuyến nghị, chỉ hiển thị addon CỤ THỂ được chỉ định
           recommended.forEach(service => {
-            // Check if this service has a specific addon indicated
+            // Kiểm tra dịch vụ này có addon cụ thể được chỉ định không
             if (service.recommendedAddOnId) {
-              // Find the specific addon that was indicated
+              // Tìm addon cụ thể được chỉ định
               const indicatedAddon = service.serviceAddOns?.find(
                 addon => addon._id.toString() === service.recommendedAddOnId.toString()
               );
@@ -460,7 +460,7 @@ class ChatbotController {
                 });
               }
             } else if (service.serviceAddOns && service.serviceAddOns.length > 0) {
-              // If no specific addon indicated, show all addons (fallback)
+              // Nếu không có addon cụ thể được chỉ định, hiển thị tất cả addons (fallback)
               service.serviceAddOns.forEach(addon => {
                 flatServiceList.push({
                   number: counter++,
@@ -496,7 +496,7 @@ class ChatbotController {
             }
           });
           
-          // Add regular services with ALL their addons (not recommended, so show all options)
+          // Thêm dịch vụ thường với TẤT CẢ addons của chúng (không phải recommended, nên hiển tất cả tùy chọn)
           regular.forEach(service => {
             if (service.serviceAddOns && service.serviceAddOns.length > 0) {
               service.serviceAddOns.forEach(addon => {
@@ -513,7 +513,7 @@ class ChatbotController {
                 });
               });
             } else {
-              // Service without addons
+              // Dịch vụ không có addons
               flatServiceList.push({
                 number: counter++,
                 serviceId: service._id,
@@ -528,7 +528,7 @@ class ChatbotController {
             }
           });
           
-          // Format the list
+          // Định dạng danh sách
           flatServiceList.forEach(item => {
             const displayName = item.addOnName 
               ? `${item.serviceName} - ${item.addOnName}` 
@@ -543,10 +543,10 @@ class ChatbotController {
           
           servicesMessage += '\n💡 Chọn dịch vụ bằng số (1, 2, 3...) hoặc gõ tên dịch vụ';
           
-          // Save to session
+          // Lưu vào session
           await chatSessionRepo.addMessage(session.sessionId, 'assistant', servicesMessage);
           
-          // Set booking context - user is now in booking flow
+          // Cập nhật booking context - user đang trong luồng đặt lịch
           await chatSessionRepo.updateBookingContext(session.sessionId, {
             isInBookingFlow: true,
             step: 'SERVICE_SELECTION',
@@ -571,9 +571,9 @@ class ChatbotController {
           });
           
         } catch (bookingError) {
-          console.error('❌ Booking services fetch error:', bookingError);
+          console.error('❌ Lỗi lấy dịch vụ đặt lịch:', bookingError);
           
-          // Fallback to normal GPT response
+          // Fallback trả về phản hồi GPT bình thường
           const errorResponse = `Xin lỗi, tôi không thể tải danh sách dịch vụ lúc này: ${bookingError.message}. Vui lòng thử lại sau hoặc liên hệ hotline! 📞`;
           await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorResponse);
           
@@ -586,11 +586,11 @@ class ChatbotController {
         }
       }
       
-      // GPT Booking Action Handler - processes [BOOKING_*] tags from GPT response
-      // When user inputs text like "số 4", "một", GPT returns tags like [BOOKING_GET_DENTISTS serviceId=4...]
-      // This handler parses those tags and transitions user to the appropriate booking step
+      // GPT Booking Action Handler - xử lý các tag [BOOKING_*] từ phản hồi GPT
+      // Khi user nhập text như "số 4", "một", GPT trả về các tag như [BOOKING_GET_DENTISTS serviceId=4...]
+      // Handler này phân tích các tag đó và chuyển user đến bước đặt lịch phù hợp
       if (result.usedBooking && result.bookingAction) {
-        console.log('📅 Processing GPT booking action:', result.bookingAction);
+        console.log('📅 Đang xử lý GPT booking action:', result.bookingAction);
         
         try {
           const bookingResult = await this.handleBookingAction(
@@ -599,13 +599,13 @@ class ChatbotController {
             authToken
           );
           
-          // Replace booking tag with actual result
+          // Thay thế tag đặt lịch bằng kết quả thực tế
           let finalResponse = result.response.replace(
             result.bookingAction.fullMatch,
             bookingResult.message
           );
           
-          // Save assistant response
+          // Lưu phản hồi assistant
           await chatSessionRepo.addMessage(session.sessionId, 'assistant', finalResponse);
           
           return res.json({
@@ -656,7 +656,7 @@ class ChatbotController {
 
   /**
    * GET /api/ai/history
-   * Get chat history for current user
+   * Lấy lịch sử chat của user hiện tại
    */
   async getChatHistory(req, res) {
     try {
@@ -682,7 +682,7 @@ class ChatbotController {
 
   /**
    * DELETE /api/ai/history
-   * Clear chat history for current user
+   * Xóa lịch sử chat của user hiện tại
    */
   async clearHistory(req, res) {
     try {
@@ -710,14 +710,14 @@ class ChatbotController {
 
   /**
    * POST /api/ai/analyze-image
-   * Analyze teeth image using GPT-4 Vision
+   * Phân tích ảnh răng sử dụng GPT-4 Vision
    */
   async analyzeImage(req, res) {
     try {
       const userId = req.user?.userId || req.user?._id;
       const userMessage = req.body.message || '';
 
-      // Check if image file exists
+      // Kiểm tra file ảnh có tồn tại không
       if (!req.file) {
         return res.status(400).json({
           success: false,
@@ -725,7 +725,7 @@ class ChatbotController {
         });
       }
 
-      // Validate image file
+      // Validate file ảnh
       const validation = await validateImageFile(req.file);
       if (!validation.valid) {
         return res.status(400).json({
@@ -734,11 +734,11 @@ class ChatbotController {
         });
       }
 
-      // Optimize image (compress if needed)
+      // Tối ưu ảnh (nén nếu cần)
       const optimizedBuffer = await optimizeImage(req.file.buffer, req.file.mimetype);
 
-      // Analyze image with GPT-4 Vision
-      console.log('🔍 Starting image analysis...');
+      // Phân tích ảnh với GPT-4 Vision
+      console.log('🔍 Bắt đầu phân tích ảnh...');
       const analysis = await imageAnalysisService.analyzeTeethImage(
         optimizedBuffer,
         req.file.mimetype,
@@ -755,25 +755,25 @@ class ChatbotController {
         });
       }
 
-      // Save analysis to chat session
+      // Lưu phân tích vào chat session
       const session = await chatSessionRepo.getOrCreateSession(userId);
       
-      // Save user message with image indicator and S3 URL
+      // Lưu tin nhắn user với chỉ báo ảnh và URL S3
       await chatSessionRepo.addMessage(
         session.sessionId, 
         'user', 
         `[Đã gửi ảnh] ${userMessage || 'Phân tích ảnh răng của tôi'}`,
-        analysis.imageUrl // S3 URL
+        analysis.imageUrl // URL S3
       );
 
-      // Save AI analysis
+      // Lưu phân tích AI
       await chatSessionRepo.addMessage(
         session.sessionId,
         'assistant',
         analysis.analysis
       );
 
-      // Generate follow-up questions
+      // Tạo câu hỏi theo dõi
       const followUpQuestions = imageAnalysisService.generateFollowUpQuestions(
         analysis.analysis,
         analysis.suggestions
@@ -801,14 +801,14 @@ class ChatbotController {
 
   /**
    * POST /api/ai/analyze-multiple-images
-   * Analyze multiple teeth images for comparison
+   * Phân tích nhiều ảnh răng để so sánh
    */
   async analyzeMultipleImages(req, res) {
     try {
       const userId = req.user?.userId || req.user?._id;
       const userMessage = req.body.message || '';
 
-      // Check if images exist
+      // Kiểm tra ảnh có tồn tại không
       if (!req.files || req.files.length === 0) {
         return res.status(400).json({
           success: false,
@@ -823,7 +823,7 @@ class ChatbotController {
         });
       }
 
-      // Validate and optimize all images
+      // Validate và tối ưu tất cả ảnh
       const processedImages = [];
       for (const file of req.files) {
         const validation = await validateImageFile(file);
@@ -843,14 +843,14 @@ class ChatbotController {
         });
       }
 
-      // Analyze multiple images
-      console.log(`🔍 Analyzing ${processedImages.length} images...`);
+      // Phân tích nhiều ảnh
+      console.log(`🔍 Đang phân tích ${processedImages.length} ảnh...`);
       const analysis = await imageAnalysisService.analyzeMultipleImages(
         processedImages,
         userMessage || `So sánh ${processedImages.length} ảnh răng`
       );
 
-      // Save to chat session
+      // Lưu vào chat session
       const session = await chatSessionRepo.getOrCreateSession(userId);
       await chatSessionRepo.addMessage(
         session.sessionId,
@@ -882,7 +882,7 @@ class ChatbotController {
 
   /**
    * POST /api/ai/smart-query
-   * Execute natural language MongoDB query using AI Query Engine
+   * Thực thi truy vấn MongoDB ngôn ngữ tự nhiên sử dụng AI Query Engine
    */
   async smartQuery(req, res) {
     try {
@@ -896,14 +896,14 @@ class ChatbotController {
         });
       }
 
-      console.log(`\n🧠 Smart Query Request from user ${userId}`);
+      console.log(`\n🧠 Yêu cầu Smart Query từ user ${userId}`);
       console.log(`📝 Prompt: "${prompt}"`);
 
-      // Execute query engine
+      // Thực thi query engine
       const result = await handleQuery(prompt);
 
       if (result.success) {
-        // Save to chat session
+        // Lưu vào chat session
         const session = await chatSessionRepo.getOrCreateSession(userId);
         
         await chatSessionRepo.addMessage(
@@ -912,7 +912,7 @@ class ChatbotController {
           `[Smart Query] ${prompt}`
         );
 
-        // Format response message
+        // Định dạng thông điệp phản hồi
         const responseMessage = `✅ Đã tìm thấy ${result.count} kết quả:\n\n` +
           `📊 Collection: ${result.query.collection}\n` +
           `🔍 Filter: ${JSON.stringify(result.query.filter)}\n` +
@@ -953,7 +953,7 @@ class ChatbotController {
 
   /**
    * POST /api/ai/booking/start
-   * Start booking flow - Get user's available services
+   * Bắt đầu luồng đặt lịch - Lấy danh sách dịch vụ khả dụng của user
    */
   async startBooking(req, res) {
     try {
@@ -985,7 +985,7 @@ class ChatbotController {
 
   /**
    * POST /api/ai/booking/get-dentists
-   * Get available dentists for selected service
+   * Lấy danh sách nha sĩ khả dụng cho dịch vụ đã chọn
    */
   async getBookingDentists(req, res) {
     try {
@@ -1017,7 +1017,7 @@ class ChatbotController {
 
   /**
    * POST /api/ai/booking/get-slots
-   * Get available time slots
+   * Lấy các khung giờ trống
    */
   async getBookingSlots(req, res) {
     try {
@@ -1049,7 +1049,7 @@ class ChatbotController {
 
   /**
    * POST /api/ai/booking/confirm
-   * Confirm booking and create appointment reservation
+   * Xác nhận đặt lịch và tạo reservation lịch hẹn
    */
   async confirmBooking(req, res) {
     try {
@@ -1096,17 +1096,17 @@ class ChatbotController {
   }
 
   /**
-   * Handle GPT booking actions - parse [BOOKING_*] tags and execute appropriate action
-   * Supports: GET_SERVICES, GET_DENTISTS, GET_DATES, GET_SLOTS, CONFIRM
-   * @param {Object} bookingAction - Parsed booking action from ai.service.extractBookingAction()
-   * @param {String} userId - User ID
-   * @param {String} authToken - Auth token for API calls
+   * Xử lý các GPT booking actions - phân tích tag [BOOKING_*] và thực hiện action phù hợp
+   * Hỗ trợ: GET_SERVICES, GET_DENTISTS, GET_DATES, GET_SLOTS, CONFIRM
+   * @param {Object} bookingAction - Booking action đã phân tích từ ai.service.extractBookingAction()
+   * @param {String} userId - ID người dùng
+   * @param {String} authToken - Token xác thực cho API calls
    * @returns {Object} - { message, data }
    */
   async handleBookingAction(bookingAction, userId, authToken) {
     const { action, params, fullMatch } = bookingAction;
     
-    // Parse key=value params into object
+    // Phân tích params dạng key=value thành object
     const parsedParams = {};
     params.forEach(param => {
       const [key, value] = param.split('=');
@@ -1117,13 +1117,13 @@ class ChatbotController {
     
     console.log(`🎯 Booking action: ${action}`, parsedParams);
     
-    // Get current session for booking context
+    // Lấy session hiện tại cho booking context
     const session = await chatSessionRepo.getOrCreateSession(userId);
     
     switch (action) {
       case 'GET_SERVICES':
       case 'CHECK_SERVICES': {
-        // Fetch available services for user
+        // Lấy dịch vụ khả dụng cho user
         const servicesResult = await bookingService.getUserAvailableServices(userId, authToken);
         
         if (servicesResult.services.length === 0) {
@@ -1133,7 +1133,7 @@ class ChatbotController {
           };
         }
         
-        // Format flat service list
+        // Định dạng danh sách dịch vụ phẳng
         let flatServiceList = [];
         let counter = 1;
         const recommended = servicesResult.services.filter(s => s.isRecommended);
@@ -1176,7 +1176,7 @@ class ChatbotController {
         });
         message += '\n💡 Chọn dịch vụ bằng số (1, 2, 3...) hoặc gõ tên dịch vụ';
         
-        // Update booking context
+        // Cập nhật booking context
         await chatSessionRepo.updateBookingContext(session.sessionId, {
           isInBookingFlow: true,
           step: 'SERVICE_SELECTION',
@@ -1191,38 +1191,38 @@ class ChatbotController {
         let serviceAddOnId = parsedParams.serviceAddOnId !== '0' ? parsedParams.serviceAddOnId : null;
         let selectedServiceItem = null;
         
-        // Get booking context first to check if user already selected a service
+        // Lấy booking context trước để kiểm tra user đã chọn dịch vụ chưa
         const bookingContext = await chatSessionRepo.getBookingContext(session.sessionId);
         
-        // GPT may return service NUMBER (1, 2, 3...) instead of MongoDB _id
-        // Check if serviceId is a small number (likely list position)
+        // GPT có thể trả về SỐ THỨ TỰ dịch vụ (1, 2, 3...) thay vì MongoDB _id
+        // Kiểm tra nếu serviceId là số nhỏ (có thể là vị trí trong danh sách)
         const serviceNumber = parseInt(serviceId);
         if (!isNaN(serviceNumber) && serviceNumber > 0 && serviceNumber < 100) {
           if (bookingContext && bookingContext.flatServiceList) {
-            // Find service by number in flatServiceList
+            // Tìm dịch vụ theo số thứ tự trong flatServiceList
             selectedServiceItem = bookingContext.flatServiceList.find(item => item.number === serviceNumber);
             
             if (selectedServiceItem) {
-              // Use real MongoDB _id
+              // Sử dụng MongoDB _id thực
               serviceId = selectedServiceItem.serviceId;
               serviceAddOnId = selectedServiceItem.addOnId;
-              console.log(`🔄 Mapped service number ${serviceNumber} to serviceId: ${serviceId}`);
+              console.log(`🔄 Đã map số dịch vụ ${serviceNumber} sang serviceId: ${serviceId}`);
             }
           }
         }
         
-        // Fallback: If serviceId is still missing, try to get from booking context (selectedServiceItem)
-        // This happens when user says "có" (yes) after GPT asks "do you want to choose a dentist?"
+        // Fallback: Nếu serviceId vẫn thiếu, thử lấy từ booking context (selectedServiceItem)
+        // Xảy ra khi user nói "có" (yes) sau khi GPT hỏi "bạn có muốn chọn nha sĩ không?"
         if (!serviceId && bookingContext && bookingContext.selectedServiceItem) {
-          console.log('🔄 Fallback: Using selectedServiceItem from booking context');
+          console.log('🔄 Fallback: Sử dụng selectedServiceItem từ booking context');
           selectedServiceItem = bookingContext.selectedServiceItem;
           serviceId = selectedServiceItem.serviceId;
           serviceAddOnId = selectedServiceItem.addOnId;
         }
         
-        // Also try selectedService if selectedServiceItem is not available
+        // Cũng thử selectedService nếu selectedServiceItem không có
         if (!serviceId && bookingContext && bookingContext.selectedService) {
-          console.log('🔄 Fallback: Using selectedService from booking context');
+          console.log('🔄 Fallback: Sử dụng selectedService từ booking context');
           serviceId = bookingContext.selectedService.serviceId;
           serviceAddOnId = bookingContext.selectedService.serviceAddOnId;
         }
@@ -1231,7 +1231,7 @@ class ChatbotController {
           return { message: 'Vui lòng chọn dịch vụ trước khi chọn nha sĩ.', data: null };
         }
         
-        // Fetch dentists using schedule-service API (same as handleDentistSelection)
+        // Lấy danh sách nha sĩ sử dụng schedule-service API (giống handleDentistSelection)
         const SCHEDULE_SERVICE_URL = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
         const serviceDuration = selectedServiceItem?.duration || 30;
         
@@ -1245,7 +1245,7 @@ class ChatbotController {
           }
         );
         
-        // Extract dentists array from response
+        // Trích xuất mảng nha sĩ từ response
         let dentists = [];
         if (dentistsResponse.data.success && dentistsResponse.data.data) {
           if (dentistsResponse.data.data.dentists && Array.isArray(dentistsResponse.data.data.dentists)) {
@@ -1265,12 +1265,12 @@ class ChatbotController {
         });
         message += '\n💡 Chọn nha sĩ bằng số hoặc gõ tên';
         
-        // Update booking context with selectedServiceItem for later steps
+        // Cập nhật booking context với selectedServiceItem cho các bước sau
         await chatSessionRepo.updateBookingContext(session.sessionId, {
           isInBookingFlow: true,
           step: 'DENTIST_SELECTION',
           selectedService: { serviceId, serviceAddOnId },
-          selectedServiceItem: selectedServiceItem, // Include full service item for later use
+          selectedServiceItem: selectedServiceItem, // Bao gồm full service item để dùng sau
           availableDentists: dentists
         });
         
@@ -1284,13 +1284,13 @@ class ChatbotController {
           return { message: 'Vui lòng chọn nha sĩ trước khi chọn ngày.', data: null };
         }
         
-        // Get booking context to retrieve selectedServiceItem
+        // Lấy booking context để lấy selectedServiceItem
         const bookingContext = await chatSessionRepo.getBookingContext(session.sessionId);
         const selectedServiceItem = bookingContext?.selectedServiceItem;
         const serviceId = selectedServiceItem?.serviceId || bookingContext?.selectedService?.serviceId;
         const serviceDuration = selectedServiceItem?.duration || 30;
         
-        // Call schedule-service API to get real working dates
+        // Gọi schedule-service API để lấy ngày làm việc thực tế
         const SCHEDULE_SERVICE_URL = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
         
         const datesResponse = await axios.get(
@@ -1303,7 +1303,7 @@ class ChatbotController {
           }
         );
         
-        // Extract working dates array
+        // Trích xuất mảng working dates
         let workingDates = [];
         let maxBookingDays = 30;
         
@@ -1322,14 +1322,14 @@ class ChatbotController {
           return { message: 'Nha sĩ này hiện không có lịch trống. Vui lòng chọn nha sĩ khác.', data: null };
         }
         
-        // Normalize dates to YYYY-MM-DD format
+        // Chuẩn hóa ngày về định dạng YYYY-MM-DD
         const normalizedDates = workingDates.map(dateItem => {
           const dateStr = typeof dateItem === 'string' ? dateItem : (dateItem.date || dateItem);
           const date = new Date(dateStr);
           return date.toISOString().split('T')[0];
         });
         
-        // Format message
+        // Định dạng message
         let message = '📅 **Ngày làm việc có lịch trống:**\n\n';
         const maxDates = Math.min(normalizedDates.length, maxBookingDays);
         normalizedDates.slice(0, maxDates).forEach((dateStr, index) => {
@@ -1344,7 +1344,7 @@ class ChatbotController {
         }
         message += '\n💡 Chọn ngày bằng số (1, 2, 3...)';
         
-        // Update booking context
+        // Cập nhật booking context
         await chatSessionRepo.updateBookingContext(session.sessionId, {
           step: 'DATE_SELECTION',
           selectedDentist: { _id: dentistId },
@@ -1375,7 +1375,7 @@ class ChatbotController {
         });
         message += '\n💡 Chọn khung giờ bằng số (1, 2, 3...)';
         
-        // Update booking context
+        // Cập nhật booking context
         await chatSessionRepo.updateBookingContext(session.sessionId, {
           step: 'SLOT_SELECTION',
           selectedDate: date,
@@ -1395,14 +1395,14 @@ class ChatbotController {
   }
 
   /**
-   * Match service selection from flat list (by number or name)
+   * Khớp lựa chọn dịch vụ từ danh sách phẳng (theo số hoặc tên)
    */
   async matchServiceFromFlatList(userInput, flatServiceList) {
     if (!flatServiceList || flatServiceList.length === 0) return null;
     
     const input = userInput.trim().toLowerCase();
     
-    // Try match by number
+    // Thử khớp theo số
     const numberMatch = input.match(/^(\d+)$/);
     if (numberMatch) {
       const number = parseInt(numberMatch[1]);
@@ -1410,14 +1410,14 @@ class ChatbotController {
       if (found) return found;
     }
     
-    // Try match Vietnamese number words
+    // Thử khớp số tiếng Việt
     const vietnameseNumber = this.parseVietnameseNumber(input);
     if (vietnameseNumber !== null && vietnameseNumber > 0) {
       const found = flatServiceList.find(item => item.number === vietnameseNumber);
       if (found) return found;
     }
     
-    // Try match by service name or addon name (fuzzy)
+    // Thử khớp theo tên dịch vụ hoặc addon (fuzzy)
     for (const item of flatServiceList) {
       const fullName = item.addOnName 
         ? `${item.serviceName} ${item.addOnName}`.toLowerCase()
@@ -1432,13 +1432,13 @@ class ChatbotController {
   }
 
   /**
-   * Handle dentist selection after service is chosen
+   * Xử lý việc chọn nha sĩ sau khi đã chọn dịch vụ
    */
   async handleDentistSelection(req, res, session, selectedItem, userId, authToken) {
     try {
-      console.log('�‍⚕️ Fetching dentists for service:', selectedItem.serviceName);
+      console.log('👨‍⚕️ Đang lấy danh sách nha sĩ cho dịch vụ:', selectedItem.serviceName);
       
-      // Update booking context
+      // Cập nhật booking context
       await chatSessionRepo.updateBookingContext(session.sessionId, {
         isInBookingFlow: true,
         step: 'DENTIST_SELECTION',
@@ -1448,7 +1448,7 @@ class ChatbotController {
         selectedSlot: null
       });
       
-      // Call API to get dentists with nearest slot
+      // Gọi API để lấy nha sĩ với slot gần nhất
       const SCHEDULE_SERVICE_URL = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
       
       const dentistsResponse = await axios.get(
@@ -1580,19 +1580,19 @@ class ChatbotController {
   }
 
   /**
-   * Match dentist selection from user input
+   * Khớp lựa chọn nha sĩ từ input người dùng
    */
   async matchDentistSelection(userInput, availableDentists) {
     if (!availableDentists || availableDentists.length === 0) return null;
     
     const input = userInput.trim().toLowerCase();
     
-    // Handle "bất kỳ" or "any" -> return first dentist
+    // Xử lý "bất kỳ" hoặc "any" -> trả về nha sĩ đầu tiên
     if (input.includes('bất kỳ') || input.includes('bat ky') || input === 'any') {
       return availableDentists[0];
     }
     
-    // Try match by number
+    // Thử khớp theo số
     const numberMatch = input.match(/^(\d+)$/);
     if (numberMatch) {
       const index = parseInt(numberMatch[1]) - 1;
@@ -1601,7 +1601,7 @@ class ChatbotController {
       }
     }
     
-    // Try match Vietnamese number words
+    // Thử khớp số tiếng Việt
     const vietnameseNumber = this.parseVietnameseNumber(input);
     if (vietnameseNumber !== null && vietnameseNumber > 0) {
       const index = vietnameseNumber - 1;
@@ -1610,7 +1610,7 @@ class ChatbotController {
       }
     }
     
-    // Try match by dentist name (fuzzy)
+    // Thử khớp theo tên nha sĩ (fuzzy)
     for (const dentist of availableDentists) {
       const name = (dentist.fullName || dentist.name || '').toLowerCase();
       if (name.includes(input) || input.includes(name)) {
@@ -1622,13 +1622,13 @@ class ChatbotController {
   }
 
   /**
-   * Handle date selection after dentist is chosen
+   * Xử lý việc chọn ngày sau khi đã chọn nha sĩ
    */
   async handleDateSelection(req, res, session, selectedServiceItem, selectedDentist, userId, authToken) {
     try {
-      console.log('📅 Fetching working dates for dentist:', selectedDentist.fullName);
+      console.log('📅 Đang lấy ngày làm việc của nha sĩ:', selectedDentist.fullName);
       
-      // Update booking context
+      // Cập nhật booking context
       await chatSessionRepo.updateBookingContext(session.sessionId, {
         isInBookingFlow: true,
         step: 'DATE_SELECTION',
@@ -1638,7 +1638,7 @@ class ChatbotController {
         selectedSlot: null
       });
       
-      // Call API to get working dates
+      // Gọi API để lấy ngày làm việc
       const SCHEDULE_SERVICE_URL = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
       
       const datesResponse = await axios.get(
@@ -1748,14 +1748,14 @@ class ChatbotController {
   }
 
   /**
-   * Match date selection from user input
+   * Khớp lựa chọn ngày từ input người dùng
    */
   async matchDateSelection(userInput, availableDates) {
     if (!availableDates || availableDates.length === 0) return null;
     
     const input = userInput.trim().toLowerCase();
     
-    // Try match by number
+    // Thử khớp theo số
     const numberMatch = input.match(/^(\d+)$/);
     if (numberMatch) {
       const index = parseInt(numberMatch[1]) - 1;
@@ -1764,7 +1764,7 @@ class ChatbotController {
       }
     }
     
-    // Try match Vietnamese number words
+    // Thử khớp số tiếng Việt
     const vietnameseNumber = this.parseVietnameseNumber(input);
     if (vietnameseNumber !== null && vietnameseNumber > 0) {
       const index = vietnameseNumber - 1;
@@ -1773,7 +1773,7 @@ class ChatbotController {
       }
     }
     
-    // Try match by date format DD/MM/YYYY
+    // Thử khớp theo định dạng ngày DD/MM/YYYY
     const dateMatch = input.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
     if (dateMatch) {
       const [, day, month, year] = dateMatch;
@@ -1788,13 +1788,13 @@ class ChatbotController {
   }
 
   /**
-   * Handle slot selection after date is chosen
+   * Xử lý việc chọn khung giờ sau khi đã chọn ngày
    */
   async handleSlotSelection(req, res, session, selectedServiceItem, selectedDentist, selectedDate, userId, authToken) {
     try {
-      console.log('🕐 Fetching slots for date:', selectedDate);
+      console.log('🕐 Đang lấy khung giờ cho ngày:', selectedDate);
       
-      // Update booking context
+      // Cập nhật booking context
       await chatSessionRepo.updateBookingContext(session.sessionId, {
         isInBookingFlow: true,
         step: 'SLOT_SELECTION',
@@ -1804,14 +1804,14 @@ class ChatbotController {
         selectedSlot: null
       });
       
-      // Call API to get slot details
+      // Gọi API để lấy chi tiết khung giờ
       const SCHEDULE_SERVICE_URL = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
       
-      // IMPORTANT: Use addon duration if available (for recommended services)
-      // For non-recommended services, use longest addon duration
+      // QUAN TRỌNG: Sử dụng thời lượng addon nếu có (cho dịch vụ được đề xuất)
+      // Đối với dịch vụ không được đề xuất, sử dụng thời lượng addon dài nhất
       const serviceDuration = selectedServiceItem.duration || 30;
       
-      console.log(`🕐 Fetching slots with duration: ${serviceDuration} minutes for ${selectedServiceItem.addOnName || selectedServiceItem.serviceName}`);
+      console.log(`🕐 Đang lấy khung giờ với thời lượng: ${serviceDuration} phút cho ${selectedServiceItem.addOnName || selectedServiceItem.serviceName}`);
       
       const slotsResponse = await axios.get(
         `${SCHEDULE_SERVICE_URL}/api/slot/dentist/${selectedDentist._id}/details/future`,
@@ -1819,22 +1819,22 @@ class ChatbotController {
           params: {
             date: selectedDate,
             serviceId: selectedServiceItem.serviceId,
-            serviceDuration: serviceDuration // ← Add duration parameter
+            serviceDuration: serviceDuration // ← Thêm thông số duration
           },
           headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
         }
       );
       
-      console.log('📦 Slots response:', slotsResponse.data);
+      console.log('📦 Kết quả khung giờ:', slotsResponse.data);
       
-      // Extract individual slots from response
+      // Trích xuất các slot riêng lẻ từ response
       let individualSlots = [];
       if (slotsResponse.data.success && slotsResponse.data.data) {
         individualSlots = slotsResponse.data.data.slots || [];
       }
       
-      // Group consecutive slots by serviceDuration
-      const slotDuration = 15; // Each slot is 15 minutes
+      // Nhóm các slot liên tiếp theo thời lượng dịch vụ
+      const slotDuration = 15; // Mỗi slot là 15 phút
       const slotsNeeded = Math.ceil(serviceDuration / slotDuration);
       const slotGroups = [];
       
@@ -1851,7 +1851,7 @@ class ChatbotController {
             const prevEnd = new Date(prevSlot.startTime).getTime() + (15 * 60 * 1000);
             const currentStart = new Date(currentSlot.startTime).getTime();
             
-            // Check if slots are consecutive (max 1ms gap)
+            // Kiểm tra xem các slot có liên tiếp không (tối đa 1ms chênh lệch)
             if (Math.abs(currentStart - prevEnd) > 1000) {
               isConsecutive = false;
               break;
@@ -1880,7 +1880,7 @@ class ChatbotController {
         }
       }
       
-      console.log(`✅ Grouped ${individualSlots.length} slots into ${slotGroups.length} groups (${slotsNeeded} slots per group)`);
+      console.log(`✅ Đã nhóm ${individualSlots.length} slots thành ${slotGroups.length} nhóm (${slotsNeeded} slots mỗi nhóm)`);
       
       if (slotGroups.length === 0) {
         const noSlotsMessage = `Xin lỗi, ngày ${new Date(selectedDate).toLocaleDateString('vi-VN')} không có khung giờ trống. Vui lòng chọn ngày khác! 📞`;
@@ -1895,7 +1895,7 @@ class ChatbotController {
         });
       }
       
-      // Format slot groups
+      // Định dạng các nhóm khung giờ
       const dateFormatted = new Date(selectedDate).toLocaleDateString('vi-VN');
       
       let slotMessage = `✅ Đã chọn ngày: **${dateFormatted}**\n\n🕐 **Khung giờ trống:**\n\n`;
@@ -1936,7 +1936,7 @@ class ChatbotController {
       
       slotMessage += '\n💡 Chọn khung giờ (1, 2, 3...)';
       
-      // Save slot groups to context
+      // Lưu các nhóm khung giờ vào context
       await chatSessionRepo.updateBookingContext(session.sessionId, {
         isInBookingFlow: true,
         step: 'SLOT_SELECTION',
@@ -1971,14 +1971,14 @@ class ChatbotController {
   }
 
   /**
-   * Match slot group selection from user input
+   * Khớp lựa chọn nhóm khung giờ từ input người dùng
    */
   async matchSlotGroupSelection(userInput, availableSlotGroups) {
     if (!availableSlotGroups || availableSlotGroups.length === 0) return null;
     
     const input = userInput.trim().toLowerCase();
     
-    // Try match by number
+    // Thử khớp theo số
     const numberMatch = input.match(/^(\d+)$/);
     if (numberMatch) {
       const index = parseInt(numberMatch[1]) - 1;
@@ -1987,7 +1987,7 @@ class ChatbotController {
       }
     }
     
-    // Try match Vietnamese number words (một, hai, ba, ..., mười ba, hai mươi, ...)
+    // Thử khớp số tiếng Việt (một, hai, ba, ..., mười ba, hai mươi, ...)
     const vietnameseNumber = this.parseVietnameseNumber(input);
     if (vietnameseNumber !== null && vietnameseNumber > 0) {
       const index = vietnameseNumber - 1;
@@ -1996,7 +1996,7 @@ class ChatbotController {
       }
     }
     
-    // Try match by time format (e.g., "16:00" or "16h00")
+    // Thử khớp theo định dạng giờ (ví dụ: "16:00" hoặc "16h00")
     const timeMatch = input.match(/(\d{1,2})[h:](\d{2})/);
     if (timeMatch) {
       const targetTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
@@ -2011,9 +2011,9 @@ class ChatbotController {
   }
 
   /**
-   * Parse Vietnamese number words to integer
-   * Supports: một (1), hai (2), ..., mười (10), mười một (11), ..., hai mươi (20), ...
-   * Also supports: "số một", "số 1", "thứ hai", etc.
+   * Chuyển đổi số tiếng Việt thành số nguyên
+   * Hỗ trợ: một (1), hai (2), ..., mười (10), mười một (11), ..., hai mươi (20), ...
+   * Cũng hỗ trợ: "số một", "số 1", "thứ hai", v.v.
    */
   parseVietnameseNumber(input) {
     const vnNumbers = {
@@ -2024,33 +2024,33 @@ class ChatbotController {
     
     let text = input.trim().toLowerCase();
     
-    // Handle "số X" pattern (e.g., "số bốn" -> "bốn", "số 4" -> "4")
+    // Xử lý pattern "số X" (ví dụ: "số bốn" -> "bốn", "số 4" -> "4")
     if (text.startsWith('số ')) {
       text = text.substring(3).trim();
-      // If it's now a digit, return it directly
+      // Nếu bây giờ là chữ số, trả về trực tiếp
       const digitMatch = text.match(/^(\d+)$/);
       if (digitMatch) {
         return parseInt(digitMatch[1]);
       }
     }
     
-    // Direct match for simple numbers
+    // Khớp trực tiếp cho các số đơn giản
     if (vnNumbers[text] !== undefined) {
       return vnNumbers[text];
     }
     
-    // Handle compound numbers like "mười ba" (13), "hai mươi mốt" (21)
+    // Xử lý số ghép như "mười ba" (13), "hai mươi mốt" (21)
     const parts = text.split(/\s+/);
     
     if (parts.length === 2) {
-      // "mười X" pattern (11-19)
+      // Pattern "mười X" (11-19)
       if (parts[0] === 'mười') {
         const unit = vnNumbers[parts[1]];
         if (unit !== undefined) {
           return 10 + (parts[1] === 'mốt' ? 1 : unit);
         }
       }
-      // "X mươi" pattern (20, 30, ...)
+      // Pattern "X mươi" (20, 30, ...)
       const tens = vnNumbers[parts[0]];
       if (tens !== undefined && (parts[1] === 'mươi' || parts[1] === 'chục')) {
         return tens * 10;
@@ -2058,7 +2058,7 @@ class ChatbotController {
     }
     
     if (parts.length === 3) {
-      // "X mươi Y" pattern (21, 32, ...)
+      // Pattern "X mươi Y" (21, 32, ...)
       const tens = vnNumbers[parts[0]];
       const unit = parts[2] === 'mốt' ? 1 : vnNumbers[parts[2]];
       if (tens !== undefined && unit !== undefined && (parts[1] === 'mươi' || parts[1] === 'mươi')) {
@@ -2070,15 +2070,15 @@ class ChatbotController {
   }
 
   /**
-   * Handle final confirmation
+   * Xử lý xác nhận cuối cùng
    */
   async handleFinalConfirmation(req, res, session, bookingData, userId, authToken) {
     try {
-      console.log('✅ Showing final confirmation');
+      console.log('✅ Đang hiển thị xác nhận cuối cùng');
       
       const { selectedServiceItem, selectedDentist, selectedDate, selectedSlotGroup } = bookingData;
       
-      // Format confirmation message
+      // Định dạng thông điệp xác nhận
       const dateFormatted = new Date(selectedDate).toLocaleDateString('vi-VN', { 
         weekday: 'long', 
         year: 'numeric', 
@@ -2137,7 +2137,7 @@ class ChatbotController {
       
       confirmMessage += '💡 Xác nhận đặt lịch? (Có/Không)';
       
-      // Update context to CONFIRMATION step
+      // Cập nhật context sang bước CONFIRMATION
       await chatSessionRepo.updateBookingContext(session.sessionId, {
         isInBookingFlow: true,
         step: 'CONFIRMATION',

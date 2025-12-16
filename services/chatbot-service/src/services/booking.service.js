@@ -1,12 +1,12 @@
 /**
- * Booking Service - Handle booking flow in chatbot
+ * Booking Service - Xử lý luồng đặt lịch trong chatbot
  * Flow tương tự /patient/booking/select-service
  */
 
 const axios = require('axios');
 const internalApiClient = require('../utils/internalApiClient');
 
-// Service URLs from environment
+// URL các service từ biến môi trường
 const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
 const SERVICE_SERVICE_URL = process.env.SERVICE_SERVICE_URL || 'http://localhost:3003';
 const SCHEDULE_SERVICE_URL = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
@@ -16,17 +16,17 @@ const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL || 'http://localhost
 
 class BookingService {
   /**
-   * Get user's available services (including unused indications from exam records)
-   * @param {String} userId - User ID
-   * @param {String} authToken - JWT token (optional)
+   * Lấy danh sách dịch vụ khả dụng của user (bao gồm các chỉ định chưa sử dụng từ phiếu khám)
+   * @param {String} userId - ID người dùng
+   * @param {String} authToken - JWT token (tùy chọn)
    * @returns {Promise<Object>}
    */
   async getUserAvailableServices(userId, authToken = null) {
     try {
-      console.log(`📋 Getting available services for user: ${userId}`);
+      console.log(`📋 Lấy dịch vụ khả dụng cho user: ${userId}`);
       
-      // 1. Get all active services from service-service
-      console.log(`🔗 Calling: ${SERVICE_SERVICE_URL}/api/service?page=1&limit=1000`);
+      // 1. Lấy tất cả dịch vụ đang hoạt động từ service-service
+      console.log(`🔗 Gọi API: ${SERVICE_SERVICE_URL}/api/service?page=1&limit=1000`);
       const servicesResponse = await axios.get(`${SERVICE_SERVICE_URL}/api/service`, {
         params: { 
           page: 1, 
@@ -34,32 +34,32 @@ class BookingService {
         }
       });
       
-      console.log('📦 Services response:', servicesResponse.data);
+      console.log('📦 Response services:', servicesResponse.data);
       
       let allServices = [];
-      // Handle different response formats
+      // Xử lý các định dạng response khác nhau
       if (servicesResponse.data.data && Array.isArray(servicesResponse.data.data)) {
-        // Format: { success: true, data: [...] }
+        // Định dạng: { success: true, data: [...] }
         allServices = servicesResponse.data.data.filter(s => s.isActive);
       } else if (servicesResponse.data.services && Array.isArray(servicesResponse.data.services)) {
-        // Format: { services: [...] }
+        // Định dạng: { services: [...] }
         allServices = servicesResponse.data.services.filter(s => s.isActive);
       } else if (Array.isArray(servicesResponse.data)) {
-        // Format: [...]
+        // Định dạng: [...]
         allServices = servicesResponse.data.filter(s => s.isActive);
       }
       
-      console.log(`✅ Found ${allServices.length} active services`);
+      console.log(`✅ Tìm thấy ${allServices.length} dịch vụ đang hoạt động`);
       
-      // 2. Get patient records to check for unused services (dịch vụ được chỉ định)
+      // 2. Lấy phiếu khám của bệnh nhân để kiểm tra dịch vụ chưa sử dụng (dịch vụ được chỉ định)
       let unusedServices = [];
       let examRecords = [];
       
-      // Skip fetching records for anonymous users
+      // Bỏ qua việc lấy phiếu khám cho user ẩn danh
       if (userId !== 'anonymous') {
         try {
-          // Fetch patient records to extract treatmentIndications
-          console.log(`🔗 Calling: ${RECORD_SERVICE_URL}/api/record/patient/${userId}?limit=100`);
+          // Lấy phiếu khám để trích xuất treatmentIndications
+          console.log(`🔗 Gọi API: ${RECORD_SERVICE_URL}/api/record/patient/${userId}?limit=100`);
           
           const config = authToken ? {
             headers: { Authorization: `Bearer ${authToken}` }
@@ -73,22 +73,22 @@ class BookingService {
             }
           );
           
-          console.log('📦 Records response:', recordsResponse.data);
+          console.log('📦 Response phiếu khám:', recordsResponse.data);
           
           if (recordsResponse.data.success && recordsResponse.data.data && Array.isArray(recordsResponse.data.data)) {
             const records = recordsResponse.data.data;
             
-            // Extract all treatmentIndications that are not used yet
+            // Trích xuất tất cả treatmentIndications chưa được sử dụng
             records.forEach(record => {
               if (record.treatmentIndications && Array.isArray(record.treatmentIndications)) {
                 record.treatmentIndications.forEach(indication => {
-                  // Only include unused indications
+                  // Chỉ bao gồm các chỉ định chưa sử dụng
                   if (!indication.used && indication.serviceId && indication.serviceAddOnId) {
                     unusedServices.push({
                       serviceId: indication.serviceId,
-                      serviceAddOnId: indication.serviceAddOnId, // The specific addon that was indicated
+                      serviceAddOnId: indication.serviceAddOnId, // Addon cụ thể được chỉ định
                       recordId: record._id,
-                      recordDentistId: record.dentistId, // Dentist who examined and created this indication
+                      recordDentistId: record.dentistId, // Nha sĩ đã khám và tạo chỉ định này
                       recordDentistName: record.dentistName,
                       serviceName: indication.serviceName,
                       serviceAddOnName: indication.serviceAddOnName,
@@ -99,39 +99,39 @@ class BookingService {
               }
             });
             
-            console.log(`🎯 Extracted ${unusedServices.length} unused service indications from ${records.length} records`);
+            console.log(`🎯 Trích xuất được ${unusedServices.length} chỉ định dịch vụ chưa sử dụng từ ${records.length} phiếu khám`);
           }
         } catch (error) {
-          console.warn('⚠️ Could not fetch patient records:', error.message);
-          // This is OK - user might not have any exam records
+          console.warn('⚠️ Không thể lấy phiếu khám của bệnh nhân:', error.message);
+          // Vẫn OK - user có thể chưa có phiếu khám nào
         }
       } else {
-        console.log('ℹ️ Anonymous user - skipping unused services check');
+        console.log('ℹ️ User ẩn danh - bỏ qua kiểm tra dịch vụ chưa sử dụng');
       }
       
-      // 3. Filter services based on requireExamFirst
+      // 3. Lọc dịch vụ dựa trên requireExamFirst
       const unusedServiceIds = new Set(unusedServices.map(s => s.serviceId.toString()));
       
       const availableServices = allServices.filter(service => {
-        // ⭐ IMPORTANT: Only filter out if requireExamFirst is TRUE and user has NO indication
-        // If requireExamFirst is FALSE or undefined, always show the service
+        // ⭐ QUAN TRỌNG: Chỉ lọc nếu requireExamFirst là TRUE và user KHÔNG có chỉ định
+        // Nếu requireExamFirst là FALSE hoặc undefined, luôn hiển thị dịch vụ
         if (!service.requireExamFirst) {
-          return true; // Always show services that don't require exam first
+          return true; // Luôn hiển dịch vụ không yêu cầu khám trước
         }
         
-        // If service requires exam first, check if user has unused indication
+        // Nếu dịch vụ yêu cầu khám trước, kiểm tra user có chỉ định chưa sử dụng không
         const hasIndication = unusedServiceIds.has(service._id.toString());
         
         if (!hasIndication) {
-          console.log(`   ⚠️ Skipping "${service.name}" - requireExamFirst but no indication`);
+          console.log(`   ⚠️ Bỏ qua "${service.name}" - cần khám trước nhưng không có chỉ định`);
         }
         
         return hasIndication;
       });
       
-      console.log(`✅ Total available services after filtering: ${availableServices.length}`);
+      console.log(`✅ Tổng dịch vụ khả dụng sau lọc: ${availableServices.length}`);
       
-      // 3.5. Fetch full service details to get basePrice and duration
+      // 3.5. Lấy chi tiết đầy đủ của dịch vụ để có basePrice và duration
       const servicesWithDetails = await Promise.all(
         availableServices.map(async (service) => {
           try {
@@ -142,28 +142,28 @@ class BookingService {
             if (detailResponse.data.success && detailResponse.data.data) {
               return {
                 ...service,
-                ...detailResponse.data.data // Merge full details
+                ...detailResponse.data.data // Merge chi tiết đầy đủ
               };
             }
-            return service; // Fallback to original if fetch fails
+            return service; // Fallback về bản gốc nếu lấy thất bại
           } catch (error) {
-            console.warn(`⚠️ Could not fetch details for service ${service._id}:`, error.message);
-            return service; // Fallback to original
+            console.warn(`⚠️ Không thể lấy chi tiết dịch vụ ${service._id}:`, error.message);
+            return service; // Fallback về bản gốc
           }
         })
       );
       
-      console.log(`📦 Fetched full details for ${servicesWithDetails.length} services`);
+      console.log(`📦 Đã lấy chi tiết đầy đủ của ${servicesWithDetails.length} dịch vụ`);
       
-      // 4. Mark recommended services and attach recordId + specific addon
+      // 4. Đánh dấu dịch vụ được khuyến nghị và gắn recordId + addon cụ thể
       const servicesWithMetadata = servicesWithDetails.map(service => {
         const isRecommended = unusedServiceIds.has(service._id.toString());
         
-        // Find recordId and specific addon if recommended
+        // Tìm recordId và addon cụ thể nếu được khuyến nghị
         let recordId = null;
         let recommendationNotes = null;
-        let recommendedAddOnId = null; // The specific addon that was indicated
-        let recordDentistId = null; // Dentist who created the indication
+        let recommendedAddOnId = null; // Addon cụ thể được chỉ định
+        let recordDentistId = null; // Nha sĩ đã tạo chỉ định
         let recordDentistName = null;
         
         if (isRecommended) {
@@ -173,7 +173,7 @@ class BookingService {
           if (unusedService) {
             recordId = unusedService.recordId;
             recommendationNotes = unusedService.notes;
-            recommendedAddOnId = unusedService.serviceAddOnId; // Important: specific addon
+            recommendedAddOnId = unusedService.serviceAddOnId; // Quan trọng: addon cụ thể
             recordDentistId = unusedService.recordDentistId;
             recordDentistName = unusedService.recordDentistName;
           }
@@ -182,17 +182,17 @@ class BookingService {
         return {
           ...service,
           isRecommended,
-          recordId, // Will be used to update hasBeenUsed after booking
-          recordDentistId, // Dentist who examined patient
+          recordId, // Sẽ dùng để cập nhật hasBeenUsed sau khi đặt lịch
+          recordDentistId, // Nha sĩ đã khám bệnh nhân
           recordDentistName,
           recommendationNotes,
-          recommendedAddOnId // The specific addon that was indicated by doctor
+          recommendedAddOnId // Addon cụ thể được bác sĩ chỉ định
         };
       });
       
-      console.log(`🎉 Prepared ${servicesWithMetadata.length} services with metadata`);
-      console.log(`   - Recommended: ${servicesWithMetadata.filter(s => s.isRecommended).length}`);
-      console.log(`   - Regular: ${servicesWithMetadata.filter(s => !s.isRecommended).length}`);
+      console.log(`🎉 Đã chuẩn bị ${servicesWithMetadata.length} dịch vụ với metadata`);
+      console.log(`   - Được khuyến nghị: ${servicesWithMetadata.filter(s => s.isRecommended).length}`);
+      console.log(`   - Thường: ${servicesWithMetadata.filter(s => !s.isRecommended).length}`);
       
       return {
         services: servicesWithMetadata,
@@ -207,26 +207,26 @@ class BookingService {
   }
   
   /**
-   * Get available dentists for a service
-   * @param {String} serviceId - Service ID
-   * @param {String} serviceAddOnId - Service addon ID (optional)
+   * Lấy danh sách nha sĩ khả dụng cho dịch vụ
+   * @param {String} serviceId - ID dịch vụ
+   * @param {String} serviceAddOnId - ID addon dịch vụ (tùy chọn)
    * @returns {Promise<Array>}
    */
   async getAvailableDentists(serviceId, serviceAddOnId = null) {
     try {
-      // Get service info to know which specialization is needed
+      // Lấy thông tin dịch vụ để biết chuyên môn cần thiết
       const serviceResponse = await axios.get(`${SERVICE_SERVICE_URL}/api/service/${serviceId}`);
       const service = serviceResponse.data.service;
       
-      // Get all dentists
+      // Lấy tất cả nha sĩ
       const dentistsResponse = await axios.get(`${AUTH_SERVICE_URL}/api/users/by-role/dentist`);
       const dentists = dentistsResponse.data.data || [];
       
-      // Filter dentists based on service specialization (if any)
+      // Lọc nha sĩ dựa trên chuyên môn của dịch vụ (nếu có)
       let filteredDentists = dentists.filter(d => d.isActive);
       
-      // TODO: Filter by specialization if service has specific requirement
-      // For now, return all active dentists
+      // TODO: Lọc theo chuyên môn nếu dịch vụ có yêu cầu cụ thể
+      // Hiện tại, trả về tất cả nha sĩ đang hoạt động
       
       return {
         dentists: filteredDentists,
@@ -245,10 +245,10 @@ class BookingService {
   }
   
   /**
-   * Get available time slots
-   * @param {String} dentistId - Dentist ID
-   * @param {String} date - Date in YYYY-MM-DD format
-   * @param {Number} serviceDuration - Service duration in minutes
+   * Lấy các khung giờ trống
+   * @param {String} dentistId - ID nha sĩ
+   * @param {String} date - Ngày theo định dạng YYYY-MM-DD
+   * @param {Number} serviceDuration - Thời lượng dịch vụ (phút)
    * @returns {Promise<Object>}
    */
   async getAvailableSlots(dentistId, date, serviceDuration) {
@@ -274,23 +274,23 @@ class BookingService {
   }
   
   /**
-   * Create appointment reservation and return payment URL
-   * @param {Object} bookingData
+   * Tạo reservation lịch hẹn và trả về URL thanh toán
+   * @param {Object} bookingData - Dữ liệu đặt lịch
    * @returns {Promise<Object>}
    */
   async createReservation(bookingData) {
     try {
       const { userId, serviceId, serviceAddOnId, dentistId, date, slotIds, notes } = bookingData;
       
-      // Get user info
+      // Lấy thông tin user
       const userResponse = await axios.get(`${AUTH_SERVICE_URL}/api/users/${userId}`);
       const user = userResponse.data.user;
       
-      // Get service info
+      // Lấy thông tin dịch vụ
       const serviceResponse = await axios.get(`${SERVICE_SERVICE_URL}/api/service/${serviceId}`);
       const service = serviceResponse.data.service;
       
-      // Prepare reservation data
+      // Chuẩn bị dữ liệu reservation
       const reservationData = {
         patientId: userId,
         patientInfo: {
@@ -309,9 +309,9 @@ class BookingService {
         notes: notes || ''
       };
       
-      console.log('📋 Creating reservation:', reservationData);
+      console.log('📋 Tạo reservation:', reservationData);
       
-      // Create reservation via appointment service
+      // Tạo reservation qua appointment service
       const reservationResponse = await axios.post(
         `${APPOINTMENT_SERVICE_URL}/api/appointments/reserve`,
         reservationData
@@ -323,9 +323,9 @@ class BookingService {
       
       const reservation = reservationResponse.data.data;
       
-      console.log('✅ Reservation created:', reservation.appointmentCode);
+      console.log('✅ Đã tạo reservation:', reservation.appointmentCode);
       
-      // Create payment URL via payment service
+      // Tạo URL thanh toán qua payment service
       const paymentData = {
         appointmentCode: reservation.appointmentCode,
         amount: reservation.depositAmount,
@@ -342,7 +342,7 @@ class BookingService {
         throw new Error(paymentResponse.data.message || 'Không thể tạo link thanh toán');
       }
       
-      console.log('✅ Payment URL created');
+      console.log('✅ Đã tạo URL thanh toán');
       
       return {
         reservation: {
@@ -360,7 +360,7 @@ class BookingService {
       };
       
     } catch (error) {
-      console.error('❌ createReservation error:', error);
+      console.error('❌ Lỗi createReservation:', error);
       throw new Error('Không thể tạo đặt lịch: ' + error.message);
     }
   }

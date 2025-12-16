@@ -5,7 +5,7 @@ const redis = require('../utils/redis.client');
 const CACHE_KEY = 'schedule_config_cache';
 const HOLIDAY_CACHE_KEY = 'holiday_config_cache';
 
-// Mark holiday as used when schedule is created
+// Đánh dấu ngày nghỉ đã được sử dụng khi tạo lịch
 const markHolidayAsUsed = async (holidayId) => {
   try {
     const holidayConfig = await HolidayConfig.findOne();
@@ -26,15 +26,15 @@ const markHolidayAsUsed = async (holidayId) => {
       await holidayConfig.save();
       console.log(`✅ Đã đánh dấu ngày nghỉ "${holiday.name}" đã được sử dụng`);
       
-      // Update cache
+      // Cập nhật cache
       try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig), { EX: 3600 }); } catch (e) {}
     }
   } catch (error) {
-    console.error('Error marking holiday as used:', error);
+    console.error('Lỗi khi đánh dấu ngày nghỉ đã sử dụng:', error);
   }
 };
 
-// Check if any holidays are used in date range
+// Kiểm tra xem có ngày nghỉ nào được sử dụng trong khoảng ngày không
 const checkHolidaysUsedInDateRange = async (startDate, endDate) => {
   try {
     const holidayConfig = await HolidayConfig.findOne();
@@ -53,7 +53,7 @@ const checkHolidaysUsedInDateRange = async (startDate, endDate) => {
       const holidayStart = new Date(holiday.startDate);
       const holidayEnd = new Date(holiday.endDate);
       
-      // Check if date ranges overlap
+      // Kiểm tra xem các khoảng ngày có chồng chéo không
       return !(endVN < holidayStart || startVN > holidayEnd);
     });
 
@@ -64,27 +64,27 @@ const checkHolidaysUsedInDateRange = async (startDate, endDate) => {
   }
 };
 
-// ===== SCHEDULE CONFIG (shifts, duration, limits, quarter tracking) =====
+// ===== CẤU HÌNH LỊCH (ca, thời lượng, giới hạn, theo dõi quý) =====
 exports.getConfig = async () => {
-  // Always get fresh data from database to ensure we have Mongoose document with methods
+  // Luôn lấy dữ liệu mới từ database để đảm bảo có Mongoose document với các methods
   const cfg = await ScheduleConfig.getSingleton();
   if (cfg) {
     try { 
-      // Cache as JSON for other services that only need data
-      await redis.set(CACHE_KEY, JSON.stringify(cfg), { EX: 3600 }); // 1h TTL
+      // Cache dạng JSON cho các service khác chỉ cần data
+      await redis.set(CACHE_KEY, JSON.stringify(cfg), { EX: 3600 }); // TTL 1h
     } catch (e) {}
   }
-  return cfg; // Return Mongoose document with methods
+  return cfg; // Trả về Mongoose document với các methods
 };
 
 exports.initializeConfig = async () => {
-  // Check if config already exists
+  // Kiểm tra xem cấu hình đã tồn tại chưa
   const existing = await ScheduleConfig.findOne({ singletonKey: 'SCHEDULE_CONFIG_SINGLETON' });
   if (existing) {
     throw new Error('Cấu hình phòng khám đã tồn tại');
   }
 
-  // Create default config with required shift times
+  // Tạo cấu hình mặc định với thời gian ca bắt buộc
   const defaultConfig = {
     morningShift: {
       name: 'Ca Sáng',
@@ -209,7 +209,7 @@ exports.getHolidays = async () => {
 
 
 exports.addHoliday = async (holiday) => {
-  // Ensure we operate on a mongoose document (not a cached plain object)
+  // Đảm bảo thao tác trên mongoose document (không phải object plain đã cache)
   let holidayConfig = await HolidayConfig.findOne();
   if (!holidayConfig) {
     holidayConfig = new HolidayConfig({ holidays: [] });
@@ -246,7 +246,7 @@ exports.addHoliday = async (holiday) => {
 
   // ✅ Validate: startDate phải > ngày hiện tại
   const now = new Date();
-  now.setHours(0, 0, 0, 0); // Reset to start of day for comparison
+  now.setHours(0, 0, 0, 0); // Reset về đầu ngày để so sánh
   const startDateOnly = new Date(h.startDate);
   startDateOnly.setHours(0, 0, 0, 0);
   
@@ -261,7 +261,7 @@ exports.addHoliday = async (holiday) => {
   
   console.log(`➕ Tạo ngày nghỉ khoảng thời gian: ${h.name} (${h.startDate.toISOString().split('T')[0]} - ${h.endDate.toISOString().split('T')[0]})`);
 
-  // Add holiday
+  // Thêm ngày nghỉ
   holidayConfig.holidays.push(h);
   await holidayConfig.save();
 
@@ -318,7 +318,7 @@ exports.addHolidays = async (holidays) => {
         continue;
       }
 
-      // Check duplicate name
+      // Kiểm tra tên trùng lặp
       if (holidayConfig.holidays.some(x => !x.isRecurring && x.name === h.name)) {
         errors.push({
           index: i,
@@ -328,7 +328,7 @@ exports.addHolidays = async (holidays) => {
         continue;
       }
 
-      // Check overlap
+      // Kiểm tra chồng chéo
       let hasOverlap = false;
       for (const ex of holidayConfig.holidays) {
         if (ex.isRecurring) continue;
@@ -346,7 +346,7 @@ exports.addHolidays = async (holidays) => {
       }
       if (hasOverlap) continue;
 
-      // Check existing slots
+      // Kiểm tra các slots đã có
       const startOfDay = new Date(h.startDate);
       startOfDay.setHours(0, 0, 0, 0);
       const endOfDay = new Date(h.endDate);
@@ -368,7 +368,7 @@ exports.addHolidays = async (holidays) => {
         continue;
       }
 
-      // Success - add to config
+      // Thành công - thêm vào config
       holidayConfig.holidays.push(h);
       createdHolidays.push(h);
       console.log(`✅ [${i}] Tạo ngày nghỉ: ${h.name}`);
@@ -382,7 +382,7 @@ exports.addHolidays = async (holidays) => {
     }
   }
 
-  // Save if there are any successfully created holidays
+  // Lưu nếu có bất kỳ ngày nghỉ nào được tạo thành công
   if (createdHolidays.length > 0) {
     await holidayConfig.save();
     try { await redis.set(HOLIDAY_CACHE_KEY, JSON.stringify(holidayConfig), { EX: 3600 }); } catch (e) {}
@@ -396,7 +396,7 @@ exports.addHolidays = async (holidays) => {
   };
 };
 
-// Helper function to get day name
+// Hàm hỗ trợ lấy tên ngày
 function getDayName(dayOfWeek) {
   const names = {
     1: 'Chủ nhật',
@@ -411,16 +411,16 @@ function getDayName(dayOfWeek) {
 }
 
 exports.removeHoliday = async (holidayId) => {
-  // Ensure we operate on a mongoose document
+  // Đảm bảo thao tác trên mongoose document
   const holidayConfig = await HolidayConfig.findOne();
   if (!holidayConfig) {
-    throw new Error('Holiday configuration not found');
+    throw new Error('Không tìm thấy cấu hình ngày nghỉ');
   }
 
-  // Find the holiday to check if it can be removed
+  // Tìm ngày nghỉ để kiểm tra xem có thể xóa không
   const holidayToRemove = holidayConfig.holidays.find(h => h._id.toString() === holidayId.toString());
   if (!holidayToRemove) {
-    throw new Error('Holiday not found');
+    throw new Error('Không tìm thấy ngày nghỉ');
   }
 
   // 🔹 Kiểm tra ngày nghỉ cố định - KHÔNG được xóa
@@ -437,7 +437,7 @@ exports.removeHoliday = async (holidayId) => {
   }
 
   // ✅ Ngày nghỉ không cố định (hasBeenUsed = false hoặc undefined) có thể xóa tự do
-  // Remove the holiday
+  // Xóa ngày nghỉ
   holidayConfig.holidays.pull(holidayId);
   await holidayConfig.save();
 
@@ -447,23 +447,23 @@ exports.removeHoliday = async (holidayId) => {
   return holidayConfig;
 };
 
-// Update a single holiday by its id with validations
+// Cập nhật một ngày nghỉ theo id với các kiểm tra
 exports.updateHolidayById = async (holidayId, updates) => {
   const holidayConfig = await HolidayConfig.findOne();
-  if (!holidayConfig) throw new Error('Holiday configuration not found');
+  if (!holidayConfig) throw new Error('Không tìm thấy cấu hình ngày nghỉ');
 
-  // Try to find holiday by subdocument id
+  // Thử tìm ngày nghỉ theo subdocument id
   let idx = holidayConfig.holidays.findIndex(h => h._id.toString() === holidayId.toString());
 
-  // Fallback: if the client passed the HolidayConfig document id (not sub-id)
-  // and there is exactly one holiday, allow updating that one for convenience.
+  // Dự phòng: nếu client gửi document id của HolidayConfig (không phải sub-id)
+  // và chỉ có một ngày nghỉ, cho phép cập nhật ngày đó để thuận tiện.
   if (idx === -1) {
     if (holidayConfig._id.toString() === holidayId.toString() && holidayConfig.holidays.length === 1) {
       idx = 0;
     }
   }
 
-  if (idx === -1) throw new Error('Holiday not found');
+  if (idx === -1) throw new Error('Không tìm thấy ngày nghỉ');
 
   const current = holidayConfig.holidays[idx];
 
@@ -509,7 +509,7 @@ exports.updateHolidayById = async (holidayId, updates) => {
     // ✅ Validate: Không cho phép update ngày nghỉ đã kết thúc (quá khứ)
     const now = new Date();
     const currentEndDate = new Date(current.endDate);
-    currentEndDate.setHours(23, 59, 59, 999); // Set to end of day
+    currentEndDate.setHours(23, 59, 59, 999); // Đặt thành cuối ngày
     
     if (now > currentEndDate) {
       throw new Error(`Không thể cập nhật ngày nghỉ "${current.name}" vì đã kết thúc`);
@@ -520,7 +520,7 @@ exports.updateHolidayById = async (holidayId, updates) => {
       holidayConfig.holidays[idx].isActive = updates.isActive;
       console.log(`  ➡️ isActive: ${current.isActive} → ${updates.isActive}`);
       
-      // If only updating isActive, save and return early
+      // Nếu chỉ cập nhật isActive, lưu và trả về sớm
       if (Object.keys(updates).length === 1 && updates.isActive !== undefined) {
         await holidayConfig.save();
         // ✅ Update Redis cache
@@ -539,7 +539,7 @@ exports.updateHolidayById = async (holidayId, updates) => {
       throw new Error(`Không thể cập nhật ngày nghỉ "${current.name}" vì đã được sử dụng trong hệ thống`);
     }
 
-    // Build proposed holiday
+    // Xây dựng ngày nghỉ đề xuất
     const prop = {
       name: updates.name ?? current.name,
       startDate: updates.startDate ? new Date(updates.startDate) : new Date(current.startDate),
@@ -554,7 +554,7 @@ exports.updateHolidayById = async (holidayId, updates) => {
 
     // ✅ Validate: startDate phải > ngày hiện tại (khi update dates)
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Reset to start of day for comparison
+    today.setHours(0, 0, 0, 0); // Reset về đầu ngày để so sánh
     const propStartDate = new Date(prop.startDate);
     propStartDate.setHours(0, 0, 0, 0);
     
@@ -567,7 +567,7 @@ exports.updateHolidayById = async (holidayId, updates) => {
       throw new Error(`Tên ngày nghỉ "${prop.name}" đã tồn tại`);
     }
 
-    // Apply updates
+    // Áp dụng các cập nhật
     holidayConfig.holidays[idx].name = prop.name;
     holidayConfig.holidays[idx].startDate = prop.startDate;
     holidayConfig.holidays[idx].endDate = prop.endDate;
@@ -579,12 +579,12 @@ exports.updateHolidayById = async (holidayId, updates) => {
   return holidayConfig;
 };
 
-// 🆕 Get blocked date ranges (months with existing schedules + existing non-recurring holidays)
+// 🆕 Lấy các khoảng ngày bị chặn (các tháng có lịch đã tạo + các ngày nghỉ không cố định đã có)
 exports.getBlockedDateRanges = async () => {
   try {
     const Schedule = require('../models/schedule.model');
     
-    // 1. Get all schedules to find months with existing slots
+    // 1. Lấy tất cả lịch để tìm các tháng có slots đã tạo
     const schedules = await Schedule.find({}, 'startDate endDate').lean();
     
     const blockedMonths = new Set();
@@ -594,7 +594,7 @@ exports.getBlockedDateRanges = async () => {
       const start = new Date(schedule.startDate);
       const end = new Date(schedule.endDate);
       
-      // Get all months covered by this schedule
+      // Lấy tất cả các tháng được bao phủ bởi lịch này
       let current = new Date(start.getFullYear(), start.getMonth(), 1);
       const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
       
@@ -604,7 +604,7 @@ exports.getBlockedDateRanges = async () => {
         if (!blockedMonths.has(monthKey)) {
           blockedMonths.add(monthKey);
           
-          // Add range for this month
+          // Thêm khoảng cho tháng này
           const monthStart = new Date(current.getFullYear(), current.getMonth(), 1);
           const monthEnd = new Date(current.getFullYear(), current.getMonth() + 1, 0, 23, 59, 59);
           
@@ -617,7 +617,7 @@ exports.getBlockedDateRanges = async () => {
           });
         }
         
-        // Move to next month
+        // Chuyển sang tháng tiếp theo
         current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
       }
     });
@@ -653,25 +653,25 @@ exports.getBlockedDateRanges = async () => {
   }
 };
 
-// Export helper functions for use in schedule service
+// Export các hàm hỗ trợ để sử dụng trong schedule service
 exports.markHolidayAsUsed = markHolidayAsUsed;
 exports.checkHolidaysUsedInDateRange = checkHolidaysUsedInDateRange;
 
 /**
- * 🆕 Auto-initialize schedule config and holidays on service startup
- * Called when service starts to ensure default config exists
+ * 🆕 Tự động khởi tạo cấu hình lịch và ngày nghỉ khi service khởi động
+ * Được gọi khi service bắt đầu để đảm bảo cấu hình mặc định tồn tại
  */
 exports.autoInitializeDefaults = async () => {
   try {
-    console.log('🔍 Checking for existing schedule config...');
+    console.log('🔍 Kiểm tra cấu hình lịch đã có...');
     
-    // Check if schedule config exists
+    // Kiểm tra xem cấu hình lịch đã tồn tại chưa
     const existingConfig = await ScheduleConfig.findOne({ singletonKey: 'SCHEDULE_CONFIG_SINGLETON' });
     
     if (!existingConfig) {
-      console.log('⚙️  No schedule config found. Creating default config...');
+      console.log('⚙️  Không tìm thấy cấu hình lịch. Đang tạo cấu hình mặc định...');
       
-      // Create default config
+      // Tạo cấu hình mặc định
       const defaultConfig = {
         morningShift: {
           name: 'Ca Sáng',
@@ -709,7 +709,7 @@ exports.autoInitializeDefaults = async () => {
       console.log('✅ Schedule config already exists');
     }
     
-    // Check if holiday config exists
+    // Kiểm tra xem cấu hình ngày nghỉ đã tồn tại chưa
     let holidayConfig = await HolidayConfig.findOne();
     
     if (!holidayConfig) {
@@ -725,12 +725,12 @@ exports.autoInitializeDefaults = async () => {
         7: 'Thứ Bảy'
       };
       
-      // Create 7 recurring holidays (Sunday to Saturday)
+      // Tạo 7 ngày nghỉ cố định (Chủ nhật đến Thứ Bảy)
       const defaultRecurringHolidays = [1, 2, 3, 4, 5, 6, 7].map(dayOfWeek => ({
         name: `Nghỉ ${dayNames[dayOfWeek]}`,
         isRecurring: true,
         dayOfWeek: dayOfWeek,
-        isActive: false, // Default to inactive, admin can enable if needed
+        isActive: false, // Mặc định tắt, admin có thể bật lại nếu cần
         note: 'Ngày nghỉ cố định trong tuần (mặc định tắt)'
       }));
       
@@ -754,6 +754,6 @@ exports.autoInitializeDefaults = async () => {
     
   } catch (error) {
     console.error('❌ Error auto-initializing defaults:', error);
-    // Don't throw - service should still start even if initialization fails
+    // Không throw - service vẫn nên khởi động ngay cả khi khởi tạo thất bại
   }
 };

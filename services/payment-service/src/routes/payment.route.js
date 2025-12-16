@@ -20,44 +20,44 @@ const {
 } = require('../validations/payment.validation');
 const stripeController = require('../controllers/stripe.controller');
 
-// ============ PUBLIC ROUTES (No Auth Required) ============
-// VNPay Payment Gateway Return URL
+// ============ CÁC ROUTE CÔNG KHAI (Không cần xác thực) ============
+// URL trả về của Cổng thanh toán VNPay
 router.get('/return/vnpay', 
   paymentController.vnpayReturn
 );
 
-// Stripe Payment Gateway Return URL (VNPay-style)
+// URL trả về của Cổng thanh toán Stripe (theo kiểu VNPay)
 router.get('/return/stripe',
   stripeController.handleCallback
 );
 
-// Visa Payment Processing (Patient only - optional auth)
+// Xử lý thanh toán Visa (Chỉ bệnh nhân - xác thực tùy chọn)
 router.post('/visa/process',
   paymentController.processVisaPayment
 );
 
-// Create temporary payment for reservation (Internal service-to-service call)
+// Tạo thanh toán tạm thời cho đặt khám (Gọi nội bộ giữa các service)
 router.post('/temporary', 
   paymentController.createTemporaryPayment
 );
 
-// Create VNPay payment URL (Called from frontend payment selection page)
+// Tạo URL thanh toán VNPay (Gọi từ trang chọn thanh toán frontend)
 router.post('/vnpay/create-url',
   paymentController.createVNPayUrl
 );
 
-// ============ AUTHENTICATED ROUTES ============
+// ============ CÁC ROUTE CẦN XÁC THỰC ============
 router.use(authMiddleware);
 
-// ============ CREATE PAYMENT ROUTES ============
-// Create general payment (All authenticated users)
+// ============ CÁC ROUTE TẠO THANH TOÁN ============
+// Tạo thanh toán chung (Tất cả người dùng đã xác thực)
 router.post('/', 
   createPaymentValidation,
   validationMiddleware.validate,
   paymentController.createPayment
 );
 
-// Create cash payment (Staff only)
+// Tạo thanh toán tiền mặt (Chỉ nhân viên)
 router.post('/cash', 
   roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
   createCashPaymentValidation,
@@ -65,7 +65,7 @@ router.post('/cash',
   paymentController.createCashPayment
 );
 
-// Create refund (Admin/Manager only)
+// Tạo hoàn tiền (Chỉ Admin/Manager)
 router.post('/:originalPaymentId/refund', 
   roleMiddleware(['admin', 'manager']),
   createRefundValidation,
@@ -73,64 +73,64 @@ router.post('/:originalPaymentId/refund',
   paymentController.createRefundPayment
 );
 
-// Create VNPay URL for existing payment (Staff only)
+// Tạo URL VNPay cho thanh toán hiện có (Chỉ nhân viên)
 router.post('/:id/vnpay-url',
   roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
   paymentController.createVNPayUrlForPayment
 );
 
-// Create Stripe URL for existing payment (Staff only)
+// Tạo URL Stripe cho thanh toán hiện có (Chỉ nhân viên)
 router.post('/:id/stripe-url',
   roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
   paymentController.createStripeUrlForPayment
 );
 
-// ============ GET PAYMENT ROUTES ============
-// Get payment by ID
+// ============ CÁC ROUTE LẤY THANH TOÁN ============
+// Lấy thanh toán theo ID
 router.get('/id/:id', 
   getPaymentByIdValidation,
   validationMiddleware.validate,
   paymentController.getPaymentById
 );
 
-// Get payment by code
+// Lấy thanh toán theo mã
 router.get('/code/:code', 
   getPaymentByCodeValidation,
   validationMiddleware.validate,
   paymentController.getPaymentByCode
 );
 
-// Get patient payments (Patients can only see their own, staff can see all)
+// Lấy thanh toán của bệnh nhân (Bệnh nhân chỉ xem của mình, nhân viên xem tất cả)
 router.get('/patient/:patientId', 
   getPatientPaymentsValidation,
   validationMiddleware.validate,
   paymentController.getPatientPayments
 );
 
-// Get appointment payments
+// Lấy thanh toán theo lịch hẹn
 router.get('/appointment/:appointmentId', 
   paymentController.getAppointmentPayments
 );
 
-// Get invoice payments
+// Lấy thanh toán theo hóa đơn
 router.get('/invoice/:invoiceId', 
   paymentController.getInvoicePayments
 );
 
-// Get payment by recordId (auto-creates if not exists)
+// Lấy thanh toán theo recordId (tự động tạo nếu chưa có)
 router.get('/record/:recordId', 
   roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
   paymentController.getPaymentByRecordId
 );
 
-// Legacy route - kept for backward compatibility
+// Route cũ - giữ lại để tương thích ngược
 router.get('/by-record/:recordId', 
   roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
   paymentController.getPaymentByRecordId
 );
 
-// ============ LIST & SEARCH ROUTES ============
-// List payments with filters (Staff only)
+// ============ CÁC ROUTE DANH SÁCH & TÌM KIẾĆM ============
+// Danh sách thanh toán với bộ lọc (Chỉ nhân viên)
 router.get('/', 
   roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
   listPaymentsValidation,
@@ -138,7 +138,7 @@ router.get('/',
   paymentController.listPayments
 );
 
-// Search payments (Staff only)
+// Tìm kiếm thanh toán (Chỉ nhân viên)
 router.get('/search', 
   roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
   searchPaymentsValidation,
@@ -146,32 +146,32 @@ router.get('/search',
   paymentController.searchPayments
 );
 
-// Get pending payments (Staff only)
+// Lấy thanh toán đang chờ (Chỉ nhân viên)
 router.get('/status/pending', 
   roleMiddleware(['admin', 'manager', 'receptionist']),
   paymentController.getPendingPayments
 );
 
-// Get processing payments (Staff only)
+// Lấy thanh toán đang xử lý (Chỉ nhân viên)
 router.get('/status/processing', 
   roleMiddleware(['admin', 'manager', 'receptionist']),
   paymentController.getProcessingPayments
 );
 
-// Get failed payments (Staff only)
+// Lấy thanh toán thất bại (Chỉ nhân viên)
 router.get('/status/failed', 
   roleMiddleware(['admin', 'manager', 'receptionist']),
   paymentController.getFailedPayments
 );
 
-// Get today's payments (Staff only)
+// Lấy thanh toán hôm nay (Chỉ nhân viên)
 router.get('/today', 
   roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
   paymentController.getTodayPayments
 );
 
-// ============ UPDATE PAYMENT ROUTES ============
-// Update payment (Staff only)
+// ============ CÁC ROUTE CẬP NHẬT THANH TOÁN ============
+// Cập nhật thanh toán (Chỉ nhân viên)
 router.put('/:id', 
   roleMiddleware(['admin', 'manager', 'receptionist']),
   updatePaymentValidation,
@@ -179,7 +179,7 @@ router.put('/:id',
   paymentController.updatePayment
 );
 
-// Confirm payment (Staff only)
+// Xác nhận thanh toán (Chỉ nhân viên)
 router.post('/:id/confirm', 
   roleMiddleware(['admin', 'manager', 'receptionist']),
   getPaymentByIdValidation,
@@ -187,13 +187,13 @@ router.post('/:id/confirm',
   paymentController.confirmPayment
 );
 
-// Confirm cash payment (Staff only) - NEW
+// Xác nhận thanh toán tiền mặt (Chỉ nhân viên) - MỚI
 router.post('/:id/confirm-cash',
   roleMiddleware(['admin', 'manager', 'dentist', 'receptionist']),
   paymentController.confirmCashPayment
 );
 
-// Manual confirm payment (Staff only)
+// Xác nhận thanh toán thủ công (Chỉ nhân viên)
 router.post('/:id/manual-confirm', 
   roleMiddleware(['admin', 'manager', 'receptionist']),
   getPaymentByIdValidation,
@@ -201,7 +201,7 @@ router.post('/:id/manual-confirm',
   paymentController.manualConfirmPayment
 );
 
-// Cancel payment (Staff only)
+// Hủy thanh toán (Chỉ nhân viên)
 router.post('/:id/cancel', 
   roleMiddleware(['admin', 'manager']),
   cancelPaymentValidation,
@@ -209,7 +209,7 @@ router.post('/:id/cancel',
   paymentController.cancelPayment
 );
 
-// Verify payment (Admin/Manager only)
+// Xác minh thanh toán (Chỉ Admin/Manager)
 router.post('/:id/verify', 
   roleMiddleware(['admin', 'manager']),
   getPaymentByIdValidation,
@@ -217,8 +217,8 @@ router.post('/:id/verify',
   paymentController.verifyPayment
 );
 
-// ============ STATISTICS ROUTES ============
-// Payment statistics (Admin/Manager only)
+// ============ CÁC ROUTE THỐNG KÊ ============
+// Thống kê thanh toán (Chỉ Admin/Manager)
 router.get('/stats/payments', 
   roleMiddleware(['admin', 'manager']),
   getStatisticsValidation,
@@ -226,7 +226,7 @@ router.get('/stats/payments',
   paymentController.getPaymentStatistics
 );
 
-// Revenue statistics (Admin/Manager only)
+// Thống kê doanh thu (Chỉ Admin/Manager)
 router.get('/stats/revenue', 
   roleMiddleware(['admin', 'manager']),
   getStatisticsValidation,
@@ -234,7 +234,7 @@ router.get('/stats/revenue',
   paymentController.getRevenueStatistics
 );
 
-// Refund statistics (Admin/Manager only)
+// Thống kê hoàn tiền (Chỉ Admin/Manager)
 router.get('/stats/refunds', 
   roleMiddleware(['admin', 'manager']),
   getStatisticsValidation,
@@ -242,8 +242,8 @@ router.get('/stats/refunds',
   paymentController.getRefundStatistics
 );
 
-// ============ RPC ROUTES ============
-// RPC confirm payment (Internal service calls)
+// ============ CÁC ROUTE RPC ============
+// Xác nhận thanh toán RPC (Gọi nội bộ giữa các service)
 router.post('/:id/confirm-rpc', 
   getPaymentByIdValidation,
   validationMiddleware.validate,

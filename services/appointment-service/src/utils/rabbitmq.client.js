@@ -2,6 +2,11 @@ const amqp = require('amqplib');
 let connection = null;
 let channel = null;
 
+/**
+ * Kết nối đến RabbitMQ server
+ * @param {string} url - URL kết nối RabbitMQ
+ * @returns {Object} Channel đã được khởi tạo
+ */
 async function connectRabbitMQ(url) {
   if (channel) return channel; // đã kết nối
   connection = await amqp.connect(url);
@@ -9,13 +14,20 @@ async function connectRabbitMQ(url) {
   return channel;
 }
 
+/**
+ * Lấy channel RabbitMQ đã được khởi tạo
+ * @returns {Object} Channel hiện tại
+ * @throws {Error} Nếu channel chưa được khởi tạo
+ */
 function getChannel() {
-  if (!channel) throw new Error('RabbitMQ channel not initialized');
+  if (!channel) throw new Error('RabbitMQ channel chưa được khởi tạo');
   return channel;
 }
 
 /**
- * Publish message to queue
+ * Gửi message đến queue
+ * @param {string} queueName - Tên queue
+ * @param {Object} message - Nội dung message
  */
 async function publishToQueue(queueName, message) {
   try {
@@ -24,71 +36,73 @@ async function publishToQueue(queueName, message) {
     ch.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
       persistent: true
     });
-    // Silent - no log spam
+    // Không log để tránh spam
   } catch (error) {
-    console.error(`❌ Failed to publish to ${queueName}:`, error);
+    console.error(`❌ Gửi message đến ${queueName} thất bại:`, error);
     throw error;
   }
 }
 
 /**
- * Consume messages from queue
+ * Lắng nghe và xử lý message từ queue
+ * @param {string} queueName - Tên queue cần lắng nghe
+ * @param {Function} handler - Hàm xử lý message
  */
 async function consumeQueue(queueName, handler) {
   try {
     const ch = getChannel();
     await ch.assertQueue(queueName, { durable: true });
     
-    // ✅ Set prefetch to 1 - process one message at a time
+    // ✅ Đặt prefetch = 1 - xử lý từng message một
     await ch.prefetch(1);
     
-    console.log(`👂 Listening to ${queueName}...`);
+    console.log(`👂 Đang lắng nghe ${queueName}...`);
     
     ch.consume(queueName, async (msg) => {
       if (msg) {
         try {
           const content = JSON.parse(msg.content.toString());
-          console.log(`📥 Received from ${queueName}:`, content.type || content.event || content.action || 'message');
+          console.log(`📥 Nhận từ ${queueName}:`, content.type || content.event || content.action || 'message');
           
           await handler(content);
           
           ch.ack(msg);
         } catch (error) {
-          console.error(`❌ Error processing message from ${queueName}:`, error);
-          ch.nack(msg, false, false); // Don't requeue
+          console.error(`❌ Lỗi xử lý message từ ${queueName}:`, error);
+          ch.nack(msg, false, false); // Không requeue
         }
       }
     });
   } catch (error) {
-    console.error(`❌ Failed to consume from ${queueName}:`, error);
+    console.error(`❌ Lắng nghe ${queueName} thất bại:`, error);
     throw error;
   }
 }
 
 /**
- * Send RPC request and wait for response
- * @param {string} queueName - RPC queue name (e.g., 'rpc.auth-service')
- * @param {object} message - Request payload
- * @param {number} timeout - Timeout in milliseconds (default: 20000)
- * @returns {Promise<object>} Response from RPC server
+ * Gửi RPC request và đợi response
+ * @param {string} queueName - Tên queue RPC (vd: 'rpc.auth-service')
+ * @param {object} message - Payload request
+ * @param {number} timeout - Thời gian chờ tối đa (ms), mặc định: 20000
+ * @returns {Promise<object>} Response từ RPC server
  */
 async function sendRpcRequest(queueName, message, timeout = 20000) {
   return new Promise(async (resolve, reject) => {
     try {
       const ch = getChannel();
       
-      // Create exclusive reply queue
+      // Tạo queue reply riêng biệt (exclusive)
       const { queue: replyQueue } = await ch.assertQueue('', { exclusive: true });
       
-      // Generate unique correlation ID
+      // Tạo correlation ID duy nhất
       const correlationId = `${Date.now()}-${Math.random()}`;
       
-      // Set timeout
+      // Đặt timeout
       const timer = setTimeout(() => {
-        reject(new Error(`RPC timeout after ${timeout}ms: ${queueName}`));
+        reject(new Error(`RPC timeout sau ${timeout}ms: ${queueName}`));
       }, timeout);
       
-      // Listen for response
+      // Lắng nghe response
       ch.consume(replyQueue, (msg) => {
         if (msg && msg.properties.correlationId === correlationId) {
           clearTimeout(timer);
@@ -97,7 +111,7 @@ async function sendRpcRequest(queueName, message, timeout = 20000) {
         }
       }, { noAck: true });
       
-      // Send request
+      // Gửi request
       ch.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
         correlationId,
         replyTo: replyQueue
@@ -114,6 +128,6 @@ module.exports = {
   getChannel,
   publishToQueue,
   consumeQueue,
-  consumeFromQueue: consumeQueue, // Alias for compatibility
+  consumeFromQueue: consumeQueue, // Alias để tương thích
   sendRpcRequest
 };

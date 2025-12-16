@@ -2,7 +2,7 @@ const DayClosure = require('../models/dayClosure.model');
 const axios = require('axios');
 const { sendRpcRequest } = require('../utils/rabbitmq.client');
 
-// Helper: Get user info by ID from auth-service
+// Hàm hỗ trợ: Lấy thông tin người dùng theo ID từ auth-service
 async function getUserById(userId) {
   try {
     if (!userId) return null;
@@ -14,22 +14,22 @@ async function getUserById(userId) {
     
     console.log(`   📨 Response from auth_queue:`, JSON.stringify(userData).substring(0, 200));
     
-    // Handle various response formats
+    // Xử lý các định dạng response khác nhau
     if (userData && userData.success && userData.data) {
       return userData.data;
     }
-    // Sometimes RPC returns data directly without success wrapper
+    // Đôi khi RPC trả về data trực tiếp mà không có wrapper success
     if (userData && (userData.fullName || userData.email || userData.phone)) {
       return userData;
     }
     return null;
   } catch (error) {
-    console.error(`❌ Cannot get user ${userId}:`, error.message);
+    console.error(`❌ Không thể lấy user ${userId}:`, error.message);
     return null;
   }
 }
 
-// Helper: Get room info by ID from room-service
+// Hàm hỗ trợ: Lấy thông tin phòng theo ID từ room-service
 async function getRoomById(roomId) {
   try {
     if (!roomId) return null;
@@ -41,30 +41,30 @@ async function getRoomById(roomId) {
     
     console.log(`   📨 Response from room_queue:`, JSON.stringify(roomData).substring(0, 200));
     
-    // Handle various response formats
+    // Xử lý các định dạng response khác nhau
     if (roomData && roomData.success && roomData.data) {
       return roomData.data;
     }
-    // Sometimes RPC returns data directly without success wrapper
+    // Đôi khi RPC trả về data trực tiếp mà không có wrapper success
     if (roomData && roomData.name) {
       return roomData;
     }
     return null;
   } catch (error) {
-    console.error(`❌ Cannot get room ${roomId}:`, error.message);
+    console.error(`❌ Không thể lấy room ${roomId}:`, error.message);
     return null;
   }
 }
 
 /**
- * Get all day closure records with optional filters
- * @param {Object} filters - Query filters
- * @param {Date} filters.startDate - Start date filter
- * @param {Date} filters.endDate - End date filter
- * @param {String} filters.status - Status filter (active, restored)
- * @param {String} filters.roomId - Filter by room
- * @param {Number} filters.page - Page number (1-based)
- * @param {Number} filters.limit - Items per page
+ * Lấy tất cả bản ghi đóng cửa theo ngày với bộ lọc tùy chọn
+ * @param {Object} filters - Các bộ lọc truy vấn
+ * @param {Date} filters.startDate - Lọc theo ngày bắt đầu
+ * @param {Date} filters.endDate - Lọc theo ngày kết thúc
+ * @param {String} filters.status - Lọc theo trạng thái (active, restored)
+ * @param {String} filters.roomId - Lọc theo phòng
+ * @param {Number} filters.page - Số trang (bắt đầu từ 1)
+ * @param {Number} filters.limit - Số mục mỗi trang
  */
 async function getDayClosures(filters = {}) {
   try {
@@ -82,30 +82,30 @@ async function getDayClosures(filters = {}) {
     // 🆕 Filter out appointment cancellations (only show slot closures)
     query.isAppointmentCancellation = { $ne: true };
 
-    // Date range filter
-    // Handle both YYYY-MM-DD and ISO string formats
+    // Lọc theo khoảng ngày
+    // Xử lý cả định dạng YYYY-MM-DD và chuỗi ISO
     if (startDate || endDate) {
       query.dateFrom = {};
       if (startDate) {
-        // Parse as YYYY-MM-DD and set to start of day in UTC
+        // Parse như YYYY-MM-DD và đặt đầu ngày theo UTC
         const start = new Date(startDate);
         start.setUTCHours(0, 0, 0, 0);
         query.dateFrom.$gte = start;
       }
       if (endDate) {
-        // Parse as YYYY-MM-DD and set to end of day in UTC
+        // Parse như YYYY-MM-DD và đặt cuối ngày theo UTC
         const end = new Date(endDate);
         end.setUTCHours(23, 59, 59, 999);
         query.dateFrom.$lte = end;
       }
     }
 
-    // Status filter
+    // Lọc theo trạng thái
     if (status) {
       query.status = status;
     }
 
-    // Room filter
+    // Lọc theo phòng
     if (roomId) {
       query['affectedRooms.roomId'] = roomId;
     }
@@ -121,14 +121,14 @@ async function getDayClosures(filters = {}) {
       DayClosure.countDocuments(query)
     ]);
 
-    // Format records for display
+    // Định dạng các bản ghi để hiển thị
     const formattedRecords = records.map(record => {
       const dateValue = record.dateFrom || record.createdAt;
       const d = new Date(dateValue);
       // Sử dụng UTC methods để đảm bảo nhất quán
       const formattedDate = `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
       
-      // Format dateTo if exists
+      // Định dạng dateTo nếu có
       let formattedDateTo = null;
       if (record.dateTo) {
         const dTo = new Date(record.dateTo);
@@ -137,7 +137,7 @@ async function getDayClosures(filters = {}) {
       
       return {
         ...record,
-        date: dateValue, // For backward compatibility
+        date: dateValue, // Để tương thích ngược
         dateFrom: dateValue,
         formattedDate,
         formattedDateFrom: formattedDate,
@@ -167,8 +167,8 @@ async function getDayClosures(filters = {}) {
 }
 
 /**
- * Get a single day closure record by ID with full details
- * @param {String} id - DayClosure record ID
+ * Lấy một bản ghi đóng cửa theo ID với đầy đủ chi tiết
+ * @param {String} id - ID bản ghi DayClosure
  */
 async function getDayClosureById(id) {
   try {
@@ -181,28 +181,28 @@ async function getDayClosureById(id) {
       };
     }
 
-    // Format date - use dateFrom from new model
+    // Định dạng ngày - sử dụng dateFrom từ model mới
     const dateValue = record.dateFrom || record.createdAt;
     const d = new Date(dateValue);
     // Sử dụng UTC methods để đảm bảo nhất quán
     const formattedDate = `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
     
-    // 🔧 FIX: Enrich data if incomplete
+    // 🔧 SỬa: Làm giàu dữ liệu nếu không đầy đủ
     const ROOM_SERVICE_URL = process.env.ROOM_SERVICE_URL || 'http://localhost:3009';
     const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
     const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
     
-    // Enrich closedBy.userName if it's "System" or missing
+    // Làm giàu closedBy.userName nếu là "System" hoặc thiếu
     let enrichedClosedBy = record.closedBy || {};
     if (enrichedClosedBy.userId && (!enrichedClosedBy.userName || enrichedClosedBy.userName === 'System')) {
       try {
-        // Note: auth-service route is /api/user/:id (without 's')
+        // Ghi chú: route auth-service là /api/user/:id (không có 's')
         const userResponse = await axios.get(
           `${AUTH_SERVICE_URL}/api/user/${enrichedClosedBy.userId}`,
           { timeout: 3000 }
         );
         
-        // auth-service returns: { success: true, user: { fullName, ... } }
+        // auth-service trả về: { success: true, user: { fullName, ... } }
         if (userResponse.data?.success && userResponse.data?.user?.fullName) {
           enrichedClosedBy = {
             ...enrichedClosedBy,
@@ -214,17 +214,17 @@ async function getDayClosureById(id) {
       }
     }
     
-    // Enrich restoredBy.userName if exists and is "System" or missing
+    // Làm giàu restoredBy.userName nếu tồn tại và là "System" hoặc thiếu
     let enrichedRestoredBy = record.restoredBy || null;
     if (enrichedRestoredBy?.userId && (!enrichedRestoredBy.userName || enrichedRestoredBy.userName === 'System')) {
       try {
-        // Note: auth-service route is /api/user/:id (without 's')
+        // Ghi chú: route auth-service là /api/user/:id (không có 's')
         const userResponse = await axios.get(
           `${AUTH_SERVICE_URL}/api/user/${enrichedRestoredBy.userId}`,
           { timeout: 3000 }
         );
         
-        // auth-service returns: { success: true, user: { fullName, ... } }
+        // auth-service trả về: { success: true, user: { fullName, ... } }
         if (userResponse.data?.success && userResponse.data?.user?.fullName) {
           enrichedRestoredBy = {
             ...enrichedRestoredBy,
@@ -236,14 +236,14 @@ async function getDayClosureById(id) {
       }
     }
     
-    // Enrich affectedRooms
+    // Làm giàu affectedRooms
     const enrichedAffectedRooms = await Promise.all((record.affectedRooms || []).map(async (room) => {
       let roomName = room.roomName;
       
       if (roomName === 'Unknown Room' && room.roomId) {
         try {
-          // Note: room-service route is /api/room/:roomId
-          // Response format: { room: { name, ... } }
+          // Ghi chú: route room-service là /api/room/:roomId
+          // Định dạng response: { room: { name, ... } }
           const roomResponse = await axios.get(
             `${ROOM_SERVICE_URL}/api/room/${room.roomId}`,
             { timeout: 3000 }
@@ -264,17 +264,17 @@ async function getDayClosureById(id) {
       };
     }));
     
-    // Enrich cancelledAppointments
+    // Làm giàu cancelledAppointments
     const enrichedCancelledAppointments = await Promise.all((record.cancelledAppointments || []).map(async (p) => {
       let patientName = p.patientName;
       let patientEmail = p.patientEmail;
       let patientPhone = p.patientPhone;
       let roomName = p.roomName;
       
-      // If data is incomplete, try to fetch
+      // Nếu dữ liệu không đầy đủ, thử lấy thêm
       if (patientName === 'Unknown' || !patientName || roomName === 'Unknown Room') {
         try {
-          // Fetch appointment details for patient info
+          // Lấy chi tiết cuộc hẹn cho thông tin bệnh nhân
           if ((patientName === 'Unknown' || !patientName) && p.appointmentId) {
             const aptResponse = await axios.get(
               `${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids?ids=${p.appointmentId}`,
@@ -291,8 +291,8 @@ async function getDayClosureById(id) {
             }
           }
           
-          // Fetch room name if missing
-          // Note: room-service returns { room: { name, ... } }
+          // Lấy tên phòng nếu chưa có
+          // Ghi chú: room-service trả về { room: { name, ... } }
           if (roomName === 'Unknown Room' && p.roomId) {
             const roomResponse = await axios.get(
               `${ROOM_SERVICE_URL}/api/room/${p.roomId}`,
@@ -325,7 +325,7 @@ async function getDayClosureById(id) {
         restoredBy: enrichedRestoredBy,
         affectedRooms: enrichedAffectedRooms,
         cancelledAppointments: enrichedCancelledAppointments,
-        date: dateValue, // For backward compatibility
+        date: dateValue, // Để tương thích ngược
         dateFrom: dateValue,
         formattedDate,
         formattedDateFrom: formattedDate
@@ -376,7 +376,7 @@ async function getDayClosureStats(startDate, endDate) {
       byMonth: {}
     };
 
-    // Group by month
+    // Nhóm theo tháng
     records.forEach(record => {
       const date = new Date(record.dateFrom || record.date);
       // Sử dụng UTC để nhất quán
@@ -421,13 +421,13 @@ async function getCancelledPatients(closureId) {
       let patientPhone = p.patientPhone;
       let roomName = p.roomName;
       
-      // If patient data is incomplete, try to fetch from appointment
+      // Nếu dữ liệu bệnh nhân không đầy đủ, thử lấy từ cuộc hẹn
       if (patientName === 'Unknown' || !patientName || roomName === 'Unknown Room') {
         try {
           const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
           const ROOM_SERVICE_URL = process.env.ROOM_SERVICE_URL || 'http://localhost:3009';
           
-          // Fetch appointment details
+          // Lấy chi tiết cuộc hẹn
           if (p.appointmentId) {
             const aptResponse = await axios.get(
               `${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids?ids=${p.appointmentId}`,
@@ -444,8 +444,8 @@ async function getCancelledPatients(closureId) {
             }
           }
           
-          // Fetch room name if missing
-          // Note: room-service returns { room: { name, ... } }
+          // Lấy tên phòng nếu thiếu
+          // Ghi chú: room-service trả về { room: { name, ... } }
           if (roomName === 'Unknown Room' && p.roomId) {
             const roomResponse = await axios.get(
               `${ROOM_SERVICE_URL}/api/room/${p.roomId}`,
@@ -521,8 +521,8 @@ async function getAllCancelledPatients(filters = {}) {
     } = filters;
 
     const query = {
-      action: 'disable', // Only get disable operations
-      'cancelledAppointments.0': { $exists: true } // Must have at least 1 cancelled appointment
+      action: 'disable', // Chỉ lấy các thao tác vô hiệu hóa
+      'cancelledAppointments.0': { $exists: true } // Phải có ít nhất 1 cuộc hẹn bị hủy
     };
 
     const skip = (page - 1) * limit;
@@ -547,32 +547,32 @@ async function getAllCancelledPatients(filters = {}) {
       .sort({ dateFrom: -1, createdAt: -1 })
       .lean();
 
-    // Flatten all cancelled appointments from all records
+    // Làm phẳng tất cả các cuộc hẹn bị hủy từ tất cả bản ghi
     let allPatients = [];
     
-    // Collect ALL unique patientIds and roomIds to fetch fresh data
-    // This ensures we always have the latest info even if stored data was incomplete
+    // Thu thập TẤT CẢ patientIds và roomIds duy nhất để lấy dữ liệu mới
+    // Điều này đảm bảo chúng ta luôn có thông tin mới nhất ngay cả khi dữ liệu lưu trữ không đầy đủ
     const allPatientIds = new Set();
     const allRoomIds = new Set();
     
     records.forEach(record => {
       (record.cancelledAppointments || []).forEach(p => {
-        // Collect all patientIds (not just Unknown ones)
+        // Thu thập tất cả patientIds (không chỉ các Unknown)
         if (p.patientId) {
           allPatientIds.add(p.patientId.toString());
         }
-        // Collect all roomIds (not just Unknown ones)
+        // Thu thập tất cả roomIds (không chỉ các Unknown)
         if (p.roomId) {
           allRoomIds.add(p.roomId.toString());
         }
       });
     });
     
-    // Batch fetch all patients and rooms via RPC
+    // Lấy hàng loạt tất cả bệnh nhân và phòng qua RPC
     const patientCache = new Map();
     const roomCache = new Map();
     
-    // Fetch ALL patients in parallel
+    // Lấy TẤT CẢ bệnh nhân song song
     if (allPatientIds.size > 0) {
       console.log(`🔍 Fetching ${allPatientIds.size} patients from auth-service...`);
       const patientPromises = Array.from(allPatientIds).map(async (patientId) => {
@@ -585,7 +585,7 @@ async function getAllCancelledPatients(filters = {}) {
       console.log(`✅ Fetched ${patientCache.size}/${allPatientIds.size} patients from auth-service`);
     }
     
-    // Fetch ALL rooms in parallel
+    // Lấy TẤT CẢ phòng song song
     if (allRoomIds.size > 0) {
       console.log(`🔍 Fetching ${allRoomIds.size} rooms from room-service...`);
       const roomPromises = Array.from(allRoomIds).map(async (roomId) => {
@@ -611,16 +611,16 @@ async function getAllCancelledPatients(filters = {}) {
           });
         }
         
-        // Use actual cancelledAt from appointment if available, fallback to record's dateFrom
+        // Sử dụng cancelledAt thực tế từ appointment nếu có, fallback sang dateFrom của record
         const actualCancelledAt = p.cancelledAt || record.dateFrom || record.createdAt;
         const cancelledDate = new Date(actualCancelledAt);
         
-        // Calculate Vietnam time (UTC+7) for appointmentDate
+        // Tính thời gian Việt Nam (UTC+7) cho appointmentDate
         const appointmentDateUTC = p.appointmentDate ? new Date(p.appointmentDate) : null;
         const appointmentDateVN = appointmentDateUTC ? new Date(appointmentDateUTC.getTime() + 7 * 60 * 60 * 1000) : null;
         
-        // Always try to get patient info from cache first (fresh data from auth-service)
-        // Fallback to stored data if cache miss
+        // Luôn cố gắng lấy thông tin bệnh nhân từ cache trước (dữ liệu mới từ auth-service)
+        // Fallback sang dữ liệu đã lưu nếu cache miss
         let patientName = p.patientName;
         let patientEmail = p.patientEmail;
         let patientPhone = p.patientPhone;
@@ -628,35 +628,35 @@ async function getAllCancelledPatients(filters = {}) {
         if (p.patientId) {
           const cachedPatient = patientCache.get(p.patientId.toString());
           if (cachedPatient) {
-            // Use fresh data from auth-service
+            // Sử dụng dữ liệu mới từ auth-service
             patientName = cachedPatient.fullName || cachedPatient.name || patientName || 'Unknown';
             patientEmail = cachedPatient.email || patientEmail || '';
             patientPhone = cachedPatient.phone || cachedPatient.phoneNumber || patientPhone || '';
           }
         }
         
-        // Always try to get room info from cache first (fresh data from room-service)
-        // Fallback to stored data if cache miss
+        // Luôn cố gắng lấy thông tin phòng từ cache trước (dữ liệu mới từ room-service)
+        // Fallback sang dữ liệu đã lưu nếu cache miss
         let roomName = p.roomName;
         if (p.roomId) {
           const cachedRoom = roomCache.get(p.roomId.toString());
           if (cachedRoom) {
-            // Use fresh data from room-service
+            // Sử dụng dữ liệu mới từ room-service
             roomName = cachedRoom.name || cachedRoom.roomName || roomName || 'Unknown Room';
           }
         }
         
         return {
-          // Patient info
+          // Thông tin bệnh nhân
           appointmentId: p.appointmentId,
           patientId: p.patientId,
           patientName: patientName || 'Unknown',
           patientEmail: patientEmail || '',
           patientPhone: patientPhone || '',
           
-          // Appointment info
+          // Thông tin cuộc hẹn
           appointmentDate: p.appointmentDate,
-          appointmentDateVN: appointmentDateVN, // Vietnam timezone (UTC+7)
+          appointmentDateVN: appointmentDateVN, // Múi giờ Việt Nam (UTC+7)
           appointmentTime: `${p.startTime} - ${p.endTime}`,
           startTime: p.startTime,
           endTime: p.endTime,
@@ -675,7 +675,7 @@ async function getAllCancelledPatients(filters = {}) {
           invoiceId: p.invoiceInfo?.invoiceId || null,
           invoiceStatus: p.invoiceInfo?.status || 'N/A',
           
-          // Cancellation info - use actual appointment cancelledAt
+          // Thông tin hủy - sử dụng cancelledAt thực tế của cuộc hẹn
           cancelledAt: actualCancelledAt,
           cancelledDate: cancelledDate,
           cancelledReason: record.reason,
@@ -685,7 +685,7 @@ async function getAllCancelledPatients(filters = {}) {
           operationType: record.operationType,
           emailSent: p.emailSent,
           
-          // For grouping/display
+          // Để nhóm/hiển thị
           closureId: record._id,
           formattedCancelledDate: cancelledDate.toLocaleDateString('vi-VN'),
           formattedCancelledTime: cancelledDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
@@ -696,8 +696,8 @@ async function getAllCancelledPatients(filters = {}) {
       allPatients = allPatients.concat(patients);
     });
 
-    // Filter by appointment date range (client-side filtering for precise date matching)
-    // Use appointmentDate (UTC) for filtering, then convert to Vietnam date for comparison
+    // Lọc theo khoảng ngày cuộc hẹn (lọc phía client cho khớp chính xác ngày)
+    // Sử dụng appointmentDate (UTC) để lọc, sau đó chuyển sang ngày Việt Nam để so sánh
     if (startDate || endDate) {
       console.log(`🔍 Filtering by date range: ${startDate} to ${endDate}`);
       console.log(`📊 Total patients before filter: ${allPatients.length}`);
@@ -705,21 +705,21 @@ async function getAllCancelledPatients(filters = {}) {
       allPatients = allPatients.filter(p => {
         if (!p.appointmentDate) return false;
         
-        // Ensure appointmentDate is a Date object (could be string or Date from MongoDB)
+        // Đảm bảo appointmentDate là đối tượng Date (có thể là string hoặc Date từ MongoDB)
         const apptDateUTC = p.appointmentDate instanceof Date 
           ? p.appointmentDate 
           : new Date(p.appointmentDate);
         
-        // Get UTC timestamp and add 7 hours for Vietnam timezone
+        // Lấy timestamp UTC và thêm 7 giờ cho múi giờ Việt Nam
         const vnTimestamp = apptDateUTC.getTime() + 7 * 60 * 60 * 1000;
         const apptDateVN = new Date(vnTimestamp);
         
-        // Extract Vietnam date in YYYY-MM-DD format using UTC methods
-        // (apptDateVN is actually a UTC date that represents VN time)
+        // Trích xuất ngày Việt Nam theo định dạng YYYY-MM-DD sử dụng UTC methods
+        // (apptDateVN thực ra là ngày UTC biểu diễn thời gian VN)
         const year = apptDateVN.getUTCFullYear();
         const month = String(apptDateVN.getUTCMonth() + 1).padStart(2, '0');
         const day = String(apptDateVN.getUTCDate()).padStart(2, '0');
-        const apptDateStr = `${year}-${month}-${day}`; // YYYY-MM-DD in VN timezone
+        const apptDateStr = `${year}-${month}-${day}`; // YYYY-MM-DD theo múi giờ VN
         
         let match = false;
         if (startDate && endDate) {
@@ -732,7 +732,7 @@ async function getAllCancelledPatients(filters = {}) {
           match = true;
         }
         
-        // Debug log for first 3 patients
+        // Debug log cho 3 bệnh nhân đầu tiên
         if (allPatients.indexOf(p) < 3) {
           console.log(`  Patient ${p.patientName}: appointmentDate(UTC)=${apptDateUTC.toISOString()} → VN=${apptDateStr}, match=${match}`);
         }
@@ -743,21 +743,21 @@ async function getAllCancelledPatients(filters = {}) {
       console.log(`✅ Total patients after filter: ${allPatients.length}`);
     }
 
-    // Filter by room (client-side filtering for precise matching)
+    // Lọc theo phòng (lọc phía client để khớp chính xác)
     if (roomId) {
       allPatients = allPatients.filter(p => 
         p.roomId && p.roomId.toString() === roomId.toString()
       );
     }
 
-    // Filter by dentist (client-side filtering for precise matching)
+    // Lọc theo nha sĩ (lọc phía client để khớp chính xác)
     if (dentistId) {
       allPatients = allPatients.filter(p => 
         p.dentistIds && p.dentistIds.some(id => id.toString() === dentistId.toString())
       );
     }
 
-    // Client-side filtering by patient name (if provided)
+    // Lọc phía client theo tên bệnh nhân (nếu có)
     if (patientName && patientName.trim()) {
       const searchTerm = patientName.toLowerCase().trim();
       allPatients = allPatients.filter(p => 
@@ -767,7 +767,7 @@ async function getAllCancelledPatients(filters = {}) {
       );
     }
 
-    // Pagination
+    // Phân trang
     const total = allPatients.length;
     const paginatedPatients = allPatients.slice(skip, skip + limit);
 

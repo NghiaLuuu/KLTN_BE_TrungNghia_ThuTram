@@ -1,21 +1,21 @@
 const cron = require('node-cron');
 const Appointment = require('../models/appointment.model');
 const axios = require('axios');
-// const Record = require('../models/record.model'); // If needed
+// const Record = require('../models/record.model'); // Nếu cần
 
 /**
- * ❌ REMOVED: Auto-progress cron (replaced by Socket.IO event on check-in)
- * Reason: Event-driven is more efficient and real-time
+ * ❌ ĐÃ XÓA: Cron tự động chuyển trạng thái (thay bằng Socket.IO event khi check-in)
+ * Lý do: Hướng sự kiện hiệu quả và realtime hơn
  */
 
 /**
- * ❌ REMOVED: Auto-complete cron (replaced by Socket.IO event on doctor complete)
- * Reason: Event-driven is more efficient and real-time
+ * ❌ ĐÃ XÓA: Cron tự động hoàn thành (thay bằng Socket.IO event khi bác sĩ hoàn thành)
+ * Lý do: Hướng sự kiện hiệu quả và realtime hơn
  */
 
 /**
- * Cleanup expired slot locks (locked > 3 minutes)
- * Runs every 1 minute to match Redis TTL (3 minutes)
+ * Dọn dẹp slot lock hết hạn (khóa > 3 phút)
+ * Chạy mỗi 1 phút để khớp Redis TTL (3 phút)
  */
 function startCleanupExpiredLocksCron() {
   cron.schedule('* * * * *', async () => {
@@ -23,35 +23,35 @@ function startCleanupExpiredLocksCron() {
       const now = new Date();
       const threeMinutesAgo = new Date(now.getTime() - 3 * 60 * 1000);
 
-      // console.log('🔍 [Cron] Checking for expired slot locks...');
+      // console.log('🔍 [Cron] Đang kiểm tra slot lock hết hạn...');
 
-      // Call schedule-service to get all locked slots
+      // Gọi schedule-service để lấy tất cả slot đang bị khóa
       const scheduleServiceUrl = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
       
       const response = await axios.get(`${scheduleServiceUrl}/api/slot/locked`, {
-        timeout: 5000 // 5 second timeout
+        timeout: 5000 // Timeout 5 giây
       });
 
       if (!response.data || !response.data.success || !response.data.slots) {
-        console.log('⚠️ [Cron] No locked slots found or API error');
+        console.log('⚠️ [Cron] Không tìm thấy slot bị khóa hoặc API lỗi');
         return;
       }
 
       const lockedSlots = response.data.slots;
 
-      // Filter expired slots (locked > 3 minutes ago)
+      // Lọc slot hết hạn (khóa > 3 phút trước)
       const expiredSlots = lockedSlots.filter(slot => {
         return slot.lockedAt && new Date(slot.lockedAt) < threeMinutesAgo;
       });
 
       if (expiredSlots.length === 0) {
-        // console.log('✅ [Cron] No expired slot locks found');
+        // console.log('✅ [Cron] Không có slot lock hết hạn');
         return;
       }
 
-      console.log(`⚠️ [Cron] Found ${expiredSlots.length} expired slot locks`);
+      console.log(`⚠️ [Cron] Tìm thấy ${expiredSlots.length} slot lock hết hạn`);
 
-      // Unlock expired slots
+      // Mở khóa các slot hết hạn
       const slotIds = expiredSlots.map(slot => slot._id);
       await axios.put(`${scheduleServiceUrl}/api/slot/bulk-update`, {
         slotIds,
@@ -61,31 +61,31 @@ function startCleanupExpiredLocksCron() {
           lockedBy: null
         }
       }, {
-        timeout: 5000 // 5 second timeout
+        timeout: 5000 // Timeout 5 giây
       });
 
-      console.log(`✅ [Cron] Unlocked ${expiredSlots.length} expired slots:`, slotIds);
+      console.log(`✅ [Cron] Đã mở khóa ${expiredSlots.length} slot hết hạn:`, slotIds);
 
     } catch (error) {
       if (error.code === 'ECONNREFUSED') {
-        console.error('❌ [Cron] Cannot connect to schedule-service. Is it running?');
+        console.error('❌ [Cron] Không thể kết nối schedule-service. Service có đang chạy không?');
       } else if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
-        console.error('❌ [Cron] Timeout connecting to schedule-service');
+        console.error('❌ [Cron] Timeout khi kết nối schedule-service');
       } else if (error.response) {
-        console.error('❌ [Cron] Schedule-service error:', error.response.status, error.response.data);
+        console.error('❌ [Cron] Lỗi schedule-service:', error.response.status, error.response.data);
       } else {
-        console.error('❌ [Cron] Error in cleanup expired locks job:', error.message || error);
+        console.error('❌ [Cron] Lỗi trong job dọn dẹp slot lock hết hạn:', error.message || error);
         console.error('Stack trace:', error.stack);
       }
     }
   });
 
-  console.log('⏰ Cron job started: Cleanup expired slot locks (3 min, runs every 1 min)');
+  console.log('⏰ Cron job đã khởi động: Dọn dẹp slot lock hết hạn (3 phút, chạy mỗi 1 phút)');
 }
 
 /**
- * Send reminder email 1 day before appointment
- * Runs every 1 minute (production-safe with compound index)
+ * Gửi email nhắc nhở 1 ngày trước lịch hẹn
+ * Chạy mỗi 1 phút (an toàn với compound index)
  */
 function startReminderEmailCron() {
   cron.schedule('* * * * *', async () => {
@@ -104,13 +104,13 @@ function startReminderEmailCron() {
         }
       }).select('_id appointmentCode patientId patientInfo appointmentDate startTime endTime dentistName serviceName serviceAddOnName roomName subroomName').lean();
 
-      // Filter appointments by exact start time (appointmentDate + startTime)
+      // Lọc lịch hẹn theo thời gian bắt đầu chính xác (appointmentDate + startTime)
       const filteredAppointments = appointments.filter(apt => {
         const [hours, minutes] = apt.startTime.split(':').map(Number);
         
-        // ✅ FIX: appointmentDate is stored as UTC (e.g., 2025-12-02T17:00:00Z = midnight Vietnam Dec 3)
-        // startTime is Vietnam time (e.g., "08:00" Vietnam)
-        // To get correct UTC time: add startTime hours to the base appointmentDate
+        // ✅ SỬA: appointmentDate lưu dạng UTC (vd: 2025-12-02T17:00:00Z = nửa đêm Việt Nam ngày 3/12)
+        // startTime là giờ Việt Nam (vd: "08:00" Việt Nam)
+        // Để có giờ UTC chính xác: cộng giờ startTime vào appointmentDate gốc
         const appointmentStartTime = new Date(apt.appointmentDate);
         appointmentStartTime.setUTCHours(appointmentStartTime.getUTCHours() + hours, minutes, 0, 0);
         
@@ -164,51 +164,51 @@ function startReminderEmailCron() {
     }
   });
 
-  console.log('⏰ Reminder email cron started (every 1 minute)');
+  console.log('⏰ Cron gửi email nhắc nhở đã khởi động (mỗi 1 phút)');
 }
 
 /**
- * Auto mark no-show for confirmed appointments that passed half of appointment duration
- * Runs every 1 minute for more accurate timing
+ * Tự động đánh dấu no-show cho lịch hẹn confirmed đã qua nửa thời gian khám
+ * Chạy mỗi 1 phút để đảm bảo chính xác
  * 
- * Example: Appointment 08:00-08:15 (15 min)
- * - Mid-point = 08:07:30 (50% of 15 min = 7.5 min)
- * - Cron checks at 08:08 → now (08:08) > midPoint (08:07:30) → Mark no-show
- * - So no-show is marked at minute 8, not minute 7
+ * Ví dụ: Lịch hẹn 08:00-08:15 (15 phút)
+ * - Điểm giữa = 08:07:30 (50% của 15 phút = 7.5 phút)
+ * - Cron kiểm tra lúc 08:08 → now (08:08) > điểm giữa (08:07:30) → Đánh dấu no-show
+ * - Vậy no-show được đánh dấu ở phút 8, không phải phút 7
  */
 function startNoShowCron() {
   cron.schedule('* * * * *', async () => {
     try {
       const now = new Date();
 
-      // Find appointments with status 'confirmed'
-      // Filter by appointmentDate to exclude future dates (performance optimization)
+      // Tìm lịch hẹn có status 'confirmed'
+      // Lọc theo appointmentDate để loại bỏ ngày tương lai (tối ưu hiệu năng)
       const appointments = await Appointment.find({
         status: 'confirmed',
-        appointmentDate: { $lte: now } // Only appointments on or before today
+        appointmentDate: { $lte: now } // Chỉ lịch hẹn hôm nay hoặc trước đó
       }).select('_id appointmentCode appointmentDate startTime endTime patientInfo').lean();
 
-      // Filter appointments that passed half of their duration without check-in
+      // Lọc lịch hẹn đã qua nửa thời gian khám mà chưa check-in
       const overdueAppointments = [];
       
       for (const apt of appointments) {
         const [startHours, startMinutes] = apt.startTime.split(':').map(Number);
         const [endHours, endMinutes] = apt.endTime.split(':').map(Number);
         
-        // ✅ FIX: appointmentDate is stored as UTC (e.g., 2025-12-02T17:00:00Z = midnight Vietnam Dec 3)
-        // startTime/endTime are Vietnam times (e.g., "08:00", "09:00" Vietnam)
-        // To get correct UTC time: add the hours to the base appointmentDate UTC hours
-        // Example: 2025-12-02T17:00:00Z + 8 hours = 2025-12-03T01:00:00Z (08:00 Vietnam)
+        // ✅ SỬA: appointmentDate lưu dạng UTC (vd: 2025-12-02T17:00:00Z = nửa đêm Việt Nam ngày 3/12)
+        // startTime/endTime là giờ Việt Nam (vd: "08:00", "09:00" Việt Nam)
+        // Để có giờ UTC chính xác: cộng số giờ vào appointmentDate UTC
+        // Ví dụ: 2025-12-02T17:00:00Z + 8 giờ = 2025-12-03T01:00:00Z (08:00 Việt Nam)
         const appointmentStartTime = new Date(apt.appointmentDate);
         appointmentStartTime.setUTCHours(appointmentStartTime.getUTCHours() + startHours, startMinutes, 0, 0);
         
         const appointmentEndTime = new Date(apt.appointmentDate);
         appointmentEndTime.setUTCHours(appointmentEndTime.getUTCHours() + endHours, endMinutes, 0, 0);
         
-        // Calculate mid-point time: (startTime + endTime) / 2
+        // Tính thời điểm giữa: (startTime + endTime) / 2
         const midPointTime = new Date((appointmentStartTime.getTime() + appointmentEndTime.getTime()) / 2);
         
-        // Check if current time > mid-point (passed half of appointment duration)
+        // Kiểm tra nếu thời gian hiện tại > điểm giữa (đã qua nửa thời gian khám)
         if (now > midPointTime) {
           overdueAppointments.push({
             ...apt,
@@ -223,9 +223,9 @@ function startNoShowCron() {
         return;
       }
 
-      console.log(`⚠️ [No-Show] Found ${overdueAppointments.length} appointments that passed half duration without check-in`);
+      console.log(`⚠️ [No-Show] Tìm thấy ${overdueAppointments.length} lịch hẹn đã qua nửa thời gian khám mà chưa check-in`);
 
-      // Update status to no-show
+      // Cập nhật status thành no-show
       const appointmentIds = overdueAppointments.map(apt => apt._id);
       const result = await Appointment.updateMany(
         { _id: { $in: appointmentIds } },
@@ -237,33 +237,33 @@ function startNoShowCron() {
         }
       );
 
-      console.log(`✅ [No-Show] Marked ${result.modifiedCount} appointments as no-show:`);
+      console.log(`✅ [No-Show] Đã đánh dấu ${result.modifiedCount} lịch hẹn là no-show:`);
       overdueAppointments.forEach(apt => {
-        console.log(`   - ${apt.appointmentCode} (${apt.appointmentDate.toLocaleDateString()} ${apt.startTime}-${apt.endTime}) - Mid-point: ${apt.midPointTime.toLocaleTimeString()} - ${apt.patientInfo?.name || 'N/A'}`);
+        console.log(`   - ${apt.appointmentCode} (${apt.appointmentDate.toLocaleDateString()} ${apt.startTime}-${apt.endTime}) - Điểm giữa: ${apt.midPointTime.toLocaleTimeString()} - ${apt.patientInfo?.name || 'N/A'}`);
       });
 
-      // 🔥 Optional: Send notification/email about no-show (future enhancement)
-      // Can publish to RabbitMQ queue for email service to notify staff
+      // 🔥 Tùy chọn: Gửi thông báo/email về no-show (nâng cấp trong tương lai)
+      // Có thể publish vào RabbitMQ queue để email service thông báo cho nhân viên
 
     } catch (error) {
-      console.error('❌ [No-Show] Cron error:', error.message);
+      console.error('❌ [No-Show] Lỗi Cron:', error.message);
       console.error('Stack trace:', error.stack);
     }
   });
 
-  console.log('⏰ No-show check cron started (every 1 minute)');
+  console.log('⏰ Cron kiểm tra no-show đã khởi động (mỗi 1 phút)');
 }
 
 /**
- * Start essential cron jobs only
- * Note: Auto-progress and auto-complete removed (replaced by Socket.IO)
+ * Khởi động các cron job thiết yếu
+ * Lưu ý: Auto-progress và auto-complete đã bị xóa (thay bằng Socket.IO)
  */
 function startAllCronJobs() {
   startCleanupExpiredLocksCron();
   startReminderEmailCron();
   startNoShowCron();
-  console.log('✅ Essential cron jobs started (cleanup + reminder + no-show)');
-  console.log('ℹ️  Auto-progress and auto-complete now handled by Socket.IO events');
+  console.log('✅ Các cron job thiết yếu đã khởi động (dọn dẹp + nhắc nhở + no-show)');
+  console.log('ℹ️  Auto-progress và auto-complete giờ được xử lý bởi Socket.IO events');
 }
 
 module.exports = {

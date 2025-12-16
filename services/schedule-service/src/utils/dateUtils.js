@@ -9,10 +9,10 @@ const TIMEZONE = 'Asia/Ho_Chi_Minh';
  * @returns {Object} { startDate: Date, endDate: Date } in UTC
  */
 function parseDateRange(startDate, endDate) {
-  // Parse start date as Vietnam timezone 00:00:00
+  // Parse ngày bắt đầu theo múi giờ Việt Nam 00:00:00
   const start = moment.tz(startDate, TIMEZONE).startOf('day').toDate();
   
-  // Parse end date as Vietnam timezone 23:59:59.999
+  // Parse ngày kết thúc theo múi giờ Việt Nam 23:59:59.999
   const end = moment.tz(endDate, TIMEZONE).endOf('day').toDate();
   
   console.log('📅 [DateUtils] Parsed date range:', {

@@ -1,15 +1,18 @@
 const jwt = require('jsonwebtoken');
 
+/**
+ * Middleware xác thực - Kiểm tra và giải mã JWT token
+ */
 const authenticate = (req, res, next) => {
   // console.log('🔍 [Auth Middleware] Headers:', {
-  //   authorization: req.headers.authorization ? 'Present' : 'Missing',
+  //   authorization: req.headers.authorization ? 'Có' : 'Thiếu',
   //   authValue: req.headers.authorization
   // });
   
   const authHeader = req.headers.authorization;
   // if (!authHeader || !authHeader.startsWith("Bearer ")) {
-  //   console.log('❌ [Auth Middleware] No token provided');
-  //   return res.status(401).json({ message: 'No token provided' });
+  //   console.log('❌ [Auth Middleware] Không có token');
+  //   return res.status(401).json({ message: 'Không có token' });
   // }
 
   const token = authHeader.split(" ")[1];
@@ -17,15 +20,19 @@ const authenticate = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-    // console.log('✅ [Auth Middleware] Token valid, user:', decoded.userId, 'activeRole:', decoded.activeRole);
+    // console.log('✅ [Auth Middleware] Token hợp lệ, user:', decoded.userId, 'activeRole:', decoded.activeRole);
     req.user = decoded; // Lưu userId, role,... tùy payload bạn đã ký
     next();
   } catch (err) {
-    // console.log('❌ [Auth Middleware] Token verification failed:', err.message);
-    return res.status(403).json({ message: 'Invalid or expired token' });
+    // console.log('❌ [Auth Middleware] Xác thực token thất bại:', err.message);
+    return res.status(403).json({ message: 'Token không hợp lệ hoặc đã hết hạn' });
   }
 };
 
+/**
+ * Middleware phân quyền - Kiểm tra vai trò người dùng
+ * @param {Array} roles - Danh sách các vai trò được phép
+ */
 const authorize = (roles = []) => {
   return (req, res, next) => {
     if (!req.user) {
@@ -35,11 +42,11 @@ const authorize = (roles = []) => {
       });
     }
 
-    // ✅ Check if user has ANY of the required roles (support multiple roles)
+    // ✅ Kiểm tra nếu user có BẤT KỲ vai trò nào trong danh sách (hỗ trợ nhiều vai trò)
     if (roles.length > 0) {
-      // ✅ Support new token structure with activeRole (single role per session)
+      // ✅ Hỗ trợ cấu trúc token mới với activeRole (một vai trò cho mỗi phiên)
       const userRole = req.user.activeRole || req.user.role;
-      const userRoles = req.user.roles || [userRole]; // Fallback to roles array or single role
+      const userRoles = req.user.roles || [userRole]; // Fallback về mảng roles hoặc single role
       const hasPermission = roles.some(role => userRoles.includes(role)) || roles.includes(userRole);
       
       if (!hasPermission) {

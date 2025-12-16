@@ -20,7 +20,7 @@ const validate = (req, res, next) => {
   next();
 };
 
-// Custom validation for date ranges
+// Kiểm tra tùy chỉnh cho khoảng ngày
 const validateDateRange = (req, res, next) => {
   const { startDate, endDate } = req.query;
   
@@ -35,7 +35,7 @@ const validateDateRange = (req, res, next) => {
       });
     }
 
-    // Check if date range is not too large (max 1 year)
+    // Kiểm tra khoảng ngày không quá lớn (tối đa 1 năm)
     const oneYear = 365 * 24 * 60 * 60 * 1000;
     if (end.getTime() - start.getTime() > oneYear) {
       return res.status(400).json({
@@ -48,7 +48,7 @@ const validateDateRange = (req, res, next) => {
   next();
 };
 
-// Custom validation for amount ranges
+// Kiểm tra tùy chỉnh cho khoảng số tiền
 const validateAmountRange = (req, res, next) => {
   const { minAmount, maxAmount } = req.query;
   
@@ -67,23 +67,23 @@ const validateAmountRange = (req, res, next) => {
   next();
 };
 
-// Sanitize query parameters
+// Làm sạch các tham số truy vấn
 const sanitizeQuery = (req, res, next) => {
-  // Convert string arrays to arrays
+  // Chuyển đổi mảng chuỗi thành mảng
   ['status', 'method'].forEach(field => {
     if (req.query[field] && typeof req.query[field] === 'string' && req.query[field].includes(',')) {
       req.query[field] = req.query[field].split(',').map(item => item.trim());
     }
   });
 
-  // Convert boolean strings
+  // Chuyển đổi chuỗi boolean
   ['isVerified'].forEach(field => {
     if (req.query[field] !== undefined) {
       req.query[field] = req.query[field] === 'true';
     }
   });
 
-  // Convert numeric strings
+  // Chuyển đổi chuỗi số
   ['page', 'limit', 'minAmount', 'maxAmount'].forEach(field => {
     if (req.query[field] !== undefined) {
       const num = parseFloat(req.query[field]);

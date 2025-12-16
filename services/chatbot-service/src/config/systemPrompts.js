@@ -1,4 +1,4 @@
-// System prompts for AI chatbot
+// Các system prompt cho AI chatbot
 
 const DENTAL_ASSISTANT_PROMPT = `Bạn là SmileCare AI, trợ lý ảo thông minh của phòng khám nha khoa SmileCare.
 

@@ -1,8 +1,8 @@
-// Utility functions for Vietnam timezone handling
+// Các hàm tiện ích để xử lý múi giờ Việt Nam
 
 /**
- * Get current date in Vietnam timezone
- * @returns {Date} Current date in Vietnam timezone
+ * Lấy ngày hiện tại theo múi giờ Việt Nam
+ * @returns {Date} Ngày hiện tại theo múi giờ Việt Nam
  */
 function getVietnamDate() {
   const now = new Date();
@@ -10,9 +10,9 @@ function getVietnamDate() {
 }
 
 /**
- * Convert any date to Vietnam timezone
- * @param {Date|string} date - Date to convert
- * @returns {Date} Date in Vietnam timezone
+ * Chuyển đổi bất kỳ ngày nào sang múi giờ Việt Nam
+ * @param {Date|string} date - Ngày cần chuyển đổi
+ * @returns {Date} Ngày theo múi giờ Việt Nam
  */
 function toVietnamTime(date) {
   const inputDate = new Date(date);
@@ -20,10 +20,10 @@ function toVietnamTime(date) {
 }
 
 /**
- * Format date to Vietnam timezone string
- * @param {Date} date - Date to format
- * @param {Object} options - Intl.DateTimeFormat options
- * @returns {string} Formatted date string
+ * Định dạng ngày theo múi giờ Việt Nam thành chuỗi
+ * @param {Date} date - Ngày cần định dạng
+ * @param {Object} options - Các tùy chọn Intl.DateTimeFormat
+ * @returns {string} Chuỗi ngày đã định dạng
  */
 function formatVietnamDate(date, options = {}) {
   return new Intl.DateTimeFormat('vi-VN', {

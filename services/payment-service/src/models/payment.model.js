@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
-// Constants
+// Hằng số
 const PaymentMethod = {
   CASH: 'cash',
   VNPAY: 'vnpay',
@@ -28,14 +28,14 @@ const PaymentType = {
   INSURANCE_CLAIM: 'insurance_claim'
 };
 
-// Counter for payment code generation
+// Bộ đếm để tạo mã thanh toán
 const counterSchema = new Schema({
   _id: { type: String, required: true },
   seq: { type: Number, default: 0 }
 });
 const Counter = mongoose.model('Counter', counterSchema);
 
-// Digital Wallet Info Schema (VNPay only)
+// Schema Thông tin Ví điện tử (chỉ VNPay)
 const digitalWalletInfoSchema = new Schema({
   walletType: {
     type: String,
@@ -51,7 +51,7 @@ const digitalWalletInfoSchema = new Schema({
   }
 }, { _id: false });
 
-// Card Info Schema (VISA)
+// Schema Thông tin Thẻ (VISA)
 const cardInfoSchema = new Schema({
   cardType: {
     type: String,
@@ -79,15 +79,15 @@ const cardInfoSchema = new Schema({
   }
 }, { _id: false });
 
-// Main Payment Schema
+// Schema Thanh toán chính
 const paymentSchema = new Schema({
   paymentCode: {
     type: String,
     unique: true
-    // ⚠️ Don't set required: true - it will be auto-generated in pre-save hook
+    // ⚠️ Không đặt required: true - sẽ được tự động tạo trong pre-save hook
   },
   
-  // Reference information
+  // Thông tin tham chiếu
   appointmentId: {
     type: mongoose.Schema.Types.ObjectId,
     default: null
@@ -101,7 +101,7 @@ const paymentSchema = new Schema({
     default: null
   },
   
-  // Patient information
+  // Thông tin bệnh nhân
   patientId: {
     type: mongoose.Schema.Types.ObjectId,
     default: null
@@ -130,7 +130,7 @@ const paymentSchema = new Schema({
     }
   },
   
-  // Payment details
+  // Chi tiết thanh toán
   type: {
     type: String,
     enum: Object.values(PaymentType),
@@ -141,7 +141,7 @@ const paymentSchema = new Schema({
     type: String,
     enum: Object.values(PaymentMethod),
     required: false,
-    default: null // ✅ Allow null - Receptionist will choose method later
+    default: null // ✅ Cho phép null - Lễ tân sẽ chọn phương thức sau
   },
   status: {
     type: String,
@@ -149,7 +149,7 @@ const paymentSchema = new Schema({
     default: PaymentStatus.PENDING
   },
   
-  // Financial information
+  // Thông tin tài chính
   originalAmount: {
     type: Number,
     required: true,
@@ -188,11 +188,11 @@ const paymentSchema = new Schema({
     default: 0
   },
   
-  // Payment method specific information
-  digitalWalletInfo: digitalWalletInfoSchema, // VNPay only
+  // Thông tin cụ thể theo phương thức thanh toán
+  digitalWalletInfo: digitalWalletInfoSchema, // Chỉ VNPay
   cardInfo: cardInfoSchema, // VISA/Mastercard
   
-  // Stripe specific fields
+  // Các trường riêng cho Stripe
   stripeSessionId: {
     type: String,
     trim: true
@@ -211,7 +211,7 @@ const paymentSchema = new Schema({
     comment: 'Payment URL for Stripe checkout or VNPay redirect'
   },
   
-  // Transaction details
+  // Chi tiết giao dịch
   externalTransactionId: {
     type: String,
     trim: true
@@ -222,7 +222,7 @@ const paymentSchema = new Schema({
     additionalData: Schema.Types.Mixed
   },
   
-  // Processing information
+  // Thông tin xử lý
   processedBy: {
     type: mongoose.Schema.Types.ObjectId,
     required: true
@@ -237,7 +237,7 @@ const paymentSchema = new Schema({
     default: Date.now
   },
   
-  // Refund information
+  // Thông tin hoàn tiền
   refundReason: {
     type: String,
     trim: true,
@@ -254,7 +254,7 @@ const paymentSchema = new Schema({
     ref: 'Payment'
   },
   
-  // Notes and descriptions
+  // Ghi chú và mô tả
   description: {
     type: String,
     trim: true,
@@ -266,7 +266,7 @@ const paymentSchema = new Schema({
     maxlength: 1000
   },
   
-  // Verification
+  // Xác minh
   isVerified: {
     type: Boolean,
     default: false
@@ -278,7 +278,7 @@ const paymentSchema = new Schema({
     type: Date
   },
   
-  // Timestamps
+  // Dấu thời gian
   dueDate: {
     type: Date
   },
@@ -294,7 +294,7 @@ const paymentSchema = new Schema({
   toObject: { virtuals: true }
 });
 
-// Indexes for better performance (paymentCode already unique)
+// Các chỉ mục để cải thiện hiệu suất (paymentCode đã unique)
 paymentSchema.index({ appointmentId: 1 });
 paymentSchema.index({ invoiceId: 1 });
 paymentSchema.index({ patientId: 1 });
@@ -305,7 +305,7 @@ paymentSchema.index({ processedAt: -1 });
 paymentSchema.index({ 'patientInfo.phone': 1 });
 paymentSchema.index({ createdAt: -1 });
 
-// Virtual fields
+// Các trường ảo
 paymentSchema.virtual('remainingAmount').get(function() {
   return this.finalAmount - this.paidAmount;
 });
@@ -323,7 +323,7 @@ paymentSchema.virtual('discountPercentage').get(function() {
   return (this.discountAmount / this.originalAmount) * 100;
 });
 
-// Pre-save middleware for payment code generation
+// Middleware pre-save để tạo mã thanh toán
 paymentSchema.pre('save', async function(next) {
   if (this.isNew && !this.paymentCode) {
     try {
@@ -345,7 +345,7 @@ paymentSchema.pre('save', async function(next) {
     }
   }
   
-  // Calculate final amount if not set
+  // Tính số tiền cuối cùng nếu chưa được đặt
   if (!this.finalAmount && this.originalAmount !== undefined) {
     this.finalAmount = this.originalAmount - this.depositAmount - this.discountAmount + this.taxAmount;
   }
@@ -353,7 +353,7 @@ paymentSchema.pre('save', async function(next) {
   next();
 });
 
-// Static methods
+// Các phương thức tĩnh
 paymentSchema.statics.findByCode = function(code) {
   return this.findOne({ paymentCode: code });
 };
@@ -380,7 +380,7 @@ paymentSchema.statics.findByDateRange = function(startDate, endDate, options = {
   return this.find(query).sort({ processedAt: -1 });
 };
 
-// Instance methods
+// Các phương thức instance
 paymentSchema.methods.canBeRefunded = function() {
   return this.status === PaymentStatus.COMPLETED && this.type === PaymentType.PAYMENT;
 };
@@ -396,7 +396,7 @@ paymentSchema.methods.calculateRefundAmount = function(refundAmount) {
   return refundAmount;
 };
 
-// Export constants and model
+// Xuất các hằng số và model
 module.exports = {
   Payment: mongoose.model('Payment', paymentSchema),
   PaymentMethod,

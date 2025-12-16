@@ -8,7 +8,7 @@ class RedisClient {
 
   async connect() {
     try {
-      // Support both REDIS_URL (production) and REDIS_HOST/PORT (development)
+      // Hỗ trợ cả REDIS_URL (production) và REDIS_HOST/PORT (development)
       const redisConfig = process.env.REDIS_URL 
         ? { url: process.env.REDIS_URL }
         : {
@@ -69,7 +69,7 @@ class RedisClient {
     }
   }
 
-  // Get value by key
+  // Lấy giá trị theo key
   async get(key) {
     try {
       if (!this.isConnected) return null;
@@ -80,7 +80,7 @@ class RedisClient {
     }
   }
 
-  // Set value with optional expiration
+  // Đặt giá trị với thời gian hết hạn tùy chọn
   async set(key, value, ttl = null) {
     try {
       if (!this.isConnected) return false;
@@ -97,7 +97,7 @@ class RedisClient {
     }
   }
 
-  // Set value with expiration in seconds
+  // Đặt giá trị với thời gian hết hạn tính bằng giây
   async setex(key, seconds, value) {
     try {
       if (!this.isConnected) return false;
@@ -109,7 +109,7 @@ class RedisClient {
     }
   }
 
-  // Delete key(s)
+  // Xóa key
   async del(...keys) {
     try {
       if (!this.isConnected) return 0;
@@ -120,7 +120,7 @@ class RedisClient {
     }
   }
 
-  // Check if key exists
+  // Kiểm tra xem key có tồn tại không
   async exists(key) {
     try {
       if (!this.isConnected) return false;
@@ -132,7 +132,7 @@ class RedisClient {
     }
   }
 
-  // Get keys matching pattern
+  // Lấy các key khớp với pattern
   async keys(pattern) {
     try {
       if (!this.isConnected) return [];
@@ -143,7 +143,7 @@ class RedisClient {
     }
   }
 
-  // Set expiration on existing key
+  // Đặt thời gian hết hạn cho key đã tồn tại
   async expire(key, seconds) {
     try {
       if (!this.isConnected) return false;
@@ -155,7 +155,7 @@ class RedisClient {
     }
   }
 
-  // Increment value
+  // Tăng giá trị
   async incr(key) {
     try {
       if (!this.isConnected) return 0;
@@ -166,7 +166,7 @@ class RedisClient {
     }
   }
 
-  // Hash operations
+  // Các thao tác Hash
   async hget(key, field) {
     try {
       if (!this.isConnected) return null;
@@ -198,7 +198,7 @@ class RedisClient {
     }
   }
 
-  // List operations
+  // Các thao tác List
   async lpush(key, ...values) {
     try {
       if (!this.isConnected) return 0;
@@ -219,7 +219,7 @@ class RedisClient {
     }
   }
 
-  // Clear all cache (use with caution)
+  // Xóa tất cả cache (dùng cẩn thận)
   async flushall() {
     try {
       if (!this.isConnected) return false;
@@ -232,7 +232,7 @@ class RedisClient {
     }
   }
 
-  // Get connection status
+  // Lấy trạng thái kết nối
   getStatus() {
     return {
       connected: this.isConnected,
@@ -240,7 +240,7 @@ class RedisClient {
     };
   }
 
-  // Graceful cache operations with fallback
+  // Các thao tác cache an toàn với fallback
   async safeGet(key, fallback = null) {
     try {
       const value = await this.get(key);
@@ -261,7 +261,7 @@ class RedisClient {
   }
 }
 
-// Create singleton instance
+// Tạo instance singleton
 const redisClient = new RedisClient();
 
 module.exports = redisClient;

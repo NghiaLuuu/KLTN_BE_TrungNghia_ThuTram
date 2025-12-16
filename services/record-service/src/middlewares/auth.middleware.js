@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 
 const authenticate = (req, res, next) => {
-  // ✅ Allow internal service-to-service calls
+  // ✅ Cho phép các cuộc gọi nội bộ giữa các dịch vụ
   if (req.headers['x-internal-call'] === 'true') {
     req.user = {
       userId: 'system',
@@ -37,16 +37,16 @@ const authorize = (roles = []) => {
       });
     }
 
-    // ✅ Allow internal system calls
+    // ✅ Cho phép các cuộc gọi nội bộ hệ thống
     if (req.user.isInternal === true && req.user.role === 'system') {
       return next();
     }
 
-    // ✅ Check if user has ANY of the required roles (support multiple roles)
+    // ✅ Kiểm tra xem user có BẤT KỲ vai trò yêu cầu nào không (hỗ trợ nhiều vai trò)
     if (roles.length > 0) {
-      // ✅ Support new token structure with activeRole (single role per session)
+      // ✅ Hỗ trợ cấu trúc token mới với activeRole (mỗi phiên một vai trò)
       const userRole = req.user.activeRole || req.user.role;
-      const userRoles = req.user.roles || [userRole]; // Fallback to roles array or single role
+      const userRoles = req.user.roles || [userRole]; // Dự phòng về mảng roles hoặc vai trò đơn
       const hasPermission = roles.some(role => userRoles.includes(role)) || roles.includes(userRole);
       
       if (!hasPermission) {

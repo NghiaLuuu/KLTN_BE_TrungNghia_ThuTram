@@ -32,7 +32,7 @@ async function getCachedUsers() {
     }, 5000);
     
     if (usersData && usersData.success && Array.isArray(usersData.data)) {
-      // Update memory cache
+      // Cập nhật bộ nhớ cache
       cache.users.data = usersData.data;
       cache.users.timestamp = now;
       
@@ -68,7 +68,7 @@ async function getCachedRooms() {
     }, 5000);
     
     if (roomsData && roomsData.success && Array.isArray(roomsData.data)) {
-      // Update memory cache
+      // Cập nhật bộ nhớ cache
       cache.rooms.data = roomsData.data;
       cache.rooms.timestamp = now;
       
@@ -107,18 +107,18 @@ async function filterCachedUsers(criteria = {}) {
   
   let filtered = allUsers;
   
-  // Filter by role
+  // Lọc theo role
   if (criteria.role) {
     const roles = Array.isArray(criteria.role) ? criteria.role : [criteria.role];
     filtered = filtered.filter(u => roles.includes(u.role));
   }
   
-  // Filter by isActive
+  // Lọc theo trạng thái hoạt động
   if (criteria.isActive !== undefined) {
     filtered = filtered.filter(u => u.isActive === criteria.isActive);
   }
   
-  // Exclude specific user ID
+  // Loại trừ user ID cụ thể
   if (criteria.excludeId) {
     filtered = filtered.filter(u => u._id.toString() !== criteria.excludeId.toString());
   }
@@ -128,7 +128,7 @@ async function filterCachedUsers(criteria = {}) {
   filtered = filtered.map(u => {
     const userCopy = { ...u };
     
-    // If firstName/lastName are requested but don't exist, derive from fullName
+    // Nếu firstName/lastName được yêu cầu nhưng không tồn tại, lấy từ fullName
     if (criteria.fields && (criteria.fields.includes('firstName') || criteria.fields.includes('lastName'))) {
       if (!userCopy.firstName || !userCopy.lastName) {
         const nameParts = (userCopy.fullName || '').trim().split(' ');
@@ -140,7 +140,7 @@ async function filterCachedUsers(criteria = {}) {
     return userCopy;
   });
   
-  // Select specific fields
+  // Chọn các trường cụ thể
   if (criteria.fields && criteria.fields.length > 0) {
     filtered = filtered.map(u => {
       const selected = {};

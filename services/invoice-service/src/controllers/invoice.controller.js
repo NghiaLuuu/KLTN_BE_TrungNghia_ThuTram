@@ -2,7 +2,7 @@ const invoiceService = require("../services/invoice.service");
 const invoiceDetailService = require("../services/invoiceDetail.service");
 
 class InvoiceController {
-  // ============ INVOICE CRUD OPERATIONS ============
+  // ============ THAO TÁC CRUD HÓA ĐƠN ============
   async createInvoice(req, res) {
     try {
       const userId = req.user.id;
@@ -14,7 +14,7 @@ class InvoiceController {
         data: invoice
       });
     } catch (error) {
-      console.error("❌ Create invoice error:", error);
+      console.error("❌ Lỗi tạo hóa đơn:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi tạo hóa đơn"
@@ -41,7 +41,7 @@ class InvoiceController {
         ...(endDate && { dateTo: endDate })
       };
 
-      // Add keyword search if provided
+      // Thêm tìm kiếm theo từ khóa nếu có
       if (keyword && keyword.trim()) {
         filter.keyword = keyword.trim();
       }
@@ -54,7 +54,7 @@ class InvoiceController {
         data: result
       });
     } catch (error) {
-      console.error("❌ Get invoices error:", error);
+      console.error("❌ Lỗi lấy danh sách hóa đơn:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi lấy danh sách hóa đơn"
@@ -62,10 +62,10 @@ class InvoiceController {
     }
   }
 
-  // Get invoices for current patient
+  // Lấy hóa đơn của bệnh nhân hiện tại
   async getMyInvoices(req, res) {
     try {
-      const patientId = req.user.id; // Get patient ID from authenticated user
+      const patientId = req.user.id; // Lấy ID bệnh nhân từ user đã xác thực
       const { page, limit, status, dateFrom, dateTo, paymentMethod } = req.query;
       
       const options = {
@@ -76,7 +76,7 @@ class InvoiceController {
       };
 
       const filter = {
-        patientId, // Force filter by current patient
+        patientId, // Buộc lọc theo bệnh nhân hiện tại
         ...(status && { status }),
         ...(paymentMethod && { paymentMethod }),
         ...(dateFrom && { dateFrom: new Date(dateFrom) }),
@@ -91,7 +91,7 @@ class InvoiceController {
         data: result
       });
     } catch (error) {
-      console.error("❌ Get my invoices error:", error);
+      console.error("❌ Lỗi lấy hóa đơn của tôi:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi lấy danh sách hóa đơn"
@@ -99,7 +99,7 @@ class InvoiceController {
     }
   }
 
-  // Get invoice by paymentId (for internal service calls)
+  // Lấy hóa đơn theo paymentId (cho gọi nội bộ giữa các service)
   async getInvoiceByPaymentId(req, res) {
     try {
       const { paymentId } = req.params;
@@ -122,7 +122,7 @@ class InvoiceController {
         data: invoice
       });
     } catch (error) {
-      console.error("❌ Get invoice by paymentId error:", error);
+      console.error("❌ Lỗi lấy hóa đơn theo paymentId:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi lấy thông tin hóa đơn"
@@ -148,7 +148,7 @@ class InvoiceController {
         data: invoice
       });
     } catch (error) {
-      console.error("❌ Get invoice error:", error);
+      console.error("❌ Lỗi lấy hóa đơn:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi lấy thông tin hóa đơn"
@@ -169,7 +169,7 @@ class InvoiceController {
         data: updatedInvoice
       });
     } catch (error) {
-      console.error("❌ Update invoice error:", error);
+      console.error("❌ Lỗi cập nhật hóa đơn:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi cập nhật hóa đơn"
@@ -201,7 +201,7 @@ class InvoiceController {
         data: result
       });
     } catch (error) {
-      console.error("❌ Search invoices error:", error);
+      console.error("❌ Lỗi tìm kiếm hóa đơn:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi tìm kiếm hóa đơn"
@@ -209,7 +209,7 @@ class InvoiceController {
     }
   }
 
-  // ============ PAYMENT INTEGRATION ENDPOINTS ============
+  // ============ ENDPOINTS TÍCH HỢP THANH TOÁN ============
   async handlePaymentSuccess(req, res) {
     try {
       const { invoiceId, paymentId, amount, paymentMethod } = req.body;
@@ -234,7 +234,7 @@ class InvoiceController {
         data: updatedInvoice
       });
     } catch (error) {
-      console.error("❌ Handle payment success error:", error);
+      console.error("❌ Lỗi xử lý thanh toán thành công:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi xử lý thanh toán"
@@ -261,7 +261,7 @@ class InvoiceController {
         data: invoice
       });
     } catch (error) {
-      console.error("❌ Create invoice from payment error:", error);
+      console.error("❌ Lỗi tạo hóa đơn từ thanh toán:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi tạo hóa đơn từ thanh toán"
@@ -269,7 +269,7 @@ class InvoiceController {
     }
   }
 
-  // ============ BUSINESS LOGIC ENDPOINTS ============
+  // ============ ENDPOINTS NGHIỆP VỤ ============
   async finalizeInvoice(req, res) {
     try {
       const { id } = req.params;
@@ -283,7 +283,7 @@ class InvoiceController {
         data: finalizedInvoice
       });
     } catch (error) {
-      console.error("❌ Finalize invoice error:", error);
+      console.error("❌ Lỗi hoàn thiện hóa đơn:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi hoàn thiện hóa đơn"
@@ -312,7 +312,7 @@ class InvoiceController {
         data: cancelledInvoice
       });
     } catch (error) {
-      console.error("❌ Cancel invoice error:", error);
+      console.error("❌ Lỗi hủy hóa đơn:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi hủy hóa đơn"
@@ -332,7 +332,7 @@ class InvoiceController {
         data: updatedInvoice
       });
     } catch (error) {
-      console.error("❌ Recalculate invoice error:", error);
+      console.error("❌ Lỗi tính lại hóa đơn:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi tính lại số tiền"
@@ -340,7 +340,7 @@ class InvoiceController {
     }
   }
 
-  // ============ INVOICE DETAILS ENDPOINTS ============
+  // ============ ENDPOINTS CHI TIẾT HÓA ĐƠN ============
   async createInvoiceDetail(req, res) {
     try {
       const { invoiceId } = req.params;
@@ -359,7 +359,7 @@ class InvoiceController {
         data: detail
       });
     } catch (error) {
-      console.error("❌ Create invoice detail error:", error);
+      console.error("❌ Lỗi tạo chi tiết hóa đơn:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi thêm chi tiết hóa đơn"
@@ -386,7 +386,7 @@ class InvoiceController {
         data: details
       });
     } catch (error) {
-      console.error("❌ Get invoice details error:", error);
+      console.error("❌ Lỗi lấy chi tiết hóa đơn:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi lấy chi tiết hóa đơn"
@@ -407,7 +407,7 @@ class InvoiceController {
         data: updatedDetail
       });
     } catch (error) {
-      console.error("❌ Update invoice detail error:", error);
+      console.error("❌ Lỗi cập nhật chi tiết hóa đơn:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi cập nhật chi tiết"
@@ -415,7 +415,7 @@ class InvoiceController {
     }
   }
 
-  // ============ STATISTICS & REPORTING ENDPOINTS ============
+  // ============ ENDPOINTS THỐNG KÊ & BÁO CÁO ============
   async getInvoiceStatistics(req, res) {
     try {
       const { startDate, endDate, groupBy = 'day' } = req.query;
@@ -439,7 +439,7 @@ class InvoiceController {
         data: stats
       });
     } catch (error) {
-      console.error("❌ Get statistics error:", error);
+      console.error("❌ Lỗi lấy thống kê:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi lấy thống kê"
@@ -469,7 +469,7 @@ class InvoiceController {
         data: stats
       });
     } catch (error) {
-      console.error("❌ Get revenue statistics error:", error);
+      console.error("❌ Lỗi lấy thống kê doanh thu:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi lấy thống kê doanh thu"
@@ -487,7 +487,7 @@ class InvoiceController {
         data: dashboardData
       });
     } catch (error) {
-      console.error("❌ Get dashboard data error:", error);
+      console.error("❌ Lỗi lấy dữ liệu dashboard:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi lấy dữ liệu dashboard"
@@ -517,7 +517,7 @@ class InvoiceController {
         data: stats
       });
     } catch (error) {
-      console.error("❌ Get service statistics error:", error);
+      console.error("❌ Lỗi lấy thống kê dịch vụ:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi lấy thống kê dịch vụ"
@@ -525,7 +525,7 @@ class InvoiceController {
     }
   }
 
-  // ============ TREATMENT TRACKING ENDPOINTS ============
+  // ============ ENDPOINTS THEO DÕI ĐIỀU TRỊ ============
   async markTreatmentCompleted(req, res) {
     try {
       const { detailId } = req.params;
@@ -543,7 +543,7 @@ class InvoiceController {
         data: updatedDetail
       });
     } catch (error) {
-      console.error("❌ Mark treatment completed error:", error);
+      console.error("❌ Lỗi đánh dấu điều trị hoàn thành:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi đánh dấu hoàn thành"
@@ -568,7 +568,7 @@ class InvoiceController {
         data: updatedDetail
       });
     } catch (error) {
-      console.error("❌ Update treatment progress error:", error);
+      console.error("❌ Lỗi cập nhật tiến trình điều trị:", error);
       res.status(400).json({
         success: false,
         message: error.message || "Lỗi khi cập nhật tiến trình"
@@ -576,7 +576,7 @@ class InvoiceController {
     }
   }
 
-  // ============ HEALTH CHECK ============
+  // ============ KIỂM TRA SỨC KHỎe ============
   async healthCheck(req, res) {
     try {
       res.json({

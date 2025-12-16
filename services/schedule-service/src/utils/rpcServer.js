@@ -10,8 +10,8 @@ async function startRpcServer() {
 
   const queue = 'schedule_queue';
 
-  // ❌ REMOVED: Don't delete queue - it's shared with event consumer
-  // This was causing consumer to lose connection when RPC server starts
+  // ❌ ĐÃ XÓA: Không xóa queue - nó được chia sẻ với event consumer
+  // Việc này gây ra consumer mất kết nối khi RPC server khởi động
   
   await channel.assertQueue(queue, { durable: true });
 
@@ -25,20 +25,20 @@ async function startRpcServer() {
       const content = msg.content.toString();
       const data = JSON.parse(content);
       
-      // 🔍 Check if this is an EVENT message (has 'event' field)
-      // Events should be handled by event consumer, not RPC server
+      // 🔍 Kiểm tra nếu đây là message SỰ KIỆN (có trường 'event')
+      // Sự kiện nên được xử lý bởi event consumer, không phải RPC server
       if (data.event) {
-        console.log(`📨 [RPC Server] Received event: ${data.event} - Requeuing for event consumer`);
-        channel.nack(msg, false, true); // Requeue for event consumer
+        console.log(`📨 [RPC Server] Nhận sự kiện: ${data.event} - Đang requeue cho event consumer`);
+        channel.nack(msg, false, true); // Requeue cho event consumer
         return;
       }
       
-      // ✅ This is an RPC call (has 'action' field)
+      // ✅ Đây là RPC call (có trường 'action')
       const { action, payload } = data;
       
       if (!action) {
-        console.warn('⚠️ [RPC Server] Message has no action or event field, requeuing');
-        channel.nack(msg, false, true); // Requeue instead of ack
+        console.warn('⚠️ [RPC Server] Message không có trường action hoặc event, đang requeue');
+        channel.nack(msg, false, true); // Requeue thay vì ack
         return;
       }
 
@@ -187,13 +187,13 @@ async function startRpcServer() {
             const { startDate, endDate, roomIds, timeRange, shiftName } = payload;
             console.log('🔍 getUtilizationStatistics request:', { startDate, endDate, roomIds, timeRange, shiftName });
             
-            // Parse dates with Vietnam timezone
+            // Parse ngày theo múi giờ Việt Nam
             const DateUtils = require('./dateUtils');
             const dateRange = DateUtils.parseDateRange(startDate, endDate);
             const startDateObj = dateRange.startDate;
             const endDateObj = dateRange.endDate
             
-            // Build query
+            // Xây dựng query
             const query = {
               isActive: true,
               startTime: { 
@@ -209,7 +209,7 @@ async function startRpcServer() {
             
             if (roomIds && Array.isArray(roomIds) && roomIds.length > 0) {
               const mongoose = require('mongoose');
-              // Filter valid ObjectIds
+              // Lọc các ObjectId hợp lệ
               const validRoomIds = roomIds.filter(id => mongoose.Types.ObjectId.isValid(id));
               if (validRoomIds.length > 0) {
                 query.roomId = { $in: validRoomIds.map(id => new mongoose.Types.ObjectId(id)) };
@@ -221,7 +221,7 @@ async function startRpcServer() {
               query.shiftName = shiftName;
             }
             
-            // Get slots - OPTIMIZED: select only needed fields
+            // Lấy slots - TỐI ƯU: chỉ chọn các trường cần thiết
             const Slot = require('../models/slot.model');
             console.log('📊 Querying slots with:', JSON.stringify(query, null, 2));
             const slotsStart = Date.now();
@@ -242,8 +242,8 @@ async function startRpcServer() {
               console.error('❌ Error getting query plan:', explainError.message);
             }
             
-            // ✅ Optimize: Select only needed fields
-            // Try v2 index first, fallback to v1 if not found
+            // ✅ Tối ưu: Chỉ chọn các trường cần thiết
+            // Thử index v2 trước, fallback sang v1 nếu không tìm thấy
             let slots;
             try {
               slots = await Slot.find(query)
@@ -252,7 +252,7 @@ async function startRpcServer() {
                 .lean()
                 .maxTimeMS(30000);
             } catch (hintError) {
-              // Fallback to old index name if v2 doesn't exist yet
+              // Fallback sang tên index cũ nếu v2 chưa tồn tại
               console.warn('⚠️ Index v2 not found, using v1:', hintError.message);
               slots = await Slot.find(query)
                 .hint('utilization_stats_query')
@@ -326,8 +326,8 @@ async function startRpcServer() {
             }
             }
             
-            // Calculate metrics
-            // Slot is considered "booked" if status is 'booked' or 'locked' (has appointment)
+            // Tính toán số liệu
+            // Slot được coi là "đã đặt" nếu status là 'booked' hoặc 'locked' (có cuộc hẹn)
             const totalSlots = slots.length;
             const bookedSlots = slots.filter(s => s.status === 'booked' || s.status === 'locked').length;
             const emptySlots = totalSlots - bookedSlots;
@@ -340,7 +340,7 @@ async function startRpcServer() {
               utilizationRate: utilizationRate + '%'
             });
             
-            // Group by room
+            // Nhóm theo phòng
             const byRoomMap = {};
             slots.forEach(slot => {
               const roomId = slot.roomId.toString();
@@ -385,7 +385,7 @@ async function startRpcServer() {
               };
             });
             
-            // Group by shift
+            // Nhóm theo ca
             const byShiftMap = {
               'Ca Sáng': { total: 0, booked: 0, empty: 0 },
               'Ca Chiều': { total: 0, booked: 0, empty: 0 },
@@ -411,7 +411,7 @@ async function startRpcServer() {
               rate: stats.total > 0 ? ((stats.booked / stats.total) * 100).toFixed(1) + '%' : '0%'
             })));
             
-            // Convert byShift to object format for FE compatibility
+            // Chuyển đổi byShift sang dạng object cho FE tương thích
             const byShift = {};
             Object.entries(byShiftMap).forEach(([shift, stats]) => {
               byShift[shift] = {
@@ -440,7 +440,7 @@ async function startRpcServer() {
               } else if (timeRange === 'year') {
                 dateKey = String(slotDate.getFullYear()); // YYYY
               } else {
-                // Default to day format if timeRange is invalid
+                // Mặc định sang định dạng ngày nếu timeRange không hợp lệ
                 dateKey = slotDate.toISOString().split('T')[0];
               }
               
@@ -453,7 +453,7 @@ async function startRpcServer() {
               }
             });
             
-            // Convert to array and sort by date
+            // Chuyển đổi sang mảng và sắp xếp theo ngày
             Object.entries(byDateMap).forEach(([date, stats]) => {
               timeline.push({
                 date,

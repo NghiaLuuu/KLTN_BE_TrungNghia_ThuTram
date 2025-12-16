@@ -5,12 +5,12 @@ const axios = require('axios');
 
 class QueueService {
   /**
-   * Get next queue number for a room on a specific date
-   * This is concurrency-safe using MongoDB transactions
-   * @param {Date} date - The date for queue number
-   * @param {String} roomId - Room ID
-   * @param {String} subroomId - Subroom ID (optional)
-   * @returns {String} Next queue number (e.g., "001", "002")
+   * Lấy số thứ tự hàng đợi tiếp theo cho phòng vào ngày cụ thể
+   * Đảm bảo an toàn đồng thời bằng MongoDB transactions
+   * @param {Date} date - Ngày lấy số thứ tự
+   * @param {String} roomId - ID phòng
+   * @param {String} subroomId - ID phòng con (tùy chọn)
+   * @returns {String} Số thứ tự tiếp theo (ví dụ: "001", "002")
    */
   async getNextQueueNumber(date, roomId, subroomId = null) {
     const startOfDay = new Date(date);
@@ -18,14 +18,14 @@ class QueueService {
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Build query
+    // Xây dựng truy vấn
     const query = {
       date: { $gte: startOfDay, $lte: endOfDay },
       roomId,
       queueNumber: { $exists: true, $ne: null }
     };
 
-    // Find the highest queue number for today in this room
+    // Tìm số thứ tự cao nhất cho ngày này trong phòng này
     const lastRecord = await recordRepo.findOne(
       query,
       { sort: { queueNumber: -1 } }
@@ -33,20 +33,20 @@ class QueueService {
 
     let nextNumber = 1;
     if (lastRecord && lastRecord.queueNumber) {
-      // Extract number from queueNumber (e.g., "001" -> 1)
+      // Trích xuất số từ queueNumber (ví dụ: "001" -> 1)
       const currentNumber = parseInt(lastRecord.queueNumber);
       nextNumber = currentNumber + 1;
     }
 
-    // Format as 3-digit string: "001", "002", ...
+    // Định dạng thành chuỗi 3 chữ số: "001", "002", ...
     return String(nextNumber).padStart(3, '0');
   }
 
   /**
-   * Call a record - assign queue number and update status to in-progress
-   * @param {String} recordId - Record ID
-   * @param {String} userId - User ID who calls the record
-   * @returns {Object} Updated record
+   * Gọi hồ sơ - gán số thứ tự và cập nhật trạng thái thành in-progress
+   * @param {String} recordId - ID hồ sơ
+   * @param {String} userId - ID người dùng gọi hồ sơ
+   * @returns {Object} Hồ sơ đã cập nhật
    */
   async callRecord(recordId, userId) {
     const record = await recordRepo.findById(recordId);
@@ -58,14 +58,14 @@ class QueueService {
       throw new Error(`Record đang ở trạng thái ${record.status}, không thể gọi`);
     }
 
-    // Get next queue number
+    // Lấy số thứ tự tiếp theo
     const queueNumber = await this.getNextQueueNumber(
       record.date,
       record.roomId,
       record.subroomId
     );
 
-    // Update record
+    // Cập nhật hồ sơ
     const updatedRecord = await recordRepo.update(recordId, {
       status: 'in-progress',
       queueNumber,
@@ -73,7 +73,7 @@ class QueueService {
       lastModifiedBy: userId
     });
 
-    // Emit Socket.IO event
+    // Phát sự kiện Socket.IO
     emitRecordStatusChange(updatedRecord);
     emitQueueUpdate(
       record.roomId.toString(),
@@ -85,9 +85,9 @@ class QueueService {
   }
 
   /**
-   * Complete a record - update status to completed and prepare payment data
-   * @param {String} recordId - Record ID
-   * @param {String} userId - User ID who completes the record
+   * Hoàn thành hồ sơ - cập nhật trạng thái thành completed và chuẩn bị dữ liệu thanh toán
+   * @param {String} recordId - ID hồ sơ
+   * @param {String} userId - ID người dùng hoàn thành hồ sơ
    * @returns {Object} { record, paymentData }
    */
   async completeRecord(recordId, userId) {
@@ -100,10 +100,10 @@ class QueueService {
       throw new Error(`Record đang ở trạng thái ${record.status}, không thể hoàn thành`);
     }
 
-    // Use record service to handle validations + publish domain events
+    // Sử dụng record service để xử lý validations + phát các sự kiện domain
     const completedRecord = await recordService.completeRecord(recordId, userId);
 
-    // Emit Socket.IO event for real-time UI updates
+    // Phát sự kiện Socket.IO cho cập nhật UI thời gian thực
     emitRecordStatusChange(completedRecord);
     emitQueueUpdate(
       record.roomId.toString(),
@@ -127,12 +127,12 @@ class QueueService {
       appointmentId: completedRecord.appointmentId,
       patientId: completedRecord.patientId,
       patientInfo: completedRecord.patientInfo,
-      // ✅ Required fields for payment validation
-      amount: finalAmount, // Amount to be paid (after deducting deposit)
-      method: 'cash', // Default to cash for offline payments
+      // ✅ Các trường bắt buộc cho validation thanh toán
+      amount: finalAmount, // Số tiền cần thanh toán (sau khi trừ tiền cọc)
+      method: 'cash', // Mặc định là tiền mặt cho thanh toán offline
       type: 'payment',
       status: 'pending',
-      // ✅ Additional payment info
+      // ✅ Thông tin thanh toán bổ sung
       totalAmount,
       depositAmount,
       finalAmount,
@@ -141,12 +141,12 @@ class QueueService {
       bookingChannel: paymentInfo?.bookingChannel || null
     };
 
-    // ⚠️ DEPRECATED: HTTP payment creation - now handled by RabbitMQ event
-    // The payment.create event published above will be handled by payment-service
-    // via RabbitMQ, which has better retry logic and avoids race conditions
+    // ⚠️ LỖI THỜI: Tạo thanh toán qua HTTP - giờ được xử lý bởi sự kiện RabbitMQ
+    // Sự kiện payment.create được phát bên trên sẽ được payment-service xử lý
+    // qua RabbitMQ, có logic retry tốt hơn và tránh race conditions
     
     /* 
-    // ❌ Old HTTP-based payment creation (causes 400 errors due to validation mismatch)
+    // ❌ Tạo thanh toán dựa trên HTTP cũ (gây lỗi 400 do validation không khớp)
     let createdPayment = null;
     try {
       console.log('💰 [QueueService.completeRecord] Creating payment via HTTP...', paymentData);
@@ -164,7 +164,7 @@ class QueueService {
         createdPayment = response.data.data;
         console.log('✅ [QueueService.completeRecord] Payment created:', createdPayment._id);
         
-        // ✅ Auto-confirm cash payment to trigger invoice creation
+        // ✅ Tự động xác nhận thanh toán tiền mặt để tạo hóa đơn
         try {
           console.log('💰 [QueueService.completeRecord] Auto-confirming cash payment...');
           const confirmResponse = await axios.post(
@@ -183,38 +183,38 @@ class QueueService {
           );
           
           if (confirmResponse.data && confirmResponse.data.success) {
-            createdPayment = confirmResponse.data.data; // Update with confirmed payment
+            createdPayment = confirmResponse.data.data; // Cập nhật với thanh toán đã xác nhận
             console.log('✅ [QueueService.completeRecord] Payment confirmed, invoice will be created');
           }
         } catch (confirmError) {
           console.warn('⚠️ [QueueService.completeRecord] Failed to auto-confirm payment:', confirmError.message);
-          // Payment still exists, can be confirmed manually
+          // Thanh toán vẫn tồn tại, có thể xác nhận thủ công
         }
       } else {
         console.warn('⚠️ [QueueService.completeRecord] Payment creation returned unsuccessful:', response.data);
       }
     } catch (paymentError) {
       console.error('❌ [QueueService.completeRecord] Failed to create payment:', paymentError.message);
-      // Don't throw - record is already completed, payment can be created manually
+      // Không throw - hồ sơ đã hoàn thành, thanh toán có thể được tạo thủ công
     }
     */
 
-    console.log('✅ [QueueService.completeRecord] Payment will be created via RabbitMQ event');
+    console.log('✅ [QueueService.completeRecord] Thanh toán sẽ được tạo qua sự kiện RabbitMQ');
 
     return {
       record: completedRecord,
-      payment: null, // Payment will be created asynchronously via RabbitMQ
+      payment: null, // Thanh toán sẽ được tạo bất đồng bộ qua RabbitMQ
       paymentData,
       paymentInfo
     };
   }
 
   /**
-   * Cancel a record - update status to cancelled
-   * @param {String} recordId - Record ID
-   * @param {String} userId - User ID who cancels the record
-   * @param {String} reason - Cancellation reason
-   * @returns {Object} Updated record
+   * Hủy hồ sơ - cập nhật trạng thái thành cancelled
+   * @param {String} recordId - ID hồ sơ
+   * @param {String} userId - ID người dùng hủy hồ sơ
+   * @param {String} reason - Lý do hủy
+   * @returns {Object} Hồ sơ đã cập nhật
    */
   async cancelRecord(recordId, userId, reason) {
     const record = await recordRepo.findById(recordId);
@@ -226,14 +226,14 @@ class QueueService {
       throw new Error(`Record đang ở trạng thái ${record.status}, không thể hủy`);
     }
 
-    // Update record
+    // Cập nhật hồ sơ
     const updatedRecord = await recordRepo.update(recordId, {
       status: 'cancelled',
       notes: record.notes ? `${record.notes}\n[HỦY] ${reason}` : `[HỦY] ${reason}`,
       lastModifiedBy: userId
     });
 
-    // Emit Socket.IO event
+    // Phát sự kiện Socket.IO
     emitRecordStatusChange(updatedRecord);
     emitQueueUpdate(
       record.roomId.toString(),
@@ -245,10 +245,10 @@ class QueueService {
   }
 
   /**
-   * Get queue status for a room
-   * @param {Date} date - Date to get queue status
-   * @param {String} roomId - Room ID
-   * @param {String} subroomId - Subroom ID (optional)
+   * Lấy trạng thái hàng đợi cho một phòng
+   * @param {Date} date - Ngày lấy trạng thái hàng đợi
+   * @param {String} roomId - ID phòng
+   * @param {String} subroomId - ID phòng con (tùy chọn)
    * @returns {Object} { current, next, upcoming: [] }
    */
   async getQueueStatus(date, roomId, subroomId = null) {
@@ -262,13 +262,13 @@ class QueueService {
       roomId
     };
 
-    // Current record (in-progress)
+    // Hồ sơ hiện tại (đang khám)
     const current = await recordRepo.findOne({
       ...query,
       status: 'in-progress'
     });
 
-    // Get ALL appointments for the day (sorted by slot startTime)
+    // Lấy TẤT CẢ cuộc hẹn trong ngày (sắp xếp theo startTime của slot)
     const allRecords = await recordRepo.findAll({
       ...query,
       status: { $in: ['pending', 'in-progress', 'completed', 'cancelled'] }
@@ -276,16 +276,16 @@ class QueueService {
       sort: { 'appointmentInfo.startTime': 1, createdAt: 1 }
     });
 
-    // Filter pending only for next
+    // Lọc chỉ các hồ sơ đang chờ cho next
     const pending = allRecords.filter(r => r.status === 'pending');
 
-    // Generate time slots with gaps
+    // Tạo các slot thời gian với khoảng trống
     const timeSlots = this._generateTimeSlots(allRecords);
 
     return {
       current: current || null,
       next: pending.length > 0 ? pending[0] : null,
-      upcoming: pending.slice(1), // Keep for backward compatibility
+      upcoming: pending.slice(1), // Giữ lại để tương thích ngược
       allAppointments: allRecords || [],
       timeSlots: timeSlots || [],
       summary: {
@@ -299,7 +299,7 @@ class QueueService {
   }
 
   /**
-   * Generate time slots showing appointments and gaps
+   * Tạo các slot thời gian hiển thị cuộc hẹn và khoảng trống
    * @private
    */
   _generateTimeSlots(records) {
@@ -307,7 +307,7 @@ class QueueService {
 
     const slots = [];
     
-    // Filter and sort by start time
+    // Lọc và sắp xếp theo thời gian bắt đầu
     const sorted = records
       .filter(rec => rec.appointmentInfo && rec.appointmentInfo.startTime)
       .sort((a, b) => {
@@ -320,7 +320,7 @@ class QueueService {
       const current = sorted[i];
       const next = sorted[i + 1];
 
-      // Add current appointment slot
+      // Thêm slot cuộc hẹn hiện tại
       slots.push({
         type: 'appointment',
         recordId: current._id,
@@ -332,12 +332,12 @@ class QueueService {
         queueNumber: current.queueNumber
       });
 
-      // Check for gap between current and next appointment
+      // Kiểm tra khoảng trống giữa cuộc hẹn hiện tại và cuộc hẹn tiếp theo
       if (next) {
         const currentEnd = new Date(current.appointmentInfo.endTime);
         const nextStart = new Date(next.appointmentInfo.startTime);
         
-        // If there's a gap (more than 1 minute)
+        // Nếu có khoảng trống (hơn 1 phút)
         if ((nextStart - currentEnd) > 60000) {
           slots.push({
             type: 'gap',

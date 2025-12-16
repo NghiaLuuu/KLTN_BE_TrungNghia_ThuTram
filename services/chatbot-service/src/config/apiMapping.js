@@ -1,4 +1,4 @@
-// API Mapping Configuration - Map user intents to internal API endpoints
+// Cấu hình API Mapping - Ánh xạ ý định người dùng sang các endpoint API nội bộ
 
 const API_BASE_URLS = {
   AUTH_SERVICE: process.env.AUTH_SERVICE_URL || 'http://localhost:3001',
@@ -7,22 +7,22 @@ const API_BASE_URLS = {
   APPOINTMENT_SERVICE: process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3007'
 };
 
-// API Endpoint Mappings
+// Ánh xạ các API Endpoint
 const API_ENDPOINTS = {
-  // Service Service APIs
+  // Các API Service Service
   SEARCH_SERVICES: {
     method: 'GET',
     baseUrl: API_BASE_URLS.SERVICE_SERVICE,
     path: '/api/service/search',
-    description: 'Search dental services by name or keyword',
-    params: ['query'] // Required params
+    description: 'Tìm kiếm dịch vụ nha khoa theo tên hoặc từ khóa',
+    params: ['query'] // Tham số bắt buộc
   },
   
   GET_ALL_SERVICES: {
     method: 'GET',
     baseUrl: API_BASE_URLS.SERVICE_SERVICE,
     path: '/api/service',
-    description: 'Get all available dental services',
+    description: 'Lấy tất cả dịch vụ nha khoa có sẵn',
     params: []
   },
   
@@ -30,24 +30,24 @@ const API_ENDPOINTS = {
     method: 'GET',
     baseUrl: API_BASE_URLS.SERVICE_SERVICE,
     path: '/api/service/:id',
-    description: 'Get detailed info of a specific service',
+    description: 'Lấy thông tin chi tiết của dịch vụ cụ thể',
     params: ['id']
   },
 
-  // Schedule Service APIs (COMMENTED OUT - APIs not implemented yet)
+  // Các API Schedule Service (COMMENT OUT - API chưa được triển khai)
   // GET_AVAILABLE_SLOTS: {
   //   method: 'GET',
   //   baseUrl: API_BASE_URLS.SCHEDULE_SERVICE,
   //   path: '/api/schedule/available-slots',
-  //   description: 'Get available time slots for booking',
-  //   params: ['date', 'serviceId'] // date format: YYYY-MM-DD
+  //   description: 'Lấy các khung giờ có sẵn để đặt lịch',
+  //   params: ['date', 'serviceId'] // định dạng ngày: YYYY-MM-DD
   // },
 
   // GET_DOCTORS_BY_SERVICE: {
   //   method: 'GET',
   //   baseUrl: API_BASE_URLS.SCHEDULE_SERVICE,
   //   path: '/api/schedule/doctors-by-service',
-  //   description: 'Get list of doctors who can perform a service',
+  //   description: 'Lấy danh sách Nha sĩ có thể thực hiện dịch vụ',
   //   params: ['serviceId']
   // },
 
@@ -55,16 +55,16 @@ const API_ENDPOINTS = {
   //   method: 'GET',
   //   baseUrl: API_BASE_URLS.SCHEDULE_SERVICE,
   //   path: '/api/schedule/doctor/:doctorId',
-  //   description: 'Get schedule of a specific doctor',
+  //   description: 'Lấy lịch trình của Nha sĩ cụ thể',
   //   params: ['doctorId', 'date']
   // },
 
-  // Auth Service APIs (for doctor/staff info)
+  // Các API Auth Service (cho thông tin Nha sĩ/nhân viên)
   GET_DOCTORS_LIST: {
     method: 'GET',
     baseUrl: API_BASE_URLS.AUTH_SERVICE,
     path: '/api/user/public/dentists',
-    description: 'Get list of all doctors',
+    description: 'Lấy danh sách tất cả Nha sĩ',
     params: []
   },
 
@@ -72,14 +72,14 @@ const API_ENDPOINTS = {
     method: 'GET',
     baseUrl: API_BASE_URLS.AUTH_SERVICE,
     path: '/api/user/:id',
-    description: 'Get detailed info of a doctor',
+    description: 'Lấy thông tin chi tiết của Nha sĩ',
     params: ['id']
   }
 };
 
-// Action Keywords Mapping - Map user intent keywords to API actions
+// Ánh xạ từ khóa hành động - Ánh xạ các từ khóa ý định người dùng sang các hành động API
 const ACTION_KEYWORDS = {
-  // Service search intents
+  // Ý định tìm kiếm dịch vụ
   SEARCH_SERVICES: [
     'tìm dịch vụ', 'tìm kiếm dịch vụ', 'có dịch vụ', 'dịch vụ nào',
     'tẩy trắng', 'niềng răng', 'nhổ răng', 'trám răng', 'cấy implant',

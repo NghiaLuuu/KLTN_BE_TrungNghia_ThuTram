@@ -5,9 +5,9 @@ async function startRecordRpcServer() {
   const connection = await amqp.connect(process.env.RABBITMQ_URL);
   const channel = await connection.createChannel();
 
-  const queue = "record_rpc_queue"; // ⭐ Changed from record_queue to record_rpc_queue
+  const queue = "record_rpc_queue"; // ⭐ Đổi từ record_queue sang record_rpc_queue
 
-  // ⭐ Just assert queue, don't delete it (consumer is using it)
+  // ⭐ Chỉ khai báo queue, không xóa nó (consumer đang sử dụng)
   await channel.assertQueue(queue, { durable: true });
 
   console.log(`✅ Record RPC server listening on queue: ${queue}`);
@@ -68,7 +68,7 @@ async function startRecordRpcServer() {
 
 module.exports = startRecordRpcServer;
 
-// ------------------- Handlers -------------------
+// ------------------- Các hàm xử lý -------------------
 async function handleCreateRecord(payload) {
   const record = await recordService.createRecord(payload);
   return { record };
@@ -78,7 +78,7 @@ async function handleGetRecordById(payload) {
   if (!payload.id) throw new Error("recordId is required");
   const record = await recordService.getRecordById(payload.id);
   
-  // 🔥 DEBUG: Log complete record data being returned via RPC
+  // 🔥 DEBUG: Ghi log đầy đủ dữ liệu hồ sơ được trả về qua RPC
   console.log('📤 [RPC Server] Returning record data:', {
     _id: record._id,
     recordCode: record.recordCode,

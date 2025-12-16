@@ -3,27 +3,31 @@ const appointmentRepo = require('../repositories/appointment.repository');
 
 const RPC_QUEUE = 'appointment-service_rpc_queue';
 
+/**
+ * Khởi động RPC Server cho Appointment Service
+ * Xử lý các RPC request từ các service khác
+ */
 async function startRpcServer() {
   try {
     const channel = getChannel();
     if (!channel) {
-      throw new Error('RabbitMQ channel not available');
+      throw new Error('RabbitMQ channel không khả dụng');
     }
 
-    // Refresh queue before asserting
+    // Làm mới queue trước khi assert
     try {
       await channel.deleteQueue(RPC_QUEUE);
-      console.log(`♻️ Refreshing RabbitMQ queue ${RPC_QUEUE} before asserting`);
+      console.log(`♻️ Làm mới RabbitMQ queue ${RPC_QUEUE} trước khi assert`);
     } catch (err) {
       if (err?.code !== 404) {
-        console.warn(`⚠️ Could not delete queue ${RPC_QUEUE}:`, err.message);
+        console.warn(`⚠️ Không thể xóa queue ${RPC_QUEUE}:`, err.message);
       }
     }
 
     await channel.assertQueue(RPC_QUEUE, { durable: true });
     await channel.prefetch(1);
 
-    console.log(`✅ Appointment RPC Server listening on: ${RPC_QUEUE}`);
+    console.log(`✅ Appointment RPC Server đang lắng nghe: ${RPC_QUEUE}`);
 
     channel.consume(RPC_QUEUE, async (msg) => {
       if (!msg) return;
@@ -35,18 +39,18 @@ async function startRpcServer() {
         const request = JSON.parse(msg.content.toString());
         const { method, params } = request;
 
-        console.log(`🔍 [RPC Server] Received ${method}:`, params);
+        console.log(`🔍 [RPC Server] Nhận ${method}:`, params);
 
         switch (method) {
           case 'getAppointment':
           case 'getAppointmentById':
             if (!params.id) {
-              response = { success: false, error: 'Missing appointment ID' };
+              response = { success: false, error: 'Thiếu ID lịch hẹn' };
               break;
             }
             const appointment = await appointmentRepo.findById(params.id);
             if (!appointment) {
-              response = { success: false, error: 'Appointment not found' };
+              response = { success: false, error: 'Không tìm thấy lịch hẹn' };
             } else {
               response = { 
                 success: true, 
@@ -57,12 +61,12 @@ async function startRpcServer() {
 
           case 'getAppointmentByCode':
             if (!params.code) {
-              response = { success: false, error: 'Missing appointment code' };
+              response = { success: false, error: 'Thiếu mã lịch hẹn' };
               break;
             }
             const appointmentByCode = await appointmentRepo.findByCode(params.code);
             if (!appointmentByCode) {
-              response = { success: false, error: 'Appointment not found' };
+              response = { success: false, error: 'Không tìm thấy lịch hẹn' };
             } else {
               response = { 
                 success: true, 
@@ -73,7 +77,7 @@ async function startRpcServer() {
 
           case 'updateInvoiceId':
             if (!params.appointmentId || !params.invoiceId) {
-              response = { success: false, error: 'Missing appointmentId or invoiceId' };
+              response = { success: false, error: 'Thiếu appointmentId hoặc invoiceId' };
               break;
             }
             const updated = await appointmentRepo.updateInvoiceId(params.appointmentId, params.invoiceId);
@@ -82,7 +86,7 @@ async function startRpcServer() {
 
           case 'updateStatus':
             if (!params.id || !params.status) {
-              response = { success: false, error: 'Missing id or status' };
+              response = { success: false, error: 'Thiếu id hoặc status' };
               break;
             }
             const statusUpdated = await appointmentRepo.updateStatus(
@@ -94,22 +98,22 @@ async function startRpcServer() {
             break;
 
           default:
-            response = { success: false, error: `Unknown method: ${method}` };
+            response = { success: false, error: `Method không xác định: ${method}` };
         }
 
         const duration = Date.now() - startTime;
-        console.log(`✅ [RPC Server] ${method} completed in ${duration}ms:`, 
-          response.success ? 'Success' : response.error);
+        console.log(`✅ [RPC Server] ${method} hoàn thành trong ${duration}ms:`, 
+          response.success ? 'Thành công' : response.error);
 
       } catch (error) {
-        console.error('❌ [RPC Server] Error:', error);
+        console.error('❌ [RPC Server] Lỗi:', error);
         response = { 
           success: false, 
-          error: error.message || 'Internal server error' 
+          error: error.message || 'Lỗi server nội bộ' 
         };
       }
 
-      // Send response
+      // Gửi response
       channel.sendToQueue(
         msg.properties.replyTo,
         Buffer.from(JSON.stringify(response)),
@@ -119,9 +123,9 @@ async function startRpcServer() {
       channel.ack(msg);
     });
 
-    console.log('✅ Appointment RPC Server started successfully');
+    console.log('✅ Appointment RPC Server khởi động thành công');
   } catch (error) {
-    console.error('❌ Failed to start Appointment RPC Server:', error);
+    console.error('❌ Khởi động Appointment RPC Server thất bại:', error);
     throw error;
   }
 }

@@ -29,7 +29,7 @@ class InvoiceRPCServer {
 
       await this.channel.assertQueue(queueName, { durable: true });
 
-      // Set prefetch to handle one message at a time
+      // Đặt prefetch để xử lý từng tin nhắn một
       this.channel.prefetch(1);
 
       console.log(`✅ Invoice RPC Server listening on queue: ${queueName}`);
@@ -67,7 +67,7 @@ class InvoiceRPCServer {
       console.log(`📥 RPC received: ${method}`, params);
 
       switch (method) {
-        // ============ INVOICE OPERATIONS ============
+        // ============ CÁC THAO TÁC HÓA ĐƠN ============
         case 'createInvoice':
           response.result = await invoiceService.createInvoice(params.invoiceData, params.userId);
           response.success = true;
@@ -93,9 +93,9 @@ class InvoiceRPCServer {
           response.success = true;
           break;
 
-        // ============ PAYMENT INTEGRATION ============
+        // ============ TÍCH HỢP THANH TOÁN ============
         case 'createInvoiceFromPayment':
-          // Chỉ tạo invoice khi payment thành công
+          // Chỉ tạo hóa đơn khi thanh toán thành công
           if (params.paymentData.status !== 'completed') {
             response.error = 'Chỉ tạo hóa đơn khi thanh toán thành công';
             break;
@@ -110,7 +110,7 @@ class InvoiceRPCServer {
           break;
 
         case 'getInvoicesForPayment':
-          // Lấy danh sách invoice chờ thanh toán cho một appointment
+          // Lấy danh sách hóa đơn chờ thanh toán cho một lịch hẹn
           const pendingInvoices = await invoiceService.getInvoices({
             appointmentId: params.appointmentId,
             status: ['draft', 'pending', 'partial_paid']
@@ -119,28 +119,28 @@ class InvoiceRPCServer {
           response.success = true;
           break;
 
-        // ============ APPOINTMENT INTEGRATION ============
+        // ============ TÍCH HỢP LỊCH HẸN ============
         case 'createInvoiceFromAppointment':
           try {
             const { appointmentData, userId } = params;
 
-            // Validate appointment data
+            // Kiểm tra dữ liệu lịch hẹn
             if (!appointmentData.patientId || !appointmentData._id) {
-              response.error = 'Dữ liệu cuộc hẹn không hợp lệ';
+              response.error = 'Dữ liệu lịch hẹn không hợp lệ';
               break;
             }
 
-            // Create draft invoice for appointment
+            // Tạo hóa đơn nháp cho lịch hẹn
             const invoiceData = {
               appointmentId: appointmentData._id,
               patientId: appointmentData.patientId,
               patientInfo: appointmentData.patientInfo,
               type: 'appointment',
               status: 'draft', // Tạo nháp trước, chờ thanh toán mới finalize
-              notes: `Hóa đơn cho cuộc hẹn ${appointmentData.appointmentCode || appointmentData._id}`
+              notes: `Hóa đơn cho lịch hẹn ${appointmentData.appointmentCode || appointmentData._id}`
             };
 
-            // Add services if provided
+            // Thêm dịch vụ nếu được cung cấp
             if (appointmentData.services && appointmentData.services.length > 0) {
               invoiceData.details = appointmentData.services.map(service => ({
                 serviceId: service.serviceId,
@@ -158,7 +158,7 @@ class InvoiceRPCServer {
           }
           break;
 
-        // ============ INVOICE DETAILS OPERATIONS ============
+        // ============ CÁC THAO TÁC CHI TIẾT HÓA ĐƠN ============
         case 'createInvoiceDetail':
           response.result = await invoiceDetailService.createDetail(params.detailData, params.userId);
           response.success = true;
@@ -174,7 +174,7 @@ class InvoiceRPCServer {
           response.success = true;
           break;
 
-        // ============ STATISTICS & REPORTING ============
+        // ============ THỐNG KÊ & BÁO CÁO ============
         case 'getInvoiceStatistics':
           response.result = await invoiceService.getInvoiceStatistics(
             params.startDate,
@@ -208,7 +208,7 @@ class InvoiceRPCServer {
           response.success = true;
           break;
 
-        // ============ SEARCH OPERATIONS ============
+        // ============ CÁC THAO TÁC TÌM KIẾM ============
         case 'searchInvoices':
           response.result = await invoiceService.searchInvoices(params.searchTerm, params.options);
           response.success = true;
@@ -232,7 +232,7 @@ class InvoiceRPCServer {
           response.success = true;
           break;
 
-        // ============ HEALTH CHECK ============
+        // ============ KIỂM TRA SỨC KHỎe ============
         case 'healthCheck':
           response.result = {
             service: 'invoice-service',
@@ -260,7 +260,7 @@ class InvoiceRPCServer {
       response.error = error.message;
     }
 
-    // Send response
+    // Gửi phản hồi
     try {
       this.channel.sendToQueue(
         msg.properties.replyTo,
@@ -300,10 +300,10 @@ class InvoiceRPCServer {
   }
 }
 
-// Create singleton instance
+// Tạo instance singleton
 const invoiceRPCServer = new InvoiceRPCServer();
 
-// Export function to start the server
+// Xuất hàm khởi động server
 async function startRpcServer() {
   try {
     const success = await invoiceRPCServer.start();

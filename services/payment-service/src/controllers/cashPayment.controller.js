@@ -2,7 +2,7 @@ const cashPaymentService = require('../services/cashPayment.service');
 
 class CashPaymentController {
   /**
-   * Confirm cash payment
+   * Xác nhận thanh toán tiền mặt
    * POST /api/payment/:paymentId/confirm-cash
    */
   async confirmCashPayment(req, res) {

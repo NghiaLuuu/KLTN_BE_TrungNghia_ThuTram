@@ -5,17 +5,17 @@ const authMiddleware = require('../middlewares/auth.middleware');
 const validationErrorHandler = require('../middlewares/validation.middleware');
 const { createHolidayValidation, updateHolidayValidation, holidayIdValidation } = require('../validations/holiday.validation');
 
-// 🔹 Configuration Status Check
+// 🔹 Kiểm tra Trạng thái Cấu hình
 router.get('/exists', cfgController.checkConfigExists);
 
-// 🔹 Initialize Configuration (first time setup)
+// 🔹 Khởi tạo Cấu hình (thiết lập lần đầu)
 router.post('/initialize', authMiddleware, cfgController.initializeConfig);
 
-// 🔹 Main Configuration Management
+// 🔹 Quản lý Cấu hình Chính
 router.get('/', cfgController.getConfig);
 router.patch('/', authMiddleware, cfgController.updateConfig);
 
-// 🔹 Holiday Management
+// 🔹 Quản lý Ngày nghỉ
 router.get('/holidays', cfgController.getHolidays);
 // router.get('/holidays/blocked-ranges', cfgController.getBlockedDateRanges); // ❌ REMOVED: Không cần check lịch đã tạo
 router.patch('/holidays/:holidayId', authMiddleware, updateHolidayValidation, validationErrorHandler, cfgController.updateHoliday);

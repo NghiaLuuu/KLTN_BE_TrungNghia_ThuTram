@@ -1,12 +1,12 @@
 const mongoose = require('mongoose');
 
 /**
- * SlotStatusChange Model - Tracks ALL slot enable/disable operations
- * Used for: individual slots, room-based, dentist-based, date-based, and full day closures
+ * Model SlotStatusChange - Theo dõi TẤT CẢ thao tác bật/tắt slot
+ * Sử dụng cho: slots riêng lẻ, theo phòng, theo nha sĩ, theo ngày và đóng cửa cả ngày
  */
 const dayClosureSchema = new mongoose.Schema(
   {
-    // Operation type
+    // Loại thao tác
     operationType: {
       type: String,
       enum: [
@@ -20,7 +20,7 @@ const dayClosureSchema = new mongoose.Schema(
       index: true
     },
 
-    // Action: enable or disable
+    // Hành động: bật hoặc tắt
     action: {
       type: String,
       enum: ['enable', 'disable'],
@@ -28,7 +28,7 @@ const dayClosureSchema = new mongoose.Schema(
       index: true
     },
 
-    // Date range affected (for queries)
+    // Khoảng ngày bị ảnh hưởng (cho truy vấn)
     dateFrom: {
       type: Date,
       index: true
@@ -38,28 +38,28 @@ const dayClosureSchema = new mongoose.Schema(
       index: true
     },
 
-    // Criteria used for flexible operations
+    // Tiêu chí sử dụng cho thao tác linh hoạt
     criteria: {
-      date: String,           // Single date (YYYY-MM-DD)
-      startDate: String,      // Date range start
-      endDate: String,        // Date range end
+      date: String,           // Ngày đơn (YYYY-MM-DD)
+      startDate: String,      // Bắt đầu khoảng ngày
+      endDate: String,        // Kết thúc khoảng ngày
       shiftName: String,      // 'Ca Sáng', 'Ca Chiều', 'Ca Tối'
       dentistId: mongoose.Schema.Types.ObjectId,
       nurseId: mongoose.Schema.Types.ObjectId,
       roomId: mongoose.Schema.Types.ObjectId,
       subRoomId: mongoose.Schema.Types.ObjectId,
-      slotIds: [String]       // For individual slot operations
+      slotIds: [String]       // Cho thao tác slot riêng lẻ
     },
 
-    // Reason for change
+    // Lý do thay đổi
     reason: {
       type: String,
       required: function() {
-        return this.action === 'disable'; // Required only for disable operations
+        return this.action === 'disable'; // Bắt buộc chỉ cho thao tác vô hiệu hóa
       }
     },
 
-    // Type of closure/operation
+    // Loại đóng cửa/thao tác
     closureType: {
       type: String,
       enum: ['emergency', 'planned', 'maintenance', 'staff_absence', 'other'],
@@ -72,7 +72,7 @@ const dayClosureSchema = new mongoose.Schema(
       default: false
     },
 
-    // Statistics
+    // Thống kê
     stats: {
       totalSlotsDisabled: { type: Number, default: 0 },
       affectedRoomsCount: { type: Number, default: 0 },
@@ -80,7 +80,7 @@ const dayClosureSchema = new mongoose.Schema(
       emailsSentCount: { type: Number, default: 0 }
     },
 
-    // Affected rooms
+    // Các phòng bị ảnh hưởng
     affectedRooms: [{
       roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room' },
       roomName: String,
@@ -97,9 +97,9 @@ const dayClosureSchema = new mongoose.Schema(
       }]
     }],
 
-    // Detailed information about cancelled appointments
+    // Thông tin chi tiết về các cuộc hẹn bị hủy
     cancelledAppointments: [{
-      // Appointment info
+      // Thông tin cuộc hẹn
       appointmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Appointment' },
       appointmentDate: Date,
       cancelledAt: Date, // Thời gian hủy thực tế từ appointment.cancelledAt
@@ -107,17 +107,17 @@ const dayClosureSchema = new mongoose.Schema(
       startTime: String,
       endTime: String,
 
-      // Patient info
+      // Thông tin bệnh nhân
       patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       patientName: String,
       patientEmail: String,
       patientPhone: String,
 
-      // Room info
+      // Thông tin phòng
       roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room' },
       roomName: String,
 
-      // Staff info
+      // Thông tin nhân viên
       dentists: [{
         dentistId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         dentistName: String,
@@ -129,7 +129,7 @@ const dayClosureSchema = new mongoose.Schema(
         nurseEmail: String
       }],
 
-      // Payment & Invoice info (optional, may not exist yet)
+      // Thông tin thanh toán & hóa đơn (tùy chọn, có thể chưa tồn tại)
       paymentInfo: {
         paymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' },
         status: String,
@@ -142,12 +142,12 @@ const dayClosureSchema = new mongoose.Schema(
         status: String
       },
 
-      // Notification status
+      // Trạng thái thông báo
       emailSent: { type: Boolean, default: false },
       emailSentAt: Date
     }],
 
-    // Affected staff without appointments (they had slots assigned but no patients)
+    // Nhân viên bị ảnh hưởng không có cuộc hẹn (họ đã được phân công slots nhưng không có bệnh nhân)
     affectedStaffWithoutAppointments: [{
       userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       name: String,
@@ -156,21 +156,21 @@ const dayClosureSchema = new mongoose.Schema(
       emailSent: { type: Boolean, default: false }
     }],
 
-    // Who performed the closure
+    // Người thực hiện đóng cửa
     closedBy: {
       userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       userName: String,
       userRole: String
     },
 
-    // Status tracking
+    // Theo dõi trạng thái
     status: {
       type: String,
       enum: ['active', 'partially_restored', 'fully_restored'],
       default: 'active'
     },
 
-    // If restored
+    // Nếu được khôi phục
     restoredAt: Date,
     restoredBy: {
       userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -183,7 +183,7 @@ const dayClosureSchema = new mongoose.Schema(
   }
 );
 
-// Indexes for efficient querying
+// Indexes cho truy vấn hiệu quả
 dayClosureSchema.index({ dateFrom: -1, dateTo: -1 });
 dayClosureSchema.index({ operationType: 1, createdAt: -1 });
 dayClosureSchema.index({ action: 1, createdAt: -1 });
@@ -193,7 +193,7 @@ dayClosureSchema.index({ createdAt: -1 });
 dayClosureSchema.index({ 'criteria.roomId': 1 });
 dayClosureSchema.index({ 'criteria.dentistId': 1 });
 
-// Virtual for formatted date
+// Virtual cho ngày đã định dạng
 dayClosureSchema.virtual('formattedDateFrom').get(function() {
   if (!this.dateFrom) return '';
   const d = new Date(this.dateFrom);
@@ -206,7 +206,7 @@ dayClosureSchema.virtual('formattedDateTo').get(function() {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 });
 
-// Virtual for total affected people
+// Virtual cho tổng số người bị ảnh hưởng
 dayClosureSchema.virtual('totalAffectedPeople').get(function() {
   let count = 0;
   if (this.cancelledAppointments) {
@@ -225,7 +225,7 @@ dayClosureSchema.virtual('totalAffectedPeople').get(function() {
   return count;
 });
 
-// Method to get operation summary
+// Phương thức lấy tóm tắt thao tác
 dayClosureSchema.methods.getSummary = function() {
   const actionText = this.action === 'disable' ? 'Tắt' : 'Bật';
   const operationNames = {

@@ -14,12 +14,13 @@ const { startAllCronJobs } = require('./utils/cronJobs');
 const startRpcServer = require('./utils/rpcServer');
 const appointmentRoutes = require('./routes/appointment.route');
 
+// Kết nối MongoDB
 connectDB();
 
 const app = express();
 const server = http.createServer(app);
 
-// 🔥 Initialize Socket.IO
+// 🔥 Khởi tạo Socket.IO
 initializeSocket(server);
 
 app.use(express.json());
@@ -37,8 +38,8 @@ app.use(cors({
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.warn('🚫 CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
+      console.warn('🚫 CORS chặn origin:', origin);
+      callback(new Error('Không được phép bởi CORS'));
     }
   },
   credentials: true,
@@ -47,45 +48,52 @@ app.use(cors({
 }));
 app.use(express.urlencoded({ extended: true }));
 
+// Đăng ký routes
 app.use('/api/appointments', appointmentRoutes);
 
+// Endpoint kiểm tra health
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'appointment-service' });
 });
 
 const PORT = process.env.PORT || 3006;
 
+/**
+ * Khởi động server
+ * Kết nối các services và bắt đầu lắng nghe requests
+ */
 async function startServer() {
   try {
+    // Kết nối RabbitMQ
     await connectRabbitMQ(process.env.RABBITMQ_URL || 'amqp://localhost');
-    console.log('✅ RabbitMQ connected');
+    console.log('✅ RabbitMQ đã kết nối');
     
-    // ❌ COMMENTED OUT: Using new event-driven consumer instead
+    // ❌ ĐÃ TẮT: Sử dụng consumer mới event-driven thay thế
     // await setupEventListeners();
-    // console.log('✅ Event listeners ready');
+    // console.log('✅ Event listeners đã sẵn sàng');
     
-    // ✅ Start NEW RabbitMQ consumer for payment events (event-driven)
+    // ✅ Khởi động consumer RabbitMQ MỚI cho payment events (event-driven)
     await startConsumer();
-    console.log('✅ Appointment consumer started');
+    console.log('✅ Appointment consumer đã khởi động');
     
-    // ✅ Start RPC Server for inter-service communication
+    // ✅ Khởi động RPC Server cho giao tiếp giữa các service
     await startRpcServer();
-    console.log('✅ Appointment RPC Server started');
+    console.log('✅ Appointment RPC Server đã khởi động');
     
-    // 🔥 Start queue cron jobs for auto-start
+    // 🔥 Khởi động queue cron jobs cho auto-start
     setupQueueCronJobs();
     
-    // ✅ Start cron jobs: auto-progress, auto-complete, cleanup expired locks
+    // ✅ Khởi động cron jobs: auto-progress, auto-complete, cleanup expired locks
     startAllCronJobs();
     
     server.listen(PORT, () => {
-      console.log(`✅ Appointment Service running on port ${PORT}`);
-      console.log(`🔌 Socket.IO ready for realtime queue updates`);
+      console.log(`✅ Appointment Service đang chạy trên port ${PORT}`);
+      console.log(`🔌 Socket.IO sẵn sàng cho cập nhật hàng đợi realtime`);
       console.log(`📍 Health: http://localhost:${PORT}/health`);
     });
     
   } catch (err) {
-    console.error('❌ Failed to start:', err);
+    console.error('❌ Khởi động thất bại:', err);
     process.exit(1);
   }
 }

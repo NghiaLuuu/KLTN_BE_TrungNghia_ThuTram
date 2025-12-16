@@ -1,8 +1,8 @@
 /**
- * 🧠 AI Query Engine (with self-retry logic)
+ * 🧠 AI Query Engine (với logic tự động thử lại)
  * 
- * Allows AI chatbot to automatically generate, validate, and execute MongoDB queries
- * based on natural language input (Vietnamese).
+ * Cho phép AI chatbot tự động tạo, validate và thực thi MongoDB query
+ * dựa trên input ngôn ngữ tự nhiên (tiếng Việt).
  */
 
 const { openai } = require('../config/openai.config');
@@ -11,7 +11,7 @@ const { createSchemaAwarePrompt } = require('../utils/schemaExtractor');
 const { registerAllModels } = require('../models');
 const { getConnectionForCollection } = require('../config/databaseConnections');
 
-// Ensure models are registered
+// Đảm bảo các model đã được đăng ký
 let modelsRegistered = false;
 async function ensureModelsRegistered() {
   if (!modelsRegistered) {
@@ -20,21 +20,21 @@ async function ensureModelsRegistered() {
   }
 }
 
-// Configuration
+// Cấu hình
 const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 500;
 const WHITELISTED_COLLECTIONS = ['slots', 'rooms', 'services', 'users'];
 const DANGEROUS_OPERATORS = ['$where', 'delete', 'update', 'drop', 'insert', 'remove', '$function'];
 
 /**
- * 1️⃣ Call LLM to generate MongoDB query from natural language
- * Now with REAL SCHEMA AWARENESS!
+ * 1️⃣ Gọi LLM để tạo MongoDB query từ ngôn ngữ tự nhiên
+ * Giờ đã có KHẢ NĂNG NHẬN BIẾT SCHEMA THẬT!
  */
 async function callLLMToGenerateQuery(userPrompt, lastError = null) {
-  // Generate schema-aware system prompt with actual database schemas
+  // Tạo system prompt nhận biết schema với các schema database thực tế
   let systemPrompt = createSchemaAwarePrompt(WHITELISTED_COLLECTIONS);
   
-  // Add error feedback if this is a retry
+  // Thêm phản hồi lỗi nếu đây là lần thử lại
   if (lastError) {
     systemPrompt += `\n\n⚠️ LẦN TRƯỚC BỊ LỖI: ${lastError}\nHãy sửa lại query cho đúng dựa trên schema ở trên.`;
   }
@@ -46,13 +46,13 @@ async function callLLMToGenerateQuery(userPrompt, lastError = null) {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
-      temperature: 0.1, // Low temperature for consistent output
+      temperature: 0.1, // Temperature thấp để output nhất quán
       max_tokens: 500
     });
 
     const content = response.choices[0].message.content.trim();
     
-    // Extract JSON from response (in case GPT adds markdown code blocks)
+    // Trích xuất JSON từ response (trong trường hợp GPT thêm markdown code blocks)
     let jsonString = content;
     if (content.includes('```json')) {
       jsonString = content.split('```json')[1].split('```')[0].trim();
@@ -62,24 +62,24 @@ async function callLLMToGenerateQuery(userPrompt, lastError = null) {
 
     const query = JSON.parse(jsonString);
     
-    // Validate structure
+    // Validate cấu trúc
     if (!query.collection || !query.filter) {
       throw new Error('Query phải có "collection" và "filter"');
     }
 
     return query;
   } catch (error) {
-    console.error('❌ LLM generation error:', error.message);
-    throw new Error(`Không thể generate query: ${error.message}`);
+    console.error('❌ Lỗi tạo query từ LLM:', error.message);
+    throw new Error(`Không thể tạo query: ${error.message}`);
   }
 }
 
 /**
- * 2️⃣ Validate query safety
+ * 2️⃣ Validate tính an toàn của query
  */
 function isQuerySafe(query) {
   try {
-    // Check if query has required fields
+    // Kiểm tra query có các trường bắt buộc không
     if (!query || typeof query !== 'object') {
       return { safe: false, reason: 'Query phải là object' };
     }
@@ -88,7 +88,7 @@ function isQuerySafe(query) {
       return { safe: false, reason: 'Query thiếu "collection" hoặc "filter"' };
     }
 
-    // Check if collection is whitelisted
+    // Kiểm tra collection có trong whitelist không
     if (!WHITELISTED_COLLECTIONS.includes(query.collection)) {
       return { 
         safe: false, 
@@ -96,7 +96,7 @@ function isQuerySafe(query) {
       };
     }
 
-    // Check if filter contains dangerous operators
+    // Kiểm tra filter có chứa toán tử nguy hiểm không
     const filterString = JSON.stringify(query.filter);
     for (const dangerousOp of DANGEROUS_OPERATORS) {
       if (filterString.includes(dangerousOp)) {
@@ -107,7 +107,7 @@ function isQuerySafe(query) {
       }
     }
 
-    // Check if filter is valid object
+    // Kiểm tra filter có phải là object hợp lệ không
     if (typeof query.filter !== 'object' || Array.isArray(query.filter)) {
       return { safe: false, reason: 'Filter phải là object' };
     }
@@ -119,19 +119,19 @@ function isQuerySafe(query) {
 }
 
 /**
- * 3️⃣ Execute MongoDB query (read-only)
- * NOW: Query the CORRECT microservice database!
+ * 3️⃣ Thực thi MongoDB query (chỉ đọc)
+ * GIờ: Query ĐÚNG database của microservice tương ứng!
  */
 async function executeMongoQuery(query) {
   try {
-    // Get connection to the correct microservice database
+    // Lấy connection đến đúng database của microservice
     const connection = await getConnectionForCollection(query.collection);
     
     if (!connection || !connection.db) {
-      throw new Error(`Database connection not established for collection: ${query.collection}`);
+      throw new Error(`Chưa thiết lập kết nối database cho collection: ${query.collection}`);
     }
 
-    // Execute query on the correct database
+    // Thực thi query trên đúng database
     const collection = connection.db.collection(query.collection);
     const results = await collection.find(query.filter).limit(100).toArray();
     
@@ -141,27 +141,27 @@ async function executeMongoQuery(query) {
       count: results.length
     };
   } catch (error) {
-    console.error('❌ MongoDB execution error:', error.message);
+    console.error('❌ Lỗi thực thi MongoDB:', error.message);
     throw error;
   }
 }
 
 /**
- * 4️⃣ Delay helper for retry logic
+ * 4️⃣ Hàm hỗ trợ delay cho logic thử lại
  */
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
- * 5️⃣ Main function: Handle Query with self-retry logic
+ * 5️⃣ Hàm chính: Xử lý Query với logic tự động thử lại
  */
 async function handleQuery(userPrompt) {
-  // Ensure models are loaded for schema extraction
+  // Đảm bảo các model đã được load để trích xuất schema
   await ensureModelsRegistered();
   
-  console.log('\n🧠 AI Query Engine Started (Multi-Database Mode)');
-  console.log('📝 User Prompt:', userPrompt);
+  console.log('\n🧠 AI Query Engine Bắt đầu (Chế độ Multi-Database)');
+  console.log('📝 Yêu cầu User:', userPrompt);
   
   let retries = 0;
   let lastError = null;
@@ -169,32 +169,32 @@ async function handleQuery(userPrompt) {
 
   while (retries < MAX_RETRIES) {
     try {
-      console.log(`\n🔄 Attempt ${retries + 1}/${MAX_RETRIES}`);
+      console.log(`\n🔄 Lần thử ${retries + 1}/${MAX_RETRIES}`);
 
-      // Step 1: Generate query from LLM
-      console.log('⚙️ Generating MongoDB query...');
+      // Bước 1: Tạo query từ LLM
+      console.log('⚙️ Đang tạo MongoDB query...');
       generatedQuery = await callLLMToGenerateQuery(userPrompt, lastError);
-      console.log('📋 Generated Query:', JSON.stringify(generatedQuery, null, 2));
+      console.log('📋 Query đã tạo:', JSON.stringify(generatedQuery, null, 2));
 
-      // Step 2: Validate query safety
-      console.log('🔒 Validating query safety...');
+      // Bước 2: Validate tính an toàn của query
+      console.log('🔒 Đang validate tính an toàn query...');
       const safetyCheck = isQuerySafe(generatedQuery);
       
       if (!safetyCheck.safe) {
         lastError = safetyCheck.reason;
-        console.error('❌ Safety check failed:', lastError);
+        console.error('❌ Kiểm tra an toàn thất bại:', lastError);
         retries++;
         await delay(RETRY_DELAY_MS * retries); // Exponential backoff
         continue;
       }
-      console.log('✅ Query is safe');
+      console.log('✅ Query an toàn');
 
-      // Step 3: Execute query
-      console.log('🚀 Executing MongoDB query...');
+      // Bước 3: Thực thi query
+      console.log('🚀 Đang thực thi MongoDB query...');
       const result = await executeMongoQuery(generatedQuery);
       
-      console.log('✅ Query executed successfully');
-      console.log('📊 Results count:', result.count);
+      console.log('✅ Thực thi query thành công');
+      console.log('📊 Số kết quả:', result.count);
 
       return {
         success: true,
@@ -206,18 +206,18 @@ async function handleQuery(userPrompt) {
 
     } catch (error) {
       lastError = error.message;
-      console.error(`❌ Attempt ${retries + 1} failed:`, lastError);
+      console.error(`❌ Lần thử ${retries + 1} thất bại:`, lastError);
       retries++;
 
       if (retries < MAX_RETRIES) {
-        console.log(`⏳ Retrying in ${RETRY_DELAY_MS * retries}ms...`);
+        console.log(`⏳ Thử lại sau ${RETRY_DELAY_MS * retries}ms...`);
         await delay(RETRY_DELAY_MS * retries); // Exponential backoff
       }
     }
   }
 
-  // Failed after all retries
-  console.error('💥 All retries exhausted');
+  // Thất bại sau tất cả các lần thử
+  console.error('💥 Đã hết số lần thử lại');
   return {
     success: false,
     retries: MAX_RETRIES,

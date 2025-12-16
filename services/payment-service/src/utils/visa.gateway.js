@@ -1,14 +1,14 @@
 /**
  * @author: TrungNghia
- * Visa Payment Gateway Integration
- * Sandbox environment for testing
+ * Tích hợp Cổng thanh toán Visa
+ * Môi trường Sandbox để thử nghiệm
  */
 
 const crypto = require('crypto');
 
 class VisaGateway {
   constructor() {
-    // Visa Sandbox credentials
+    // Thông tin xác thực Visa Sandbox
     this.apiKey = process.env.VISA_API_KEY || 'test_visa_api_key_sandbox';
     this.apiSecret = process.env.VISA_SECRET_KEY || 'test_visa_secret_key_sandbox';
     this.merchantId = process.env.VISA_MERCHANT_ID || 'TEST_MERCHANT_123';
@@ -16,8 +16,8 @@ class VisaGateway {
   }
 
   /**
-   * Process Visa payment
-   * In sandbox mode, this simulates payment processing
+   * Xử lý thanh toán Visa
+   * Trong chế độ sandbox, giả lập xử lý thanh toán
    */
   async processPayment(paymentData) {
     try {
@@ -33,11 +33,11 @@ class VisaGateway {
         description
       } = paymentData;
 
-      // Validate card data
+      // Kiểm tra dữ liệu thẻ
       this.validateCardData(cardNumber, expiryMonth, expiryYear, cvv);
 
       if (this.sandboxMode) {
-        // Sandbox mode - simulate payment
+        // Chế độ sandbox - giả lập thanh toán
         return await this.simulateSandboxPayment({
           amount,
           currency,
@@ -46,7 +46,7 @@ class VisaGateway {
           description
         });
       } else {
-        // Production mode - real Visa API call
+        // Chế độ production - gọi API Visa thực
         return await this.processRealPayment(paymentData);
       }
 
@@ -57,20 +57,20 @@ class VisaGateway {
   }
 
   /**
-   * Validate card data
+   * Kiểm tra dữ liệu thẻ
    */
   validateCardData(cardNumber, expiryMonth, expiryYear, cvv) {
-    // Remove spaces from card number
+    // Xóa khoảng trắng khỏi số thẻ
     const cleanCardNumber = cardNumber.replace(/\s/g, '');
 
-    // Validate card number (Luhn algorithm)
+    // Kiểm tra số thẻ (thuật toán Luhn)
     if (!this.isValidCardNumber(cleanCardNumber)) {
       throw new Error('Invalid card number');
     }
 
-    // Validate expiry date
+    // Kiểm tra ngày hết hạn
     const currentDate = new Date();
-    const currentYear = currentDate.getFullYear() % 100; // Get last 2 digits
+    const currentYear = currentDate.getFullYear() % 100; // Lấy 2 chữ số cuối
     const currentMonth = currentDate.getMonth() + 1;
     
     const expMonth = parseInt(expiryMonth);
@@ -84,14 +84,14 @@ class VisaGateway {
       throw new Error('Card has expired');
     }
 
-    // Validate CVV
+    // Kiểm tra CVV
     if (!/^\d{3,4}$/.test(cvv)) {
       throw new Error('Invalid CVV');
     }
   }
 
   /**
-   * Luhn algorithm for card number validation
+   * Thuật toán Luhn để kiểm tra số thẻ
    */
   isValidCardNumber(cardNumber) {
     if (!/^\d{13,19}$/.test(cardNumber)) {
@@ -119,13 +119,13 @@ class VisaGateway {
   }
 
   /**
-   * Simulate sandbox payment
-   * Returns success for test cards, failure for others
+   * Giả lập thanh toán sandbox
+   * Trả về thành công cho thẻ test, thất bại cho các thẻ khác
    */
   async simulateSandboxPayment(data) {
     const { amount, currency, cardNumber, orderRef, description } = data;
     
-    // Simulate API delay (500ms - 2s)
+    // Giả lập độ trễ API (500ms - 2s)
     const delay = 500 + Math.random() * 1500;
     await new Promise(resolve => setTimeout(resolve, delay));
 
@@ -133,7 +133,7 @@ class VisaGateway {
     const transactionId = 'VSA' + Date.now() + Math.random().toString(36).substring(7).toUpperCase();
     const timestamp = new Date().toISOString();
 
-    // Test card numbers
+    // Các số thẻ test
     const testCards = {
       '4111111111111111': { success: true, message: 'Payment successful' },
       '4000000000000002': { success: false, message: 'Card declined' },
@@ -141,12 +141,12 @@ class VisaGateway {
       '4000000000000127': { success: false, message: 'Insufficient funds' }
     };
 
-    // Check if it's a test card
+    // Kiểm tra xem đây có phải thẻ test không
     const testResult = testCards[cleanCardNumber];
     
     if (testResult) {
       if (testResult.success) {
-        // Success response
+        // Phản hồi thành công
         return {
           success: true,
           transactionId,
@@ -161,7 +161,7 @@ class VisaGateway {
           gateway: 'visa_sandbox'
         };
       } else {
-        // Failure response
+        // Phản hồi thất bại
         return {
           success: false,
           transactionId,
@@ -177,7 +177,7 @@ class VisaGateway {
       }
     }
 
-    // Default: approve for any other valid card in sandbox
+    // Mặc định: chấp nhận cho bất kỳ thẻ hợp lệ nào khác trong sandbox
     return {
       success: true,
       transactionId,
@@ -194,22 +194,22 @@ class VisaGateway {
   }
 
   /**
-   * Generate authorization code
+   * Tạo mã uỷ quyền
    */
   generateAuthCode() {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
   }
 
   /**
-   * Process real Visa payment (Production)
-   * TODO: Implement actual Visa API integration
+   * Xử lý thanh toán Visa thực (Production)
+   * TODO: Triển khai tích hợp API Visa thực
    */
   async processRealPayment(paymentData) {
     throw new Error('Production Visa payment not implemented yet');
   }
 
   /**
-   * Verify payment signature
+   * Xác minh chữ ký thanh toán
    */
   verifySignature(data, signature) {
     const dataString = JSON.stringify(data);
@@ -222,11 +222,11 @@ class VisaGateway {
   }
 
   /**
-   * Refund payment
+   * Hoàn tiền thanh toán
    */
   async refundPayment(transactionId, amount, reason) {
     if (this.sandboxMode) {
-      // Simulate refund
+      // Giả lập hoàn tiền
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       return {
@@ -244,11 +244,11 @@ class VisaGateway {
   }
 
   /**
-   * Get payment status
+   * Lấy trạng thái thanh toán
    */
   async getPaymentStatus(transactionId) {
     if (this.sandboxMode) {
-      // In sandbox, assume all transactions are approved
+      // Trong sandbox, giả định tất cả giao dịch đều được chấp nhận
       return {
         transactionId,
         status: 'approved',

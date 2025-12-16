@@ -6,7 +6,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 
-// ============ CONFIGURATIONS ============
+// ============ CẤU HÌNH ============
 const connectDB = require('./config/db');
 const RedisClient = require('./config/redis.config');
 const RPCClient = require('./config/rpc.config');
@@ -15,7 +15,7 @@ const RPCClient = require('./config/rpc.config');
 const invoiceRoutes = require('./routes/invoice.routes');
 const invoiceDetailRoutes = require('./routes/invoiceDetail.routes');
 
-// ============ SERVICES & UTILS ============
+// ============ SERVICES & TIỆN ÍCH ============
 const startRpcServer = require('./utils/rpcServer');
 const { setupEventListeners } = require('./utils/eventListeners');
 const rabbitmqClient = require('./utils/rabbitmq.client');
@@ -24,33 +24,33 @@ const { startConsumer } = require('./consumers/invoice.consumer');
 connectDB();
 const invoiceService = require('./services/invoice.service');
 
-// ============ INITIALIZE APPLICATION ============
+// ============ KHỞI TẠO ỨNG DỤNG ============
 async function initializeApp() {
   try {
-    console.log('🚀 Starting Invoice Service...');
+    console.log('🚀 Đang khởi động Invoice Service...');
 
-    // Connect to MongoDB
-    await     // Connect to Redis
+    // Kết nối MongoDB
+    await     // Kết nối Redis
     await RedisClient.connect();
 
-    // Connect RPC Client
+    // Kết nối RPC Client
     await RPCClient.connect();
 
-    console.log('✅ All connections established');
+    console.log('✅ Tất cả kết nối đã thiết lập');
   } catch (error) {
-    console.error('❌ Failed to initialize application:', error);
+    console.error('❌ Khởi tạo ứng dụng thất bại:', error);
     process.exit(1);
   }
 }
 
-// ============ EXPRESS APP SETUP ============
+// ============ THIẾT LẬP EXPRESS APP ============
 const app = express();
 
-// Security middleware
+// Middleware bảo mật
 app.use(helmet());
 app.use(compression());
 
-// CORS configuration
+// Cấu hình CORS
 app.use(cors({
   origin: function(origin, callback) {
     if (!origin) return callback(null, true);
@@ -74,17 +74,17 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Cache-Control', 'Pragma', 'Expires', 'X-Selected-Role']
 }));
 
-// Body parsing middleware
+// Middleware phân tích body
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Request logging middleware
+// Middleware ghi log request
 app.use((req, res, next) => {
   console.log(`📝 ${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
 });
 
-// ============ HEALTH CHECK ROUTES ============
+// ============ ROUTES KIỂM TRA SỨC KHỎE ============
 app.get('/health', async (req, res) => {
   try {
     const dbStatus = { connected: true }; // Mongoose connection check
@@ -120,19 +120,19 @@ app.get('/health', async (req, res) => {
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/invoice-details', invoiceDetailRoutes);
 
-// Legacy routes for compatibility
+// Routes cũ để tương thích ngược
 app.use('/api/invoice', invoiceRoutes);
 app.use('/api/invoiceDetail', invoiceDetailRoutes);
 
-// ============ PAYMENT WEBHOOK ENDPOINTS ============
-// Payment success webhook - chỉ tạo invoice khi payment thành công
+// ============ ENDPOINTS WEBHOOK THANH TOÁN ============
+// Webhook thanh toán thành công - chỉ tạo invoice khi payment thành công
 app.post('/api/webhooks/payment-success', async (req, res) => {
   try {
     const paymentData = req.body;
     
     console.log('🔔 Payment success webhook received:', paymentData);
 
-    // Validate payment status
+    // Kiểm tra trạng thái thanh toán
     if (paymentData.status !== 'completed') {
       return res.status(400).json({
         success: false,
@@ -140,7 +140,7 @@ app.post('/api/webhooks/payment-success', async (req, res) => {
       });
     }
 
-    // Create invoice from successful payment
+    // Tạo hóa đơn từ thanh toán thành công
     const invoice = await invoiceService.createInvoiceFromPayment(paymentData);
 
     console.log('✅ Invoice created from payment:', invoice.invoiceNumber);
@@ -163,7 +163,7 @@ app.post('/api/webhooks/payment-success', async (req, res) => {
   }
 });
 
-// Payment update webhook - cập nhật invoice khi có thanh toán mới
+// Webhook cập nhật thanh toán - cập nhật invoice khi có thanh toán mới
 app.post('/api/webhooks/payment-update', async (req, res) => {
   try {
     const paymentData = req.body;
@@ -171,7 +171,7 @@ app.post('/api/webhooks/payment-update', async (req, res) => {
     console.log('🔔 Payment update webhook received:', paymentData);
 
     if (paymentData.status === 'completed' && paymentData.invoiceId) {
-      // Update existing invoice with payment info
+      // Cập nhật invoice hiện có với thông tin thanh toán
       const updatedInvoice = await invoiceService.handlePaymentSuccess(paymentData);
       
       console.log('✅ Invoice updated with payment:', updatedInvoice.invoiceNumber);
@@ -197,7 +197,7 @@ app.post('/api/webhooks/payment-update', async (req, res) => {
   }
 });
 
-// ============ ERROR HANDLING ============
+// ============ XỬ LÝ LỖI ============
 app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
@@ -216,61 +216,61 @@ app.use((error, req, res, next) => {
   });
 });
 
-// ============ GRACEFUL SHUTDOWN ============
+// ============ TẮT MÁY AN TOÀN ============
 process.on('SIGTERM', async () => {
-  console.log('🛑 SIGTERM received, shutting down gracefully...');
+  console.log('🛑 Nhận SIGTERM, đang tắt máy an toàn...');
   
   try {
     await RedisClient.disconnect();
     await RPCClient.disconnect();
-    console.log('✅ Connections closed gracefully');
+    console.log('✅ Các kết nối đã đóng an toàn');
     process.exit(0);
   } catch (error) {
-    console.error('❌ Error during shutdown:', error);
+    console.error('❌ Lỗi khi tắt máy:', error);
     process.exit(1);
   }
 });
 
 process.on('SIGINT', async () => {
-  console.log('🛑 SIGINT received, shutting down gracefully...');
+  console.log('🛑 Nhận SIGINT, đang tắt máy an toàn...');
   
   try {
     await RedisClient.disconnect();
     await RPCClient.disconnect();
-    console.log('✅ Connections closed gracefully');
+    console.log('✅ Các kết nối đã đóng an toàn');
     process.exit(0);
   } catch (error) {
-    console.error('❌ Error during shutdown:', error);
+    console.error('❌ Lỗi khi tắt máy:', error);
     process.exit(1);
   }
 });
 
-// ============ START SERVER ============
+// ============ KHỞI ĐỘNG SERVER ============
 async function startServer() {
   try {
     await initializeApp();
     
-    // Start RPC Server for inter-service communication
+    // Khởi động RPC Server cho giao tiếp giữa các service
     await startRpcServer();
     
-    // Setup RabbitMQ event listeners
+    // Thiết lập các event listeners RabbitMQ
     setTimeout(async () => {
       await setupEventListeners();
-    }, 3000); // Wait 3s after connections are ready
+    }, 3000); // Đợi 3 giây sau khi các kết nối sẵn sàng
     
-    // Start Invoice Consumer for payment events
+    // Khởi động Invoice Consumer cho các sự kiện thanh toán
     setTimeout(async () => {
       try {
         const rabbitmqUrl = process.env.RABBITMQ_URL || 'amqp://localhost';
         await rabbitmqClient.connectRabbitMQ(rabbitmqUrl);
-        console.log('✅ RabbitMQ connected');
+        console.log('✅ Đã kết nối RabbitMQ');
         
         await startConsumer();
-        console.log('✅ Consumer started');
+        console.log('✅ Đã khởi động Consumer');
       } catch (error) {
-        console.error('❌ Failed to start consumer:', error);
+        console.error('❌ Khởi động consumer thất bại:', error);
       }
-    }, 4000); // Wait 4s to ensure RabbitMQ is ready
+    }, 4000); // Đợi 4 giây để đảm bảo RabbitMQ sẵn sàng
     
     const PORT = process.env.PORT || 3008;
     
@@ -282,11 +282,11 @@ async function startServer() {
     });
     
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    console.error('❌ Khởi động server thất bại:', error);
     process.exit(1);
   }
 }
 
-// Initialize and start the server
+// Khởi tạo và khởi động server
 startServer();
 

@@ -1,11 +1,11 @@
 const OpenAI = require('openai');
 
-// Initialize OpenAI client
+// Khởi tạo client OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || ''
 });
 
-// OpenAI configuration
+// Cấu hình OpenAI
 const config = {
   model: process.env.OPENAI_MODEL || 'gpt-4o',
   visionModel: process.env.OPENAI_VISION_MODEL || 'gpt-4o',

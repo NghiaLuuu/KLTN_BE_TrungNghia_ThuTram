@@ -4,11 +4,11 @@ const crypto = require('crypto');
 const { verifyVNPayCallback } = require('../utils/vnpay.utils');
 
 class PaymentController {
-  // ============ CREATE PAYMENT METHODS ============
+  // ============ CÁC PHƯƠNG THỨC TẠO THANH TOÁN ============
   
   /**
-   * Create temporary payment for appointment reservation
-   * Used by appointment-service via HTTP
+   * Tạo thanh toán tạm thời cho reservation lịch hẹn
+   * Được sử dụng bởi appointment-service qua HTTP
    */
   async createTemporaryPayment(req, res) {
     try {
@@ -17,7 +17,7 @@ class PaymentController {
       if (!appointmentHoldKey) {
         return res.status(400).json({
           success: false,
-          message: 'appointmentHoldKey is required'
+          message: 'appointmentHoldKey là bắt buộc'
         });
       }
 
@@ -32,16 +32,16 @@ class PaymentController {
         data: result
       });
     } catch (error) {
-      console.error('❌ Error creating temporary payment:', error);
+      console.error('❌ Lỗi tạo thanh toán tạm thời:', error);
       res.status(400).json({
         success: false,
-        message: error.message || 'Lỗi tạo temporary payment'
+        message: error.message || 'Lỗi tạo thanh toán tạm thời'
       });
     }
   }
 
   /**
-   * Create VNPay payment URL
+   * Tạo URL thanh toán VNPay
    * POST /api/payments/vnpay/create-url
    * Body: { orderId, amount, orderInfo, bankCode?, locale? }
    */
@@ -92,7 +92,7 @@ class PaymentController {
         data: result
       });
     } catch (error) {
-      console.error('❌ Error creating VNPay URL:', error);
+      console.error('❌ Lỗi tạo VNPay URL:', error);
       res.status(400).json({
         success: false,
         message: error.message || 'Lỗi tạo VNPay payment URL'
@@ -202,7 +202,7 @@ class PaymentController {
         data: result
       });
     } catch (error) {
-      console.error('❌ [Create VNPay URL for Payment] Error:', error);
+      console.error('❌ [Tạo VNPay URL cho Thanh Toán] Lỗi:', error);
       res.status(400).json({
         success: false,
         message: error.message || 'Không thể tạo VNPay URL'
@@ -211,14 +211,14 @@ class PaymentController {
   }
 
   /**
-   * Create Stripe URL for existing payment (from record)
+   * Tạo Stripe URL cho thanh toán đã tồn tại (từ record)
    * POST /api/payments/:id/stripe-url
    */
   async createStripeUrlForPayment(req, res) {
     try {
       const { id } = req.params;
       
-      console.log('🟣 [Create Stripe URL for Payment] Request:', { paymentId: id });
+      console.log('🟣 [Tạo Stripe URL cho Thanh Toán] Request:', { paymentId: id });
       
       const result = await paymentService.createStripeUrlForExistingPayment(
         id,
@@ -231,7 +231,7 @@ class PaymentController {
         data: result
       });
     } catch (error) {
-      console.error('❌ [Create Stripe URL for Payment] Error:', error);
+      console.error('❌ [Tạo Stripe URL cho Thanh Toán] Lỗi:', error);
       res.status(400).json({
         success: false,
         message: error.message || 'Không thể tạo Stripe URL'
@@ -239,7 +239,7 @@ class PaymentController {
     }
   }
 
-  // ============ GET PAYMENT METHODS ============
+  // ============ CÁC PHƯƠNG THỨC LẤY THANH TOÁN ============
   async getPaymentById(req, res) {
     try {
       const payment = await paymentService.getPaymentById(req.params.id);
@@ -344,27 +344,27 @@ class PaymentController {
   }
 
   /**
-   * Get payment by recordId
-   * If no payment exists, automatically creates one from record
+   * Lấy thanh toán theo recordId
+   * Nếu không có thanh toán tồn tại, tự động tạo một cái từ record
    * GET /api/payments/record/:recordId
    */
   async getPaymentByRecordId(req, res) {
     try {
       const { recordId } = req.params;
       
-      console.log(`🔍 [GET Payment by Record] Checking record ${recordId}`);
+      console.log(`🔍 [Lấy Thanh Toán theo Record] Đang kiểm tra record ${recordId}`);
       
-      // First, try to get existing payment
+      // Đầu tiên, thử lấy thanh toán đã tồn tại
       let payments = await paymentService.getPaymentsByRecordId(recordId);
       
-      // If no payment exists, create one automatically
+      // Nếu không có thanh toán tồn tại, tạo một cái tự động
       if (!payments || payments.length === 0) {
-        console.log(`📝 [GET Payment by Record] No payment found, creating from record ${recordId}`);
+        console.log(`📝 [Lấy Thanh Toán theo Record] Không tìm thấy thanh toán, đang tạo từ record ${recordId}`);
         
         try {
           const newPayment = await paymentService.createPaymentFromRecord(recordId);
           
-          console.log(`✅ [GET Payment by Record] Created payment ${newPayment.paymentCode}`);
+          console.log(`✅ [Lấy Thanh Toán theo Record] Đã tạo thanh toán ${newPayment.paymentCode}`);
           
           return res.status(201).json({
             success: true,
@@ -373,7 +373,7 @@ class PaymentController {
             isNewlyCreated: true
           });
         } catch (createError) {
-          console.error(`❌ [GET Payment by Record] Failed to create payment:`, createError);
+          console.error(`❌ [Lấy Thanh Toán theo Record] Tạo thanh toán thất bại:`, createError);
           return res.status(400).json({
             success: false,
             message: createError.message || 'Không thể tạo thanh toán từ record'
@@ -381,16 +381,16 @@ class PaymentController {
         }
       }
       
-      console.log(`✅ [GET Payment by Record] Found existing payment ${payments[0].paymentCode}`);
+      console.log(`✅ [Lấy Thanh Toán theo Record] Tìm thấy thanh toán đã tồn tại ${payments[0].paymentCode}`);
       
       res.json({
         success: true,
-        data: payments[0], // Return first payment (usually only one)
+        data: payments[0], // Trả về thanh toán đầu tiên (thường chỉ có một)
         total: payments.length,
         isNewlyCreated: false
       });
     } catch (error) {
-      console.error(`❌ [GET Payment by Record] Error:`, error);
+      console.error(`❌ [Lấy Thanh Toán theo Record] Lỗi:`, error);
       res.status(400).json({
         success: false,
         message: error.message || 'Lỗi lấy thanh toán theo recordId'
@@ -398,7 +398,7 @@ class PaymentController {
     }
   }
 
-  // ============ LIST & SEARCH METHODS ============
+  // ============ CÁC PHƯƠNG THỨC DANH SÁCH & TÌM KIẾ̂M ============
   async listPayments(req, res) {
     try {
       const filter = {
@@ -419,7 +419,7 @@ class PaymentController {
         isVerified: req.query.isVerified !== undefined ? req.query.isVerified === 'true' : undefined
       };
 
-      // Remove undefined values
+      // Xoá các giá trị undefined
       Object.keys(filter).forEach(key => {
         if (filter[key] === undefined) {
           delete filter[key];
@@ -543,7 +543,7 @@ class PaymentController {
     }
   }
 
-  // ============ UPDATE PAYMENT METHODS ============
+  // ============ CÁC PHƯƠNG THỨC CẬP NHẬT THANH TOÁN ============
   async updatePayment(req, res) {
     try {
       const payment = await paymentService.updatePayment(req.params.id, req.body);
@@ -642,7 +642,7 @@ class PaymentController {
     }
   }
 
-  // ============ STATISTICS METHODS ============
+  // ============ CÁC PHƯƠNG THỨC THỐNG KÊ ============
   async getPaymentStatistics(req, res) {
     try {
       const { startDate, endDate, groupBy = 'day' } = req.query;
@@ -728,7 +728,7 @@ class PaymentController {
     }
   }
 
-  // ============ RPC METHODS ============
+  // ============ PHƯƠNG THỨC RPC ============
   async confirmPaymentRPC(req, res) {
     try {
       const payment = await paymentService.confirmPaymentRPC({ id: req.params.id });
@@ -750,7 +750,7 @@ class PaymentController {
       const user = req.user;
 
       const allowedRoles = ["admin", "manager", "receptionist"];
-      const userRoles = user?.roles || (user?.role ? [user.role] : []); // Support both roles array and legacy role
+      const userRoles = user?.roles || (user?.role ? [user.role] : []); // Hỗ trợ cả mảng roles và role đơn lẻ (legacy)
       const hasPermission = allowedRoles.some(role => userRoles.includes(role));
       
       if (!user || !hasPermission) {
@@ -774,7 +774,7 @@ class PaymentController {
     }
   }
 
-  // ============ GATEWAY WEBHOOK METHODS ============
+  // ============ PHƯƠNG THỨC WEBHOOK CỔNG THANH TOÁN ============
   async vnpayReturn(req, res) {
     try {
       console.log('🔵 [VNPay Return] Received callback');
@@ -784,7 +784,7 @@ class PaymentController {
       const vnpParams = req.query;
       console.log('💬 VNPay return params:', vnpParams);
 
-      // Verify signature
+      // Xác thực chữ ký
       const secretKey = process.env.VNPAY_HASH_SECRET || 'LGJNHZSLMX362UGJOKERT14VR4MF3JBD';
       console.log('🔵 [VNPay Return] Verifying signature with secret key:', secretKey);
       
@@ -797,7 +797,7 @@ class PaymentController {
 
       const { vnp_TxnRef, vnp_ResponseCode, vnp_TransactionNo, vnp_Amount } = vnpParams;
       
-      // Get user role from Redis to determine redirect URL
+      // Lấy vai trò người dùng từ Redis để xác định URL chuyển hướng
       const roleKey = `payment:role:${vnp_TxnRef}`;
       let userRole = await redis.get(roleKey);
       
@@ -810,14 +810,14 @@ class PaymentController {
       console.log('📊 Role Type:', typeof userRole);
       console.log('❓ Is null/undefined?:', userRole === null || userRole === undefined);
       
-      // Default to patient if not found
+      // Mặc định là patient nếu không tìm thấy
       if (!userRole) {
         console.log('⚠️  No role found in Redis, defaulting to patient');
         userRole = 'patient';
       }
       
-      // Determine redirect path based on role
-      // Always redirect to payment result page, let frontend handle role-based redirect
+      // Xác định đường dẫn chuyển hướng dựa trên vai trò
+      // Luôn chuyển hướng đến trang kết quả thanh toán, để frontend xử lý chuyển hướng theo vai trò
       let redirectPath = '/patient/payment/result';
       
       console.log('🔗 Redirect Path:', redirectPath);
@@ -825,7 +825,7 @@ class PaymentController {
       console.log('ℹ️  Frontend will handle role-based redirect after login check');
       console.log('='.repeat(60));
       
-      // Process payment callback
+      // Xử lý callback thanh toán
       if (vnp_ResponseCode === '00') {
         const callbackData = {
           orderId: vnp_TxnRef,
@@ -838,11 +838,11 @@ class PaymentController {
           const payment = await paymentService.processGatewayCallback(callbackData);
           console.log('✅ Payment processed successfully:', payment._id);
           
-          // Clean up role from Redis
+          // Xóa vai trò khỏi Redis
           await redis.del(roleKey);
           
-          // Events are sent via RabbitMQ in processGatewayCallback
-          // No need for HTTP call here
+          // Các sự kiện được gửi qua RabbitMQ trong processGatewayCallback
+          // Không cần gọi HTTP ở đây
           
           return res.redirect(`${process.env.FRONTEND_URL}${redirectPath}?payment=success&orderId=${vnp_TxnRef}`);
         } catch (error) {
@@ -850,7 +850,7 @@ class PaymentController {
           return res.redirect(`${process.env.FRONTEND_URL}${redirectPath}?payment=error&orderId=${vnp_TxnRef}`);
         }
       } else {
-        // Clean up role from Redis even on failure
+        // Xóa vai trò khỏi Redis ngay cả khi thất bại
         await redis.del(roleKey);
         return res.redirect(`${process.env.FRONTEND_URL}${redirectPath}?payment=failed&orderId=${vnp_TxnRef}&code=${vnp_ResponseCode}`);
       }
@@ -860,9 +860,9 @@ class PaymentController {
     }
   }
 
-  // ============ VISA PAYMENT PROCESSING ============
+  // ============ Xử LÝ THANH TOÁN THẺ VISA ============
   /**
-   * Process Visa card payment
+   * Xử lý thanh toán bằng thẻ Visa
    * POST /api/payment/visa/process
    */
   async processVisaPayment(req, res) {
@@ -877,7 +877,7 @@ class PaymentController {
         amount
       } = req.body;
 
-      // Validate required fields
+      // Kiểm tra các trường bắt buộc
       if (!reservationId) {
         return res.status(400).json({
           success: false,
@@ -892,13 +892,13 @@ class PaymentController {
         });
       }
 
-      // Get patient info from req.user if authenticated
+      // Lấy thông tin bệnh nhân từ req.user nếu đã xác thực
       const patientInfo = req.user ? {
         email: req.user.email,
         address: req.user.address
       } : {};
 
-      // Process payment
+      // Xử lý thanh toán
       const result = await paymentService.processVisaPayment({
         reservationId,
         cardNumber,
@@ -911,7 +911,7 @@ class PaymentController {
         patientInfo
       });
 
-      // Return success response
+      // Trả về phản hồi thành công
       res.status(201).json({
         success: true,
         message: result.message,
@@ -924,7 +924,7 @@ class PaymentController {
     } catch (error) {
       console.error('Visa payment controller error:', error);
       
-      // Handle different error types
+      // Xử lý các loại lỗi khác nhau
       if (error.message.includes('hết hạn') || error.message.includes('không tồn tại')) {
         return res.status(400).json({
           success: false,
@@ -947,7 +947,7 @@ class PaymentController {
   }
 
   /**
-   * Confirm cash payment
+   * Xác nhận thanh toán tiền mặt
    * POST /api/payments/:id/confirm-cash
    */
   async confirmCashPayment(req, res) {

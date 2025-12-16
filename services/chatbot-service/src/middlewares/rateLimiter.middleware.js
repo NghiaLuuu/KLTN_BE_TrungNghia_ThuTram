@@ -1,11 +1,11 @@
 /**
- * Rate Limiter Middleware - Chặn spam off-topic messages
+ * Middleware giới hạn tọn suất - Chặn spam tin nhắn off-topic
  * Nếu user hỏi quá 3 lần nội dung không liên quan → chặn 1 phút
  */
 
 const redis = require('redis');
 
-// Create Redis client
+// Tạo Redis client
 const redisClient = redis.createClient({
   url: process.env.REDIS_URL || 'redis://localhost:6379',
   socket: {
@@ -19,35 +19,35 @@ const redisClient = redis.createClient({
   }
 });
 
-// Connect to Redis
+// Kết nối đến Redis
 let isRedisConnected = false;
 redisClient.connect()
   .then(() => {
-    console.log('✅ Redis connected for rate limiting');
+    console.log('✅ Đã kết nối Redis cho giới hạn tọn suất');
     isRedisConnected = true;
   })
   .catch(err => {
-    console.error('❌ Redis connection error:', err);
-    console.warn('⚠️  Rate limiting will be disabled');
+    console.error('❌ Lỗi kết nối Redis:', err);
+    console.warn('⚠️  Giới hạn tọn suất sẽ bị vô hiệu hóa');
   });
 
 redisClient.on('error', (err) => {
-  console.error('Redis Client Error:', err);
+  console.error('Lỗi Redis Client:', err);
   isRedisConnected = false;
 });
 
 redisClient.on('reconnecting', () => {
-  console.log('🔄 Redis reconnecting...');
+  console.log('🔄 Đang kết nối lại Redis...');
 });
 
 redisClient.on('ready', () => {
-  console.log('✅ Redis ready');
+  console.log('✅ Redis sẵn sàng');
   isRedisConnected = true;
 });
 
 /**
- * Check if user is blocked due to too many off-topic messages
- * @param {String} userId - User ID
+ * Kiểm tra xem user có bị chặn do gửi quá nhiều tin nhắn off-topic không
+ * @param {String} userId - ID người dùng
  * @returns {Promise<Object>} { isBlocked: boolean, remainingTime: number }
  */
 async function checkIfBlocked(userId) {
@@ -71,8 +71,8 @@ async function checkIfBlocked(userId) {
 }
 
 /**
- * Increment off-topic count and block if exceeds limit
- * @param {String} userId - User ID
+ * Tăng số lần off-topic và chặn nếu vượt giới hạn
+ * @param {String} userId - ID người dùng
  * @returns {Promise<Object>} { count: number, isBlocked: boolean, remainingTime: number }
  */
 async function incrementOffTopicCount(userId) {
@@ -84,24 +84,24 @@ async function incrementOffTopicCount(userId) {
     const countKey = `offtopic_count:${userId}`;
     const blockKey = `offtopic_block:${userId}`;
     
-    // Increment count
+    // Tăng số đếm
     const count = await redisClient.incr(countKey);
     
-    // Set expiry for count key (5 minutes window)
+    // Đặt thời gian hết hạn cho key số đếm (cửa sổ 5 phút)
     if (count === 1) {
       await redisClient.expire(countKey, 300); // 5 phút
     }
     
-    console.log(`📊 User ${userId} off-topic count: ${count}/3`);
+    console.log(`📊 User ${userId} số lần off-topic: ${count}/3`);
     
-    // Check if exceeds limit (3 times)
+    // Kiểm tra xem có vượt giới hạn (3 lần) không
     if (count >= 3) {
-      // Block for 1 minute
+      // Chặn trong 1 phút
       await redisClient.setEx(blockKey, 60, 'blocked');
-      // Reset count
+      // Reset số đếm
       await redisClient.del(countKey);
       
-      console.log(`🚫 User ${userId} blocked for 60 seconds due to 3 off-topic messages`);
+      console.log(`🚫 User ${userId} bị chặn 60 giây do 3 tin nhắn off-topic`);
       
       return { count, isBlocked: true, remainingTime: 60 };
     }
@@ -114,8 +114,8 @@ async function incrementOffTopicCount(userId) {
 }
 
 /**
- * Reset off-topic count (when user sends a valid dental-related message)
- * @param {String} userId - User ID
+ * Reset số lần off-topic (khi user gửi tin nhắn liên quan đến nha khoa hợp lệ)
+ * @param {String} userId - ID người dùng
  */
 async function resetOffTopicCount(userId) {
   if (!isRedisConnected) {
@@ -125,20 +125,20 @@ async function resetOffTopicCount(userId) {
   try {
     const countKey = `offtopic_count:${userId}`;
     await redisClient.del(countKey);
-    console.log(`✅ User ${userId} off-topic count reset`);
+    console.log(`✅ Đã reset số lần off-topic của user ${userId}`);
   } catch (error) {
     console.error('❌ Redis resetOffTopicCount error:', error);
   }
 }
 
 /**
- * Express middleware to check rate limit before processing request
+ * Middleware Express để kiểm tra giới hạn tọn suất trước khi xử lý request
  */
 async function rateLimiterMiddleware(req, res, next) {
   try {
     const userId = req.user?.userId || req.user?._id || 'anonymous';
     
-    // Check if user is currently blocked
+    // Kiểm tra xem user hiện tại có bị chặn không
     const blockStatus = await checkIfBlocked(userId);
     
     if (blockStatus.isBlocked) {
@@ -151,7 +151,7 @@ async function rateLimiterMiddleware(req, res, next) {
       });
     }
     
-    // Attach helper functions to request
+    // Gắn các hàm hỗ trợ vào request
     req.rateLimit = {
       checkIfBlocked,
       incrementOffTopicCount,
@@ -160,8 +160,8 @@ async function rateLimiterMiddleware(req, res, next) {
     
     next();
   } catch (error) {
-    console.error('❌ Rate limiter middleware error:', error);
-    // Fail open - allow request if rate limiter fails
+    console.error('❌ Lỗi middleware giới hạn tọn suất:', error);
+    // Fail open - cho phép request nếu rate limiter lỗi
     next();
   }
 }

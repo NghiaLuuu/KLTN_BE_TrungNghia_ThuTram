@@ -1,8 +1,8 @@
 const axios = require('axios');
 
 /**
- * HTTP Client for inter-service communication
- * Alternative to RPC when simpler request-response is needed
+ * HTTP Client cho giao tiếp giữa các service
+ * Thay thế cho RPC khi cần request-response đơn giản hơn
  */
 class ServiceClient {
   constructor() {
@@ -16,18 +16,24 @@ class ServiceClient {
   }
 
   /**
-   * Get base URL for a service
+   * Lấy base URL của một service
+   * @param {string} serviceName - Tên service
+   * @returns {string} URL base của service
    */
   getServiceUrl(serviceName) {
     const url = this.services[serviceName];
     if (!url) {
-      throw new Error(`Service URL not configured for: ${serviceName}`);
+      throw new Error(`URL service chưa được cấu hình: ${serviceName}`);
     }
     return url;
   }
 
   /**
-   * Make HTTP GET request to a service
+   * Gửi HTTP GET request đến service
+   * @param {string} serviceName - Tên service
+   * @param {string} path - Đường dẫn API
+   * @param {object} config - Cấu hình axios
+   * @returns {Promise<any>} Response data
    */
   async get(serviceName, path, config = {}) {
     const baseUrl = this.getServiceUrl(serviceName);
@@ -40,13 +46,18 @@ class ServiceClient {
       });
       return response.data;
     } catch (error) {
-      console.error(`[ServiceClient] GET ${url} failed:`, error.message);
-      throw new Error(`Failed to call ${serviceName}: ${error.message}`);
+      console.error(`[ServiceClient] GET ${url} thất bại:`, error.message);
+      throw new Error(`Gọi ${serviceName} thất bại: ${error.message}`);
     }
   }
 
   /**
-   * Make HTTP POST request to a service
+   * Gửi HTTP POST request đến service
+   * @param {string} serviceName - Tên service
+   * @param {string} path - Đường dẫn API
+   * @param {object} data - Dữ liệu gửi đi
+   * @param {object} config - Cấu hình axios
+   * @returns {Promise<any>} Response data
    */
   async post(serviceName, path, data, config = {}) {
     const baseUrl = this.getServiceUrl(serviceName);
@@ -59,13 +70,15 @@ class ServiceClient {
       });
       return response.data;
     } catch (error) {
-      console.error(`[ServiceClient] POST ${url} failed:`, error.message);
-      throw new Error(`Failed to call ${serviceName}: ${error.message}`);
+      console.error(`[ServiceClient] POST ${url} thất bại:`, error.message);
+      throw new Error(`Gọi ${serviceName} thất bại: ${error.message}`);
     }
   }
 
   /**
-   * Get slot by ID from schedule-service
+   * Lấy thông tin slot theo ID từ schedule-service
+   * @param {string} slotId - ID của slot
+   * @returns {Promise<object>} Dữ liệu slot
    */
   async getSlot(slotId) {
     const response = await this.get('schedule-service', `/api/slot/${slotId}`);
@@ -73,7 +86,10 @@ class ServiceClient {
   }
 
   /**
-   * Get slots by dentist and date
+   * Lấy danh sách slot theo nha sĩ và ngày
+   * @param {string} dentistId - ID nha sĩ
+   * @param {string} date - Ngày (YYYY-MM-DD)
+   * @returns {Promise<Array>} Danh sách slots
    */
   async getSlotsByDentistAndDate(dentistId, date) {
     const response = await this.get('schedule-service', `/api/slot/dentist/${dentistId}/date/${date}`);
@@ -81,9 +97,10 @@ class ServiceClient {
   }
 
   /**
-   * Bulk update slots - Use new status-based API
-   * @param {Array} slotIds - Array of slot IDs
-   * @param {Object} updates - Updates to apply { status, appointmentId, lockedAt, lockedBy }
+   * Cập nhật hàng loạt slots - Sử dụng API mới dựa trên status
+   * @param {Array} slotIds - Mảng ID slot
+   * @param {Object} updates - Cập nhật cần áp dụng { status, appointmentId, lockedAt, lockedBy }
+   * @returns {Promise<object>} Kết quả cập nhật
    */
   async bulkUpdateSlots(slotIds, updates) {
     const response = await this.put('schedule-service', '/api/slot/bulk-update', {
@@ -94,18 +111,18 @@ class ServiceClient {
   }
 
   /**
-   * @deprecated Use bulkUpdateSlots with status instead
-   * Update slots booked status (legacy)
+   * @deprecated Sử dụng bulkUpdateSlots với status thay thế
+   * Cập nhật trạng thái booked của slots (cũ)
    */
   async updateSlotsBooked(slotIds, isBooked) {
-    console.warn('⚠️ updateSlotsBooked is deprecated, use bulkUpdateSlots with status instead');
+    console.warn('⚠️ updateSlotsBooked đã lỗi thời, sử dụng bulkUpdateSlots với status thay thế');
     const status = isBooked ? 'booked' : 'available';
     return this.bulkUpdateSlots(slotIds, { status });
   }
 
   /**
-   * Get schedule configuration from schedule-service
-   * @returns {Object} Schedule config with shifts, unitDuration, maxBookingDays, depositAmount
+   * Lấy cấu hình lịch từ schedule-service
+   * @returns {Object} Config lịch với shifts, unitDuration, maxBookingDays, depositAmount
    */
   async getScheduleConfig() {
     const response = await this.get('schedule-service', '/api/schedule/config');
@@ -113,58 +130,58 @@ class ServiceClient {
   }
 
   /**
-   * Get ServiceAddOn details including price
-   * @param {String} serviceId - Service ID
-   * @param {String} addOnId - ServiceAddOn ID
-   * @returns {Object} ServiceAddOn data with price
+   * Lấy chi tiết ServiceAddOn bao gồm giá
+   * @param {String} serviceId - ID dịch vụ
+   * @param {String} addOnId - ID dịch vụ phụ
+   * @returns {Object} Dữ liệu ServiceAddOn với giá
    */
   async getServiceAddOnPrice(serviceId, addOnId) {
     try {
       const response = await this.get('service-service', `/api/services/${serviceId}/addons/${addOnId}`);
-      // Response format: { service: "Service name", addOn: { _id, name, price, ... } }
+      // Định dạng response: { service: "Service name", addOn: { _id, name, price, ... } }
       return response.addOn || response.data?.addOn;
     } catch (error) {
-      console.error(`[ServiceClient] Failed to fetch ServiceAddOn price for ${serviceId}/${addOnId}:`, error.message);
+      console.error(`[ServiceClient] Lấy giá ServiceAddOn ${serviceId}/${addOnId} thất bại:`, error.message);
       return null;
     }
   }
 
   /**
-   * Get room details by ID from room-service (with Redis cache)
-   * @param {String} roomId - Room ID
-   * @returns {Object} Room data { _id, name, description, type, ... }
+   * Lấy thông tin phòng theo ID từ room-service (có cache Redis)
+   * @param {String} roomId - ID phòng
+   * @returns {Object} Dữ liệu phòng { _id, name, description, type, ... }
    */
   async getRoomById(roomId) {
     try {
       const response = await this.get('room-service', `/api/rooms/${roomId}`);
       return response.room || response.data || response;
     } catch (error) {
-      console.error(`[ServiceClient] Failed to fetch room ${roomId}:`, error.message);
+      console.error(`[ServiceClient] Lấy thông tin phòng ${roomId} thất bại:`, error.message);
       return null;
     }
   }
 
   /**
-   * Get subroom details by ID from room-service (with Redis cache)
-   * @param {String} roomId - Parent room ID
-   * @param {String} subroomId - Subroom ID
-   * @returns {Object} Subroom data { _id, name, description, ... }
+   * Lấy thông tin phòng con theo ID từ room-service (có cache Redis)
+   * @param {String} roomId - ID phòng cha
+   * @param {String} subroomId - ID phòng con
+   * @returns {Object} Dữ liệu phòng con { _id, name, description, ... }
    */
   async getSubroomById(roomId, subroomId) {
     try {
       const response = await this.get('room-service', `/api/rooms/${roomId}/subrooms/${subroomId}`);
       return response.subroom || response.data || response;
     } catch (error) {
-      console.error(`[ServiceClient] Failed to fetch subroom ${subroomId} in room ${roomId}:`, error.message);
+      console.error(`[ServiceClient] Lấy thông tin phòng con ${subroomId} trong phòng ${roomId} thất bại:`, error.message);
       return null;
     }
   }
 
   /**
-   * Create temporary payment for appointment reservation
-   * @param {String} appointmentHoldKey - Redis key for held appointment
-   * @param {Number} amount - Payment amount
-   * @returns {Object} Payment data with tempPaymentId, orderId, paymentUrl
+   * Tạo payment tạm thời cho reservation lịch hẹn
+   * @param {String} appointmentHoldKey - Redis key cho lịch hẹn đang giữ
+   * @param {Number} amount - Số tiền thanh toán
+   * @returns {Object} Dữ liệu payment với tempPaymentId, orderId, paymentUrl
    */
   async createTemporaryPayment(appointmentHoldKey, amount) {
     const response = await this.post('payment-service', '/api/payments/temporary', {
@@ -175,7 +192,12 @@ class ServiceClient {
   }
 
   /**
-   * Make HTTP PUT request to a service
+   * Gửi HTTP PUT request đến service
+   * @param {string} serviceName - Tên service
+   * @param {string} path - Đường dẫn API
+   * @param {object} data - Dữ liệu gửi đi
+   * @param {object} config - Cấu hình axios
+   * @returns {Promise<any>} Response data
    */
   async put(serviceName, path, data, config = {}) {
     const baseUrl = this.getServiceUrl(serviceName);
@@ -188,8 +210,8 @@ class ServiceClient {
       });
       return response.data;
     } catch (error) {
-      console.error(`[ServiceClient] PUT ${url} failed:`, error.message);
-      throw new Error(`Failed to call ${serviceName}: ${error.message}`);
+      console.error(`[ServiceClient] PUT ${url} thất bại:`, error.message);
+      throw new Error(`Gọi ${serviceName} thất bại: ${error.message}`);
     }
   }
 }

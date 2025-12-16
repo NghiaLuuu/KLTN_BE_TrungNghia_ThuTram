@@ -1,16 +1,16 @@
 /**
- * 🗄️ Schema Extractor - Extract Mongoose schemas for AI Query Engine
+ * 🗄️ Bộ trích xuất Schema - Trích xuất Mongoose schemas cho AI Query Engine
  * 
- * Extracts schema information from Mongoose models to help GPT understand
- * data structure and generate more accurate MongoDB queries.
+ * Trích xuất thông tin schema từ các Mongoose model để giúp GPT hiểu
+ * cấu trúc dữ liệu và tạo các MongoDB query chính xác hơn.
  */
 
 const mongoose = require('mongoose');
 
 /**
- * Extract schema fields from a Mongoose model
+ * Trích xuất các trường schema từ Mongoose model
  * @param {mongoose.Model} model - Mongoose model
- * @returns {Object} Schema information
+ * @returns {Object} Thông tin schema
  */
 function extractSchemaFields(model) {
   const schema = model.schema;
@@ -18,7 +18,7 @@ function extractSchemaFields(model) {
   const fields = {};
 
   Object.keys(paths).forEach(key => {
-    // Skip internal fields
+    // Bỏ qua các trường nội bộ
     if (key === '_id' || key === '__v') return;
 
     const path = paths[key];
@@ -27,17 +27,17 @@ function extractSchemaFields(model) {
       required: path.isRequired || false
     };
 
-    // Add enum values if exists
+    // Thêm các giá trị enum nếu có
     if (path.enumValues && path.enumValues.length > 0) {
       fieldInfo.enum = path.enumValues;
     }
 
-    // Add ref if it's a reference
+    // Thêm ref nếu là tham chiếu
     if (path.options && path.options.ref) {
       fieldInfo.ref = path.options.ref;
     }
 
-    // Add description if exists
+    // Thêm mô tả nếu có
     if (path.options && path.options.description) {
       fieldInfo.description = path.options.description;
     }
@@ -49,8 +49,8 @@ function extractSchemaFields(model) {
 }
 
 /**
- * Get all available collections with their schemas
- * @returns {Object} Map of collection name to schema info
+ * Lấy tất cả collections có sẵn với schemas của chúng
+ * @returns {Object} Map tên collection sang thông tin schema
  */
 function getAllSchemas() {
   const schemas = {};
@@ -75,9 +75,9 @@ function getAllSchemas() {
 }
 
 /**
- * Format schemas for GPT prompt
- * @param {Array<string>} collectionNames - Collections to include (optional, includes all if empty)
- * @returns {string} Formatted schema description
+ * Định dạng schemas cho GPT prompt
+ * @param {Array<string>} collectionNames - Các collections cần bao gồm (tùy chọn, bao gồm tất cả nếu rỗng)
+ * @returns {string} Mô tả schema đã định dạng
  */
 function formatSchemasForPrompt(collectionNames = []) {
   const allSchemas = getAllSchemas();
@@ -122,9 +122,9 @@ function formatSchemasForPrompt(collectionNames = []) {
 }
 
 /**
- * Get schema information for specific collections
- * @param {Array<string>} collectionNames - Array of collection names
- * @returns {Object} Schema information for specified collections
+ * Lấy thông tin schema cho các collections cụ thể
+ * @param {Array<string>} collectionNames - Mảng tên collections
+ * @returns {Object} Thông tin schema cho các collections đã chỉ định
  */
 function getSchemasForCollections(collectionNames) {
   const allSchemas = getAllSchemas();
@@ -140,9 +140,9 @@ function getSchemasForCollections(collectionNames) {
 }
 
 /**
- * Generate example queries for a collection based on its schema
- * @param {string} collectionName - Collection name
- * @returns {Array<Object>} Example queries
+ * Tạo các query ví dụ cho collection dựa trên schema của nó
+ * @param {string} collectionName - Tên collection
+ * @returns {Array<Object>} Các query ví dụ
  */
 function generateExampleQueries(collectionName) {
   const allSchemas = getAllSchemas();
@@ -184,13 +184,14 @@ function generateExampleQueries(collectionName) {
     }
   });
 
-  return examples.slice(0, 3); // Limit to 3 examples
+// Giới hạn 3 ví dụ
+  return examples.slice(0, 3);
 }
 
 /**
- * Create enhanced system prompt with schema information
- * @param {Array<string>} whitelistedCollections - Collections allowed to query
- * @returns {string} Enhanced system prompt
+ * Tạo system prompt nâng cao với thông tin schema
+ * @param {Array<string>} whitelistedCollections - Các collections được phép query
+ * @returns {string} System prompt nâng cao
  */
 function createSchemaAwarePrompt(whitelistedCollections = ['slots', 'rooms', 'services', 'users']) {
   const schemaInfo = formatSchemasForPrompt(whitelistedCollections);

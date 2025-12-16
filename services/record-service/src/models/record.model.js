@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-// ========== Prescription Medicine Subdoc ==========
+// ========== Subdoc Thuốc Kê Đơn ==========
 const prescribedMedicineSchema = new mongoose.Schema({
   medicineId: { 
     type: mongoose.Schema.Types.ObjectId, 
@@ -43,7 +43,7 @@ const prescribedMedicineSchema = new mongoose.Schema({
   }
 }, { _id: true });
 
-// ========== Prescription Subdoc ==========
+// ========== Subdoc Đơn Thuốc ==========
 const prescriptionSchema = new mongoose.Schema({
   medicines: [prescribedMedicineSchema],
   notes: { 
@@ -62,7 +62,7 @@ const prescriptionSchema = new mongoose.Schema({
   }
 }, { _id: false });
 
-// ========== Treatment Indication Subdoc ==========
+// ========== Subdoc Chỉ Định Điều Trị ==========
 const treatmentIndicationSchema = new mongoose.Schema({
   serviceId: { 
     type: mongoose.Schema.Types.ObjectId, 
@@ -71,10 +71,10 @@ const treatmentIndicationSchema = new mongoose.Schema({
   },
   serviceName: {
     type: String,
-    required: true // Store service name for historical record
+    required: true // Lưu tên dịch vụ cho hồ sơ lịch sử
   },
   serviceAddOnId: {
-    type: String, // Stored as string because it's from serviceAddOns array
+    type: String, // Lưu dạng string vì nó lấy từ mảng serviceAddOns
     required: false
   },
   serviceAddOnName: {
@@ -104,7 +104,7 @@ const treatmentIndicationSchema = new mongoose.Schema({
   }
 }, { _id: true });
 
-// ========== Additional Service Subdoc (Services used during treatment) ==========
+// ========== Subdoc Dịch Vụ Bổ Sung (Dịch vụ sử dụng trong quá trình điều trị) ==========
 const additionalServiceSchema = new mongoose.Schema({
   serviceId: { 
     type: mongoose.Schema.Types.ObjectId, 
@@ -162,7 +162,7 @@ const additionalServiceSchema = new mongoose.Schema({
   }
 }, { _id: true });
 
-// ========== Patient Info Subdoc ==========
+// ========== Subdoc Thông Tin Bệnh Nhân ==========
 const patientInfoSchema = new mongoose.Schema({
   name: { 
     type: String, 
@@ -199,20 +199,20 @@ const patientInfoSchema = new mongoose.Schema({
   }
 }, { _id: false });
 
-// ========== Record Schema ==========
+// ========== Schema Hồ Sơ ==========
 const recordSchema = new mongoose.Schema({
   recordCode: {
     type: String,
     unique: true,
-    required: false // ⭐ Auto-generated in pre-save hook
+    required: false // ⭐ Tự động tạo trong pre-save hook
   },
   
   patientId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: false // ✅ Not required - can use patientInfo for walk-in patients
+    required: false // ✅ Không bắt buộc - có thể dùng patientInfo cho bệnh nhân walk-in
   },
-  patientInfo: patientInfoSchema, // Used when staff creates record for walk-in patient
+  patientInfo: patientInfoSchema, // Dùng khi nhân viên tạo hồ sơ cho bệnh nhân walk-in
 
   appointmentId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -231,7 +231,7 @@ const recordSchema = new mongoose.Schema({
   },
   serviceName: {
     type: String,
-    required: true // Store service name for historical record
+    required: true // Lưu tên dịch vụ cho hồ sơ lịch sử
   },
   serviceAddOnId: {
     type: String,
@@ -271,7 +271,7 @@ const recordSchema = new mongoose.Schema({
   },
   dentistName: {
     type: String,
-    required: true // Store dentist name for historical record
+    required: true // Lưu tên nha sĩ cho hồ sơ lịch sử
   },
 
   roomId: {
@@ -283,7 +283,7 @@ const recordSchema = new mongoose.Schema({
   },
   subroomId: {
     type: mongoose.Schema.Types.ObjectId,
-    default: null // null for rooms without subrooms
+    default: null // null cho các phòng không có phòng con
   },
   subroomName: {
     type: String,
@@ -319,10 +319,10 @@ const recordSchema = new mongoose.Schema({
     required: true 
   },
 
-  // Only used when type = "exam"
+  // Chỉ sử dụng khi type = "exam"
   treatmentIndications: [treatmentIndicationSchema],
 
-  // ⭐ Additional services used during treatment (for calculating total cost)
+  // ⭐ Dịch vụ bổ sung sử dụng trong quá trình điều trị (để tính tổng chi phí)
   additionalServices: [additionalServiceSchema],
 
   prescription: prescriptionSchema,
@@ -354,19 +354,19 @@ const recordSchema = new mongoose.Schema({
     default: false
   },
 
-  // ========== Queue Management Fields ==========
+  // ========== Các Trường Quản Lý Hàng Đợi ==========
   queueNumber: {
     type: String,
     trim: true,
-    index: true // For quick lookup of current queue number
+    index: true // Để tra cứu nhanh số hàng đợi hiện tại
   },
   
   startedAt: {
-    type: Date // Timestamp when status changed to in-progress (when Call button pressed)
+    type: Date // Thời điểm trạng thái chuyển sang in-progress (khi nhấn nút Gọi)
   },
   
   completedAt: {
-    type: Date // Timestamp when status changed to completed (when Complete button pressed)
+    type: Date // Thời điểm trạng thái chuyển sang completed (khi nhấn nút Hoàn thành)
   },
 
   createdBy: {
@@ -385,7 +385,7 @@ const recordSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Virtual for patient age
+// Virtual cho tuổi bệnh nhân
 recordSchema.virtual('patientAge').get(function() {
   if (this.patientInfo?.birthYear) {
     return new Date().getFullYear() - this.patientInfo.birthYear;
@@ -393,7 +393,7 @@ recordSchema.virtual('patientAge').get(function() {
   return null;
 });
 
-// Indexes for better performance
+// Indexes để cải thiện hiệu suất
 recordSchema.index({ recordCode: 1 });
 recordSchema.index({ patientId: 1, date: -1 });
 recordSchema.index({ dentistId: 1, date: -1 });
@@ -402,7 +402,7 @@ recordSchema.index({ status: 1 });
 recordSchema.index({ type: 1 });
 recordSchema.index({ createdAt: -1 });
 
-// Pre-save hook to generate record code
+// Pre-save hook để tạo mã hồ sơ
 recordSchema.pre('save', async function(next) {
   if (this.isNew && !this.recordCode) {
     const date = new Date();
@@ -413,7 +413,7 @@ recordSchema.pre('save', async function(next) {
     const dateStr = `${year}${month}${day}`;
     const typePrefix = this.type === 'exam' ? 'EX' : 'TR';
     
-    // Find the last record for today
+    // Tìm hồ sơ cuối cùng trong ngày hôm nay
     const lastRecord = await this.constructor.findOne({
       recordCode: { $regex: `^${typePrefix}${dateStr}` }
     }).sort({ recordCode: -1 });
@@ -429,7 +429,7 @@ recordSchema.pre('save', async function(next) {
   next();
 });
 
-// Static methods
+// Phương thức tĩnh
 recordSchema.statics.findByPatient = function(patientId) {
   return this.find({ patientId }).sort({ createdAt: -1 });
 };

@@ -1,14 +1,14 @@
 /**
- * 📚 Quick Reference: filterCachedUsers() Usage Examples
+ * 📚 Tài liệu tham khảo nhanh: Ví dụ sử dụng filterCachedUsers()
  * 
- * This file shows common usage patterns for filterCachedUsers()
- * after migrating from User model to Redis cache.
+ * File này hiển thị các mẫu sử dụng phổ biến cho filterCachedUsers()
+ * sau khi di chuyển từ User model sang Redis cache.
  */
 
 const { filterCachedUsers } = require('../utils/cacheHelper');
 
 // ============================================================================
-// Example 1: Get all active dentists and nurses
+// Ví dụ 1: Lấy tất cả nha sĩ và y tá đang hoạt động
 // ============================================================================
 async function getAllActiveDentistsNurses() {
   const staff = await filterCachedUsers({
@@ -21,7 +21,7 @@ async function getAllActiveDentistsNurses() {
 }
 
 // ============================================================================
-// Example 2: Get all dentists only
+// Ví dụ 2: Chỉ lấy nha sĩ
 // ============================================================================
 async function getAllActiveDentists() {
   const dentists = await filterCachedUsers({
@@ -34,7 +34,7 @@ async function getAllActiveDentists() {
 }
 
 // ============================================================================
-// Example 3: Get replacement staff (excluding original staff)
+// Ví dụ 3: Lấy nhân viên thay thế (loại trừ nhân viên ban đầu)
 // ============================================================================
 async function getReplacementStaff(originalStaffId, role) {
   const replacements = await filterCachedUsers({
@@ -48,19 +48,19 @@ async function getReplacementStaff(originalStaffId, role) {
 }
 
 // ============================================================================
-// Example 4: Get all staff (any role)
+// Ví dụ 4: Lấy tất cả nhân viên (mọi vai trò)
 // ============================================================================
 async function getAllActiveStaff() {
   const allStaff = await filterCachedUsers({
     isActive: true
-    // No fields specified = return all fields
+    // Không chỉ định fields = trả về tất cả các trường
   });
   
   return allStaff;
 }
 
 // ============================================================================
-// Example 5: Get staff by multiple roles
+// Ví dụ 5: Lấy nhân viên theo nhiều vai trò
 // ============================================================================
 async function getAllMedicalStaff() {
   const medicalStaff = await filterCachedUsers({
@@ -73,7 +73,7 @@ async function getAllMedicalStaff() {
 }
 
 // ============================================================================
-// Example 6: Get inactive staff (for admin panel)
+// Ví dụ 6: Lấy nhân viên không hoạt động (cho trang quản trị)
 // ============================================================================
 async function getInactiveStaff() {
   const inactive = await filterCachedUsers({
@@ -85,7 +85,7 @@ async function getInactiveStaff() {
 }
 
 // ============================================================================
-// Example 7: Get staff for dropdown list (minimal fields)
+// Ví dụ 7: Lấy danh sách nhân viên cho dropdown (trường tối thiểu)
 // ============================================================================
 async function getStaffDropdownList(role = null) {
   const criteria = {
@@ -99,7 +99,7 @@ async function getStaffDropdownList(role = null) {
   
   const staff = await filterCachedUsers(criteria);
   
-  // Format for dropdown
+  // Định dạng cho dropdown
   return staff.map(s => ({
     value: s._id,
     label: s.fullName
@@ -107,7 +107,7 @@ async function getStaffDropdownList(role = null) {
 }
 
 // ============================================================================
-// Example 8: Build user ID to name mapping
+// Ví dụ 8: Xây dựng ánh xạ từ user ID sang tên
 // ============================================================================
 async function buildUserIdToNameMap(roleFilter = null) {
   const criteria = {
@@ -121,7 +121,7 @@ async function buildUserIdToNameMap(roleFilter = null) {
   
   const users = await filterCachedUsers(criteria);
   
-  // Create map: userId -> fullName
+  // Tạo map: userId -> fullName
   const userMap = {};
   users.forEach(u => {
     userMap[u._id.toString()] = u.fullName;
@@ -131,10 +131,10 @@ async function buildUserIdToNameMap(roleFilter = null) {
 }
 
 // ============================================================================
-// FIELD MAPPING NOTES
+// GHI CHÚ VỀ ÁNH XẠ TRƯỜNG
 // ============================================================================
 /*
-Auth-service cache structure (users_cache):
+Cấu trúc cache auth-service (users_cache):
 {
   _id: ObjectId,
   email: String,
@@ -142,19 +142,19 @@ Auth-service cache structure (users_cache):
   role: String,          // 'dentist', 'nurse', etc.
   isActive: Boolean,
   employeeCode: String,
-  // ... other fields
+  // ... các trường khác
 }
 
-filterCachedUsers() auto-generates:
-- firstName: First word of fullName   // "Nguyễn"
-- lastName: Rest of fullName          // "Văn A"
+filterCachedUsers() tự động tạo:
+- firstName: Từ đầu tiên của fullName   // "Nguyễn"
+- lastName: Phần còn lại của fullName    // "Văn A"
 
-Available fields to request:
+Các trường có thể yêu cầu:
 - _id
 - email
 - fullName
-- firstName (auto-generated)
-- lastName (auto-generated)
+- firstName (tự động tạo)
+- lastName (tự động tạo)
 - role
 - isActive
 - employeeCode
@@ -163,15 +163,15 @@ Available fields to request:
 - gender
 - avatar
 - description
-- certificates (for dentists)
-- ... any field from auth-service User model
+- certificates (cho nha sĩ)
+- ... bất kỳ trường nào từ User model của auth-service
 */
 
 // ============================================================================
-// MIGRATION NOTES
+// GHI CHÚ VỀ VIỆC DI CHUYỂN
 // ============================================================================
 /*
-BEFORE (using User model):
+TRƯỚC (đóng sử dụng User model):
 ```javascript
 const User = require('../models/user.model');
 const staff = await User.find({ 
@@ -180,7 +180,7 @@ const staff = await User.find({
 }).select('firstName lastName email role');
 ```
 
-AFTER (using cache):
+SAU (sử dụng cache):
 ```javascript
 const { filterCachedUsers } = require('../utils/cacheHelper');
 const staff = await filterCachedUsers({ 
@@ -190,11 +190,11 @@ const staff = await filterCachedUsers({
 });
 ```
 
-Benefits:
-✅ Faster (Redis cache vs MongoDB query)
-✅ No DB schema dependency
-✅ Single source of truth (auth-service)
-✅ Better separation of concerns
+Lợi ích:
+✅ Nhanh hơn (Redis cache vs truy vấn MongoDB)
+✅ Không phụ thuộc DB schema
+✅ Nguồn dữ liệu duy nhất (auth-service)
+✅ Tách biệt mối quan tâm tốt hơn
 */
 
 module.exports = {

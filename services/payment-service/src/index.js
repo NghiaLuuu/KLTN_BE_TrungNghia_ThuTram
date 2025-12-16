@@ -1,4 +1,4 @@
-﻿// Load environment variables first
+﻿// Tải các biến môi trường trước tiên
 const dotenv = require('dotenv');
 dotenv.config();
 const express = require('express');
@@ -18,7 +18,7 @@ const { handlePaymentCreate, handleCashPaymentConfirm } = require('./utils/event
 connectDB();
 const redis = require('./utils/redis.client');
 
-// Initialize RabbitMQ connection for event publishing
+// Khởi tạo kết nối RabbitMQ để phát sự kiện
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
 rabbitmqClient.connectRabbitMQ(RABBITMQ_URL)
   .then(() => {
@@ -28,10 +28,10 @@ rabbitmqClient.connectRabbitMQ(RABBITMQ_URL)
     console.error('❌ RabbitMQ connection failed:', err);
   });
 
-// Initialize Express app
+// Khởi tạo ứng dụng Express
 const app = express();
 
-// Honor proxy headers when running behind Nginx/Traefik so rate limit can read client IPs
+// Chấp nhận proxy headers khi chạy sau Nginx/Traefik để rate limit có thể đọc IP client
 if (process.env.TRUST_PROXY !== 'false') {
   const trustProxyValue = (() => {
     if (!process.env.TRUST_PROXY || process.env.TRUST_PROXY === 'true') {
@@ -45,22 +45,22 @@ if (process.env.TRUST_PROXY !== 'false') {
   app.set('trust proxy', trustProxyValue);
 }
 
-// Connect to Database
+// Kết nối Database
 connectDB().then(() => {
-  console.log('✅ Database connected');
+  console.log('✅ Đã kết nối Database');
 }).catch(err => {
   console.error('❌ Database connection failed:', err);
   process.exit(1);
 });
 
-// Test Redis connection
+// Kiểm tra kết nối Redis
 redis.ping().then(() => {
-  console.log('✅ Redis connected');
+  console.log('✅ Đã kết nối Redis');
 }).catch(err => {
   console.error('❌ Redis connection failed:', err);
 });
 
-// Security middleware
+// Middleware bảo mật
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -72,10 +72,10 @@ app.use(helmet({
   }
 }));
 
-// Compression middleware
+// Middleware nén
 app.use(compression());
 
-// CORS configuration
+// Cấu hình CORS
 app.use(cors({
   origin: function(origin, callback) {
     const allowedOrigins = [
@@ -100,10 +100,10 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Cache-Control', 'Pragma', 'Expires', 'X-Selected-Role']
 }));
 
-// Rate limiting
+// Giới hạn tần suất request
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // limit each IP to 100 requests per windowMs in production
+  windowMs: 15 * 60 * 1000, // 15 phút
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // giới hạn mỗi IP 100 request mỗi windowMs trong production
   message: {
     success: false,
     message: 'Quá nhiều yêu cầu từ IP này, vui lòng thử lại sau'
@@ -112,21 +112,21 @@ const limiter = rateLimit({
   legacyHeaders: false
 });
 
-// Stricter rate limit for payment creation
+// Giới hạn tần suất nghiêm ngặt hơn cho tạo thanh toán
 const paymentLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: process.env.NODE_ENV === 'production' ? 10 : 50, // limit payment creation
+  windowMs: 5 * 60 * 1000, // 5 phút
+  max: process.env.NODE_ENV === 'production' ? 10 : 50, // giới hạn tạo thanh toán
   message: {
     success: false,
     message: 'Quá nhiều yêu cầu tạo thanh toán, vui lòng thử lại sau'
   }
 });
 
-// Apply rate limiting
+// Áp dụng giới hạn tần suất
 app.use(limiter);
 app.use('/api/payment', paymentLimiter);
 
-// Body parsing middleware
+// Middleware phân tích body
 app.use(express.json({ 
   limit: '10mb',
   verify: (req, res, buf) => {
@@ -138,11 +138,11 @@ app.use(express.urlencoded({
   limit: '10mb' 
 }));
 
-// Request logging middleware
+// Middleware ghi log request
 app.use((req, res, next) => {
   const start = Date.now();
   
-  // ✅ Simplified logging - only critical endpoints
+  // ✅ Ghi log đơn giản - chỉ các endpoint quan trọng
   if (req.path.includes('/vnpay') || req.path.includes('/payment')) {
     console.log(`📥 ${req.method} ${req.path}`);
     
@@ -155,13 +155,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check endpoint
+// Endpoint kiểm tra sức khỏe
 app.get('/health', async (req, res) => {
   try {
-    // Test database connection
+    // Kiểm tra kết nối database
     const dbStatus = await require('mongoose').connection.readyState === 1 ? 'connected' : 'disconnected';
     
-    // Test Redis connection
+    // Kiểm tra kết nối Redis
     let redisStatus = 'disconnected';
     try {
       await redis.ping();
@@ -190,14 +190,14 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// API Routes
-// ⚠️ IMPORTANT: More specific routes MUST come first!
-// Stripe routes must be registered before general payment routes
-// to prevent /api/payments from catching /api/payments/stripe/* requests
+// Các Route API
+// ⚠️ QUAN TRỌNG: Các route cụ thể hơn PHẢI đặt trước!
+// Route Stripe phải được đăng ký trước các route thanh toán chung
+// để ngăn /api/payments bắt các request /api/payments/stripe/*
 app.use('/api/payments/stripe', stripeRoutes);
 app.use('/api/payments', paymentRoutes);
 
-// 404 handler
+// Xử lý 404
 app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
@@ -206,11 +206,11 @@ app.use('*', (req, res) => {
   });
 });
 
-// Global error handler
+// Xử lý lỗi toàn cục
 app.use((error, req, res, next) => {
-  console.error('❌ Payment Service Error:', error);
+  console.error('❌ Lỗi Payment Service:', error);
   
-  // CORS error
+  // Lỗi CORS
   if (error.message === 'Not allowed by CORS') {
     return res.status(403).json({
       success: false,
@@ -218,7 +218,7 @@ app.use((error, req, res, next) => {
     });
   }
 
-  // Validation error
+  // Lỗi validation
   if (error.name === 'ValidationError') {
     return res.status(400).json({
       success: false,
@@ -227,7 +227,7 @@ app.use((error, req, res, next) => {
     });
   }
 
-  // Mongoose duplicate key error
+  // Lỗi trùng key Mongoose
   if (error.code === 11000) {
     return res.status(400).json({
       success: false,
@@ -236,7 +236,7 @@ app.use((error, req, res, next) => {
     });
   }
 
-  // JWT errors
+  // Lỗi JWT
   if (error.name === 'JsonWebTokenError') {
     return res.status(401).json({
       success: false,
@@ -251,7 +251,7 @@ app.use((error, req, res, next) => {
     });
   }
 
-  // Default error
+  // Lỗi mặc định
   res.status(error.status || 500).json({
     success: false,
     message: error.message || 'Lỗi server nội bộ',
@@ -259,26 +259,26 @@ app.use((error, req, res, next) => {
   });
 });
 
-// Start RPC Server
+// Khởi động RPC Server
 startRpcServer().then(() => {
-  console.log('✅ RPC server started');
+  console.log('✅ Đã khởi động RPC server');
 }).catch(err => {
-  console.error('❌ RPC server failed:', err.message);
+  console.error('❌ RPC server thất bại:', err.message);
 });
 
-// ✅ NEW: Start Redis Subscriber for expired key events
+// ✅ MỚI: Khởi động Redis Subscriber cho các sự kiện key hết hạn
 redisSubscriber.start().then(() => {
-  console.log('✅ Redis Subscriber started (listening for expired temporary payments)');
+  console.log('✅ Đã khởi động Redis Subscriber (lắng nghe các thanh toán tạm hết hạn)');
 }).catch(err => {
-  console.error('❌ Redis Subscriber failed:', err.message);
+  console.error('❌ Redis Subscriber thất bại:', err.message);
 });
 
-// ✅ NEW: Start RabbitMQ Event Listeners
+// ✅ MỚI: Khởi động các bộ lắng nghe sự kiện RabbitMQ
 async function startEventListeners() {
   try {
     await rabbitmqClient.connectRabbitMQ(RABBITMQ_URL);
     
-    // Listen for payment.create events from record-service
+    // Lắng nghe các sự kiện payment.create từ record-service
     let eventCounter = 0;
     await rabbitmqClient.consumeQueue('payment_event_queue', async (message) => {
       eventCounter++;
@@ -299,7 +299,7 @@ async function startEventListeners() {
       console.log(`✅ [Event #${eventCounter}] Processing completed for ${event}\n`);
     });
 
-    // ⭐ Listen for appointment cancellation events
+    // ⭐ Lắng nghe các sự kiện hủy lịch hẹn
     await rabbitmqClient.consumeQueue('payment_queue', async (message) => {
       const { event, data } = message;
       const timestamp = new Date().toISOString();
@@ -333,20 +333,20 @@ async function startEventListeners() {
             return;
           }
 
-          // Check if payment can be cancelled
+          // Kiểm tra xem thanh toán có thể hủy được không
           if (payment.status === PaymentStatus.CANCELLED) {
-            console.log('ℹ️ [Payment Service] Payment already cancelled:', payment.paymentCode);
+            console.log('ℹ️ [Payment Service] Thanh toán đã được hủy:', payment.paymentCode);
             return;
           }
 
-          // Update payment status to cancelled
+          // Cập nhật trạng thái thanh toán thành đã hủy
           payment.status = PaymentStatus.CANCELLED;
           payment.cancelledAt = cancelledAt || new Date();
           payment.notes = `${payment.notes || ''}\n\nĐã hủy do appointment bị hủy bởi ${cancelledByRole}: ${cancelReason || 'Không rõ lý do'}`.trim();
 
           await payment.save();
 
-          console.log('✅ [Payment Service] Payment cancelled:', {
+          console.log('✅ [Payment Service] Đã hủy thanh toán:', {
             paymentId: payment._id.toString(),
             paymentCode: payment.paymentCode
           });
@@ -360,7 +360,7 @@ async function startEventListeners() {
           });
         }
       } else if (event === 'appointment_restored') {
-        // 🆕 Handle appointment restoration - restore payment to completed
+        // 🆕 Xử lý khôi phục lịch hẹn - khôi phục thanh toán thành hoàn tất
         const { 
           appointmentId, 
           paymentId, 
@@ -387,20 +387,20 @@ async function startEventListeners() {
             return;
           }
 
-          // Check if payment can be restored (must be cancelled)
+          // Kiểm tra xem thanh toán có thể khôi phục được không (phải đang bị hủy)
           if (payment.status !== PaymentStatus.CANCELLED) {
-            console.log('ℹ️ [Payment Service] Payment is not cancelled, skipping restore:', payment.paymentCode);
+            console.log('ℹ️ [Payment Service] Thanh toán chưa bị hủy, bỏ qua khôi phục:', payment.paymentCode);
             return;
           }
 
-          // Restore payment status to completed
+          // Khôi phục trạng thái thanh toán thành hoàn tất
           payment.status = PaymentStatus.COMPLETED;
           payment.cancelledAt = null;
           payment.notes = `${payment.notes || ''}\n\nĐã khôi phục: ${reason || 'Slot được bật lại'}`.trim();
 
           await payment.save();
 
-          console.log('✅ [Payment Service] Payment restored:', {
+          console.log('✅ [Payment Service] Đã khôi phục thanh toán:', {
             paymentId: payment._id.toString(),
             paymentCode: payment.paymentCode
           });
@@ -418,37 +418,37 @@ async function startEventListeners() {
       }
     });
     
-    console.log('✅ RabbitMQ event listeners started');
-    console.log('   - Listening on: payment_event_queue (async events)');
-    console.log('   - Listening on: payment_queue (cancellation events)');
+    console.log('✅ Đã khởi động các bộ lắng nghe sự kiện RabbitMQ');
+    console.log('   - Đang lắng nghe: payment_event_queue (các sự kiện async)');
+    console.log('   - Đang lắng nghe: payment_queue (các sự kiện hủy)');
   } catch (error) {
-    console.error('❌ Failed to start event listeners:', error);
+    console.error('❌ Không thể khởi động các bộ lắng nghe sự kiện:', error);
   }
 }
 
 startEventListeners();
 
-// Start HTTP Server
+// Khởi động HTTP Server
 const PORT = process.env.PORT || 3007;
 const server = app.listen(PORT, () => {
   console.log(`🚀 Payment Service:${PORT}`);
 });
 
-// Graceful shutdown
+// Tắt máy an toàn
 process.on('SIGTERM', () => {
-  console.log('🛑 SIGTERM received, shutting down gracefully');
+  console.log('🛑 Đã nhận SIGTERM, đang tắt máy an toàn');
   server.close(() => {
-    redisSubscriber.stop(); // Stop Redis subscriber
-    console.log('💀 Payment Service process terminated');
+    redisSubscriber.stop(); // Dừng Redis subscriber
+    console.log('💀 Tiến trình Payment Service đã kết thúc');
     process.exit(0);
   });
 });
 
 process.on('SIGINT', () => {
-  console.log('🛑 SIGINT received, shutting down gracefully');
+  console.log('🛑 Đã nhận SIGINT, đang tắt máy an toàn');
   server.close(() => {
-    redisSubscriber.stop(); // Stop Redis subscriber
-    console.log('💀 Payment Service process terminated');
+    redisSubscriber.stop(); // Dừng Redis subscriber
+    console.log('💀 Tiến trình Payment Service đã kết thúc');
     process.exit(0);
   });
 });

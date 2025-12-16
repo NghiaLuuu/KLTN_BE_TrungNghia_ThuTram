@@ -20,7 +20,7 @@ exports.updateSlot = async (id, updateData) => {
   return await Slot.findByIdAndUpdate(id, updateData, { new: true });
 };
 
-// Alias for compatibility with services
+// Biệt danh để tương thích với services
 exports.updateById = async (id, updateData) => {
   return await Slot.findByIdAndUpdate(id, updateData, { new: true });
 };
@@ -31,7 +31,7 @@ exports.findById = async (id) => {
   return await Slot.findById(id);
 };
 
-// Alias for RPC
+// Biệt danh cho RPC
 exports.getSlotById = async (id) => {
   return await Slot.findById(id).lean();
 };
@@ -45,12 +45,12 @@ exports.insertMany = async (slots) => {
   return await Slot.insertMany(slots);
 };
 
-// Alias for compatibility with service
+// Biệt danh để tương thích với service
 exports.createMany = async (slots) => {
   return exports.insertMany(slots);
 };
 
-// Another alias used in service code
+// Biệt danh khác được sử dụng trong service code
 exports.createManySlots = async (slots) => {
   return exports.insertMany(slots);
 };
@@ -59,7 +59,7 @@ exports.deleteMany = async (filter) => {
   return await Slot.deleteMany(filter);
 };
 
-// Delete all slots by scheduleId
+// Xóa tất cả slots theo scheduleId
 exports.deleteByScheduleId = async (scheduleId) => {
   return await Slot.deleteMany({ scheduleId });
 };
@@ -95,7 +95,7 @@ exports.findForCalendar = async (query) => {
   return await Slot.find(query)
     .select('_id scheduleId roomId subRoomId shiftName startTime endTime dentist nurse status appointmentId duration isActive')
     .sort({ startTime: 1 })
-    .lean(); // Return plain JS objects (much faster)
+    .lean(); // Trả về objects JS thuần (nhanh hơn nhiều)
 };
 
 // ⚡ NEW: Optimized version for details queries  
@@ -119,7 +119,7 @@ exports.findWithPopulate = (query, populateOptions = []) => {
   return q;
 };
 
-// Find slots by room and date range (inclusive)
+// Tìm slots theo phòng và khoảng ngày (bao gồm cả hai đầu)
 exports.findByRoomAndDateRange = async (roomId, startDate, endDate) => {
   return await Slot.find({
     roomId,
@@ -208,7 +208,7 @@ exports.findWithSelect = async (filter, fields) => {
   return await Slot.find(filter).select(fields);
 };
 
-// Update appointmentId for slot
+// Cập nhật appointmentId cho slot
 exports.updateAppointmentId = async (slotId, appointmentId) => {
   return await Slot.findByIdAndUpdate(
     slotId,
@@ -230,8 +230,8 @@ exports.findBySubRoomId = async (subRoomId, startDate, endDate) => {
   }).sort({ startTime: 1 }).lean();
 };
 
-// Find any slots for a staff that overlap a given time range
-// Overlap condition: slot.startTime < endDate && slot.endTime > startDate
+// Tìm các slots của nhân viên chồng chéo với khoảng thời gian cho trước
+// Điều kiện chồng chéo: slot.startTime < endDate && slot.endTime > startDate
 exports.findByStaffId = async (staffId, startDate, endDate) => {
   return Slot.find({
     $or: [

@@ -1,5 +1,8 @@
 const mongoose = require('mongoose');
 
+/**
+ * Schema cho từng tin nhắn trong phiên chat
+ */
 const messageSchema = new mongoose.Schema({
   role: {
     type: String,
@@ -11,7 +14,7 @@ const messageSchema = new mongoose.Schema({
     required: true
   },
   imageUrl: {
-    type: String, // S3 URL for uploaded images
+    type: String, // URL S3 cho ảnh được upload
     required: false
   },
   timestamp: {
@@ -20,9 +23,13 @@ const messageSchema = new mongoose.Schema({
   }
 });
 
+/**
+ * Schema cho phiên chat
+ * Lưu trữ lịch sử cuộc trò chuyện và ngữ cảnh đặt lịch
+ */
 const chatSessionSchema = new mongoose.Schema({
   userId: {
-    type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String (for anonymous users)
+    type: mongoose.Schema.Types.Mixed, // Cho phép cả ObjectId và String (cho user ẩn danh)
     required: true,
     index: true
   },
@@ -39,18 +46,18 @@ const chatSessionSchema = new mongoose.Schema({
   },
   bookingContext: {
     type: {
-      isInBookingFlow: { type: Boolean, default: false },
-      selectedService: { type: Object, default: null },
-      selectedServiceAddOn: { type: Object, default: null },
-      selectedServiceItem: { type: Object, default: null }, // Combined service+addon for flat list
-      flatServiceList: { type: Array, default: [] }, // Flat numbered list
-      availableDentists: { type: Array, default: [] }, // Dentist list
-      selectedDentist: { type: Object, default: null },
-      availableDates: { type: Array, default: [] }, // Working dates
-      selectedDate: { type: String, default: null },
-      availableSlotGroups: { type: Array, default: [] }, // Slot groups
-      selectedSlot: { type: Object, default: null },
-      selectedSlotGroup: { type: Object, default: null }, // Selected slot group
+      isInBookingFlow: { type: Boolean, default: false }, // Đang trong luồng đặt lịch
+      selectedService: { type: Object, default: null }, // Dịch vụ đã chọn
+      selectedServiceAddOn: { type: Object, default: null }, // Dịch vụ phụ đã chọn
+      selectedServiceItem: { type: Object, default: null }, // Dịch vụ+addon kết hợp cho danh sách phẳng
+      flatServiceList: { type: Array, default: [] }, // Danh sách dịch vụ phẳng có số thứ tự
+      availableDentists: { type: Array, default: [] }, // Danh sách nha sĩ
+      selectedDentist: { type: Object, default: null }, // Nha sĩ đã chọn
+      availableDates: { type: Array, default: [] }, // Ngày làm việc
+      selectedDate: { type: String, default: null }, // Ngày đã chọn
+      availableSlotGroups: { type: Array, default: [] }, // Nhóm slot trống
+      selectedSlot: { type: Object, default: null }, // Slot đã chọn
+      selectedSlotGroup: { type: Object, default: null }, // Nhóm slot đã chọn
       step: { 
         type: String, 
         enum: ['SERVICE_SELECTION', 'ADDON_SELECTION', 'DENTIST_SELECTION', 'DATE_SELECTION', 'SLOT_SELECTION', 'CONFIRMATION', null],
@@ -79,7 +86,7 @@ const chatSessionSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Index for faster queries
+// Index để truy vấn nhanh hơn
 chatSessionSchema.index({ userId: 1, createdAt: -1 });
 
 const ChatSession = mongoose.model('ChatSession', chatSessionSchema);

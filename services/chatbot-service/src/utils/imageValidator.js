@@ -1,32 +1,32 @@
-// Image Validator - Validate uploaded images
+// Trình xác thực Ảnh - Xác thực các ảnh được tải lên
 
 const sharp = require('sharp');
 
 /**
- * Allowed image MIME types
+ * Các loại MIME ảnh được cho phép
  */
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 
 /**
- * Max file size: 5MB
+ * Kích thước file tối đa: 5MB
  */
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB in bytes
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB tính theo bytes
 
 /**
- * Min dimensions (to ensure image quality)
+ * Kích thước tối thiểu (để đảm bảo chất lượng ảnh)
  */
 const MIN_WIDTH = 200;
 const MIN_HEIGHT = 200;
 
 /**
- * Max dimensions (to prevent huge files)
+ * Kích thước tối đa (để tránh file quá lớn)
  */
 const MAX_WIDTH = 4096;
 const MAX_HEIGHT = 4096;
 
 /**
- * Validate image file
- * @param {Object} file - Multer file object
+ * Xác thực file ảnh
+ * @param {Object} file - Object file của Multer
  * @returns {Object} - { valid: boolean, error: string }
  */
 async function validateImageFile(file) {
@@ -95,10 +95,10 @@ async function validateImageFile(file) {
 }
 
 /**
- * Optimize image (compress and resize if too large)
- * @param {Buffer} imageBuffer - Original image buffer
- * @param {String} mimeType - Image MIME type
- * @returns {Promise<Buffer>} - Optimized image buffer
+ * Tối ưu hóa ảnh (nén và thay đổi kích thước nếu quá lớn)
+ * @param {Buffer} imageBuffer - Buffer ảnh gốc
+ * @param {String} mimeType - Loại MIME ảnh
+ * @returns {Promise<Buffer>} - Buffer ảnh đã tối ưu
  */
 async function optimizeImage(imageBuffer, mimeType) {
   try {
@@ -106,7 +106,7 @@ async function optimizeImage(imageBuffer, mimeType) {
 
     let pipeline = sharp(imageBuffer);
 
-    // Resize if too large (max 2048px on longest side)
+    // Thay đổi kích thước nếu quá lớn (tối đa 2048px cạnh dài nhất)
     if (metadata.width > 2048 || metadata.height > 2048) {
       pipeline = pipeline.resize(2048, 2048, {
         fit: 'inside',
@@ -114,7 +114,7 @@ async function optimizeImage(imageBuffer, mimeType) {
       });
     }
 
-    // Convert to appropriate format with compression
+    // Chuyển đổi sang định dạng phù hợp với nén
     if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
       pipeline = pipeline.jpeg({ quality: 85, progressive: true });
     } else if (mimeType === 'image/png') {
@@ -126,15 +126,15 @@ async function optimizeImage(imageBuffer, mimeType) {
     return await pipeline.toBuffer();
 
   } catch (error) {
-    console.error('❌ Image optimization error:', error);
-    // Return original if optimization fails
+    console.error('❌ Lỗi tối ưu hóa ảnh:', error);
+    // Trả về ảnh gốc nếu tối ưu thất bại
     return imageBuffer;
   }
 }
 
 /**
- * Extract image info
- * @param {Buffer} imageBuffer - Image buffer
+ * Trích xuất thông tin ảnh
+ * @param {Buffer} imageBuffer - Buffer ảnh
  * @returns {Promise<Object>} - { width, height, format, size }
  */
 async function getImageInfo(imageBuffer) {
@@ -150,14 +150,14 @@ async function getImageInfo(imageBuffer) {
       space: metadata.space
     };
   } catch (error) {
-    console.error('❌ Get image info error:', error);
+    console.error('❌ Lỗi lấy thông tin ảnh:', error);
     return null;
   }
 }
 
 /**
- * Check if image is too dark (poor quality)
- * @param {Buffer} imageBuffer - Image buffer
+ * Kiểm tra xem ảnh có quá tối không (chất lượng kém)
+ * @param {Buffer} imageBuffer - Buffer ảnh
  * @returns {Promise<Boolean>}
  */
 async function isImageTooDark(imageBuffer) {
@@ -167,23 +167,23 @@ async function isImageTooDark(imageBuffer) {
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    // Calculate average brightness
+    // Tính độ sáng trung bình
     const pixels = channels[0];
     const sum = pixels.reduce((acc, val) => acc + val, 0);
     const avgBrightness = sum / pixels.length;
 
-    // If average brightness < 30 (out of 255), it's too dark
+    // Nếu độ sáng trung bình < 30 (trên 255), thì quá tối
     return avgBrightness < 30;
 
   } catch (error) {
-    console.error('❌ Check darkness error:', error);
-    return false; // Don't block if check fails
+    console.error('❌ Lỗi kiểm tra độ tối:', error);
+    return false; // Không chặn nếu kiểm tra thất bại
   }
 }
 
 /**
- * Validate multiple images
- * @param {Array<Object>} files - Array of multer file objects
+ * Xác thực nhiều ảnh
+ * @param {Array<Object>} files - Mảng các object file multer
  * @returns {Promise<Object>} - { valid: boolean, error: string, validFiles: array }
  */
 async function validateMultipleImages(files) {
@@ -231,8 +231,8 @@ async function validateMultipleImages(files) {
 }
 
 /**
- * Convert image to standard format (JPEG)
- * @param {Buffer} imageBuffer - Original image buffer
+ * Chuyển đổi ảnh sang định dạng chuẩn (JPEG)
+ * @param {Buffer} imageBuffer - Buffer ảnh gốc
  * @returns {Promise<{buffer: Buffer, mimeType: String}>}
  */
 async function convertToStandardFormat(imageBuffer) {
@@ -246,7 +246,7 @@ async function convertToStandardFormat(imageBuffer) {
       mimeType: 'image/jpeg'
     };
   } catch (error) {
-    console.error('❌ Convert format error:', error);
+    console.error('❌ Lỗi chuyển đổi định dạng:', error);
     return {
       buffer: imageBuffer,
       mimeType: 'image/jpeg'

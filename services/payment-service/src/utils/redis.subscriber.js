@@ -1,7 +1,7 @@
 /**
  * @author: TrungNghia & ThuTram
  * Redis Keyspace Notifications Subscriber
- * Listen for expired keys to unlock slots when payment temporary expires
+ * Lắng nghe các key hết hạn để mở khóa slot khi thanh toán tạm hết hạn
  */
 
 const redis = require('redis');
@@ -15,7 +15,7 @@ class RedisSubscriber {
 
   async start() {
     try {
-      // Create separate Redis client for subscribing (pub/sub mode)
+      // Tạo Redis client riêng để subscribe (chế độ pub/sub)
       const redisConfig = {
         url: process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`,
       };
@@ -27,55 +27,55 @@ class RedisSubscriber {
       this.subscriber = redis.createClient(redisConfig);
 
       this.subscriber.on('error', (err) => {
-        console.error('❌ Redis Subscriber error:', err);
+        console.error('❌ Lỗi Redis Subscriber:', err);
       });
 
       this.subscriber.on('connect', () => {
-        console.log('✅ Redis Subscriber connected');
+        console.log('✅ Redis Subscriber đã kết nối');
         this.isConnected = true;
       });
 
       await this.subscriber.connect();
 
-      // Enable keyspace notifications for expired events (Ex = expire events)
+      // Bật keyspace notifications cho các sự kiện hết hạn (Ex = expire events)
       await this.subscriber.configSet('notify-keyspace-events', 'Ex');
-      console.log('✅ Redis keyspace notifications enabled (Ex)');
+      console.log('✅ Đã bật Redis keyspace notifications (Ex)');
 
-      // Subscribe to expired key events for database 0
+      // Subscribe các sự kiện key hết hạn cho database 0
       // Pattern: __keyevent@0__:expired
       await this.subscriber.pSubscribe('__keyevent@0__:expired', async (message, channel) => {
         console.log('='.repeat(60));
-        console.log('🔔 [Redis Expired Event] Key expired:', message);
+        console.log('🔔 [Sự Kiện Redis Hết Hạn] Key hết hạn:', message);
         console.log('='.repeat(60));
 
-        // Check if expired key is a temporary payment
+        // Kiểm tra key hết hạn có phải thanh toán tạm không
         if (message.startsWith('payment:temp:')) {
           await this.handlePaymentTemporaryExpired(message);
         }
       });
 
-      console.log('👂 Redis Subscriber listening for expired keys...');
+      console.log('👂 Redis Subscriber đang lắng nghe các key hết hạn...');
     } catch (error) {
-      console.error('❌ Failed to start Redis subscriber:', error);
+      console.error('❌ Khởi động Redis subscriber thất bại:', error);
       throw error;
     }
   }
 
   /**
-   * Handle payment temporary expiration
-   * @param {string} expiredKey - The expired Redis key (e.g., "payment:temp:RSV123456")
+   * Xử lý thanh toán tạm hết hạn
+   * @param {string} expiredKey - Key Redis hết hạn (ví dụ: "payment:temp:RSV123456")
    */
   async handlePaymentTemporaryExpired(expiredKey) {
     try {
-      // Extract reservation ID from key: payment:temp:RSV123456 → RSV123456
+      // Trích xuất reservation ID từ key: payment:temp:RSV123456 → RSV123456
       const reservationId = expiredKey.replace('payment:temp:', '');
 
-      console.log('💳 [Payment Temporary Expired]');
+      console.log('💳 [Thanh Toán Tạm Hết Hạn]');
       console.log('   → Reservation ID:', reservationId);
-      console.log('   → Expired Key:', expiredKey);
+      console.log('   → Key Hết Hạn:', expiredKey);
 
-      // Check if reservation still exists
-      const reservationKey = reservationId; // Could be just "RSV123456" or with prefix
+      // Kiểm tra reservation còn tồn tại không
+      const reservationKey = reservationId; // Có thể chỉ là "RSV123456" hoặc có prefix
       const possibleKeys = [
         reservationKey,
         `appointment_hold:${reservationKey}`,
@@ -86,7 +86,7 @@ class RedisSubscriber {
       let reservationData = null;
       let foundKey = null;
 
-      // Try to find reservation data
+      // Thử tìm dữ liệu reservation
       const redisClient = require('./redis.client');
       for (const key of possibleKeys) {
         try {
@@ -94,57 +94,57 @@ class RedisSubscriber {
           if (data) {
             reservationData = JSON.parse(data);
             foundKey = key;
-            console.log('✅ Found reservation data in Redis:', foundKey);
+            console.log('✅ Tìm thấy dữ liệu reservation trong Redis:', foundKey);
             break;
           }
         } catch (err) {
-          // Continue to next key
+          // Tiếp tục với key tiếp theo
         }
       }
 
       if (!reservationData) {
-        console.log('⚠️  Reservation data not found in Redis (might be already processed)');
-        // Still try to unlock slots by reservationId
+        console.log('⚠️  Không tìm thấy dữ liệu reservation trong Redis (có thể đã xử lý)');
+        // Vẫn cố gắng mở khóa slots bằng reservationId
       }
 
-      // Get slot IDs from reservation data
+      // Lấy slot IDs từ dữ liệu reservation
       let slotIds = [];
       if (reservationData && reservationData.slotIds) {
         slotIds = reservationData.slotIds;
       }
 
-      console.log('🔓 [Unlocking Slots]');
+      console.log('🔓 [Đang Mở Khóa Slots]');
       console.log('   → Slot IDs:', slotIds);
-      console.log('   → Count:', slotIds.length);
+      console.log('   → Số lượng:', slotIds.length);
 
-      // Publish event to schedule-service to unlock slots
+      // Phát sự kiện đến schedule-service để mở khóa slots
       const unlockEvent = {
         event: 'reservation.expired',
         data: {
           reservationId: reservationId,
           slotIds: slotIds,
           expiredAt: new Date().toISOString(),
-          reason: 'Payment temporary expired (3 minutes timeout)'
+          reason: 'Thanh toán tạm hết hạn (timeout 3 phút)'
         }
       };
 
-      console.log('📤 [Publishing Event] reservation.expired');
-      console.log('   → Target Queue: schedule_queue');
+      console.log('📤 [Đang Phát Sự Kiện] reservation.expired');
+      console.log('   → Queue đích: schedule_queue');
       console.log('   → Payload:', unlockEvent);
 
       await rabbitmqClient.publishToQueue('schedule_queue', unlockEvent);
 
-      console.log('✅ [Success] Unlock event published');
+      console.log('✅ [Thành công] Đã phát sự kiện mở khóa');
       console.log('='.repeat(60));
 
-      // Cleanup reservation data from Redis
+      // Dọn dẹp dữ liệu reservation từ Redis
       if (foundKey) {
         await redisClient.del(foundKey);
-        console.log('🧹 Cleaned up reservation data:', foundKey);
+        console.log('🧹 Đã dọn dẹp dữ liệu reservation:', foundKey);
       }
 
     } catch (error) {
-      console.error('❌ Error handling payment temporary expiration:', error);
+      console.error('❌ Lỗi xử lý thanh toán tạm hết hạn:', error);
       console.error('   Stack:', error.stack);
     }
   }
@@ -153,12 +153,12 @@ class RedisSubscriber {
     if (this.subscriber) {
       await this.subscriber.quit();
       this.isConnected = false;
-      console.log('👋 Redis Subscriber stopped');
+      console.log('👋 Redis Subscriber đã dừng');
     }
   }
 }
 
-// Create singleton instance
+// Tạo singleton instance
 const redisSubscriber = new RedisSubscriber();
 
 module.exports = redisSubscriber;

@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 
 class AuthMiddleware {
-  // Authentication middleware
+  // Middleware xác thực
   authenticate(req, res, next) {
     try {
       const authHeader = req.headers.authorization;
@@ -16,9 +16,9 @@ class AuthMiddleware {
       const token = authHeader.split(" ")[1];
 
       const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-      req.user = decoded; // Contains id, email, role/activeRole, etc.
+      req.user = decoded; // Chứa id, email, role/activeRole, v.v.
       
-      console.log(`🔐 User authenticated: ${decoded.email || decoded.userId} (${decoded.activeRole || decoded.role})`);
+      console.log(`🔐 Người dùng đã xác thực: ${decoded.email || decoded.userId} (${decoded.activeRole || decoded.role})`);
       next();
     } catch (error) {
       console.error('❌ Authentication error:', error.message);
@@ -44,7 +44,7 @@ class AuthMiddleware {
     }
   }
 
-  // Authorization middleware - check user roles
+  // Middleware phân quyền - kiểm tra vai trò người dùng
   authorize(allowedRoles = []) {
     return (req, res, next) => {
       try {
@@ -55,18 +55,18 @@ class AuthMiddleware {
           });
         }
 
-        // ✅ Support both activeRole (new token structure) and role (old structure)
+        // ✅ Hỗ trợ cả activeRole (cấu trúc token mới) và role (cấu trúc cũ)
         const userRole = req.user.activeRole || req.user.role;
 
         if (!allowedRoles.includes(userRole)) {
-          console.warn(`⚠️ Access denied for role: ${userRole}, allowed: ${allowedRoles.join(', ')}`);
+          console.warn(`⚠️ Truy cập bị từ chối cho vai trò: ${userRole}, được phép: ${allowedRoles.join(', ')}`);
           return res.status(403).json({
             success: false,
             message: 'Không có quyền truy cập'
           });
         }
 
-        console.log(`✅ Access granted for role: ${userRole}`);
+        console.log(`✅ Truy cập được cấp cho vai trò: ${userRole}`);
         next();
       } catch (error) {
         console.error('❌ Authorization error:', error.message);
@@ -78,7 +78,7 @@ class AuthMiddleware {
     };
   }
 
-  // Check if user owns the resource or has admin privileges
+  // Kiểm tra xem người dùng có sở hữu tài nguyên hoặc có quyền admin không
   authorizeOwnerOrAdmin(req, res, next) {
     try {
       if (!req.user) {
@@ -89,16 +89,16 @@ class AuthMiddleware {
       }
 
       const userId = req.user.id;
-      // ✅ Support both activeRole (new token structure) and role (old structure)
+      // ✅ Hỗ trợ cả activeRole (cấu trúc token mới) và role (cấu trúc cũ)
       const userRole = req.user.activeRole || req.user.role;
       const resourceUserId = req.params.userId || req.body.userId || req.query.userId;
 
-      // Admin and manager can access any resource
+      // Admin và manager có thể truy cập bất kỳ tài nguyên nào
       if (['admin', 'manager'].includes(userRole)) {
         return next();
       }
 
-      // User can only access their own resources
+      // Người dùng chỉ có thể truy cập tài nguyên của chính mình
       if (userId === resourceUserId) {
         return next();
       }
@@ -116,7 +116,7 @@ class AuthMiddleware {
     }
   }
 
-  // Optional authentication - continue even without token
+  // Xác thực tùy chọn - tiếp tục ngay cả khi không có token
   optionalAuth(req, res, next) {
     try {
       const authHeader = req.headers.authorization;
@@ -130,17 +130,17 @@ class AuthMiddleware {
       const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
       req.user = decoded;
       
-      console.log(`🔐 Optional auth: ${decoded.email || decoded.userId} (${decoded.activeRole || decoded.role})`);
+      console.log(`🔐 Xác thực tùy chọn: ${decoded.email || decoded.userId} (${decoded.activeRole || decoded.role})`);
       next();
     } catch (error) {
-      // Continue without authentication if token is invalid
+      // Tiếp tục không cần xác thực nếu token không hợp lệ
       req.user = null;
-      console.warn(`⚠️ Optional auth failed: ${error.message}`);
+      console.warn(`⚠️ Xác thực tùy chọn thất bại: ${error.message}`);
       next();
     }
   }
 
-  // Check if user has specific permission for invoice operations
+  // Kiểm tra xem người dùng có quyền cụ thể cho các thao tác hóa đơn không
   checkInvoicePermission(action) {
     return (req, res, next) => {
       try {

@@ -131,7 +131,7 @@ class PaymentRepository {
   async updateStatus(id, status, additionalData = {}) {
     const updateData = { status, ...additionalData };
     
-    // Add timestamps for specific status changes
+    // Thêm timestamp cho các thay đổi trạng thái cụ thể
     switch (status) {
       case 'completed':
         updateData.completedAt = new Date();
@@ -333,11 +333,11 @@ class PaymentRepository {
     };
   }
 
-  // Helper method to build complex queries
+  // Phương thức trợ giúp xây dựng các truy vấn phức tạp
   buildQuery(filter) {
     const query = {};
 
-    // Keyword search
+    // Tìm kiếm theo từ khóa
     if (filter.keyword && filter.keyword.trim()) {
       const searchRegex = new RegExp(filter.keyword.trim(), 'i');
       query.$or = [
@@ -385,7 +385,7 @@ class PaymentRepository {
       query.recordId = filter.recordId;
     }
 
-    // Date filters
+    // Lọc theo ngày
     if (filter.dateFrom || filter.dateTo) {
       query.processedAt = {};
       if (filter.dateFrom) {
@@ -400,7 +400,7 @@ class PaymentRepository {
       }
     }
 
-    // Amount filters
+    // Lọc theo số tiền
     if (filter.minAmount) {
       query.finalAmount = { $gte: filter.minAmount };
     }
@@ -408,17 +408,17 @@ class PaymentRepository {
       query.finalAmount = { ...query.finalAmount, $lte: filter.maxAmount };
     }
 
-    // Search by phone
+    // Tìm kiếm theo số điện thoại
     if (filter.phone) {
       query['patientInfo.phone'] = new RegExp(filter.phone, 'i');
     }
 
-    // Search by patient name
+    // Tìm kiếm theo tên bệnh nhân
     if (filter.patientName) {
       query['patientInfo.name'] = new RegExp(filter.patientName, 'i');
     }
 
-    // Verification status
+    // Trạng thái xác minh
     if (filter.isVerified !== undefined) {
       query.isVerified = filter.isVerified;
     }

@@ -26,24 +26,24 @@ const {
   statisticsValidation
 } = require('../validations/record.validation');
 
-// Routes
+// Các Routes
 
-// ========== Queue Management Routes ==========
-// Get next queue number for a room
+// ========== Routes Quản Lý Hàng Đợi ==========
+// Lấy số hàng đợi tiếp theo cho một phòng
 router.get('/queue/next-number',
   authenticate,
   authorize(['dentist', 'admin', 'manager', 'staff', 'receptionist']),
   queueController.getNextQueueNumber
 );
 
-// Get queue status for a room
+// Lấy trạng thái hàng đợi cho một phòng
 router.get('/queue/status',
   authenticate,
   authorize(['dentist', 'admin', 'manager', 'staff', 'receptionist']),
   queueController.getQueueStatus
 );
 
-// Call a record (assign queue number and start)
+// Gọi một hồ sơ (gán số hàng đợi và bắt đầu)
 router.post('/:recordId/call',
   authenticate,
   authorize(['dentist', 'admin', 'manager', 'staff', 'receptionist']),
@@ -52,7 +52,7 @@ router.post('/:recordId/call',
   queueController.callRecord
 );
 
-// Complete a record
+// Hoàn thành một hồ sơ
 router.post('/:recordId/complete',
   authenticate,
   authorize(['dentist', 'admin', 'manager']),
@@ -61,7 +61,7 @@ router.post('/:recordId/complete',
   queueController.completeRecord
 );
 
-// Get payment info for record (preview before completing)
+// Lấy thông tin thanh toán cho hồ sơ (xem trước khi hoàn thành)
 router.get('/:id/payment-info',
   authenticate,
   authorize(['dentist', 'admin', 'manager', 'nurse', 'receptionist']),
@@ -70,7 +70,7 @@ router.get('/:id/payment-info',
   recordController.getPaymentInfo
 );
 
-// Cancel a record
+// Hủy một hồ sơ
 router.post('/:recordId/cancel',
   authenticate,
   authorize(['dentist', 'admin', 'manager', 'staff', 'receptionist']),
@@ -79,8 +79,8 @@ router.post('/:recordId/cancel',
   queueController.cancelRecord
 );
 
-// ========== Record Management Routes ==========
-// List all records with filters
+// ========== Routes Quản Lý Hồ Sơ ==========
+// Liệt kê tất cả hồ sơ với bộ lọc
 router.get('/', 
   authenticate,
   listRecordsValidation,
@@ -88,7 +88,7 @@ router.get('/',
   recordController.getAll
 );
 
-// Search records
+// Tìm kiếm hồ sơ
 router.get('/search',
   authenticate,
   searchRecordsValidation,
@@ -96,7 +96,7 @@ router.get('/search',
   recordController.search
 );
 
-// Get statistics
+// Lấy thống kê
 router.get('/statistics',
   authenticate,
   authorize(['admin', 'manager']),
@@ -105,7 +105,7 @@ router.get('/statistics',
   recordController.getStatistics
 );
 
-// Get records by patient
+// Lấy hồ sơ theo bệnh nhân
 router.get('/patient/:patientId',
   authenticate,
   patientIdValidation,
@@ -113,7 +113,7 @@ router.get('/patient/:patientId',
   recordController.getByPatient
 );
 
-// ✅ Get unused services from exam records (for booking service selection)
+// ✅ Lấy các dịch vụ chưa sử dụng từ hồ sơ khám (để chọn dịch vụ khi đặt lịch)
 router.get('/patient/:patientId/unused-services',
   authenticate,
   patientIdValidation,
@@ -121,7 +121,7 @@ router.get('/patient/:patientId/unused-services',
   recordController.getUnusedServices
 );
 
-// 🆕 Get treatment indications for a patient and service
+// 🆕 Lấy chỉ định điều trị cho bệnh nhân và dịch vụ
 router.get('/patient/:patientId/treatment-indications',
   authenticate,
   patientIdValidation,
@@ -129,7 +129,7 @@ router.get('/patient/:patientId/treatment-indications',
   recordController.getTreatmentIndications
 );
 
-// Get records by dentist
+// Lấy hồ sơ theo nha sĩ
 router.get('/dentist/:dentistId',
   authenticate,
   dentistIdValidation,
@@ -137,7 +137,7 @@ router.get('/dentist/:dentistId',
   recordController.getByDentist
 );
 
-// 🆕 Get patients with unused indications for a dentist (for walk-in)
+// 🆕 Lấy bệnh nhân có chỉ định chưa sử dụng cho nha sĩ (cho walk-in)
 router.get('/dentist/:dentistId/patients-with-unused-indications',
   authenticate,
   authorize(['dentist', 'admin', 'manager']),
@@ -146,14 +146,14 @@ router.get('/dentist/:dentistId/patients-with-unused-indications',
   recordController.getPatientsWithUnusedIndications
 );
 
-// Get pending records
+// Lấy hồ sơ đang chờ
 router.get('/status/pending',
   authenticate,
   authorize(['dentist', 'admin', 'manager']),
   recordController.getPending
 );
 
-// Get record by code
+// Lấy hồ sơ theo mã
 router.get('/code/:code',
   authenticate,
   recordCodeValidation,
@@ -161,7 +161,7 @@ router.get('/code/:code',
   recordController.getByCode
 );
 
-// Get record by ID
+// Lấy hồ sơ theo ID
 router.get('/:id',
   authenticate,
   recordIdValidation,
@@ -169,7 +169,7 @@ router.get('/:id',
   recordController.getById
 );
 
-// Create new record
+// Tạo hồ sơ mới
 router.post('/',
   authenticate,
   authorize(['dentist', 'admin', 'manager']),
@@ -178,7 +178,7 @@ router.post('/',
   recordController.create
 );
 
-// Update record status
+// Cập nhật trạng thái hồ sơ
 router.patch('/:id/status',
   authenticate,
   authorize(['dentist', 'admin', 'manager']),
@@ -187,7 +187,7 @@ router.patch('/:id/status',
   recordController.updateStatus
 );
 
-// Add prescription to record
+// Thêm đơn thuốc vào hồ sơ
 router.post('/:id/prescription',
   authenticate,
   authorize(['dentist', 'admin', 'manager']),
@@ -196,7 +196,7 @@ router.post('/:id/prescription',
   recordController.addPrescription
 );
 
-// Update treatment indication
+// Cập nhật chỉ định điều trị
 router.patch('/:id/indications/:indicationId',
   authenticate,
   authorize(['dentist', 'admin', 'manager']),
@@ -205,7 +205,7 @@ router.patch('/:id/indications/:indicationId',
   recordController.updateTreatmentIndication
 );
 
-// ⭐ Add additional service to record
+// ⭐ Thêm dịch vụ bổ sung vào hồ sơ
 router.post('/:id/additional-services',
   authenticate,
   authorize(['dentist', 'admin', 'manager']),
@@ -214,7 +214,7 @@ router.post('/:id/additional-services',
   recordController.addAdditionalService
 );
 
-// ⭐ Remove additional service from record
+// ⭐ Xóa dịch vụ bổ sung khỏi hồ sơ
 router.delete('/:id/additional-services/:serviceItemId',
   authenticate,
   authorize(['dentist', 'admin', 'manager']),
@@ -223,7 +223,7 @@ router.delete('/:id/additional-services/:serviceItemId',
   recordController.removeAdditionalService
 );
 
-// ⭐ Update additional service (quantity/notes)
+// ⭐ Cập nhật dịch vụ bổ sung (số lượng/ghi chú)
 router.patch('/:id/additional-services/:serviceItemId',
   authenticate,
   authorize(['dentist', 'admin', 'manager']),
@@ -232,7 +232,7 @@ router.patch('/:id/additional-services/:serviceItemId',
   recordController.updateAdditionalService
 );
 
-// Complete record
+// Hoàn thành hồ sơ
 router.patch('/:id/complete',
   authenticate,
   authorize(['dentist', 'admin', 'manager']),
@@ -241,7 +241,7 @@ router.patch('/:id/complete',
   recordController.complete
 );
 
-// Update record
+// Cập nhật hồ sơ
 router.put('/:id',
   authenticate,
   authorize(['dentist', 'admin', 'manager']),
@@ -250,7 +250,7 @@ router.put('/:id',
   recordController.update
 );
 
-// Delete record
+// Xóa hồ sơ
 router.delete('/:id',
   authenticate,
   authorize(['admin', 'manager']),

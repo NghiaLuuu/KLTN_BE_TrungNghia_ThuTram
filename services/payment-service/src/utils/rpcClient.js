@@ -7,7 +7,7 @@ async function request(queue, message) {
   const channel = await connection.createChannel();
 
   const replyQueue = await channel.assertQueue('', { exclusive: true });
-  const correlationId = randomUUID(); // ✅ dùng hàm built-in
+  const correlationId = randomUUID(); // ✅ sử dụng hàm có sẵn
 
   return new Promise((resolve, reject) => {
     channel.consume(

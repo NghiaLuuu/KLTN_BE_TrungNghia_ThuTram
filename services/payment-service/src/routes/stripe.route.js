@@ -3,19 +3,19 @@ const router = express.Router();
 const stripeController = require('../controllers/stripe.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
 
-// ============ PUBLIC ROUTES ============
+// ============ CÁC ROUTE CÔNG KHAI ============
 
 /**
- * Get Stripe publishable key (for frontend)
+ * Lấy Stripe publishable key (cho frontend)
  * GET /api/payments/stripe/config
  */
 router.get('/config', stripeController.getConfig);
 
 /**
- * Stripe Webhook Endpoint (Raw body required)
+ * Endpoint Webhook của Stripe (Yêu cầu raw body)
  * POST /api/payments/stripe/webhook
- * IMPORTANT: This route must NOT use express.json() middleware
- * The raw body is required for signature verification
+ * QUAN TRỌNG: Route này KHÔNG ĐƯỢC sử dụng middleware express.json()
+ * Raw body là bắt buộc để xác minh chữ ký
  */
 router.post('/webhook', 
   express.raw({ type: 'application/json' }),
@@ -23,7 +23,7 @@ router.post('/webhook',
 );
 
 /**
- * Verify checkout session (for frontend/debugging)
+ * Xác minh checkout session (cho frontend/debug)
  * GET /api/payments/stripe/verify-session/:sessionId
  */
 router.get('/verify-session/:sessionId', 
@@ -31,21 +31,21 @@ router.get('/verify-session/:sessionId',
 );
 
 /**
- * Create Stripe Payment Link (VNPay-style)
+ * Tạo liên kết thanh toán Stripe (theo kiểu VNPay)
  * POST /api/payments/stripe/create-payment-link
  * Body: { orderId, amount, orderInfo, customerEmail?, metadata? }
- * PUBLIC: No auth required (same as VNPay)
+ * CÔNG KHAI: Không cần xác thực (giống VNPay)
  */
 router.post('/create-payment-link',
   stripeController.createPaymentLink
 );
 
-// Legacy endpoint for backward compatibility
+// Endpoint cũ để tương thích ngược
 router.post('/create-session',
   stripeController.createPaymentLink
 );
 
-// ============ AUTHENTICATED ROUTES (for future features) ============
+// ============ CÁC ROUTE CẦN XÁC THỰC (cho các tính năng tương lai) ============
 // router.use(authMiddleware);
 
 module.exports = router;

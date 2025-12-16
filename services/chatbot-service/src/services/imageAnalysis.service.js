@@ -1,4 +1,4 @@
-// Image Analysis Service - GPT-4 Vision for teeth image analysis
+// Image Analysis Service - GPT-4 Vision để phân tích hình ảnh răng
 
 const { openai, config } = require('../config/openai.config');
 const { IMAGE_ANALYSIS_PROMPT } = require('../config/systemPrompts');
@@ -6,24 +6,24 @@ const { uploadToS3 } = require('./s3.service');
 
 class ImageAnalysisService {
   /**
-   * Analyze teeth image using GPT-4 Vision
-   * @param {Buffer} imageBuffer - Image buffer
-   * @param {String} mimeType - Image MIME type (image/jpeg, image/png)
-   * @param {String} userMessage - Optional user message/question about the image
-   * @param {String} originalFileName - Original filename for S3 upload
+   * Phân tích hình ảnh răng sử dụng GPT-4 Vision
+   * @param {Buffer} imageBuffer - Buffer của hình ảnh
+   * @param {String} mimeType - MIME type của ảnh (image/jpeg, image/png)
+   * @param {String} userMessage - Tin nhắn/câu hỏi tùy chọn của user về hình ảnh
+   * @param {String} originalFileName - Tên file gốc để upload lên S3
    * @returns {Promise<Object>} - { analysis: string, isTeethImage: boolean, suggestions: array, imageUrl: string }
    */
   async analyzeTeethImage(imageBuffer, mimeType, userMessage = '', originalFileName = 'teeth-image.jpg') {
     try {
-      // Upload image to S3 first (use 'avatars' folder for public access)
-      console.log('📤 Uploading image to S3...');
+      // Upload ảnh lên S3 trước (sử dụng folder 'avatars' để public access)
+      console.log('📤 Đang upload ảnh lên S3...');
       const s3ImageUrl = await uploadToS3(imageBuffer, originalFileName, mimeType, 'avatars');
       
-      // Convert buffer to base64 for GPT-4 Vision
+      // Chuyển buffer thành base64 cho GPT-4 Vision
       const base64Image = imageBuffer.toString('base64');
       const imageUrl = `data:${mimeType};base64,${base64Image}`;
 
-      // Prepare messages for GPT-4 Vision
+      // Chuẩn bị messages cho GPT-4 Vision
       const messages = [
         {
           role: 'system',
@@ -47,8 +47,8 @@ class ImageAnalysisService {
         }
       ];
 
-      // Call GPT-4 Vision API
-      console.log('🔍 Analyzing image with GPT-4 Vision...');
+      // Gọi GPT-4 Vision API
+      console.log('🔍 Đang phân tích ảnh với GPT-4 Vision...');
       const response = await openai.chat.completions.create({
         model: process.env.OPENAI_VISION_MODEL || 'gpt-4o',
         messages: messages,
@@ -58,10 +58,10 @@ class ImageAnalysisService {
 
       const analysisText = response.choices[0].message.content;
 
-      // Check if it's a teeth image (based on GPT response)
+      // Kiểm tra có phải ảnh răng không (dựa trên phản hồi GPT)
       const isTeethImage = this.checkIfTeethImage(analysisText);
 
-      // Extract suggestions if it's a teeth image
+      // Trích xuất gợi ý nếu là ảnh răng
       const suggestions = isTeethImage ? this.extractSuggestions(analysisText) : [];
 
       return {
@@ -69,12 +69,12 @@ class ImageAnalysisService {
         analysis: analysisText,
         isTeethImage,
         suggestions,
-        imageUrl: s3ImageUrl, // S3 URL for storing in database
+        imageUrl: s3ImageUrl, // URL S3 để lưu trong database
         tokensUsed: response.usage?.total_tokens || 0
       };
 
     } catch (error) {
-      console.error('❌ Image Analysis Error:', error);
+      console.error('❌ Lỗi phân tích ảnh:', error);
       
       if (error.code === 'invalid_image_format') {
         throw new Error('Định dạng ảnh không hợp lệ. Vui lòng gửi ảnh JPEG hoặc PNG.');
@@ -85,14 +85,14 @@ class ImageAnalysisService {
   }
 
   /**
-   * Check if GPT identified the image as teeth/mouth
-   * @param {String} analysisText - GPT analysis text
+   * Kiểm tra GPT có xác định ảnh là răng/miệng không
+   * @param {String} analysisText - Văn bản phân tích của GPT
    * @returns {Boolean}
    */
   checkIfTeethImage(analysisText) {
     const lowerText = analysisText.toLowerCase();
     
-    // Keywords indicating rejection (not teeth image)
+    // Từ khóa chỉ ra từ chối (không phải ảnh răng)
     const rejectKeywords = [
       'không phải là hình răng',
       'không phải răng',
@@ -105,12 +105,12 @@ class ImageAnalysisService {
       'not a tooth'
     ];
 
-    // If any reject keyword found, it's not a teeth image
+    // Nếu tìm thấy từ khóa từ chối, đó không phải ảnh răng
     if (rejectKeywords.some(keyword => lowerText.includes(keyword))) {
       return false;
     }
 
-    // Keywords indicating teeth image
+    // Từ khóa chỉ ra ảnh răng
     const teethKeywords = [
       'răng',
       'nướu',
@@ -126,20 +126,20 @@ class ImageAnalysisService {
       'oral'
     ];
 
-    // If found teeth keywords, likely a teeth image
+    // Nếu tìm thấy từ khóa răng, có thể là ảnh răng
     return teethKeywords.some(keyword => lowerText.includes(keyword));
   }
 
   /**
-   * Extract service suggestions from analysis
-   * @param {String} analysisText - GPT analysis text
-   * @returns {Array<String>} - Suggested services
+   * Trích xuất gợi ý dịch vụ từ phân tích
+   * @param {String} analysisText - Văn bản phân tích của GPT
+   * @returns {Array<String>} - Các dịch vụ được gợi ý
    */
   extractSuggestions(analysisText) {
     const suggestions = [];
     const lowerText = analysisText.toLowerCase();
 
-    // Map symptoms/issues to services
+    // Ánh xạ triệu chứng/vấn đề với dịch vụ
     const serviceMapping = {
       'tẩy trắng': ['tẩy trắng', 'ố vàng', 'xỉn màu', 'whitening'],
       'lấy cao răng': ['cao răng', 'mảng bám', 'vôi răng', 'scaling', 'tartar'],
@@ -150,21 +150,21 @@ class ImageAnalysisService {
       'bọc răng sứ': ['răng mẻ', 'răng gãy', 'răng hư', 'crown', 'veneer']
     };
 
-    // Check each service mapping
+    // Kiểm tra từng ánh xạ dịch vụ
     for (const [service, keywords] of Object.entries(serviceMapping)) {
       if (keywords.some(keyword => lowerText.includes(keyword))) {
         suggestions.push(service);
       }
     }
 
-    // Remove duplicates
+    // Loại bỏ trùng lặp
     return [...new Set(suggestions)];
   }
 
   /**
-   * Analyze multiple images (for comparison)
-   * @param {Array<{buffer: Buffer, mimeType: String}>} images - Array of images
-   * @param {String} userMessage - User message
+   * Phân tích nhiều ảnh (cho so sánh)
+   * @param {Array<{buffer: Buffer, mimeType: String}>} images - Mảng các ảnh
+   * @param {String} userMessage - Tin nhắn của user
    * @returns {Promise<Object>}
    */
   async analyzeMultipleImages(images, userMessage = '') {
@@ -173,7 +173,7 @@ class ImageAnalysisService {
         throw new Error('Chỉ có thể phân tích tối đa 4 ảnh cùng lúc.');
       }
 
-      // Prepare content array with text and multiple images
+      // Chuẩn bị mảng content với text và nhiều ảnh
       const contentArray = [
         {
           type: 'text',
@@ -181,7 +181,7 @@ class ImageAnalysisService {
         }
       ];
 
-      // Add all images
+      // Thêm tất cả ảnh
       images.forEach(({ buffer, mimeType }) => {
         const base64Image = buffer.toString('base64');
         contentArray.push({
@@ -193,7 +193,7 @@ class ImageAnalysisService {
         });
       });
 
-      // Call GPT-4 Vision
+      // Gọi GPT-4 Vision
       const response = await openai.chat.completions.create({
         model: process.env.OPENAI_VISION_MODEL || 'gpt-4o',
         messages: [
@@ -206,7 +206,7 @@ class ImageAnalysisService {
             content: contentArray
           }
         ],
-        max_tokens: config.maxTokens * 1.5, // More tokens for multiple images
+        max_tokens: config.maxTokens * 1.5, // Nhiều token hơn cho nhiều ảnh
         temperature: 0.7
       });
 
@@ -220,15 +220,15 @@ class ImageAnalysisService {
       };
 
     } catch (error) {
-      console.error('❌ Multiple Images Analysis Error:', error);
+      console.error('❌ Lỗi phân tích nhiều ảnh:', error);
       throw new Error('Không thể phân tích nhiều ảnh. Vui lòng thử lại.');
     }
   }
 
   /**
-   * Quick validation: Check if image looks like teeth (using vision)
-   * @param {Buffer} imageBuffer - Image buffer
-   * @param {String} mimeType - Image MIME type
+   * Kiểm tra nhanh: Xem ảnh có giống ảnh răng không (sử dụng vision)
+   * @param {Buffer} imageBuffer - Buffer của ảnh
+   * @param {String} mimeType - MIME type của ảnh
    * @returns {Promise<Boolean>}
    */
   async quickValidateTeethImage(imageBuffer, mimeType) {
@@ -265,38 +265,38 @@ class ImageAnalysisService {
       return answer.includes('YES');
 
     } catch (error) {
-      console.error('❌ Quick Validation Error:', error);
-      // If validation fails, allow the image (don't block)
+      console.error('❌ Lỗi kiểm tra nhanh:', error);
+      // Nếu validation lỗi, cho phép ảnh (đừng chặn)
       return true;
     }
   }
 
   /**
-   * Generate follow-up questions based on analysis
-   * @param {String} analysisText - Analysis text
-   * @param {Array<String>} suggestions - Service suggestions
+   * Tạo câu hỏi theo dõi dựa trên phân tích
+   * @param {String} analysisText - Văn bản phân tích
+   * @param {Array<String>} suggestions - Các dịch vụ được gợi ý
    * @returns {Array<String>}
    */
   generateFollowUpQuestions(analysisText, suggestions) {
     const questions = [];
 
-    // If has suggestions, ask about booking
+    // Nếu có gợi ý, hỏi về đặt lịch
     if (suggestions.length > 0) {
       questions.push(`Bạn có muốn đặt lịch khám dịch vụ ${suggestions[0]} không?`);
     }
 
-    // Ask about symptoms
+    // Hỏi về triệu chứng
     if (analysisText.toLowerCase().includes('đau')) {
       questions.push('Bạn có bị đau răng không? Đau mức độ nào?');
     }
 
-    // Ask about duration
+    // Hỏi về thời gian
     questions.push('Tình trạng này đã kéo dài bao lâu rồi?');
 
-    // Ask about previous treatment
+    // Hỏi về điều trị trước đó
     questions.push('Bạn đã từng điều trị răng này chưa?');
 
-    return questions.slice(0, 2); // Return max 2 questions
+    return questions.slice(0, 2); // Trả về tối đa 2 câu hỏi
   }
 }
 

@@ -2,8 +2,8 @@ const axios = require('axios');
 const redis = require('./redis.client');
 
 /**
- * Check and update service hasBeenUsed status
- * Called before redirecting to frontend after payment success
+ * Kiểm tra và cập nhật trạng thái hasBeenUsed của dịch vụ
+ * Được gọi trước khi chuyển hướng đến frontend sau khi thanh toán thành công
  * @param {String} reservationId 
  * @param {String} paymentId 
  */
@@ -11,7 +11,7 @@ async function checkAndUpdateServiceUsage(reservationId, paymentId) {
   try {
     console.log('🔍 [HTTP] Starting service usage check...', { reservationId, paymentId });
     
-    // Get appointment data from Redis with correct prefix
+    // Lấy dữ liệu lịch hẹn từ Redis với tiền tố đúng
     const redisKey = reservationId.startsWith('temp_reservation:') 
       ? reservationId 
       : `temp_reservation:${reservationId}`;
@@ -37,11 +37,11 @@ async function checkAndUpdateServiceUsage(reservationId, paymentId) {
       servicesCount: appointment.selectedServices?.length || 0
     });
     
-    // Transform reservation structure to expected format
+    // Chuyển đổi cấu trúc reservation sang định dạng mong đợi
     let selectedServices = appointment.selectedServices || [];
     
     if (selectedServices.length === 0) {
-      // Build from serviceId and serviceAddOnId
+      // Xây dựng từ serviceId và serviceAddOnId
       if (appointment.serviceId) {
         selectedServices.push({
           serviceId: appointment.serviceId,
@@ -72,7 +72,7 @@ async function checkAndUpdateServiceUsage(reservationId, paymentId) {
       return;
     }
 
-    // Check service usage status from service-service
+    // Kiểm tra trạng thái sử dụng dịch vụ từ service-service
     const SERVICE_SERVICE_URL = process.env.SERVICE_SERVICE_URL || 'http://localhost:3004';
     
     console.log(`🔍 [HTTP] Checking usage status for ${serviceIds.length} services...`);
@@ -88,7 +88,7 @@ async function checkAndUpdateServiceUsage(reservationId, paymentId) {
 
     const { notUsed, allUsed } = checkResponse.data;
 
-    // If there are services that need to be marked as used
+    // Nếu có dịch vụ cần đánh dấu là đã sử dụng
     if (notUsed && notUsed.length > 0) {
       console.log(`🔄 [HTTP] Updating ${notUsed.length} services to hasBeenUsed=true`);
       console.log(`🌐 [HTTP] Calling: POST ${SERVICE_SERVICE_URL}/api/service/mark-as-used`);
@@ -104,7 +104,7 @@ async function checkAndUpdateServiceUsage(reservationId, paymentId) {
       console.log('✅ [HTTP] All services already marked as used');
     }
   } catch (error) {
-    // Don't throw - this is not critical for payment flow
+    // Không throw - điều này không quan trọng cho luồng thanh toán
     console.error('❌ [HTTP] Error checking/updating service usage:', {
       message: error.message,
       status: error.response?.status,

@@ -8,7 +8,7 @@ module.exports = {
   REDIS_URL: process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || '127.0.0.1'}:${process.env.REDIS_PORT || 6379}`,
   REDIS_HOST: process.env.REDIS_HOST || '127.0.0.1',
   REDIS_PORT: process.env.REDIS_PORT || 6379,
-  // VNPay Payment Gateway Configuration
+  // Cấu hình Cổng thanh toán VNPay
   VNPAY_TMN_CODE: process.env.VNPAY_TMN_CODE || 'KZ1MPDRW',
   VNPAY_HASH_SECRET: process.env.VNPAY_HASH_SECRET || 'LGJNHZSLMX362UGJOKERT14VR4MF3JBD',
   VNPAY_URL: process.env.VNPAY_URL || 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html',

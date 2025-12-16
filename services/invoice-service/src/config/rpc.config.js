@@ -27,11 +27,11 @@ class RPCClient {
       this.connection = await amqp.connect(rabbitmqUrl);
       this.channel = await this.connection.createChannel();
       
-      // Create exclusive queue for responses
+      // Tạo hàng đợi độc quyền cho các phản hồi
       const q = await this.channel.assertQueue('', { exclusive: true });
       this.responseQueue = q.queue;
 
-      // Consume responses
+      // Tiêu thụ các phản hồi
       await this.channel.consume(this.responseQueue, (msg) => {
         if (msg) {
           const correlationId = msg.properties.correlationId;
@@ -43,7 +43,7 @@ class RPCClient {
             if (response && response.error) {
               request.reject(new Error(response.error));
             } else {
-              // 🔥 FIX: Wrap extractResult in try-catch to handle errors from it
+              // 🔥 SỬA LỖI: Bọc extractResult trong try-catch để xử lý lỗi từ nó
               try {
                 const result = extractResult(response);
                 request.resolve(result);
@@ -98,13 +98,13 @@ class RPCClient {
       const correlationId = `${++this.correlationId}`;
       const queueName = QUEUE_NAME_MAP[serviceName] || `${serviceName}_rpc_queue`;
 
-      // Set timeout
+      // Đặt timeout
       const timeoutId = setTimeout(() => {
         this.pendingRequests.delete(correlationId);
-        reject(new Error(`RPC call timeout: ${serviceName}.${methodName}`));
+        reject(new Error(`Gọi RPC hết thời gian chờ: ${serviceName}.${methodName}`));
       }, timeout);
 
-      // Store request
+      // Lưu request
       this.pendingRequests.set(correlationId, {
         resolve: (result) => {
           clearTimeout(timeoutId);
@@ -116,7 +116,7 @@ class RPCClient {
         }
       });
 
-      // Send request
+      // Gửi request
       const message = JSON.stringify({
         method: methodName,
         params,
@@ -135,10 +135,10 @@ class RPCClient {
     });
   }
 
-  // Specific service call methods
+  // Các phương thức gọi dịch vụ cụ thể
   async callPaymentService(method, params) {
     try {
-      // Use 'payment' to match payment_rpc_queue (not payment-service_rpc_queue)
+      // Dùng 'payment' để khớp payment_rpc_queue (không phải payment-service_rpc_queue)
       return await this.call('payment', method, params);
     } catch (error) {
       console.error(`❌ Payment service call failed: ${method}`, error.message);
@@ -168,27 +168,27 @@ class RPCClient {
     try {
       return await this.call('notification-service', method, params);
     } catch (error) {
-      console.warn(`⚠️ Notification service call failed: ${method}`, error.message);
-      // Don't throw for notifications as they're not critical
+      console.warn(`⚠️ Gọi dịch vụ thông báo thất bại: ${method}`, error.message);
+      // Không throw với thông báo vì chúng không quan trọng
       return null;
     }
   }
 
-  // Health check for RPC connection
+  // Kiểm tra sức khỏe cho kết nối RPC
   async healthCheck() {
     try {
       if (!this.isConnected) {
-        return { status: 'disconnected', message: 'RPC Client not connected' };
+        return { status: 'disconnected', message: 'RPC Client chưa kết nối' };
       }
 
-      // Try a simple ping to a known service
+      // Thử ping đơn giản tới một dịch vụ đã biết
       const start = Date.now();
       try {
         await this.call('health-service', 'ping', {}, 5000);
         const latency = Date.now() - start;
         return { status: 'connected', latency: `${latency}ms` };
       } catch (error) {
-        return { status: 'connected', message: 'RPC working but health service unavailable' };
+        return { status: 'connected', message: 'RPC hoạt động nhưng dịch vụ health không khả dụng' };
       }
     } catch (error) {
       return { status: 'error', message: error.message };
@@ -203,7 +203,7 @@ class RPCClient {
     };
   }
 
-  // Batch calls for multiple services
+  // Gọi hàng loạt cho nhiều dịch vụ
   async batchCall(calls) {
     try {
       const promises = calls.map(({ service, method, params }) => 
@@ -217,7 +217,7 @@ class RPCClient {
     }
   }
 
-  // Safe call with fallback
+  // Gọi an toàn với fallback
   async safeCall(serviceName, methodName, params = {}, fallback = null) {
     try {
       return await this.call(serviceName, methodName, params);
@@ -228,7 +228,7 @@ class RPCClient {
   }
 }
 
-// Create singleton instance
+// Tạo instance singleton
 const rpcClient = new RPCClient();
 
 function extractResult(response) {
@@ -240,12 +240,12 @@ function extractResult(response) {
     return response;
   }
 
-  // 🔥 FIX: Handle { success: true, data: {...} } format from appointment-service
+  // 🔥 SỬA LỖI: Xử lý định dạng { success: true, data: {...} } từ appointment-service
   if (response.success === true && response.data !== undefined) {
     return response.data;
   }
 
-  // 🔥 FIX: Handle { success: false, error: '...' } format
+  // 🔥 SỬA LỖI: Xử lý định dạng { success: false, error: '...' }
   if (response.success === false && response.error) {
     throw new Error(response.error);
   }

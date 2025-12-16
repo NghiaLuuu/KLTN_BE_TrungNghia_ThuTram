@@ -6,7 +6,7 @@
 const { getCachedUsers } = require('../utils/cacheHelper');
 const redisClient = require('../utils/redis.client');
 
-// Helper: Format date to Vietnam timezone (YYYY-MM-DD)
+// Hỗ trợ: Định dạng ngày theo múi giờ Việt Nam (YYYY-MM-DD)
 function toVNDateOnlyString(d) {
   const vn = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
   const y = vn.getFullYear();
@@ -15,7 +15,7 @@ function toVNDateOnlyString(d) {
   return `${y}-${m}-${day}`;
 }
 
-// Helper: Format time to Vietnam timezone (HH:mm)
+// Hỗ trợ: Định dạng thời gian theo múi giờ Việt Nam (HH:mm)
 function toVNTimeString(d) {
   if (!d) return null;
   const vn = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
@@ -24,7 +24,7 @@ function toVNTimeString(d) {
   return `${h}:${m}`;
 }
 
-// Helper: Format datetime to Vietnam timezone
+// Hỗ trợ: Định dạng ngày giờ theo múi giờ Việt Nam
 function toVNDateTimeString(d) {
   if (!d) return null;
   const dateStr = toVNDateOnlyString(d);
@@ -32,15 +32,15 @@ function toVNDateTimeString(d) {
   return `${dateStr} ${timeStr}`;
 }
 
-// 🆕 API 1: Get dentists with nearest available slot group
-// Returns list of active dentists with their nearest slot group (> currentTime + 30 minutes)
+// 🆕 API 1: Lấy nha sĩ với nhóm slot trống gần nhất
+// Trả về danh sách nha sĩ hoạt động với nhóm slot gần nhất (> thờiGianHiệnTại + 30 phút)
 async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null) {
   try {
     const Slot = require('../models/slot.model');
     const { ScheduleConfig } = require('../models/scheduleConfig.model');
     const axios = require('axios');
     
-    // Get service info if serviceId provided
+    // Lấy thông tin dịch vụ nếu có serviceId
     let allowedRoomTypes = null;
     
     if (serviceId) {
@@ -64,17 +64,17 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
       }
     }
     
-    // Get schedule config
+    // Lấy cấu hình lịch
     const config = await ScheduleConfig.findOne();
     const maxBookingDays = config?.maxBookingDays || 30;
     const slotDuration = config?.slotDurationMinutes || 15;
     const requiredSlotCount = Math.ceil(serviceDuration / slotDuration);
     
-    // Calculate time threshold: currentTime + 30 minutes
+    // Tính ngưỡng thời gian: thờiGianHiệnTại + 30 phút
     const now = new Date();
     const threshold = new Date(now.getTime() + 30 * 60 * 1000);
     
-    // Calculate max date
+    // Tính ngày tối đa
     const maxDate = new Date(now);
     maxDate.setDate(maxDate.getDate() + maxBookingDays);
     
@@ -84,11 +84,11 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
     console.log('🎯 Service duration:', serviceDuration, 'minutes | Required slots:', requiredSlotCount);
     console.log('📊 Threshold ISO:', threshold.toISOString());
     
-    // Get all active dentists from cache
+    // Lấy tất cả nha sĩ hoạt động từ cache
     const allUsers = await getCachedUsers();
-    console.log('🔍 Total users from cache:', allUsers.length);
+    console.log('🔍 Tổng số users từ cache:', allUsers.length);
     
-    // Debug: Show all users with their roles
+    // Debug: Hiển thị tất cả users với roles của họ
     if (allUsers.length > 0) {
       console.log('📋 All users roles:', allUsers.map(u => ({
         id: u._id,
@@ -125,14 +125,14 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
       };
     }
     
-    // Find nearest available slot for each dentist
+    // Tìm slot trống gần nhất cho mỗi nha sĩ
     const dentistsWithSlots = [];
     
     for (const dentist of activeDentists) {
       try {
-        console.log(`\n🔍 Searching slot groups for dentist: ${dentist.fullName} (${dentist._id})`);
+        console.log(`\n🔍 Đang tìm nhóm slot cho nha sĩ: ${dentist.fullName} (${dentist._id})`);
         
-        // Get all available slots for this dentist within maxBookingDays range
+        // Lấy tất cả slots trống cho nha sĩ này trong khoảng maxBookingDays
         const availableSlots = await Slot.find({
           dentist: dentist._id,
           startTime: { $gte: threshold, $lte: maxDate },
@@ -140,7 +140,7 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
           isActive: true
         })
         .sort({ startTime: 1 })
-        .populate('scheduleId') // Populate schedule to get roomId, subRoomId
+        .populate('scheduleId') // Populate schedule để lấy roomId, subRoomId
         .lean();
         
         
@@ -157,39 +157,39 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
           continue;
         }
         
-        // Fetch room information for all unique roomIds from room-service API
+        // Lấy thông tin phòng cho tất cả roomIds duy nhất từ room-service API
         const uniqueRoomIds = [...new Set(availableSlots.map(s => s.roomId.toString()))];
-        console.log('🏥 Unique room IDs:', uniqueRoomIds);
+        console.log('🏥 Các room IDs duy nhất:', uniqueRoomIds);
         
-        // Fetch room details from room-service API
+        // Lấy chi tiết phòng từ room-service API
         const roomMap = new Map();
         try {
           const { sendRpcRequest } = require('../utils/rabbitmq.client');
           const roomsData = await sendRpcRequest('room_queue', { action: 'getAllRooms' }, 5000);
           
           if (!roomsData || !roomsData.success) {
-            console.warn('⚠️ Could not get rooms from API. Room filtering will be skipped.');
+            console.warn('⚠️ Không thể lấy phòng từ API. Lọc phòng sẽ bị bỏ qua.');
           } else {
             const allRooms = roomsData.data;
-            console.log(`✅ Loaded ${allRooms.length} rooms from room-service API`);
+            console.log(`✅ Đã tải ${allRooms.length} phòng từ room-service API`);
             
-            // Build room map for quick lookup
+            // Xây dựng room map để tra cứu nhanh
             uniqueRoomIds.forEach(roomId => {
               const room = allRooms.find(r => r._id === roomId);
               if (room) {
                 roomMap.set(roomId, room);
-                console.log(`✅ Found room ${roomId}: ${room.name}, type: ${room.roomType}`);
+                console.log(`✅ Tìm thấy phòng ${roomId}: ${room.name}, loại: ${room.roomType}`);
               } else {
-                console.warn(`⚠️ Room ${roomId} not found`);
+                console.warn(`⚠️ Không tìm thấy phòng ${roomId}`);
               }
             });
           }
         } catch (error) {
-          console.error('❌ Error getting rooms from API:', error.message);
-          // Continue without room filtering if API is unavailable
+          console.error('❌ Lỗi khi lấy phòng từ API:', error.message);
+          // Tiếp tục mà không lọc phòng nếu API không khả dụng
         }
         
-        // Find first valid consecutive slot group with proper roomType filtering
+        // Tìm nhóm slot liên tiếp hợp lệ đầu tiên với lọc roomType đúng
         let nearestSlotGroup = null;
         
         for (let i = 0; i <= availableSlots.length - requiredSlotCount; i++) {
@@ -217,7 +217,7 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
             console.log(`✅ Slot ${i} - room type "${roomData.roomType}" is ALLOWED`);
           }
           
-          // Try to build a group of required size
+          // Cố gắng xây dựng một nhóm với số lượng yêu cầu
           let isConsecutive = true;
           const potentialGroup = [firstSlot];
           
@@ -225,7 +225,7 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
             const prevSlot = availableSlots[i + j - 1];
             const currentSlot = availableSlots[i + j];
             
-            // All slots in group must be from the same room (same roomId AND subRoomId)
+            // Tất cả slots trong nhóm phải từ cùng một phòng (cùng roomId VÀ subRoomId)
             if (currentSlot.roomId.toString() !== firstSlotRoomId ||
                 currentSlot.subRoomId?.toString() !== firstSlot.subRoomId?.toString()) {
               console.log(`❌ Slot ${i + j} - different room/subroom (need same for group)`);
@@ -233,7 +233,7 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
               break;
             }
             
-            // Check if consecutive (allow 1 minute tolerance)
+            // Kiểm tra liên tiếp (cho phép sai lệch 1 phút)
             const prevEndTime = new Date(prevSlot.endTime).getTime();
             const currentStartTime = new Date(currentSlot.startTime).getTime();
             
@@ -277,7 +277,7 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
               roomType: nearestSlotGroup.room.roomType
             });
             
-            break; // Found the nearest group, stop searching
+            break; // Đã tìm thấy nhóm gần nhất, dừng tìm kiếm
           }
         }
         
@@ -299,7 +299,7 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
     
     console.log(`\n📊 Summary: ${dentistsWithSlots.length}/${activeDentists.length} dentists have available slots`);
     
-    // Sort dentists by nearest slot time
+    // Sắp xếp nha sĩ theo thời gian slot gần nhất
     dentistsWithSlots.sort((a, b) => {
       const dateA = new Date(a.nearestSlot.date + 'T' + a.nearestSlot.startTime);
       const dateB = new Date(b.nearestSlot.date + 'T' + b.nearestSlot.startTime);
@@ -327,19 +327,19 @@ async function getDentistsWithNearestSlot(serviceDuration = 15, serviceId = null
 function hasEnoughConsecutiveSlots(slots, serviceDuration = 15, slotDuration = 15) {
   const requiredSlotCount = Math.ceil(serviceDuration / slotDuration);
   
-  // If service only needs 1 slot, any available slot is enough
+  // Nếu dịch vụ chỉ cần 1 slot, bất kỳ slot có sẵn nào cũng đủ
   if (requiredSlotCount <= 1) {
     return slots.length > 0;
   }
   
-  // Sort slots by startTime
+  // Sắp xếp slots theo startTime
   const sortedSlots = [...slots].sort((a, b) => {
     const timeA = new Date(a.startTime).getTime();
     const timeB = new Date(b.startTime).getTime();
     return timeA - timeB;
   });
   
-  // Sliding window to find consecutive groups
+  // Cửa sổ trượt để tìm các nhóm liên tiếp
   for (let i = 0; i <= sortedSlots.length - requiredSlotCount; i++) {
     let isConsecutive = true;
     
@@ -350,7 +350,7 @@ function hasEnoughConsecutiveSlots(slots, serviceDuration = 15, slotDuration = 1
       const currentEndTime = new Date(currentSlot.endTime).getTime();
       const nextStartTime = new Date(nextSlot.startTime).getTime();
       
-      // Check if slots are consecutive (allow 1 minute tolerance)
+      // Kiểm tra các slots có liên tiếp không (cho phép sai lệch 1 phút)
       if (Math.abs(currentEndTime - nextStartTime) > 60000) {
         isConsecutive = false;
         break;
@@ -358,7 +358,7 @@ function hasEnoughConsecutiveSlots(slots, serviceDuration = 15, slotDuration = 1
     }
     
     if (isConsecutive) {
-      return true; // Found at least one valid group
+      return true; // Đã tìm thấy ít nhất một nhóm hợp lệ
     }
   }
   
@@ -366,7 +366,7 @@ function hasEnoughConsecutiveSlots(slots, serviceDuration = 15, slotDuration = 1
 }
 
 // 🆕 API 2: Get dentist working dates within maxBookingDays
-// Returns list of dates when dentist has available slots (with enough consecutive slots for service duration)
+// Trả về danh sách các ngày nha sĩ có slots trống (với đủ slots liên tiếp cho thời lượng dịch vụ)
 async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId = null) {
   try {
     const Slot = require('../models/slot.model');
@@ -386,13 +386,13 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
       }
     }
     
-    // Get schedule config
+    // Lấy cấu hình lịch
     const config = await ScheduleConfig.findOne();
     const maxBookingDays = config?.maxBookingDays || 30;
     const slotDuration = config?.slotDurationMinutes || 15;
 
     
-    // Calculate date range
+    // Tính khoảng ngày
     const now = new Date();
     const threshold = new Date(now.getTime() + 30 * 60 * 1000);
     const maxDate = new Date(now);
@@ -405,9 +405,9 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
     console.log('🎯 Service duration:', serviceDuration, 'minutes | Slot duration:', slotDuration, 'minutes');
     console.log('📊 Required consecutive slots:', Math.ceil(serviceDuration / slotDuration));
     
-    // Get all slots for this dentist within date range
+    // Lấy tất cả slots của nha sĩ trong khoảng ngày
     const slots = await Slot.find({
-      dentist: dentistId, // MongoDB will match if dentistId is in the dentist array
+      dentist: dentistId, // MongoDB sẽ khớp nếu dentistId nằm trong mảng dentist
       startTime: { $gte: threshold, $lte: maxDate },
       status: 'available',
       isActive: true
@@ -428,7 +428,7 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
     // 🆕 Filter slots by roomType if allowedRoomTypes is specified
     let filteredSlots = slots;
     if (allowedRoomTypes && allowedRoomTypes.length > 0) {
-      // Load room data from room-service API
+      // Tải dữ liệu phòng từ room-service API
       const roomMap = new Map();
       try {
         const { sendRpcRequest } = require('../utils/rabbitmq.client');
@@ -445,7 +445,7 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
         console.warn('⚠️ Could not load rooms from API:', error.message);
       }
       
-      // Filter slots by roomType
+      // Lọc slots theo roomType
       filteredSlots = slots.filter(slot => {
         const roomId = slot.roomId?.toString();
         if (!roomId) return false;
@@ -482,7 +482,7 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
       };
     }
     
-    // Group slots by date and shift
+    // Nhóm slots theo ngày và ca
     const dateMap = new Map();
     
     filteredSlots.forEach(slot => {
@@ -496,7 +496,7 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
             afternoon: { available: false, slots: [] },
             evening: { available: false, slots: [] }
           },
-          allSlots: [], // Store all slots for date-level checking
+          allSlots: [], // Lưu tất cả slots để kiểm tra cấp độ ngày
           totalSlots: 0,
           availableSlots: 0
         });
@@ -505,7 +505,7 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
       const dateData = dateMap.get(dateStr);
       
       // ✅ FIX: Use slot.shiftName from database instead of calculating from hour
-      // This ensures consistency with /details/future API which groups by shiftName
+      // Điều này đảm bảo nhất quán với /details/future API nhóm theo shiftName
       let shiftKey = 'morning'; // default
       if (slot.shiftName === 'Ca Sáng') shiftKey = 'morning';
       else if (slot.shiftName === 'Ca Chiều') shiftKey = 'afternoon';
@@ -517,11 +517,11 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
       dateData.availableSlots += 1;
     });
     
-    // Filter dates: only keep dates with enough consecutive slots
+    // Lọc ngày: chỉ giữ các ngày có đủ slots liên tiếp
     const validWorkingDates = [];
     
     for (const [dateStr, dateData] of dateMap.entries()) {
-      // Check each shift for consecutive slots
+      // Kiểm tra từng ca có slots liên tiếp không
       let hasValidShift = false;
       
       for (const [shiftKey, shiftData] of Object.entries(dateData.shifts)) {
@@ -536,7 +536,7 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
             shiftData.available = true;
             hasValidShift = true;
             
-            // Convert slots to display format
+            // Chuyển đổi slots sang định dạng hiển thị
             shiftData.slots = shiftData.slots.map(s => ({
               _id: s._id,
               startTime: toVNTimeString(s.startTime),
@@ -566,7 +566,7 @@ async function getDentistWorkingDates(dentistId, serviceDuration = 15, serviceId
       }
     }
     
-    // Sort by date
+    // Sắp xếp theo ngày
     const workingDates = validWorkingDates.sort((a, b) => 
       new Date(a.date).getTime() - new Date(b.date).getTime()
     );

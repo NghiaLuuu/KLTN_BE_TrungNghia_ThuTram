@@ -10,12 +10,12 @@ const roleMiddleware = (allowedRoles) => {
         });
       }
 
-      // ✅ Allow internal service calls to bypass role checks
+      // ✅ Cho phép các cuộc gọi service nội bộ bỏ qua kiểm tra vai trò
       if (user.isInternal === true && user.role === 'system') {
         return next();
       }
 
-      // ✅ Support both activeRole (new token structure) and role (old structure)
+      // ✅ Hỗ trợ cả activeRole (cấu trúc token mới) và role (cấu trúc cũ)
       const userRole = user.activeRole || user.role;
 
       if (!userRole || !allowedRoles.includes(userRole)) {
@@ -25,7 +25,7 @@ const roleMiddleware = (allowedRoles) => {
         });
       }
 
-      // Check if user is accessing their own patient data
+      // Kiểm tra xem người dùng có đang truy cập dữ liệu bệnh nhân của chính họ không
       if (userRole === 'patient' && req.params.patientId) {
         if (req.params.patientId !== user.userId) {
           return res.status(403).json({

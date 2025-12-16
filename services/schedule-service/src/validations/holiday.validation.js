@@ -16,7 +16,7 @@ const createHolidayValidation = [
       const start = new Date(startDate);
       start.setHours(0, 0, 0, 0);
       const today = new Date();
-      today.setHours(0, 0, 0, 0); // Reset to start of day for fair comparison
+      today.setHours(0, 0, 0, 0); // Reset về đầu ngày để so sánh công bằng
       
       // Cho phép ngày bắt đầu >= hôm nay (không chỉ >)
       if (start < today) {
@@ -65,7 +65,7 @@ const updateHolidayValidation = [
     .isISO8601()
     .withMessage('Invalid start date format. Use YYYY-MM-DD')
     .custom((startDate) => {
-      if (!startDate) return true; // Skip if not provided
+      if (!startDate) return true; // Bỏ qua nếu không được cung cấp
       
       const start = new Date(startDate);
       start.setHours(0, 0, 0, 0);
@@ -84,7 +84,7 @@ const updateHolidayValidation = [
     .isISO8601()
     .withMessage('Invalid end date format. Use YYYY-MM-DD')
     .custom((endDate, { req }) => {
-      if (!endDate) return true; // Skip if not provided
+      if (!endDate) return true; // Bỏ qua nếu không được cung cấp
       
       const end = new Date(endDate);
       const today = new Date();
@@ -94,7 +94,7 @@ const updateHolidayValidation = [
         throw new Error('End date must be today or in the future');
       }
       
-      // Only validate if both dates are provided
+      // Chỉ validate nếu cả hai ngày đều được cung cấp
       if (endDate && req.body.startDate && end < new Date(req.body.startDate)) {
         throw new Error('End date must be after or equal to start date');
       }

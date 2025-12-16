@@ -2,7 +2,7 @@ const { body, param, query, validationResult } = require('express-validator');
 const { InvoiceStatus, InvoiceType } = require('../models/invoice.model');
 const { ServiceType, ServiceCategory } = require('../models/invoiceDetail.model');
 
-// ============ VALIDATION ERROR HANDLER ============
+// ============ XỬ LÝ LỖI KIỂM TRA ============
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -21,7 +21,7 @@ const handleValidationErrors = (req, res, next) => {
   next();
 };
 
-// ============ INVOICE VALIDATION SCHEMAS ============
+// ============ CÁC SCHEMA KIỂM TRA HÓA ĐƠN ============
 const validateCreateInvoice = [
   body('appointmentId')
     .optional()
@@ -195,7 +195,7 @@ const validateUpdateInvoice = [
   handleValidationErrors
 ];
 
-// ============ PAYMENT VALIDATION SCHEMAS ============
+// ============ CÁC SCHEMA KIỂM TRA THANH TOÁN ============
 const validatePaymentData = [
   body('invoiceId')
     .notEmpty()
@@ -223,7 +223,7 @@ const validatePaymentData = [
   handleValidationErrors
 ];
 
-// ============ INVOICE DETAIL VALIDATION SCHEMAS ============
+// ============ CÁC SCHEMA KIỂM TRA CHI TIẾT HÓA ĐƠN ============
 const validateCreateInvoiceDetail = [
   param('invoiceId')
     .isMongoId()
@@ -314,7 +314,7 @@ const validateUpdateInvoiceDetail = [
   handleValidationErrors
 ];
 
-// ============ SEARCH & FILTER VALIDATION ============
+// ============ KIỂM TRA TÌM KIẾM & LỌC ============
 const validateSearchParams = [
   query('q')
     .optional()
@@ -359,7 +359,7 @@ const validateSearchParams = [
   handleValidationErrors
 ];
 
-// ============ TREATMENT VALIDATION SCHEMAS ============
+// ============ CÁC SCHEMA KIỂM TRA ĐIỀU TRỊ ============
 const validateTreatmentCompletion = [
   param('detailId')
     .isMongoId()
@@ -427,7 +427,7 @@ const validateTreatmentProgress = [
   handleValidationErrors
 ];
 
-// ============ STATISTICS VALIDATION ============
+// ============ KIỂM TRA THỐNG KÊ ============
 const validateStatisticsParams = [
   query('startDate')
     .notEmpty()

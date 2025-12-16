@@ -2,8 +2,8 @@ const Slot = require('../models/slot.model');
 const rabbitmqClient = require('./rabbitmq.client');
 
 /**
- * Handle appointment.created event
- * Update slots to mark them as booked
+ * Xử lý sự kiện appointment.created
+ * Cập nhật trạng thái slot thành đã đặt
  */
 async function handleAppointmentCreated(data) {
   try {
@@ -24,13 +24,13 @@ async function handleAppointmentCreated(data) {
       slotCount: slotIds?.length
     });
 
-    // Validate data
+    // Xác thực dữ liệu
     if (!appointmentId || !slotIds || !Array.isArray(slotIds) || slotIds.length === 0) {
-      console.error('[Schedule] Invalid appointment data - missing slotIds');
+      console.error('[Schedule] Dữ liệu cuộc hẹn không hợp lệ - thiếu slotIds');
       return;
     }
 
-    // Update all slots to booked status
+    // Cập nhật tất cả slots thành trạng thái booked
     const result = await Slot.updateMany(
       { _id: { $in: slotIds } },
       {
@@ -51,13 +51,13 @@ async function handleAppointmentCreated(data) {
       slotIds
     });
 
-    // If no slots were updated, log warning
+    // Nếu không có slot nào được cập nhật, ghi cảnh báo
     if (result.matchedCount === 0) {
-      console.warn('[Schedule] No slots found for appointment:', appointmentId);
+      console.warn('[Schedule] Không tìm thấy slot cho cuộc hẹn:', appointmentId);
     } else if (result.modifiedCount === 0) {
-      console.warn('[Schedule] Slots found but not modified (already booked?):', appointmentId);
+      console.warn('[Schedule] Tìm thấy slot nhưng không sửa đổi (đã đặt rồi?):', appointmentId);
     } else {
-      console.log(`[Schedule] Successfully marked ${result.modifiedCount} slots as booked for appointment ${appointmentId}`);
+      console.log(`[Schedule] Đã đánh dấu ${result.modifiedCount} slots là đã đặt cho cuộc hẹn ${appointmentId}`);
     }
     
     // 🔥 CRITICAL: Invalidate Redis cache for affected rooms
@@ -89,8 +89,8 @@ async function handleAppointmentCreated(data) {
 }
 
 /**
- * Handle appointment.cancelled event
- * Release slots back to available status
+ * Xử lý sự kiện appointment.cancelled
+ * Giải phóng slots về trạng thái sẵn sàng
  */
 async function handleAppointmentCancelled(data) {
   try {
@@ -103,11 +103,11 @@ async function handleAppointmentCancelled(data) {
     });
 
     if (!slotIds || !Array.isArray(slotIds) || slotIds.length === 0) {
-      console.error('[Schedule] Invalid cancellation data - missing slotIds');
+      console.error('[Schedule] Dữ liệu hủy không hợp lệ - thiếu slotIds');
       return;
     }
 
-    // Release slots back to available
+    // Giải phóng slots về trạng thái sẵn sàng
     const result = await Slot.updateMany(
       { _id: { $in: slotIds } },
       {
@@ -160,27 +160,27 @@ async function handleAppointmentCancelled(data) {
 }
 
 /**
- * Setup event listeners for schedule service
+ * Cài đặt bộ lắng nghe sự kiện cho schedule service
  */
 async function setupEventListeners() {
   try {
-    // Connect to RabbitMQ
+    // Kết nối tới RabbitMQ
     await rabbitmqClient.connect();
 
-    // Listen to appointment.created events
+    // Lắng nghe sự kiện appointment.created
     await rabbitmqClient.consumeQueue('appointment.created', handleAppointmentCreated);
 
-    // Listen to appointment.cancelled events
+    // Lắng nghe sự kiện appointment.cancelled
     await rabbitmqClient.consumeQueue('appointment.cancelled', handleAppointmentCancelled);
 
-    // ✅ Simplified logs - will show in index.js only
+    // ✅ Log đơn giản - sẽ hiển thị trong index.js
 
   } catch (error) {
-    console.error('[Schedule] Error setting up event listeners:', error);
+    console.error('[Schedule] Lỗi khi cài đặt bộ lắng nghe sự kiện:', error);
     
-    // Retry after 5 seconds
+    // Thử lại sau 5 giây
     setTimeout(() => {
-      console.log('[Schedule] Retrying event listeners setup...');
+      console.log('[Schedule] Đang thử lại cài đặt bộ lắng nghe sự kiện...');
       setupEventListeners();
     }, 5000);
   }

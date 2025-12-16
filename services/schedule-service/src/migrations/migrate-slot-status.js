@@ -1,10 +1,10 @@
 /**
- * Migration Script: Slot Model - isAvailable/isBooked to status enum
+ * Script Di chuyển: Slot Model - isAvailable/isBooked sang status enum
  * 
- * Before: isAvailable (boolean), isBooked (boolean)
- * After: status (enum: 'available', 'locked', 'booked')
+ * Trước: isAvailable (boolean), isBooked (boolean)
+ * Sau: status (enum: 'available', 'locked', 'booked')
  * 
- * Run: node src/migrations/migrate-slot-status.js
+ * Chạy: node src/migrations/migrate-slot-status.js
  */
 
 require('dotenv').config();
@@ -19,7 +19,7 @@ async function migrateSlotStatus() {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log('✅ Connected to MongoDB');
     
-    // Count total slots
+    // Đếm tổng số slots
     const totalSlots = await Slot.countDocuments();
     console.log(`📊 Total slots to migrate: ${totalSlots}`);
     
@@ -78,7 +78,7 @@ async function migrateSlotStatus() {
       console.log(`   - ${item._id}: ${item.count} slots`);
     });
     
-    // Check for unmigrated slots (still have old fields)
+    // Kiểm tra các slots chưa di chuyển (vẫn còn trường cũ)
     const unmigrated = await Slot.countDocuments({
       $or: [
         { isAvailable: { $exists: true } },
@@ -103,7 +103,7 @@ async function migrateSlotStatus() {
   }
 }
 
-// Run migration
+// Chạy di chuyển
 migrateSlotStatus()
   .then(() => {
     console.log('\n✅ Script completed');

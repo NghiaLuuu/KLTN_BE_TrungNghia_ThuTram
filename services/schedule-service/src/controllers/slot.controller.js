@@ -4,11 +4,11 @@ const Slot = require('../models/slot.model');
 
 const isManagerOrAdmin = (user) => {
   if (!user) return false;
-  const userRoles = user.roles || (user.role ? [user.role] : []); // Support both roles array and legacy role
+  const userRoles = user.roles || (user.role ? [user.role] : []); // Hỗ trợ cả mảng roles và role cũ
   return userRoles.includes('manager') || userRoles.includes('admin');
 };
 
-// 🆕 Get slot by ID (for inter-service communication)
+// 🆕 Lấy slot theo ID (cho giao tiếp liên dịch vụ)
 exports.getSlotById = async (req, res) => {
   try {
     const { slotId } = req.params;
@@ -16,20 +16,20 @@ exports.getSlotById = async (req, res) => {
     if (!slotId) {
       return res.status(400).json({
         success: false,
-        message: 'Slot ID is required'
+        message: 'Slot ID là bắt buộc'
       });
     }
 
     const slot = await Slot.findById(slotId)
       .populate('roomId', 'name')
       .populate('subRoomId', 'name')
-      .populate('dentist', 'fullName title')  // Array field
-      .populate('nurse', 'fullName');         // Array field
+      .populate('dentist', 'fullName title')  // Trường mảng
+      .populate('nurse', 'fullName');         // Trường mảng
 
     if (!slot) {
       return res.status(404).json({
         success: false,
-        message: 'Slot not found'
+        message: 'Không tìm thấy slot'
       });
     }
 
@@ -38,15 +38,15 @@ exports.getSlotById = async (req, res) => {
       slot
     });
   } catch (error) {
-    console.error('[slotController] getSlotById error:', error);
+    console.error('[slotController] Lỗi getSlotById:', error);
     return res.status(500).json({
       success: false,
-      message: 'Error getting slot: ' + error.message
+      message: 'Lỗi khi lấy slot: ' + error.message
     });
   }
 };
 
-// Assign staff to slots
+// Phân công nhân viên cho slots
 exports.assignStaffToSlots = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({ 
@@ -67,15 +67,15 @@ exports.assignStaffToSlots = async (req, res) => {
       nurseIds
     } = req.body;
 
-    // 🆕 Support two modes:
-    // Mode 1: Assign by selected slot IDs (new logic)
-    // Mode 2: Assign by quarter/year + shifts (legacy logic)
+    // 🆕 Hỗ trợ hai chế độ:
+    // Chế độ 1: Phân công theo slot IDs đã chọn (logic mới)
+    // Chế độ 2: Phân công theo quý/năm + ca (logic cũ)
     
     if (slotIds && Array.isArray(slotIds) && slotIds.length > 0) {
-      // 🆕 NEW MODE: Assign to specific slots
-      console.log('📋 Assign mode: Specific slots', { slotIds, dentistIds, nurseIds });
+      // 🆕 CHẾ ĐỘ MỚI: Phân công cho các slots cụ thể
+      console.log('📋 Chế độ phân công: Slots cụ thể', { slotIds, dentistIds, nurseIds });
       
-      // Validate dentist and nurse IDs from Redis cache
+      // Kiểm tra ID bác sĩ và y tá từ cache
       const { validateStaffIds } = require('../services/slot.service');
       await validateStaffIds(dentistIds || [], nurseIds || []);
 
@@ -102,7 +102,7 @@ exports.assignStaffToSlots = async (req, res) => {
 
       console.log('📅 Assign mode: Quarter-based', { quarter, year, shifts });
 
-      // Validate dentist and nurse IDs from Redis cache
+      // Kiểm tra ID bác sĩ và y tá từ cache
       const { validateStaffIds } = require('../services/slot.service');
       await validateStaffIds(dentistIds || [], nurseIds || []);
 
@@ -130,7 +130,7 @@ exports.assignStaffToSlots = async (req, res) => {
   }
 };
 
-// Reassign staff to slots that already have staff assigned
+// Phân công lại nhân viên cho slots đã được phân công
 exports.reassignStaffToSlots = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({ 
@@ -176,7 +176,7 @@ exports.reassignStaffToSlots = async (req, res) => {
         });
       }
 
-      // Validate staff IDs from Redis cache
+      // Kiểm tra ID nhân viên từ cache
       const { validateStaffIds } = require('../services/slot.service');
       const staffRole = role === 'doctor' ? 'dentist' : role;
       if (staffRole === 'dentist') {
@@ -207,7 +207,7 @@ exports.reassignStaffToSlots = async (req, res) => {
 
       console.log('📅 Reassign mode: Quarter-based', { quarter, year, shifts });
 
-      // Validate dentist and nurse IDs from Redis cache
+      // Kiểm tra ID bác sĩ và y tá từ cache
       const { validateStaffIds } = require('../services/slot.service');
       await validateStaffIds(dentistIds || [], nurseIds || []);
 

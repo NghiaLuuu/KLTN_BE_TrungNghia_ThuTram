@@ -5,15 +5,15 @@ const { handleQuery } = require('./queryEngine.service');
 
 class AIService {
   /**
-   * Send message to GPT and get response (with Query Engine integration)
-   * @param {Array} messages - Array of messages in OpenAI format
-   * @param {String} systemPrompt - System prompt (optional, uses default if not provided)
-   * @param {String} authToken - JWT token for authenticated API calls (optional)
+   * Gửi tin nhắn đến GPT và nhận phản hồi (tích hợp Query Engine)
+   * @param {Array} messages - Mảng tin nhắn theo định dạng OpenAI
+   * @param {String} systemPrompt - System prompt (tùy chọn, dùng mặc định nếu không cung cấp)
+   * @param {String} authToken - JWT token cho các API call có xác thực (tùy chọn)
    * @returns {Promise<Object>} - { response: string, queryData: any }
    */
   async sendMessageToGPT(messages, systemPrompt = DENTAL_ASSISTANT_PROMPT, authToken = null) {
     try {
-      // Step 1: Get initial response from GPT
+      // Bước 1: Lấy phản hồi ban đầu từ GPT
       const response = await openai.chat.completions.create({
         model: config.model,
         messages: [
@@ -25,11 +25,11 @@ class AIService {
       });
 
       const gptResponse = response.choices[0].message.content;
-      console.log('🤖 GPT Response:', gptResponse);
+      console.log('🤖 Phản hồi GPT:', gptResponse);
 
-      // Step 2: Check if GPT wants to use booking functionality
+      // Bước 2: Kiểm tra GPT có muốn sử dụng chức năng đặt lịch không
       if (this.hasBookingRequest(gptResponse)) {
-        console.log('📅 Booking request detected');
+        console.log('📅 Phát hiện yêu cầu đặt lịch');
         return {
           response: gptResponse,
           bookingAction: this.extractBookingAction(gptResponse),
@@ -37,21 +37,21 @@ class AIService {
         };
       }
 
-      // Step 3: Check if GPT wants to query database
+      // Bước 3: Kiểm tra GPT có muốn truy vấn database không
       if (this.hasQueryRequest(gptResponse)) {
-        console.log('🔍 Query request detected, executing Query Engine...');
+        console.log('🔍 Phát hiện yêu cầu query, thực thi Query Engine...');
         
-        // Extract query prompt from [QUERY]...[/QUERY] tags
+        // Trích xuất query prompt từ tag [QUERY]...[/QUERY]
         const queryPrompt = this.extractQueryPrompt(gptResponse);
         console.log('📝 Query Prompt:', queryPrompt);
 
-        // Execute Query Engine
+        // Thực thi Query Engine
         const queryResult = await handleQuery(queryPrompt);
 
         if (queryResult.success) {
-          console.log(`✅ Query executed successfully: ${queryResult.count} results`);
+          console.log(`✅ Query thực thi thành công: ${queryResult.count} kết quả`);
           
-          // Step 4: Send query results back to GPT for natural language response
+          // Bước 4: Gửi kết quả query về GPT để tạo phản hồi ngôn ngữ tự nhiên
           const resultsContext = this.formatQueryResultsForGPT(queryResult);
           
           const finalResponse = await openai.chat.completions.create({
@@ -76,8 +76,8 @@ class AIService {
             query: queryResult.query
           };
         } else {
-          console.error('❌ Query execution failed:', queryResult.error);
-          // Fallback to GPT response without query data
+          console.error('❌ Thực thi query thất bại:', queryResult.error);
+          // Fallback trả về phản hồi GPT không có dữ liệu query
           return {
             response: gptResponse.replace(/\[QUERY\].*?\[\/QUERY\]/g, '').trim() || 'Xin lỗi, tôi không tìm thấy thông tin phù hợp. Vui lòng liên hệ hotline để được hỗ trợ! 📞',
             queryData: null,
@@ -86,8 +86,8 @@ class AIService {
           };
         }
       } else {
-        // No query needed, return direct GPT response
-        console.log('ℹ️  No query needed, returning GPT response');
+        // Không cần query, trả về phản hồi GPT trực tiếp
+        console.log('ℹ️  Không cần query, trả về phản hồi GPT');
         return {
           response: gptResponse,
           queryData: null,
@@ -96,14 +96,14 @@ class AIService {
       }
 
     } catch (error) {
-      console.error('❌ OpenAI API Error:', error);
+      console.error('❌ Lỗi OpenAI API:', error);
       throw new Error('Xin lỗi, tôi đang gặp sự cố kỹ thuật. Vui lòng thử lại sau.');
     }
   }
 
   /**
-   * Check if GPT response contains booking request
-   * @param {String} response - GPT response
+   * Kiểm tra phản hồi GPT có chứa yêu cầu đặt lịch không
+   * @param {String} response - Phản hồi GPT
    * @returns {Boolean}
    */
   hasBookingRequest(response) {
@@ -111,12 +111,12 @@ class AIService {
   }
 
   /**
-   * Extract booking action from response
-   * @param {String} response - GPT response
+   * Trích xuất hành động đặt lịch từ phản hồi
+   * @param {String} response - Phản hồi GPT
    * @returns {Object|null}
    */
   extractBookingAction(response) {
-    // Match patterns like [BOOKING_CHECK_SERVICES], [BOOKING_GET_DENTISTS serviceId], etc.
+    // Khớp các pattern như [BOOKING_CHECK_SERVICES], [BOOKING_GET_DENTISTS serviceId], v.v.
     const match = response.match(/\[BOOKING_(\w+)(?:\s+([^\]]+))?\]/);
     
     if (!match) return null;
@@ -132,8 +132,8 @@ class AIService {
   }
 
   /**
-   * Check if GPT response contains query request
-   * @param {String} response - GPT response
+   * Kiểm tra phản hồi GPT có chứa yêu cầu query database không
+   * @param {String} response - Phản hồi GPT
    * @returns {Boolean}
    */
   hasQueryRequest(response) {
@@ -141,8 +141,8 @@ class AIService {
   }
 
   /**
-   * Extract query prompt from [QUERY]...[/QUERY] tags
-   * @param {String} response - GPT response
+   * Trích xuất query prompt từ tag [QUERY]...[/QUERY]
+   * @param {String} response - Phản hồi GPT
    * @returns {String}
    */
   extractQueryPrompt(response) {
@@ -151,8 +151,8 @@ class AIService {
   }
 
   /**
-   * Format query results for GPT to generate natural language response
-   * @param {Object} queryResult - Result from Query Engine
+   * Định dạng kết quả query để GPT tạo phản hồi ngôn ngữ tự nhiên
+   * @param {Object} queryResult - Kết quả từ Query Engine
    * @returns {String}
    */
   formatQueryResultsForGPT(queryResult) {
@@ -162,7 +162,7 @@ class AIService {
 
     let formatted = `Tìm thấy ${queryResult.count} kết quả từ collection "${queryResult.query.collection}":\n\n`;
     
-    // Limit to first 5 results for context
+    // Giới hạn 5 kết quả đầu tiên cho ngữ cảnh
     const limitedData = queryResult.data.slice(0, 5);
     
     limitedData.forEach((item, index) => {
@@ -177,10 +177,10 @@ class AIService {
   }
 
   /**
-   * Send message to GPT (simplified version without API integration)
-   * @param {Array} messages - Array of messages
+   * Gửi tin nhắn đến GPT (phiên bản đơn giản không tích hợp API)
+   * @param {Array} messages - Mảng tin nhắn
    * @param {String} systemPrompt - System prompt
-   * @returns {Promise<String>} - GPT response text only
+   * @returns {Promise<String>} - Chỉ trả về nội dung phản hồi GPT
    */
   async sendSimpleMessage(messages, systemPrompt = DENTAL_ASSISTANT_PROMPT) {
     try {
@@ -196,15 +196,15 @@ class AIService {
 
       return response.choices[0].message.content;
     } catch (error) {
-      console.error('❌ OpenAI API Error:', error);
+      console.error('❌ Lỗi OpenAI API:', error);
       throw new Error('Xin lỗi, tôi đang gặp sự cố kỹ thuật. Vui lòng thử lại sau.');
     }
   }
 
   /**
-   * Format conversation history for OpenAI
-   * @param {Array} messages - Messages from database
-   * @returns {Array} - Formatted messages for OpenAI
+   * Định dạng lịch sử hội thoại cho OpenAI
+   * @param {Array} messages - Các tin nhắn từ database
+   * @returns {Array} - Tin nhắn đã định dạng cho OpenAI
    */
   formatMessagesForGPT(messages) {
     return messages
@@ -216,21 +216,21 @@ class AIService {
   }
 
   /**
-   * Check if message is dental-related
-   * @param {String} message - User message
+   * Kiểm tra tin nhắn có liên quan đến nha khoa không
+   * @param {String} message - Tin nhắn của user
    * @returns {Boolean}
    */
   isDentalRelated(message) {
     const dentalKeywords = [
-      // Tiếng Việt - Cơ bản
+      // Tiếng Việt - Từ khóa cơ bản
       'răng', 'nha khoa', 'khám', 'Nha sĩ', 'nha sĩ', 'dịch vụ', 
       'đặt lịch', 'đặt hẹn', 'giá', 'chi phí', 'phí', 'tiền',
       
-      // Dịch vụ
+      // Dịch vụ nha khoa
       'tẩy trắng', 'niềng', 'chỉnh nha', 'bọc răng', 'cấy ghép',
       'nhổ', 'trám', 'implant', 'sứ', 'veneer', 'lấy cao',
       
-      // Triệu chứng & Bệnh lý
+      // Triệu chứng & Bệnh lý răng miệng
       'nướu', 'viêm', 'đau', 'nhức', 'sâu', 'mất', 'hỏng', 
       'chảy máu', 'sưng', 'mủ', 'ố vàng', 'mảng bám', 'khớp cắn',
       'thưa', 'móm', 'hô', 'lệch', 'lung lay', 'yếu',
@@ -238,7 +238,7 @@ class AIService {
       // Phòng khám & Thương hiệu
       'phòng khám', 'smilecare', 'smile care', 'nha khoa smile',
       
-      // English
+      // Từ khóa tiếng Anh
       'appointment', 'teeth', 'tooth', 'dental', 'dentist', 
       'orthodontic', 'braces', 'whitening', 'cavity', 'gum'
     ];

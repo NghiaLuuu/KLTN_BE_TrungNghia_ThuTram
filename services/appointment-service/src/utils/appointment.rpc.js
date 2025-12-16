@@ -1,21 +1,25 @@
 const { getChannel } = require('../utils/rabbitmq.client');
 const appointmentService = require('../services/appointment.service');
 
+/**
+ * Thiết lập RPC listener cho Appointment Service
+ * Lắng nghe các request từ payment-service
+ */
 async function setupAppointmentRPC() {
   const ch = getChannel();
   const queueName = 'appointment_queue';
 
   try {
     await ch.deleteQueue(queueName);
-    console.log(`♻️ Refreshing RabbitMQ queue ${queueName} before asserting`);
+    console.log(`♻️ Làm mới RabbitMQ queue ${queueName} trước khi assert`);
   } catch (err) {
     if (err?.code !== 404) {
-      console.warn(`⚠️ Could not delete queue ${queueName} during refresh:`, err.message || err);
+      console.warn(`⚠️ Không thể xóa queue ${queueName} khi làm mới:`, err.message || err);
     }
   }
 
   await ch.assertQueue(queueName, { durable: true });
-  console.log(`📥 [Appointment Service] Listening RPC on: ${queueName}`);
+  console.log(`📥 [Appointment Service] Đang lắng nghe RPC trên: ${queueName}`);
 
   ch.consume(queueName, async (msg) => {
     if (!msg) return;
@@ -28,14 +32,14 @@ async function setupAppointmentRPC() {
           response = await appointmentService.confirm(req.payload);
           break;
         default:
-          response = { error: `Unknown action: ${req.action}` };
+          response = { error: `Action không xác định: ${req.action}` };
       }
     } catch (err) {
-      console.error('❌ Appointment RPC error:', err);
+      console.error('❌ Lỗi Appointment RPC:', err);
       response = { error: err.message };
     }
 
-    // gửi lại kết quả cho payment-service
+    // Gửi lại kết quả cho payment-service
     ch.sendToQueue(
       msg.properties.replyTo,
       Buffer.from(JSON.stringify(response)),

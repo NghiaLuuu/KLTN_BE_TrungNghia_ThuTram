@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const authMiddleware = (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer "))
-    return res.status(401).json({ message: 'No token provided' });
+    return res.status(401).json({ message: 'Không có token' });
 
   const token = authHeader.split(" ")[1];
 
@@ -12,7 +12,7 @@ const authMiddleware = (req, res, next) => {
     req.user = decoded; // Lưu userId, role,... tùy payload bạn đã ký
     next();
   } catch (err) {
-    return res.status(403).json({ message: 'Invalid or expired token' });
+    return res.status(403).json({ message: 'Token không hợp lệ hoặc đã hết hạn' });
   }
 };
 

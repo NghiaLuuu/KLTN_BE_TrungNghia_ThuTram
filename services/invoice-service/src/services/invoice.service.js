@@ -9,17 +9,17 @@ class InvoiceService {
   constructor() {
     this.redis = RedisClient;
     this.rpcClient = RPCClient;
-    this.cacheTimeout = 300; // 5 minutes
+    this.cacheTimeout = 300; // 5 phút
   }
 
-  // ============ CORE INVOICE OPERATIONS ============
+  // ============ CÁC THAO TÁC HÓA ĐƠN CHÍNH ============
   async createInvoice(invoiceData, userId) {
     try {
-      // Validate appointment if provided AND patientInfo not already available
-      // 🔥 FIX: Skip appointment validation if patientId and patientInfo already exist
-      // This avoids unnecessary RPC calls when creating invoice from payment
+      // Xác thực cuộc hẹn nếu được cung cấp VÀ thông tin bệnh nhân chưa có
+      // 🔥 SỬa: Bỏ qua xác thực cuộc hẹn nếu patientId và patientInfo đã có
+      // Tránh gọi RPC không cần thiết khi tạo hóa đơn từ thanh toán
       if (invoiceData.appointmentId && (!invoiceData.patientId || !invoiceData.patientInfo)) {
-        console.log('📞 Fetching appointment to get patient info:', invoiceData.appointmentId);
+        console.log('📞 Lấy thông tin cuộc hẹn để có thông tin bệnh nhân:', invoiceData.appointmentId);
         const appointment = await this.rpcClient.call('appointment-service', 'getAppointmentById', {
           id: invoiceData.appointmentId
         });
@@ -28,23 +28,23 @@ class InvoiceService {
           throw new Error('Appointment không tồn tại');
         }
 
-        // Only create invoice if appointment is completed or confirmed
+        // Chỉ tạo hóa đơn nếu cuộc hẹn đã hoàn thành hoặc đã xác nhận
         if (!['completed', 'confirmed'].includes(appointment.status)) {
           throw new Error('Chỉ có thể tạo hóa đơn cho cuộc hẹn đã hoàn thành hoặc đã xác nhận');
         }
 
-        // Auto-fill patient info from appointment
+        // Tự động điền thông tin bệnh nhân từ cuộc hẹn
         invoiceData.patientId = appointment.patientId;
         invoiceData.patientInfo = appointment.patientInfo;
       } else if (invoiceData.appointmentId) {
-        console.log('✅ Skipping appointment validation - patient info already available');
+        console.log('✅ Bỏ qua xác thực cuộc hẹn - thông tin bệnh nhân đã có');
       }
 
-      // Generate invoice number
+      // Tạo số hóa đơn
       invoiceData.invoiceNumber = await this.generateInvoiceNumber();
 
-      // Set default values
-      // 🔥 FIX: Ensure userId is always an ObjectId
+      // Thiết lập giá trị mặc định
+      // 🔥 SỬa: Đảm bảo userId luôn là ObjectId
       if (typeof userId === 'string' && userId !== 'system') {
         try {
           invoiceData.createdBy = new mongoose.Types.ObjectId(userId);
@@ -60,17 +60,17 @@ class InvoiceService {
       invoiceData.status = invoiceData.status || InvoiceStatus.DRAFT;
       invoiceData.type = invoiceData.type || InvoiceType.APPOINTMENT;
 
-      // Calculate due date if not provided
+      // Tính ngày đến hạn nếu không được cung cấp
       if (!invoiceData.dueDate) {
         const dueDate = new Date();
-        dueDate.setDate(dueDate.getDate() + 7); // Default 7 days
+        dueDate.setDate(dueDate.getDate() + 7); // Mặc định 7 ngày
         invoiceData.dueDate = dueDate;
       }
 
-      // Create invoice
+      // Tạo hóa đơn
       const invoice = await invoiceRepo.create(invoiceData);
 
-      // Create invoice details if provided
+      // Tạo chi tiết hóa đơn nếu được cung cấp
       if (invoiceData.details && invoiceData.details.length > 0) {
         const detailsWithInvoiceId = invoiceData.details.map(detail => ({
           ...detail,
@@ -87,50 +87,50 @@ class InvoiceService {
           totalPrice: d.totalPrice
         })));
         
-        // 🔥 FIX: Calculate total amounts - use totalPrice not totalAmount
+        // 🔥 SỬa: Tính tổng số tiền - sử dụng totalPrice không phải totalAmount
         const subtotalAmount = createdDetails.reduce((sum, detail) => sum + (detail.totalPrice || 0), 0);
         
-        // Update invoice with calculated amounts
-        // 🔥 CRITICAL: Don't overwrite totalAmount if already explicitly set (from payment with deposit)
-        // 🔥 NEW: Use invoiceData.subtotal if set (includes deposit add-back for display)
+        // Cập nhật hóa đơn với số tiền đã tính
+        // 🔥 QUAN TRỌNG: Không ghi đè totalAmount nếu đã được set rõ ràng (từ thanh toán có cọc)
+        // 🔥 MỚI: Sử dụng invoiceData.subtotal nếu được set (bao gồm cộng thêm cọc để hiển thị)
         const updateData = {
           subtotal: invoiceData.subtotal !== undefined ? invoiceData.subtotal : subtotalAmount
         };
         
-        // Check if totalAmount was explicitly set (e.g., from payment with deposit)
-        // invoiceData.totalAmount will be set when creating invoice from payment
+        // Kiểm tra xem totalAmount có được set rõ ràng không (ví dụ: từ thanh toán có cọc)
+        // invoiceData.totalAmount sẽ được set khi tạo hóa đơn từ thanh toán
         const totalAmountExplicitlySet = invoiceData.hasOwnProperty('totalAmount') && 
                                          invoiceData.totalAmount !== undefined && 
                                          invoiceData.totalAmount !== null;
         
         if (totalAmountExplicitlySet) {
-          // Keep the explicitly set totalAmount (from payment)
+          // Giữ nguyên totalAmount đã set rõ ràng (từ thanh toán)
           updateData.totalAmount = invoiceData.totalAmount;
-          console.log('💰 Keeping explicit totalAmount:', invoiceData.totalAmount, '(from payment, subtotal:', subtotalAmount, ')');
+          console.log('💰 Giữ nguyên totalAmount rõ ràng:', invoiceData.totalAmount, '(từ thanh toán, subtotal:', subtotalAmount, ')');
         } else {
-          // Calculate totalAmount from subtotal (normal invoice creation)
+          // Tính totalAmount từ subtotal (tạo hóa đơn bình thường)
           updateData.totalAmount = subtotalAmount + (invoice.taxInfo?.taxAmount || 0) - (invoice.discountInfo?.discountAmount || 0);
-          console.log('💰 Calculated totalAmount:', updateData.totalAmount);
+          console.log('💰 Đã tính totalAmount:', updateData.totalAmount);
         }
         
         const updatedInvoice = await invoiceRepo.update(invoice._id, updateData);
         
-        console.log('💰 Updated invoice with subtotal:', subtotalAmount);
+        console.log('💰 Đã cập nhật hóa đơn với subtotal:', subtotalAmount);
         
-        // Clear cache
+        // Xóa cache
         await this.clearInvoiceCache();
 
-        console.log("✅ Invoice created:", updatedInvoice);
+        console.log("✅ Đã tạo hóa đơn:", updatedInvoice);
         return updatedInvoice;
       }
 
-      // Clear cache
+      // Xóa cache
       await this.clearInvoiceCache();
 
-      console.log("✅ Invoice created:", invoice);
+      console.log("✅ Đã tạo hóa đơn:", invoice);
       return invoice;
     } catch (error) {
-      console.error("❌ Error creating invoice:", error);
+      console.error("❌ Lỗi tạo hóa đơn:", error);
       throw error;
     }
   }
@@ -142,7 +142,7 @@ class InvoiceService {
         throw new Error('Hóa đơn không tồn tại');
       }
 
-      // Check if invoice can be updated
+      // Kiểm tra xem hóa đơn có thể cập nhật được không
       if (invoice.status === InvoiceStatus.PAID) {
         throw new Error('Không thể cập nhật hóa đơn đã thanh toán');
       }
@@ -150,12 +150,12 @@ class InvoiceService {
       updateData.updatedBy = userId;
       const updatedInvoice = await invoiceRepo.update(id, updateData);
 
-      // Clear cache
+      // Xóa cache
       await this.clearInvoiceCache(id);
 
       return updatedInvoice;
     } catch (error) {
-      console.error("❌ Error updating invoice:", error);
+      console.error("❌ Lỗi cập nhật hóa đơn:", error);
       throw error;
     }
   }
@@ -176,7 +176,7 @@ class InvoiceService {
         throw new Error('Hóa đơn không tồn tại');
       }
 
-      // Get invoice details
+      // Lấy chi tiết hóa đơn
       const details = await invoiceDetailRepo.findByInvoice(id, { populateService: true });
       
       const result = {
@@ -184,21 +184,21 @@ class InvoiceService {
         details
       };
 
-      // Cache result
+      // Lưu vào cache
       if (useCache) {
         await this.redis.setex(cacheKey, this.cacheTimeout, JSON.stringify(result));
       }
 
       return result;
     } catch (error) {
-      console.error("❌ Error getting invoice:", error);
+      console.error("❌ Lỗi lấy hóa đơn:", error);
       throw error;
     }
   }
 
   async getInvoices(filter = {}, options = {}) {
     try {
-      // ⚠️ Temporarily skip cache for debugging
+      // ⚠️ Tạm thời bỏ qua cache để debug
       const useCache = false;
       const cacheKey = `invoices:${JSON.stringify({ filter, options })}`;
       
@@ -211,7 +211,7 @@ class InvoiceService {
 
       const result = await invoiceRepo.findAll(filter, options);
 
-      // ✅ Populate invoice details for each invoice
+      // ✅ Điền chi tiết hóa đơn cho mỗi hóa đơn
       if (result.invoices && result.invoices.length > 0) {
         const invoicesWithDetails = await Promise.all(
           result.invoices.map(async (invoice) => {
@@ -226,14 +226,14 @@ class InvoiceService {
         result.invoices = invoicesWithDetails;
       }
 
-      // Cache for shorter time due to frequently changing data
+      // Cache trong thời gian ngắn hơn vì dữ liệu thay đổi thường xuyên
       if (useCache) {
         await this.redis.setex(cacheKey, 60, JSON.stringify(result));
       }
 
       return result;
     } catch (error) {
-      console.error("❌ Error getting invoices:", error);
+      console.error("❌ Lỗi lấy danh sách hóa đơn:", error);
       throw error;
     }
   }
@@ -242,15 +242,15 @@ class InvoiceService {
     try {
       return await invoiceRepo.search(searchTerm, options);
     } catch (error) {
-      console.error("❌ Error searching invoices:", error);
+      console.error("❌ Lỗi tìm kiếm hóa đơn:", error);
       throw error;
     }
   }
 
-  // ============ PAYMENT INTEGRATION METHODS ============
+  // ============ CÁC PHƯƠNG THỨC TÍCH HỢP THANH TOÁN ============
   async handlePaymentSuccess(paymentData) {
     try {
-      console.log("🔄 Processing payment success for invoice:", paymentData);
+      console.log("🔄 Đang xử lý thanh toán thành công cho hóa đơn:", paymentData);
 
       const { invoiceId, paymentId, amount, paymentMethod } = paymentData;
 
@@ -259,33 +259,33 @@ class InvoiceService {
         throw new Error('Hóa đơn không tồn tại');
       }
 
-      // Add payment to invoice
+      // Thêm thanh toán vào hóa đơn
       const updatedInvoice = await invoiceRepo.addPaymentToInvoice(invoiceId, {
         paymentId,
         amount,
         method: paymentMethod
       });
 
-      // Clear cache
+      // Xóa cache
       await this.clearInvoiceCache(invoiceId);
 
-      // Send notification if needed
+      // Gửi thông báo nếu cần
       await this.sendPaymentNotification(updatedInvoice);
 
-      console.log("✅ Payment processed successfully for invoice:", invoiceId);
+      console.log("✅ Đã xử lý thanh toán thành công cho hóa đơn:", invoiceId);
       return updatedInvoice;
     } catch (error) {
-      console.error("❌ Error processing payment:", error);
+      console.error("❌ Lỗi xử lý thanh toán:", error);
       throw error;
     }
   }
 
   async createInvoiceFromPayment(paymentIdOrData) {
     try {
-      // 🔥 FIX: Support both paymentId (string) and paymentData (object)
+      // 🔥 SỬa: Hỗ trợ cả paymentId (chuỗi) và paymentData (đối tượng)
       let paymentData;
       if (typeof paymentIdOrData === 'string') {
-        console.log('📞 Fetching payment by ID:', paymentIdOrData);
+        console.log('📞 Lấy thanh toán theo ID:', paymentIdOrData);
         paymentData = await this.rpcClient.callPaymentService('getPaymentById', {
           id: paymentIdOrData
         });
@@ -296,35 +296,35 @@ class InvoiceService {
         paymentData = paymentIdOrData;
       }
 
-      // Only create invoice if payment is successful
+      // Chỉ tạo hóa đơn nếu thanh toán thành công
       if (paymentData.status !== 'completed') {
         throw new Error('Chỉ tạo hóa đơn khi thanh toán thành công');
       }
 
-      console.log('📝 Creating invoice from payment:', paymentData._id);
+      console.log('📝 Tạo hóa đơn từ thanh toán:', paymentData._id);
 
-      // 🔥 FIX: Calculate deposit FIRST (before creating invoice details)
+      // 🔥 SỬa: Tính cọc TRƯỚC (trước khi tạo chi tiết hóa đơn)
       const originalAmount = paymentData.originalAmount || 0;
       const paidAmount = paymentData.paidAmount || paymentData.amount || 0;
       const depositAmount = paymentData.depositAmount || Math.max(0, originalAmount - paidAmount);
       
-      console.log('💰 Deposit calculation:');
-      console.log('  - Payment originalAmount:', originalAmount.toLocaleString());
-      console.log('  - Payment paidAmount:', paidAmount.toLocaleString());
-      console.log('  - Detected depositAmount:', depositAmount.toLocaleString());
+      console.log('💰 Tính toán cọc:');
+      console.log('  - originalAmount từ thanh toán:', originalAmount.toLocaleString());
+      console.log('  - paidAmount từ thanh toán:', paidAmount.toLocaleString());
+      console.log('  - depositAmount phát hiện:', depositAmount.toLocaleString());
       
-      // 🔥 FIX: Get services from record if recordId exists
+      // 🔥 SỬa: Lấy dịch vụ từ hồ sơ nếu có recordId
       let invoiceDetails = [];
       if (paymentData.recordId) {
         try {
-          console.log('📋 Fetching record:', paymentData.recordId);
+          console.log('📋 Lấy hồ sơ:', paymentData.recordId);
           const record = await this.rpcClient.call('record-service', 'getRecordById', {
             id: paymentData.recordId
           });
 
           if (record) {
-            // 🔥 DEBUG: Log full record data to understand pricing
-            console.log('📋 [DEBUG] Record data for invoice:', JSON.stringify({
+            // 🔥 DEBUG: Ghi log dữ liệu hồ sơ đầy đủ để hiểu giá
+            console.log('📋 [DEBUG] Dữ liệu hồ sơ cho hóa đơn:', JSON.stringify({
               recordId: record._id,
               recordCode: record.recordCode,
               serviceName: record.serviceName,
@@ -345,12 +345,12 @@ class InvoiceService {
               })) || []
             }, null, 2));
             
-            // 🔥 FIX: Add MAIN service first (serviceId + serviceAddOn)
+            // 🔥 SỬa: Thêm dịch vụ CHÍNH trước (serviceId + serviceAddOn)
             if (record.serviceId && record.serviceName) {
-              // 🔥 CRITICAL: serviceAddOnPrice is REQUIRED for invoice pricing
-              // servicePrice is base price (not used), serviceAddOnPrice is actual variant price
+              // 🔥 QUAN TRỌNG: serviceAddOnPrice là BẮT BUỘC cho giá hóa đơn
+              // servicePrice là giá cơ bản (không dùng), serviceAddOnPrice là giá biến thể thực tế
               
-              console.log('🔍 [DEBUG] Main service price fields:', {
+              console.log('🔍 [DEBUG] Các trường giá dịch vụ chính:', {
                 recordId: record._id || record.id,
                 serviceName: record.serviceName,
                 serviceAddOnName: record.serviceAddOnName,
@@ -360,24 +360,24 @@ class InvoiceService {
                 depositPaid: record.depositPaid
               });
               
-              // 🔥 STRICT VALIDATION: serviceAddOnPrice MUST exist and > 0
+              // 🔥 XÁC THỰC NGHIÊM NGẶT: serviceAddOnPrice PHẢI tồn tại và > 0
               if (!record.serviceAddOnPrice || record.serviceAddOnPrice === 0) {
-                const errorMsg = `❌ CRITICAL ERROR: serviceAddOnPrice is missing or 0 for record ${record._id || record.id}! ` +
-                  `Service: ${record.serviceName}, AddOn: ${record.serviceAddOnName}. ` +
-                  `Cannot create invoice without proper pricing. Please check record-service.`;
+                const errorMsg = `❌ LỖI NGHIÊM TRỌNG: serviceAddOnPrice thiếu hoặc bằng 0 cho hồ sơ ${record._id || record.id}! ` +
+                  `Dịch vụ: ${record.serviceName}, Add-on: ${record.serviceAddOnName}. ` +
+                  `Không thể tạo hóa đơn khi thiếu giá. Vui lòng kiểm tra record-service.`;
                 console.error(errorMsg);
                 throw new Error(errorMsg);
               }
               
               const originalPrice = record.serviceAddOnPrice; // CHỈ lấy serviceAddOnPrice (giá gốc)
               
-              // 🔥 FIX: unitPrice = ORIGINAL price, totalPrice = price AFTER deposit
-              // Deposit is only applied to the FIRST service (main service)
+              // 🔥 SỬa: unitPrice = giá GỐC, totalPrice = giá SAU KHI trừ cọc
+              // Cọc chỉ áp dụng cho dịch vụ ĐẦU TIÊN (dịch vụ chính)
               const priceAfterDeposit = depositAmount > 0 
                 ? Math.max(0, originalPrice - depositAmount)
                 : originalPrice;
               
-              console.log(`💰 Main service pricing: Original ${originalPrice.toLocaleString()}, Deposit ${depositAmount.toLocaleString()}, After deposit ${priceAfterDeposit.toLocaleString()}`);
+              console.log(`💰 Giá dịch vụ chính: Gốc ${originalPrice.toLocaleString()}, Cọc ${depositAmount.toLocaleString()}, Sau cọc ${priceAfterDeposit.toLocaleString()}`);
               
               const mainServiceQuantity = record.quantity || 1;
               const mainServiceSubtotal = priceAfterDeposit * mainServiceQuantity;
@@ -392,24 +392,24 @@ class InvoiceService {
                   description: record.serviceAddOnName || record.serviceName,
                   unit: record.serviceAddOnUnit || null
                 },
-                unitPrice: originalPrice, // 🔥 FIX: Store ORIGINAL price (500k), not price after deposit
+                unitPrice: originalPrice, // 🔥 SỬa: Lưu giá GỐC (500k), không phải giá sau cọc
                 quantity: mainServiceQuantity,
                 subtotal: mainServiceSubtotal,
-                discountAmount: depositAmount, // 🔥 Deposit shown as discount
-                totalPrice: mainServiceSubtotal, // 🔥 Price after deposit (300k)
+                discountAmount: depositAmount, // 🔥 Hiển thị cọc như giảm giá
+                totalPrice: mainServiceSubtotal, // 🔥 Giá sau cọc (300k)
                 notes: depositAmount > 0 
                   ? `Dịch vụ chính: ${record.serviceName}${record.serviceAddOnName ? ' - ' + record.serviceAddOnName : ''} (Đã trừ cọc ${depositAmount.toLocaleString('vi-VN')}đ)`
                   : `Dịch vụ chính: ${record.serviceName}${record.serviceAddOnName ? ' - ' + record.serviceAddOnName : ''}`,
                 status: 'completed'
-                // 🔥 FIX: Don't set createdBy here, it will be set later
+                // 🔥 SỬa: Không set createdBy ở đây, sẽ được set sau
               });
               
-              console.log(`✅ Added main service: ${record.serviceName} (${originalPrice.toLocaleString()} - ${depositAmount.toLocaleString()} deposit = ${mainServiceSubtotal.toLocaleString()})`);
+              console.log(`✅ Đã thêm dịch vụ chính: ${record.serviceName} (${originalPrice.toLocaleString()} - ${depositAmount.toLocaleString()} cọc = ${mainServiceSubtotal.toLocaleString()})`);
             }
             
-            // 🔥 FIX: Add additional services
+            // 🔥 SỬa: Thêm các dịch vụ bổ sung
             if (record.additionalServices && record.additionalServices.length > 0) {
-              console.log(`✅ Found ${record.additionalServices.length} additional services`);
+              console.log(`✅ Tìm thấy ${record.additionalServices.length} dịch vụ bổ sung`);
               
               const additionalDetails = record.additionalServices.map(service => {
                 const unitPrice = service.price || 0;
@@ -434,35 +434,35 @@ class InvoiceService {
                   totalPrice: totalPrice,
                   notes: service.notes || '',
                   status: 'completed'
-                  // 🔥 FIX: Don't set createdBy here, it will be set later
+                  // 🔥 SỬa: Không set createdBy ở đây, sẽ được set sau
                 };
               });
               
               invoiceDetails.push(...additionalDetails);
             }
             
-            console.log('📦 Total invoice details:', invoiceDetails.length);
-            console.log('💰 Details:', invoiceDetails.map(d => ({
+            console.log('📦 Tổng chi tiết hóa đơn:', invoiceDetails.length);
+            console.log('💰 Chi tiết:', invoiceDetails.map(d => ({
               name: d.serviceInfo.name,
               unitPrice: d.unitPrice,
               quantity: d.quantity,
               totalPrice: d.totalPrice
             })));
           } else {
-            console.warn('⚠️ Record not found');
+            console.warn('⚠️ Không tìm thấy hồ sơ');
           }
         } catch (error) {
-          console.error('❌ Error fetching record:', error);
-          // 🔥 CRITICAL: If error is about missing serviceAddOnPrice, re-throw to stop invoice creation
+          console.error('❌ Lỗi lấy hồ sơ:', error);
+          // 🔥 QUAN TRỌNG: Nếu lỗi liên quan đến serviceAddOnPrice, throw để dừng tạo hóa đơn
           if (error.message && error.message.includes('serviceAddOnPrice')) {
-            throw error; // Stop invoice creation immediately
+            throw error; // Dừng tạo hóa đơn ngay lập tức
           }
-          // For other errors, continue without details (backward compatibility)
-          console.warn('⚠️ Continuing without invoice details due to non-critical error');
+          // Với các lỗi khác, tiếp tục không có chi tiết (để tương thích ngược)
+          console.warn('⚠️ Tiếp tục không có chi tiết hóa đơn do lỗi không nghiêm trọng');
         }
       }
 
-      // 🔥 FIX: Get dentist info from payment or record
+      // 🔥 SỬa: Lấy thông tin nha sĩ từ thanh toán hoặc hồ sơ
       let dentistInfo = null;
       if (paymentData.processedBy && paymentData.processedByName) {
         dentistInfo = {
@@ -476,58 +476,58 @@ class InvoiceService {
         };
       }
 
-      // 🔥 FIX: Calculate subtotal from invoice details (after deposit deduction in main service)
+      // 🔥 SỬa: Tính subtotal từ chi tiết hóa đơn (sau khi trừ cọc ở dịch vụ chính)
       const subtotalFromDetails = invoiceDetails.reduce((sum, detail) => sum + (detail.totalPrice || 0), 0);
       
-      // 🔥 IMPORTANT: 
-      // - invoiceSubtotal = original amount (before deposit) for display
-      // - invoiceTotalAmount = after deposit deduction (what customer actually pays)
-      const invoiceSubtotal = subtotalFromDetails + depositAmount; // Add back deposit for display
-      const invoiceTotalAmount = subtotalFromDetails; // Actual payment amount
+      // 🔥 QUAN TRỌNG: 
+      // - invoiceSubtotal = số tiền gốc (trước cọc) để hiển thị
+      // - invoiceTotalAmount = sau khi trừ cọc (số tiền khách thực trả)
+      const invoiceSubtotal = subtotalFromDetails + depositAmount; // Cộng lại cọc để hiển thị
+      const invoiceTotalAmount = subtotalFromDetails; // Số tiền thanh toán thực tế
 
-      console.log('💰 Final invoice calculation:');
-      console.log('  - Subtotal (before deposit):', invoiceSubtotal.toLocaleString());
-      console.log('  - Deposit amount:', depositAmount.toLocaleString());
-      console.log('  - Total amount (after deposit):', invoiceTotalAmount.toLocaleString());
+      console.log('💰 Tính toán hóa đơn cuối cùng:');
+      console.log('  - Subtotal (trước cọc):', invoiceSubtotal.toLocaleString());
+      console.log('  - Số tiền cọc:', depositAmount.toLocaleString());
+      console.log('  - Tổng tiền (sau cọc):', invoiceTotalAmount.toLocaleString());
 
       const invoiceData = {
         appointmentId: paymentData.appointmentId,
         patientId: paymentData.patientId,
-        patientInfo: paymentData.patientInfo, // 🔥 FIX: Add patientInfo to skip appointment validation
-        recordId: paymentData.recordId, // 🆕 Link to record
+        patientInfo: paymentData.patientInfo, // 🔥 SỬa: Thêm patientInfo để bỏ qua xác thực cuộc hẹn
+        recordId: paymentData.recordId, // 🆕 Liên kết với hồ sơ
         type: InvoiceType.APPOINTMENT,
         status: InvoiceStatus.PAID,
-        totalAmount: invoiceTotalAmount, // 🔥 FIX: = paidAmount (actual payment)
-        subtotal: invoiceSubtotal, // 🔥 Total services before deposit deduction
+        totalAmount: invoiceTotalAmount, // 🔥 SỬa: = paidAmount (tiền thực trả)
+        subtotal: invoiceSubtotal, // 🔥 Tổng dịch vụ trước khi trừ cọc
         paidDate: new Date(),
-        dentistInfo: dentistInfo, // 🔥 FIX: Add required dentistInfo
-        createdByRole: 'system', // 🔥 FIX: Add required createdByRole
+        dentistInfo: dentistInfo, // 🔥 SỬa: Thêm dentistInfo bắt buộc
+        createdByRole: 'system', // 🔥 SỬa: Thêm createdByRole bắt buộc
         paymentSummary: {
-          totalPaid: paidAmount, // 🔥 Actual amount paid in this transaction
+          totalPaid: paidAmount, // 🔥 Số tiền thực trả trong giao dịch này
           remainingAmount: 0,
           paymentIds: [paymentData._id],
           lastPaymentDate: new Date(),
           paymentMethod: paymentData.paymentMethod
         },
-        details: invoiceDetails, // 🔥 FIX: Add invoice details from record
+        details: invoiceDetails, // 🔥 SỬa: Thêm chi tiết hóa đơn từ hồ sơ
         notes: depositAmount > 0 
           ? `Hóa đơn tự động tạo từ thanh toán ${paymentData._id}. Đã trừ cọc ${depositAmount.toLocaleString('vi-VN')}đ`
           : `Hóa đơn tự động tạo từ thanh toán ${paymentData._id}`
       };
 
-      console.log('💰 Creating invoice with', invoiceDetails.length, 'service details');
+      console.log('💰 Tạo hóa đơn với', invoiceDetails.length, 'chi tiết dịch vụ');
       
-      // 🔥 FIX: Use dentistInfo.dentistId or payment.processedBy as createdBy (must be ObjectId)
+      // 🔥 SỬa: Sử dụng dentistInfo.dentistId hoặc payment.processedBy làm createdBy (phải là ObjectId)
       const createdBy = dentistInfo?.dentistId || paymentData.processedBy || new mongoose.Types.ObjectId();
       
       return await this.createInvoice(invoiceData, createdBy);
     } catch (error) {
-      console.error("❌ Error creating invoice from payment:", error);
+      console.error("❌ Lỗi tạo hóa đơn từ thanh toán:", error);
       throw error;
     }
   }
 
-  // ============ BUSINESS LOGIC METHODS ============
+  // ============ CÁC PHƯƠNG THỨC NGHIỆP VỤ ============
   async finalizeInvoice(id, userId) {
     try {
       const invoice = await invoiceRepo.findById(id);
@@ -539,16 +539,16 @@ class InvoiceService {
         throw new Error('Chỉ có thể hoàn thiện hóa đơn nháp');
       }
 
-      // Validate invoice has details
+      // Kiểm tra hóa đơn có chi tiết không
       const details = await invoiceDetailRepo.findByInvoice(id);
       if (!details || details.length === 0) {
         throw new Error('Hóa đơn phải có ít nhất một dịch vụ');
       }
 
-      // Recalculate amounts
+      // Tính lại số tiền
       await this.recalculateInvoiceAmounts(id);
 
-      // Convert to pending
+      // Chuyển sang trạng thái chờ
       const finalizedInvoice = await invoiceRepo.convertDraftToPending(id, {
         finalizedBy: userId,
         finalizedAt: new Date()
@@ -557,7 +557,7 @@ class InvoiceService {
       await this.clearInvoiceCache(id);
       return finalizedInvoice;
     } catch (error) {
-      console.error("❌ Error finalizing invoice:", error);
+      console.error("❌ Lỗi hoàn thiện hóa đơn:", error);
       throw error;
     }
   }
@@ -568,23 +568,23 @@ class InvoiceService {
       await this.clearInvoiceCache(id);
       return updatedInvoice;
     } catch (error) {
-      console.error("❌ Error cancelling invoice:", error);
+      console.error("❌ Lỗi hủy hóa đơn:", error);
       throw error;
     }
   }
 
   async recalculateInvoiceAmounts(invoiceId) {
     try {
-      // Recalculate detail amounts first
+      // Tính lại số tiền chi tiết trước
       await invoiceDetailRepo.recalculateInvoiceAmounts(invoiceId);
 
-      // Get updated details
+      // Lấy chi tiết đã cập nhật
       const details = await invoiceDetailRepo.findByInvoice(invoiceId);
       const subtotal = details.reduce((sum, detail) => sum + detail.totalAmount, 0);
 
       const invoice = await invoiceRepo.findById(invoiceId);
       
-      // Recalculate invoice totals
+      // Tính lại tổng hóa đơn
       const taxAmount = invoice.taxInfo?.taxAmount || 0;
       const discountAmount = invoice.discountInfo?.discountAmount || 0;
       const totalAmount = subtotal + taxAmount - discountAmount;
@@ -594,15 +594,15 @@ class InvoiceService {
         totalAmount: totalAmount
       });
     } catch (error) {
-      console.error("❌ Error recalculating amounts:", error);
+      console.error("❌ Lỗi tính lại số tiền:", error);
       throw error;
     }
   }
 
-  // ============ STATISTICS & REPORTING ============
+  // ============ THỐNG KÊ & BÁO CÁO ============
   async getInvoiceStatistics(startDate, endDate, groupBy = 'day') {
     try {
-      // Convert to Date if received as string from RabbitMQ
+      // Chuyển đổi sang Date nếu nhận chuỗi từ RabbitMQ
       const start = startDate instanceof Date ? startDate : new Date(startDate);
       const end = endDate instanceof Date ? endDate : new Date(endDate);
       
@@ -615,23 +615,23 @@ class InvoiceService {
 
       const stats = await invoiceRepo.getInvoiceStatistics(start, end, groupBy);
       
-      // Cache for longer time as stats don't change frequently
-      await this.redis.setex(cacheKey, 1800, JSON.stringify(stats)); // 30 minutes
+      // Cache lâu hơn vì thống kê không thay đổi thường xuyên
+      await this.redis.setex(cacheKey, 1800, JSON.stringify(stats)); // 30 phút
 
       return stats;
     } catch (error) {
-      console.error("❌ Error getting statistics:", error);
+      console.error("❌ Lỗi lấy thống kê:", error);
       throw error;
     }
   }
 
   async getRevenueStats(startDate, endDate, groupBy = 'day', dentistId = null, serviceId = null) {
     try {
-      // Convert to Date if received as string from RabbitMQ
+      // Chuyển đổi sang Date nếu nhận chuỗi từ RabbitMQ
       const start = startDate instanceof Date ? startDate : new Date(startDate);
       const end = endDate instanceof Date ? endDate : new Date(endDate);
       
-      // ❌ CACHE DISABLED - Always fetch fresh data for accurate statistics
+      // ❌ TẮT CACHE - Luôn lấy dữ liệu mới nhất cho thống kê chính xác
       // const cacheKey = `stats:revenue:${start.toISOString()}:${end.toISOString()}:${groupBy}:${dentistId || 'all'}:${serviceId || 'all'}`;
       // const cached = await this.redis.get(cacheKey);
       // if (cached) {
@@ -640,12 +640,12 @@ class InvoiceService {
 
       const stats = await invoiceRepo.getRevenueStats(start, end, groupBy, dentistId, serviceId);
       
-      // ❌ CACHE DISABLED
+      // ❌ TẮT CACHE
       // await this.redis.setex(cacheKey, 1800, JSON.stringify(stats));
 
       return stats;
     } catch (error) {
-      console.error("❌ Error getting revenue stats:", error);
+      console.error("❌ Lỗi lấy thống kê doanh thu:", error);
       throw error;
     }
   }
@@ -689,18 +689,18 @@ class InvoiceService {
 
       return dashboardData;
     } catch (error) {
-      console.error("❌ Error getting dashboard data:", error);
+      console.error("❌ Lỗi lấy dữ liệu dashboard:", error);
       throw error;
     }
   }
 
-  // ============ HELPER METHODS ============
+  // ============ CÁC PHƯƠNG THỨC HỖ TRỢ ============
   async generateInvoiceNumber() {
     const today = new Date();
     const year = today.getFullYear();
     const month = String(today.getMonth() + 1).padStart(2, '0');
     
-    // Count invoices for this month
+    // Đếm số hóa đơn trong tháng này
     const startOfMonth = new Date(year, today.getMonth(), 1);
     const endOfMonth = new Date(year, today.getMonth() + 1, 0);
     
@@ -716,28 +716,28 @@ class InvoiceService {
         await this.redis.del(`invoice:${invoiceId}`);
       }
       
-      // Clear all invoice list caches
+      // Xóa tất cả cache danh sách hóa đơn
       const keys = await this.redis.keys('invoices:*');
       if (keys.length > 0) {
         await this.redis.del(...keys);
       }
 
-      // Clear stats caches
+      // Xóa cache thống kê
       const statsKeys = await this.redis.keys('stats:*');
       if (statsKeys.length > 0) {
         await this.redis.del(...statsKeys);
       }
 
-      // Clear dashboard cache
+      // Xóa cache dashboard
       await this.redis.del('dashboard:invoices');
     } catch (error) {
-      console.error("⚠️ Warning: Could not clear cache:", error.message);
+      console.error("⚠️ Cảnh báo: Không thể xóa cache:", error.message);
     }
   }
 
   async sendPaymentNotification(invoice) {
     try {
-      // Send notification via RPC to notification service
+      // Gửi thông báo qua RPC đến notification service
       await this.rpcClient.call('notification-service', 'sendInvoicePaymentNotification', {
         invoiceId: invoice._id,
         patientInfo: invoice.patientInfo,
@@ -745,7 +745,7 @@ class InvoiceService {
         status: invoice.status
       });
     } catch (error) {
-      console.error("⚠️ Warning: Could not send notification:", error.message);
+      console.error("⚠️ Cảnh báo: Không thể gửi thông báo:", error.message);
     }
   }
 }

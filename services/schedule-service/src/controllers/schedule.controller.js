@@ -2,11 +2,11 @@ const scheduleService = require('../services/schedule.service');
 
 const isManagerOrAdmin = (user) => {
   if (!user) return false;
-  const userRoles = user.roles || (user.role ? [user.role] : []); // Support both roles array and legacy role
+  const userRoles = user.roles || (user.role ? [user.role] : []); // Hỗ trợ cả mảng roles và role cũ
   return userRoles.includes('manager') || userRoles.includes('admin');
 };
 
-// Generate quarter schedule (all rooms)
+// Tạo lịch theo quý (tất cả phòng)
 exports.generateQuarterSchedule = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({ 
@@ -41,7 +41,7 @@ exports.generateQuarterSchedule = async (req, res) => {
   }
 };
 
-// Get available quarters to generate
+// Lấy danh sách quý có thể tạo
 exports.getAvailableQuarters = async (req, res) => {
   try {
     const quarters = await scheduleService.getAvailableQuarters();
@@ -58,7 +58,7 @@ exports.getAvailableQuarters = async (req, res) => {
   }
 };
 
-// Check quarters status for a specific room
+// Kiểm tra trạng thái quý cho một phòng cụ thể
 exports.checkQuartersStatus = async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -108,7 +108,7 @@ exports.checkQuartersStatus = async (req, res) => {
   }
 };
 
-// Get schedules by room and date range
+// Lấy lịch theo phòng và khoảng thời gian
 exports.getSchedulesByRoom = async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -136,7 +136,7 @@ exports.getSchedulesByRoom = async (req, res) => {
   }
 };
 
-// Get schedules by date range (all rooms)
+// Lấy lịch theo khoảng thời gian (tất cả phòng)
 exports.getSchedulesByDateRange = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -165,7 +165,7 @@ exports.getSchedulesByDateRange = async (req, res) => {
 
 
 
-// Get quarter status
+// Lấy trạng thái quý
 exports.getQuarterStatus = async (req, res) => {
   try {
     const { quarter, year } = req.query;
@@ -192,7 +192,7 @@ exports.getQuarterStatus = async (req, res) => {
   }
 };
 
-  // Toggle schedule active state
+  // Chuyển đổi trạng thái active của lịch
   exports.toggleScheduleActive = async (req, res) => {
     if (!isManagerOrAdmin(req.user)) {
       return res.status(403).json({ success: false, message: 'Chỉ quản lý hoặc admin mới được phép thay đổi trạng thái lịch' });
@@ -209,7 +209,7 @@ exports.getQuarterStatus = async (req, res) => {
     }
   };
 
-// 🆕 Generate schedule for specific room with shift selection (UPDATED: MONTHLY)
+// 🆕 Tạo lịch cho phòng cụ thể với lựa chọn ca (ĐÃ CẬP NHẬT: THEO THÁNG)
 exports.generateRoomSchedule = async (req, res) => {
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({ 
@@ -233,7 +233,7 @@ exports.generateRoomSchedule = async (req, res) => {
       shifts // Array: ['morning', 'afternoon', 'evening'] - ca nào được chọn để tạo
     } = req.body;
     
-    // 🆕 Backward compatibility: Nếu không có fromYear/toYear, dùng year
+    // 🆕 Tương thích ngược: Nếu không có fromYear/toYear, dùng year
     const effectiveFromYear = fromYear || year;
     const effectiveToYear = toYear || year;
     
@@ -449,7 +449,7 @@ exports.updateSchedule = async (req, res) => {
       });
     }
 
-    // Call service to update schedule
+    // Gọi service để cập nhật lịch
     const result = await scheduleService.updateSchedule({
       scheduleId,
       isActive,
@@ -507,7 +507,7 @@ exports.addMissingShifts = async (req, res) => {
       });
     }
 
-    // Call service to add missing shifts
+    // Gọi service để thêm ca thiếu
     const result = await scheduleService.addMissingShifts({
       roomId,
       month,
@@ -1012,12 +1012,12 @@ exports.replaceStaff = async (req, res) => {
 
 // 🆕 Get bulk room schedules info
 // API: GET /api/schedules/rooms/bulk-shifts
-// Query params: roomIds (comma-separated), fromMonth, toMonth, fromYear, toYear
+// Tham số query: roomIds (phân cách bằng dấu phẩy), fromMonth, toMonth, fromYear, toYear
 exports.getBulkRoomSchedulesInfo = async (req, res) => {
   try {
     const { roomIds, fromMonth, toMonth, fromYear, toYear } = req.query;
 
-    // Validate roomIds
+    // Kiểm tra roomIds
     if (!roomIds) {
       return res.status(400).json({
         success: false,
@@ -1025,7 +1025,7 @@ exports.getBulkRoomSchedulesInfo = async (req, res) => {
       });
     }
 
-    // Parse roomIds (comma-separated string to array)
+    // Parse roomIds (chuỗi phân cách bằng dấu phẩy thành mảng)
     const roomIdsArray = roomIds.split(',').map(id => id.trim()).filter(Boolean);
 
     if (roomIdsArray.length === 0) {
@@ -1035,7 +1035,7 @@ exports.getBulkRoomSchedulesInfo = async (req, res) => {
       });
     }
 
-    // Validate month/year
+    // Kiểm tra tháng/năm
     if (!fromMonth || !toMonth || !fromYear || !toYear) {
       return res.status(400).json({
         success: false,
@@ -1065,7 +1065,7 @@ exports.getBulkRoomSchedulesInfo = async (req, res) => {
 // API: POST /api/schedules/rooms/bulk-generate
 // Body: { roomIds: string[], fromMonth, toMonth, fromYear, toYear, startDate, shifts: string[] }
 exports.generateBulkRoomSchedules = async (req, res) => {
-  // Check permission
+  // Kiểm tra quyền
   if (!isManagerOrAdmin(req.user)) {
     return res.status(403).json({
       success: false,
@@ -1084,7 +1084,7 @@ exports.generateBulkRoomSchedules = async (req, res) => {
       shifts
     } = req.body;
 
-    // Validate roomIds
+    // Kiểm tra roomIds
     if (!roomIds || !Array.isArray(roomIds) || roomIds.length === 0) {
       return res.status(400).json({
         success: false,
@@ -1092,7 +1092,7 @@ exports.generateBulkRoomSchedules = async (req, res) => {
       });
     }
 
-    // Validate other fields
+    // Kiểm tra các trường khác
     if (!fromMonth || !toMonth || !fromYear || !toYear || !startDate || !shifts) {
       return res.status(400).json({
         success: false,
@@ -1100,7 +1100,7 @@ exports.generateBulkRoomSchedules = async (req, res) => {
       });
     }
 
-    // Validate shifts
+    // Kiểm tra ca làm việc
     if (!Array.isArray(shifts) || shifts.length === 0) {
       return res.status(400).json({
         success: false,

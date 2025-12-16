@@ -14,7 +14,7 @@ const createRecordValidation = [
     .withMessage('Tên dịch vụ phải từ 2 đến 200 ký tự')
     .trim(),
   
-  // 🔥 CRITICAL: serviceAddOnPrice is REQUIRED for invoice pricing
+  // 🔥 QUAN TRỌNG: serviceAddOnPrice là BẮT BUỘC cho giá hóa đơn
   body('serviceAddOnPrice')
     .notEmpty()
     .withMessage('Giá dịch vụ (serviceAddOnPrice) là bắt buộc')
@@ -56,7 +56,7 @@ const createRecordValidation = [
     .isIn(['exam', 'treatment'])
     .withMessage('Loại hồ sơ phải là exam hoặc treatment'),
   
-  // Patient validation - either patientId or patientInfo is required
+  // Validation bệnh nhân - cần patientId hoặc patientInfo
   body('patientId')
     .optional()
     .isMongoId()
@@ -95,7 +95,7 @@ const createRecordValidation = [
     .withMessage('Địa chỉ không được quá 200 ký tự')
     .trim(),
   
-  // Optional fields
+  // Các trường tùy chọn
   body('appointmentId')
     .optional()
     .isMongoId()
@@ -150,7 +150,7 @@ const updateRecordValidation = [
   param('id')
     .isMongoId()
     .withMessage('Record ID không hợp lệ')
-  // ✅ No field validation - accept any data
+  // ✅ Không validation trường - chấp nhận mọi dữ liệu
 ];
 
 const recordIdValidation = [
@@ -159,7 +159,7 @@ const recordIdValidation = [
     .withMessage('Record ID không hợp lệ')
 ];
 
-// Validation for queue operations that use :recordId parameter
+// Validation cho các thao tác hàng đợi sử dụng tham số :recordId
 const queueRecordIdValidation = [
   param('recordId')
     .isMongoId()
@@ -190,7 +190,7 @@ const addPrescriptionValidation = [
   param('id')
     .isMongoId()
     .withMessage('Record ID không hợp lệ')
-  // ✅ No validation - accept empty or incomplete prescription data
+  // ✅ Không validation - chấp nhận dữ liệu đơn thuốc trống hoặc không hoàn chỉnh
 ];
 
 const updateTreatmentIndicationValidation = [

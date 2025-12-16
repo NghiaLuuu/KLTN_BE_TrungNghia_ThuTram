@@ -2,7 +2,7 @@ const rabbitmqClient = require('../utils/rabbitmq.client');
 const slotRepository = require('../repositories/slot.repository');
 
 /**
- * Start consuming messages from schedule_queue
+ * Bắt đầu tiêu thụ messages từ schedule_queue
  */
 async function startConsumer() {
   try {
@@ -15,13 +15,13 @@ async function startConsumer() {
         timestamp: new Date().toISOString()
       });
 
-      // ⚠️ IMPORTANT: Return false to requeue RPC requests for rpcServer to handle
+      // ⚠️ QUAN TRỌNG: Trả về false để requeue các RPC requests cho rpcServer xử lý
       if (message.action) {
-        console.log('⏭️ [Schedule Consumer] Requeuing RPC request for rpcServer');
-        return false; // NACK and requeue for rpcServer
+        console.log('⏭️ [Schedule Consumer] Đang requeue RPC request cho rpcServer');
+        return false; // NACK và requeue cho rpcServer
       }
 
-      // Only handle EVENT messages (not RPC requests)
+      // Chỉ xử lý các EVENT messages (không phải RPC requests)
       if (message.event === 'slot.update_status') {
         const { slotIds, status, reservationId, appointmentId } = message.data;
 
@@ -46,15 +46,15 @@ async function startConsumer() {
         try {
           let updatedCount = 0;
 
-          // Update each slot
+          // Cập nhật từng slot
           for (const slotId of slotIds) {
             const updateData = {
               status: status, // 'booked'
-              lockedBy: null, // Clear lock
+              lockedBy: null, // Xóa lock
               lockedAt: null
             };
 
-            // Add appointmentId if provided
+            // Thêm appointmentId nếu được cung cấp
             if (appointmentId) {
               updateData.appointmentId = appointmentId;
             }
@@ -84,10 +84,10 @@ async function startConsumer() {
             slotIds,
             status
           });
-          throw error; // Will trigger RabbitMQ retry
+          throw error; // Sẽ kích hoạt RabbitMQ retry
         }
       } else if (message.event === 'appointment.created') {
-        // Handle appointment created event - update slots with appointmentId
+        // Xử lý sự kiện tạo cuộc hẹn - cập nhật slots với appointmentId
         const { appointmentId, slotIds, reservationId, status } = message.data;
 
 
@@ -105,12 +105,12 @@ async function startConsumer() {
         try {
           let updatedCount = 0;
 
-          // Update each slot with appointmentId
+          // Cập nhật từng slot với appointmentId
           for (const slotId of slotIds) {
             const updateData = {
               status: status || 'booked',
               appointmentId: appointmentId,
-              lockedBy: null, // Clear lock
+              lockedBy: null, // Xóa khóa
               lockedAt: null
             };
 
@@ -123,9 +123,9 @@ async function startConsumer() {
             }
           }
 
-          console.log(`✅ Linked ${updatedCount} slots to appointment ${appointmentId}`);
+          console.log(`✅ Đã liên kết ${updatedCount} slots với cuộc hẹn ${appointmentId}`);
           
-          // 🔥 Invalidate Redis cache for room calendar
+          // 🔥 Xóa cache Redis cho lịch phòng
           const firstSlot = await slotRepository.getSlotById(slotIds[0]);
           if (firstSlot?.roomId) {
             try {
@@ -133,10 +133,10 @@ async function startConsumer() {
               const keys = await redisClient.keys(cachePattern);
               if (keys.length > 0) {
                 await Promise.all(keys.map(key => redisClient.del(key)));
-                console.log(`🗑️ Invalidated ${keys.length} calendar cache keys`);
+                console.log(`🗑️ Đã xóa ${keys.length} khóa cache lịch`);
               }
             } catch (cacheError) {
-              console.error('⚠️ Cache invalidation failed:', cacheError.message);
+              console.error('⚠️ Xóa cache thất bại:', cacheError.message);
             }
           }
 
@@ -146,10 +146,10 @@ async function startConsumer() {
             appointmentId,
             slotIds
           });
-          throw error; // Will trigger RabbitMQ retry
+          throw error; // Sẽ kích hoạt RabbitMQ retry
         }
       } else if (message.event === 'reservation.expired') {
-        // ✅ NEW: Handle reservation expiration - unlock slots
+        // ✅ MỚI: Xử lý hết hạn đặt chỗ - mở khóa slots
         const { reservationId, slotIds, expiredAt, reason } = message.data;
 
         console.log('⏰ [Schedule Consumer] ========================================');
@@ -171,9 +171,9 @@ async function startConsumer() {
         try {
           let unlockedCount = 0;
 
-          // Unlock each slot (revert to available)
+          // Mở khóa từng slot (chuyển về available)
           for (const slotId of slotIds) {
-            // First, check if slot is still locked by this reservation
+            // Trước tiên, kiểm tra xem slot vẫn đang bị khóa bởi reservation này không
             const currentSlot = await slotRepository.getSlotById(slotId);
             
             if (!currentSlot) {
@@ -181,17 +181,17 @@ async function startConsumer() {
               continue;
             }
 
-            // Only unlock if:
-            // 1. Status is 'locked'
-            // 2. lockedBy matches this reservationId (or is null)
+            // Chỉ mở khóa nếu:
+            // 1. Status là 'locked'
+            // 2. lockedBy khớp với reservationId này (hoặc là null)
             if (currentSlot.status === 'locked' && 
                 (!currentSlot.lockedBy || currentSlot.lockedBy === reservationId)) {
               
               const updateData = {
-                status: 'available', // Revert to available
+                status: 'available', // Chuyển về available
                 lockedBy: null,
                 lockedAt: null,
-                appointmentId: null // Clear appointment link if any
+                appointmentId: null // Xóa liên kết appointment nếu có
               };
 
               console.log(`🔓 [Schedule Consumer] Unlocking slot ${slotId}:`, updateData);
@@ -200,10 +200,10 @@ async function startConsumer() {
 
               if (updatedSlot) {
                 unlockedCount++;
-                console.log(`✅ [Schedule Consumer] Slot ${slotId} unlocked (back to available)`);
+                console.log(`✅ [Schedule Consumer] Slot ${slotId} đã mở khóa (chuyển lại available)`);
               }
             } else {
-              console.log(`ℹ️  [Schedule Consumer] Slot ${slotId} already processed:`, {
+              console.log(`ℹ️  [Schedule Consumer] Slot ${slotId} đã được xử lý:`, {
                 currentStatus: currentSlot.status,
                 lockedBy: currentSlot.lockedBy,
                 appointmentId: currentSlot.appointmentId
@@ -212,8 +212,8 @@ async function startConsumer() {
           }
 
           console.log('✅ [Schedule Consumer] ========================================');
-          console.log('✅ [Schedule Consumer] Reservation expired - slots unlocked');
-          console.log('📊 [Schedule Consumer] Summary:', {
+          console.log('✅ [Schedule Consumer] Đặt chỗ hết hạn - slots đã mở khóa');
+          console.log('📊 [Schedule Consumer] Tóm tắt:', {
             totalSlots: slotIds.length,
             unlockedSlots: unlockedCount,
             reservationId: reservationId,
@@ -222,15 +222,15 @@ async function startConsumer() {
           console.log('✅ [Schedule Consumer] ========================================');
 
         } catch (error) {
-          console.error('❌ [Schedule Consumer] Error unlocking expired slots:', {
+          console.error('❌ [Schedule Consumer] Lỗi khi mở khóa slots hết hạn:', {
             error: error.message,
             reservationId,
             slotIds
           });
-          throw error; // Will trigger RabbitMQ retry
+          throw error; // Sẽ kích hoạt RabbitMQ retry
         }
       } else if (message.event === 'log_appointment_cancellation') {
-        // 🔥 NEW: Log appointment cancellation to DayClosure
+        // 🔥 MỚI: Ghi log hủy cuộc hẹn vào DayClosure
         const slotService = require('../services/slot.service');
         
         console.log('📝 [Schedule Consumer] Processing log_appointment_cancellation:', {
@@ -240,19 +240,19 @@ async function startConsumer() {
 
         try {
           await slotService.logAppointmentCancellation(message.data);
-          console.log('✅ [Schedule Consumer] Logged appointment cancellation to DayClosure');
+          console.log('✅ [Schedule Consumer] Đã ghi log hủy cuộc hẹn vào DayClosure');
         } catch (error) {
-          console.error('❌ [Schedule Consumer] Error logging appointment cancellation:', error.message);
-          // Don't throw - this is audit logging, shouldn't block the flow
+          console.error('❌ [Schedule Consumer] Lỗi khi ghi log hủy cuộc hẹn:', error.message);
+          // Không throw - đây là audit logging, không nên chặn luồng
         }
       } else {
-        console.log('ℹ️ [Schedule Consumer] Unhandled event type:', message.event);
+        console.log('ℹ️ [Schedule Consumer] Loại sự kiện chưa xử lý:', message.event);
       }
     });
 
-    console.log('👂 [Schedule Consumer] Listening to schedule_queue...');
+    console.log('👂 [Schedule Consumer] Đang lắng nghe schedule_queue...');
   } catch (error) {
-    console.error('❌ [Schedule Consumer] Failed to start consumer:', error);
+    console.error('❌ [Schedule Consumer] Không thể khởi động consumer:', error);
     throw error;
   }
 }

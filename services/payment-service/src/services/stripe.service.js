@@ -6,14 +6,14 @@ const rabbitmqClient = require('../utils/rabbitmq.client');
 
 class StripeService {
   /**
-   * Create Stripe Payment Link (VNPay-style pattern)
-   * Simplified flow: direct URL generation like VNPay
-   * @param {string} orderId - Reservation/appointment ID  
-   * @param {number} amount - Amount in VND
-   * @param {string} orderInfo - Description
-   * @param {string} customerEmail - Customer email (optional)
-   * @param {object} metadata - Additional metadata
-   * @param {string} userRole - User role for redirect (patient/staff/admin)
+   * Tạo liên kết thanh toán Stripe (theo mô hình VNPay)
+   * Luồng đơn giản: tạo URL trực tiếp như VNPay
+   * @param {string} orderId - Mã đặt khám/lịch hẹn
+   * @param {number} amount - Số tiền bằng VND
+   * @param {string} orderInfo - Mô tả
+   * @param {string} customerEmail - Email khách hàng (tùy chọn)
+   * @param {object} metadata - Dữ liệu bổ sung
+   * @param {string} userRole - Vai trò người dùng để chuyển hướng (patient/staff/admin)
    * @returns {Promise<object>} - { paymentUrl, orderId, sessionId }
    */
   async createPaymentLink(orderId, amount, orderInfo, customerEmail = null, metadata = {}, userRole = 'patient') {
@@ -27,8 +27,8 @@ class StripeService {
         userRole
       });
 
-      // Convert VND to USD (approximate rate: 1 USD = 25,000 VND)
-      // Stripe requires amount in smallest currency unit (cents)
+      // Chuyển đổi VND sang USD (tỷ giá xấp xỉ: 1 USD = 25,000 VND)
+      // Stripe yêu cầu số tiền theo đơn vị tiền tệ nhỏ nhất (cents)
       const exchangeRate = parseFloat(process.env.STRIPE_EXCHANGE_RATE) || 25000;
       const amountInUSD = Math.round(amount / exchangeRate);
       const amountInCents = Math.max(50, amountInUSD * 100); // Stripe minimum: $0.50
@@ -40,10 +40,10 @@ class StripeService {
         amountCents: amountInCents
       });
 
-      // Create Stripe Checkout Session
+      // Tạo Stripe Checkout Session
       const returnUrl = process.env.STRIPE_RETURN_URL || 'http://localhost:3007/api/payments/return/stripe';
       
-      // Prepare session config
+      // Chuẩn bị cấu hình session
       const sessionConfig = {
         payment_method_types: ['card'],
         line_items: [
@@ -73,7 +73,7 @@ class StripeService {
         expires_at: Math.floor(Date.now() / 1000) + (30 * 60), // 30 minutes (Stripe minimum)
       };
 
-      // Only set customer_email if it's valid (not null, not empty string)
+      // Chỉ đặt customer_email nếu hợp lệ (không null, không rỗng)
       if (customerEmail && customerEmail.trim() !== '') {
         sessionConfig.customer_email = customerEmail.trim();
       }
@@ -82,8 +82,8 @@ class StripeService {
 
       console.log('✅ [Stripe Service] Session created:', session.id);
 
-      // Store user role in Redis for later use in return URL redirect (SAME AS VNPAY)
-      // TTL: 30 minutes (enough time for payment process)
+      // Lưu vai trò người dùng vào Redis để sử dụng sau trong URL chuyển hướng (GIỐNG VNPAY)
+      // TTL: 30 phút (đủ thời gian cho quá trình thanh toán)
       const roleKey = `payment:role:${orderId}`;
       const roleToStore = userRole || 'patient';
       
@@ -93,7 +93,7 @@ class StripeService {
       await redis.setEx(roleKey, 1800, roleToStore);
       console.log('✅ [Stripe] Role stored in Redis successfully');
 
-      // Store temporary payment in Redis (VNPay pattern)
+      // Lưu thanh toán tạm thời vào Redis (theo mô hình VNPay)
       const tempPaymentKey = `payment:temp:${orderId}`;
       const now = new Date();
       const expireAt = new Date(now.getTime() + 15 * 60 * 1000);
@@ -120,8 +120,8 @@ class StripeService {
       await redis.setEx(tempPaymentKey, 180, JSON.stringify(tempPaymentData)); // 3 minutes
       console.log('💾 [Stripe] Temp payment stored:', tempPaymentKey);
 
-      // Store session mapping (for callback)
-      await redis.setEx(`stripe:session:${session.id}`, 180, orderId); // 3 minutes
+      // Lưu ánh xạ session (để xử lý callback)
+      await redis.setEx(`stripe:session:${session.id}`, 180, orderId); // 3 phút
       
       return {
         paymentUrl: session.url,
@@ -139,47 +139,47 @@ class StripeService {
   }
 
   /**
-   * Process Stripe callback/return (VNPay-style pattern)
-   * Handle redirect from Stripe success/cancel
-   * @param {string} sessionId - Stripe session ID
-   * @param {string} status - 'success' or 'cancel'
-   * @returns {Promise<object>} - Processing result
+   * Xử lý callback/return từ Stripe (theo mô hình VNPay)
+   * Xử lý chuyển hướng từ Stripe success/cancel
+   * @param {string} sessionId - Mã session Stripe
+   * @param {string} status - 'success' hoặc 'cancel'
+   * @returns {Promise<object>} - Kết quả xử lý
    */
   async processCallback(sessionId, status) {
     try {
       console.log('🟣 [Stripe Callback] Processing:', { sessionId, status });
 
-      // Get orderId from Redis mapping
+      // Lấy orderId từ Redis mapping
       const orderId = await redis.get(`stripe:session:${sessionId}`);
       if (!orderId) {
         throw new Error('Session not found or expired');
       }
 
-      // Check if this is an existing payment (from dashboard) or new booking
+      // Kiểm tra đây là thanh toán hiện có (từ dashboard) hay đặt khám mới
       const existingPaymentMapping = await redis.get(`payment:stripe:${orderId}`);
       
       if (existingPaymentMapping) {
-        // This is an existing payment from dashboard
+        // Đây là thanh toán hiện có từ dashboard
         console.log('📋 [Stripe] Processing existing payment:', { orderId, paymentId: existingPaymentMapping });
         return await this.handleExistingPaymentCallback(sessionId, orderId, existingPaymentMapping, status);
       }
 
-      // Get temp payment from Redis (for new bookings)
+      // Lấy thanh toán tạm từ Redis (đối với đặt khám mới)
       const tempPaymentKey = `payment:temp:${orderId}`;
       const tempPaymentData = await redis.get(tempPaymentKey);
       
-      // Verify session with Stripe first
+      // Xác minh session với Stripe trước
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       
       if (!tempPaymentData) {
-        // Check if payment already exists in DB (webhook might have processed it)
+        // Kiểm tra xem thanh toán đã tồn tại trong DB chưa (webhook có thể đã xử lý)
         const existingPayment = await Payment.findOne({
           'gatewayResponse.additionalData.sessionId': sessionId
         });
 
         if (existingPayment) {
           console.log('✅ [Stripe] Payment already processed via webhook:', existingPayment._id);
-          return existingPayment; // Return existing payment instead of throwing error
+          return existingPayment; // Trả về thanh toán hiện có thay vì throw error
         }
 
         console.error('❌ Temporary payment not found and no existing payment:', tempPaymentKey);
@@ -196,7 +196,7 @@ class StripeService {
         payment_intent: session.payment_intent
       });
 
-      // Process based on status
+      // Xử lý dựa trên trạng thái
       if (status === 'success' && session.payment_status === 'paid') {
         return await this.handleSuccessfulPayment(session, tempPayment, orderId);
       } else if (status === 'cancel' || session.status === 'expired') {
@@ -212,19 +212,19 @@ class StripeService {
   }
 
   /**
-   * Handle successful Stripe payment (similar to VNPay success)
+   * Xử lý thanh toán Stripe thành công (tương tự VNPay success)
    */
   async handleSuccessfulPayment(session, tempPayment, orderId) {
     try {
       const reservationId = orderId;
       const amount = tempPayment.amount;
 
-      // Get appointment hold data for patient info and services (SAME AS VNPAY)
+      // Lấy dữ liệu giữ chỗ lịch hẹn để lấy thông tin bệnh nhân và dịch vụ (GIỐNG VNPAY)
       const appointmentHoldKey = tempPayment.appointmentHoldKey || reservationId;
       
-      // Try multiple possible Redis keys (different services use different prefixes)
+      // Thử nhiều khóa Redis có thể có (các service khác nhau sử dụng tiền tố khác nhau)
       const possibleKeys = [
-        appointmentHoldKey,  // Direct key (e.g., "RSV1760631740748")
+        appointmentHoldKey,  // Khóa trực tiếp (ví dụ: "RSV1760631740748")
         `appointment_hold:${appointmentHoldKey}`,
         `reservation:${appointmentHoldKey}`,
         `temp_reservation:${appointmentHoldKey}`
@@ -239,7 +239,7 @@ class StripeService {
       let foundKey = null;
       
       try {
-        // Try each possible key until we find the data
+        // Thử từng khóa có thể có cho đến khi tìm thấy dữ liệu
         for (const key of possibleKeys) {
           const appointmentDataStr = await redis.get(key);
           if (appointmentDataStr) {
@@ -259,10 +259,10 @@ class StripeService {
         
         if (!appointmentData) {
           console.error('❌ [Stripe DEBUG] No appointment data found in Redis. Tried keys:', possibleKeys);
-          // Don't throw - continue with limited data
+          // Không throw - tiếp tục với dữ liệu hạn chế
         }
         
-        // Extract patient info from appointment data (SAME AS VNPAY)
+        // Trích xuất thông tin bệnh nhân từ dữ liệu lịch hẹn (GIỐNG VNPAY)
         if (appointmentData && appointmentData.patientInfo) {
           patientInfo = {
             name: appointmentData.patientInfo.fullName || appointmentData.patientInfo.name || 'Customer',
@@ -275,7 +275,7 @@ class StripeService {
         console.error('❌ [Stripe DEBUG] Error fetching appointment data:', err.message);
       }
 
-      // Create permanent payment record (similar to VNPay flow)
+      // Tạo bản ghi thanh toán vĩnh viễn (tương tự luồng VNPay)
       const payment = await Payment.create({
         paymentCode: orderId,
         appointmentId: null,
@@ -320,17 +320,17 @@ class StripeService {
       console.log('✅ [Stripe] Payment record created:', payment._id);
       console.log('💾 Payment data includes Stripe URL:', !!tempPayment.stripeUrl);
 
-      // Delete temp payment from Redis
+      // Xóa thanh toán tạm khỏi Redis
       await redis.del(`payment:temp:${orderId}`);
       await redis.del(`stripe:session:${session.id}`);
       
-      // NOTE: Don't delete payment:role here - controller needs it for redirect
-      // Controller will clean it up after getting the role
+      // GHI CHÚ: Không xóa payment:role ở đây - controller cần nó để chuyển hướng
+      // Controller sẽ dọn dẹp sau khi lấy được vai trò
 
-      // Publish events (same as VNPay) - ONLY if appointment data exists
+      // Publish các sự kiện (giống VNPay) - CHỈ nếu dữ liệu lịch hẹn tồn tại
       if (appointmentData) {
         try {
-          // STEP 1: Create Invoice FIRST
+          // BƯỚC 1: Tạo hóa đơn TRƯỚC TIÊN
           await rabbitmqClient.publishToQueue('invoice_queue', {
             event: 'payment.completed',
             data: {
@@ -343,7 +343,7 @@ class StripeService {
             }
           });
 
-          // STEP 2: Create Appointment (will query invoice by paymentId)
+          // BƯỚC 2: Tạo lịch hẹn (sẽ truy vấn hóa đơn theo paymentId)
           await rabbitmqClient.publishToQueue('appointment_queue', {
             event: 'payment.completed',
             data: {
@@ -355,7 +355,7 @@ class StripeService {
             }
           });
 
-          // STEP 3: Mark Service/ServiceAddOn as Used
+          // BƯỚC 3: Đánh dấu Service/ServiceAddOn đã sử dụng
           const servicesToMark = [];
           
           if (appointmentData.serviceId) {
@@ -376,7 +376,7 @@ class StripeService {
             });
           }
 
-          // STEP 4: Mark exam record as used (if needed)
+          // BƯỚC 4: Đánh dấu hồ sơ khám đã sử dụng (nếu cần)
           if (appointmentData.examRecordId) {
             await rabbitmqClient.publishToQueue('record_queue', {
               event: 'record.mark_as_used',
@@ -395,7 +395,7 @@ class StripeService {
           console.log('✅ [Stripe] Events published for appointment creation');
         } catch (eventError) {
           console.error('⚠️ [Stripe] Error publishing events:', eventError.message);
-          // Don't throw - payment is already created
+          // Không throw - thanh toán đã được tạo
         }
       } else {
         console.warn('⚠️ [Stripe] appointmentData is NULL or UNDEFINED - Events NOT published!', {
@@ -415,18 +415,18 @@ class StripeService {
   }
 
   /**
-   * Handle cancelled/expired Stripe payment
+   * Xử lý thanh toán Stripe bị hủy/hết hạn
    */
   async handleCancelledPayment(session, tempPayment, orderId) {
     try {
       console.log('⏰ [Stripe] Payment cancelled/expired:', orderId);
 
-      // Delete temp payment
+      // Xóa thanh toán tạm
       await redis.del(`payment:temp:${orderId}`);
       await redis.del(`stripe:session:${session.id}`);
       
-      // NOTE: Don't delete payment:role here - controller needs it for redirect
-      // Controller will clean it up after getting the role
+      // GHI CHÚ: Không xóa payment:role ở đây - controller cần nó để chuyển hướng
+      // Controller sẽ dọn dẹp sau khi lấy được vai trò
 
       return {
         success: false,
@@ -442,28 +442,28 @@ class StripeService {
   }
 
   /**
-   * Handle callback for existing payment (dashboard staff payment)
-   * Similar to VNPay's updateExistingPaymentFromVNPay
+   * Xử lý callback cho thanh toán hiện có (thanh toán nhân viên từ dashboard)
+   * Tương tự updateExistingPaymentFromVNPay của VNPay
    */
   async handleExistingPaymentCallback(sessionId, orderId, paymentId, status) {
     try {
       console.log('🔄 [Stripe Existing Payment] Processing:', { sessionId, orderId, paymentId, status });
 
-      // Verify session with Stripe
+      // Xác minh session với Stripe
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       
-      // Get payment from database
+      // Lấy thanh toán từ database
       const payment = await Payment.findById(paymentId);
       
       if (!payment) {
         throw new Error(`Payment not found: ${paymentId}`);
       }
 
-      // Check if payment already completed (duplicate callback/webhook)
+      // Kiểm tra xem thanh toán đã hoàn thành chưa (callback/webhook trùng lặp)
       if (payment.status === 'completed') {
         console.log('ℹ️ [Stripe Existing Payment] Payment already completed:', payment._id);
         
-        // Clean up Redis if exists
+        // Dọn dẹp Redis nếu tồn tại
         await redis.del(`payment:stripe:${orderId}`);
         await redis.del(`stripe:session:${sessionId}`);
         
@@ -474,7 +474,7 @@ class StripeService {
       }
 
       if (status === 'success' && session.payment_status === 'paid') {
-        // ✅ If finalAmount is 0 and has recordId, fetch from record service
+        // ✅ Nếu finalAmount là 0 và có recordId, lấy từ record service
         if (payment.finalAmount === 0 && payment.recordId) {
           console.log('⚠️ [Stripe Existing Payment] finalAmount is 0, fetching from record:', payment.recordId);
           
@@ -493,15 +493,15 @@ class StripeService {
               depositPaid: recordData.depositPaid
             });
             
-            // 🔥 FIX: Use serviceAddOnPrice (actual variant price) instead of servicePrice (base price)
+            // 🔥 SỬa LỖI: Sử dụng serviceAddOnPrice (giá biến thể thực tế) thay vì servicePrice (giá gốc)
             const serviceAmount = recordData.serviceAddOnPrice || recordData.serviceAmount || 0;
             const depositAmount = recordData.depositPaid || 0;
             const calculatedAmount = Math.max(0, serviceAmount - depositAmount);
             
-            // Update payment amounts
+            // Cập nhật số tiền thanh toán
             payment.originalAmount = serviceAmount;
-            payment.depositAmount = depositAmount;  // ✅ FIXED: Correct field!
-            payment.discountAmount = 0;  // ✅ FIXED: No real discount
+            payment.depositAmount = depositAmount;  // ✅ SỬa LỖI: Trường đúng!
+            payment.discountAmount = 0;  // ✅ SỬa LỖI: Không có giảm giá thực sự
             payment.taxAmount = 0;
             payment.finalAmount = calculatedAmount;
             
@@ -515,15 +515,15 @@ class StripeService {
           }
         }
         
-        // Update payment to completed
+        // Cập nhật thanh toán thành completed
         payment.status = 'completed';
-        payment.paidAmount = payment.finalAmount;  // ✅ Now this will be correct
+        payment.paidAmount = payment.finalAmount;  // ✅ Bây giờ giá trị này sẽ chính xác
         payment.completedAt = new Date();
         payment.processedAt = new Date();
         payment.processedByName = 'Stripe Gateway';
         payment.externalTransactionId = session.payment_intent;
         
-        // Update gateway response
+        // Cập nhật phản hồi gateway
         payment.gatewayResponse = payment.gatewayResponse || {};
         payment.gatewayResponse.responseCode = '00';
         payment.gatewayResponse.responseMessage = 'Success';
@@ -537,14 +537,14 @@ class StripeService {
 
         console.log('✅ [Stripe Existing Payment] Payment updated:', payment._id);
 
-        // Clean up Redis
+        // Dọn dẹp Redis
         await redis.del(`payment:stripe:${orderId}`);
         await redis.del(`stripe:session:${sessionId}`);
         
-        // NOTE: Don't delete payment:role here - controller needs it for redirect
-        // Controller will clean it up after getting the role
+        // GHI CHÚ: Không xóa payment:role ở đây - controller cần nó để chuyển hướng
+        // Controller sẽ dọn dẹp sau khi lấy được vai trò
 
-        // Trigger invoice creation if has recordId (same as VNPay)
+        // Kích hoạt tạo hóa đơn nếu có recordId (giống VNPay)
         if (payment.recordId) {
           try {
             console.log('📄 [Stripe Existing Payment] Triggering invoice creation for record:', payment.recordId);
@@ -560,9 +560,9 @@ class StripeService {
               patientInfo: payment.patientInfo,
               method: payment.method,
               originalAmount: payment.originalAmount,
-              depositAmount: payment.depositAmount || 0,  // ✅ Add deposit amount
-              discountAmount: payment.discountAmount || 0, // ✅ Real discount (not deposit)
-              taxAmount: payment.taxAmount || 0,  // ✅ Add tax amount
+              depositAmount: payment.depositAmount || 0,  // ✅ Thêm số tiền đặt cọc
+              discountAmount: payment.discountAmount || 0, // ✅ Giảm giá thực sự (không phải đặt cọc)
+              taxAmount: payment.taxAmount || 0,  // ✅ Thêm số tiền thuế
               finalAmount: payment.finalAmount,
               paidAmount: payment.paidAmount,
               changeAmount: payment.changeAmount || 0,
@@ -584,30 +584,30 @@ class StripeService {
           }
         }
 
-        // Return payment with orderId for redirect (same as new booking)
+        // Return payment với orderId để chuyển hướng (giống đặt khám mới)
         return {
           ...payment.toObject(),
-          orderId: orderId  // Add orderId for controller redirect logic
+          orderId: orderId  // Thêm orderId cho logic chuyển hướng của controller
         };
       } else {
-        // Payment cancelled or failed
+        // Thanh toán bị hủy hoặc thất bại
         payment.status = 'cancelled';
         payment.cancelReason = 'User cancelled Stripe payment';
         payment.cancelledAt = new Date();
         await payment.save();
 
-        // Clean up Redis
+        // Dọn dẹp Redis
         await redis.del(`payment:stripe:${orderId}`);
         await redis.del(`stripe:session:${sessionId}`);
         
-        // NOTE: Don't delete payment:role here - controller needs it for redirect
-        // Controller will clean it up after getting the role
+        // GHI CHÚ: Không xóa payment:role ở đây - controller cần nó để chuyển hướng
+        // Controller sẽ dọn dẹp sau khi lấy được vai trò
 
         console.log('⏰ [Stripe Existing Payment] Payment cancelled:', payment._id);
         
         return {
           ...payment.toObject(),
-          orderId: orderId  // Add orderId for controller redirect logic
+          orderId: orderId  // Thêm orderId cho logic chuyển hướng của controller
         };
       }
 
@@ -618,10 +618,10 @@ class StripeService {
   }
 
   /**
-   * Handle Stripe Webhook Events (backup/verification only)
-   * Primary flow uses callback/return URL (VNPay-style)
-   * @param {object} event - Stripe webhook event
-   * @returns {Promise<object>} - Processing result
+   * Xử lý các sự kiện Webhook của Stripe (chỉ để sao lưu/xác minh)
+   * Luồng chính sử dụng callback/return URL (theo kiểu VNPay)
+   * @param {object} event - Sự kiện webhook Stripe
+   * @returns {Promise<object>} - Kết quả xử lý
    */
   async handleWebhookEvent(event) {
     try {
@@ -654,21 +654,21 @@ class StripeService {
   }
 
   /**
-   * Handle completed session (webhook backup verification)
-   * Primary flow handled by processCallback()
+   * Xử lý session hoàn thành (xác minh backup webhook)
+   * Luồng chính được xử lý bởi processCallback()
    */
   async handleCheckoutSessionCompleted(session) {
     try {
       console.log('✅ [Stripe Webhook] Session completed:', session.id);
 
-      // Check if already processed via callback
+      // Kiểm tra xem đã được xử lý qua callback chưa
       const orderId = await redis.get(`stripe:session:${session.id}`);
       if (!orderId) {
         console.log('ℹ️ [Stripe Webhook] Session already processed via callback');
         return { received: true, note: 'Already processed' };
       }
 
-      // Verify payment exists
+      // Xác minh thanh toán tồn tại
       const existingPayment = await Payment.findOne({ 
         'gatewayResponse.additionalData.sessionId': session.id 
       });
@@ -678,7 +678,7 @@ class StripeService {
         return { received: true, paymentId: existingPayment._id.toString() };
       }
 
-      // Process as backup (callback might have failed)
+      // Xử lý như backup (callback có thể đã thất bại)
       console.log('⚠️ [Stripe Webhook] Processing as backup...');
       const tempPaymentData = await redis.get(`payment:temp:${orderId}`);
       
@@ -697,7 +697,7 @@ class StripeService {
   }
 
   /**
-   * Handle expired session (webhook notification)
+   * Xử lý session hết hạn (thông báo webhook)
    */
   async handleCheckoutSessionExpired(session) {
     try {
@@ -706,11 +706,11 @@ class StripeService {
       const orderId = await redis.get(`stripe:session:${session.id}`);
       
       if (orderId) {
-        // Clean up temp payment
+        // Dọn dẹp thanh toán tạm
         await redis.del(`payment:temp:${orderId}`);
         await redis.del(`stripe:session:${session.id}`);
         
-        // Clean up role from Redis (same as VNPay)
+        // Dọn dẹp vai trò khỏi Redis (giống VNPay)
         const roleKey = `payment:role:${orderId}`;
         await redis.del(roleKey);
         
@@ -726,15 +726,15 @@ class StripeService {
   }
 
   /**
-   * Verify session status (for frontend/debugging)
-   * @param {string} sessionId - Stripe session ID
-   * @returns {Promise<object>} - Verification result
+   * Xác minh trạng thái session (cho frontend/debug)
+   * @param {string} sessionId - Mã session Stripe
+   * @returns {Promise<object>} - Kết quả xác minh
    */
   async verifySession(sessionId) {
     try {
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       
-      // Check if payment exists in DB
+      // Kiểm tra xem thanh toán có tồn tại trong DB không
       const payment = await Payment.findOne({ 
         'gatewayResponse.additionalData.sessionId': sessionId 
       });

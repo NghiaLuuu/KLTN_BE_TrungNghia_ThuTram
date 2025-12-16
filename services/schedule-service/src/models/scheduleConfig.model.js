@@ -63,7 +63,7 @@ holidaySchema.pre('save', function(next) {
   next();
 });
 
-// Main Schedule Configuration
+// Cấu hình Lịch chính
 const scheduleConfigSchema = new mongoose.Schema({
   singletonKey: {
     type: String,
@@ -94,7 +94,7 @@ const scheduleConfigSchema = new mongoose.Schema({
     isActive: { type: Boolean, default: true }
   },
   
-  // Duration and limits
+  // Thời lượng và giới hạn
   unitDuration: { 
     type: Number, 
     required: true, 
@@ -120,7 +120,7 @@ const scheduleConfigSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-// Holiday Configuration (separate collection)
+// Cấu hình Ngày nghỉ (collection riêng)
 const holidayConfigSchema = new mongoose.Schema({
   holidays: {
     type: [holidaySchema],
@@ -128,7 +128,7 @@ const holidayConfigSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-// Singleton methods for ScheduleConfig
+// Phương thức Singleton cho ScheduleConfig
 scheduleConfigSchema.statics.getSingleton = async function() {
   let config = await this.findOne({ singletonKey: 'SCHEDULE_CONFIG_SINGLETON' });
   // Không tự động tạo config mới nếu chưa có, trả về null để caller xử lý
@@ -144,7 +144,7 @@ scheduleConfigSchema.statics.updateSingleton = async function(updateData) {
   return await config.save();
 };
 
-// Helper methods
+// Các phương thức hỗ trợ
 scheduleConfigSchema.methods.getWorkShifts = function() {
   return [
     this.morningShift,
@@ -153,22 +153,22 @@ scheduleConfigSchema.methods.getWorkShifts = function() {
   ].filter(shift => shift.isActive);
 };
 
-// Return current quarter/year in Vietnam timezone
+// Trả về quý/năm hiện tại theo múi giờ Việt Nam
 scheduleConfigSchema.methods.getCurrentQuarter = function() {
   const now = new Date();
-  // Convert to Vietnam timezone
+  // Chuyển sang múi giờ Việt Nam
   const vnTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
   return Math.ceil((vnTime.getMonth() + 1) / 3);
 };
 
 scheduleConfigSchema.methods.getCurrentYear = function() {
   const now = new Date();
-  // Convert to Vietnam timezone
+  // Chuyển sang múi giờ Việt Nam
   const vnTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
   return vnTime.getFullYear();
 };
 
-// Backwards-compatible aliases
+// Biệt danh tương thích ngược
 scheduleConfigSchema.methods.getCurrentQuarterVN = scheduleConfigSchema.methods.getCurrentQuarter;
 scheduleConfigSchema.methods.getCurrentYearVN = scheduleConfigSchema.methods.getCurrentYear;
 
@@ -187,7 +187,7 @@ scheduleConfigSchema.methods.getQuarterDateRange = function(quarter, year) {
 
 // ❌ REMOVED: canGenerateQuarter() - lastQuarterGenerated field removed
 
-// Pre-save hook
+// Hook trước khi lưu
 scheduleConfigSchema.pre('save', function(next) {
   this.currentQuarter = this.getCurrentQuarter();
   this.currentYear = this.getCurrentYear();

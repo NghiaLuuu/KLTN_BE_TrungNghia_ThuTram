@@ -3,15 +3,15 @@ const { InvoiceDetail } = require('../models/invoiceDetail.model');
 const rabbitmqClient = require('./rabbitmq.client');
 
 /**
- * ⚠️ DEPRECATED FUNCTIONS - Replaced by invoice.consumer.js
- * These functions are kept for reference but are no longer used
- * - handleAppointmentCreated: Now handled in invoice.consumer.js (appointment.created event)
- * - handlePaymentSuccess: Now handled in invoice.consumer.js (payment.completed event)
+ * ⚠️ CÁC HÀM ĐÃ LỖI THỜI - Đã được thay thế bởi invoice.consumer.js
+ * Các hàm này được giữ lại để tham khảo nhưng không còn được sử dụng
+ * - handleAppointmentCreated: Giờ được xử lý trong invoice.consumer.js (sự kiện appointment.created)
+ * - handlePaymentSuccess: Giờ được xử lý trong invoice.consumer.js (sự kiện payment.completed)
  */
 
 /**
- * DEPRECATED: Handle appointment.created event
- * NOW HANDLED BY: invoice.consumer.js
+ * ĐÃ LỖI THỜI: Xử lý sự kiện appointment.created
+ * GIỜI ĐƯỢC XỬ LÝ BỞI: invoice.consumer.js
  */
 async function handleAppointmentCreated_DEPRECATED(data) {
   try {
@@ -42,29 +42,29 @@ async function handleAppointmentCreated_DEPRECATED(data) {
       amount
     });
 
-    // Validate data
+    // Kiểm tra dữ liệu
     if (!appointmentId || !paymentId) {
-      console.error('[Invoice] Invalid appointment data - missing appointmentId or paymentId');
+      console.error('[Invoice] Dữ liệu lịch hẹn không hợp lệ - thiếu appointmentId hoặc paymentId');
       return;
     }
 
-    // Check if invoice already exists (prevent duplicates)
+    // Kiểm tra xem hóa đơn đã tồn tại chưa (ngăn chặn trùng lặp)
     const existingInvoice = await Invoice.findOne({ appointmentId });
     if (existingInvoice) {
-      console.log('[Invoice] Invoice already exists for appointment:', appointmentId);
+      console.log('[Invoice] Hóa đơn đã tồn tại cho lịch hẹn:', appointmentId);
       return;
     }
 
-    // Generate invoice code
+    // Tạo mã hóa đơn
     const invoiceCode = await generateInvoiceCode();
 
-    // Create invoice
+    // Tạo hóa đơn
     const invoice = await Invoice.create({
       invoiceCode,
       appointmentId,
-      recordId: null, // Will be updated later when record is created
+      recordId: null, // Sẽ được cập nhật sau khi hồ sơ được tạo
       
-      // Patient information
+      // Thông tin bệnh nhân
       patientId,
       patientInfo: {
         name: patientName,
@@ -74,7 +74,7 @@ async function handleAppointmentCreated_DEPRECATED(data) {
         dateOfBirth: null
       },
       
-      // Dentist information
+      // Thông tin nha sĩ
       dentistId: doctorId,
       dentistInfo: {
         name: doctorName,
@@ -82,7 +82,7 @@ async function handleAppointmentCreated_DEPRECATED(data) {
         licenseNumber: ''
       },
       
-      // Financial details
+      // Chi tiết tài chính
       subtotal: servicePrice || amount,
       taxInfo: {
         taxRate: 0,
@@ -112,24 +112,24 @@ async function handleAppointmentCreated_DEPRECATED(data) {
       // Notes
       notes: `Hóa đơn cho lịch khám ngày ${appointmentDate} - ${serviceName}`,
       
-      // Dates
+      // Ngày tháng
       invoiceDate: new Date(),
       dueDate: new Date(),
       paidDate: new Date(),
       
-      // Created by (system)
+      // Tạo bởi (hệ thống)
       createdBy: patientId,
       createdByRole: 'patient'
     });
 
-    console.log('[Invoice] Created invoice:', {
+    console.log('[Invoice] Đã tạo hóa đơn:', {
       invoiceId: invoice._id,
       invoiceCode: invoice.invoiceCode,
       appointmentId,
       amount: invoice.totalAmount
     });
 
-    // Create invoice detail for the service
+    // Tạo chi tiết hóa đơn cho dịch vụ
     await InvoiceDetail.create({
       invoiceId: invoice._id,
       appointmentId,
@@ -146,59 +146,59 @@ async function handleAppointmentCreated_DEPRECATED(data) {
       notes: `Lịch khám: ${appointmentDate} ${startTime} - ${endTime}`
     });
 
-    console.log('[Invoice] Created invoice detail for service:', serviceName);
+    console.log('[Invoice] Đã tạo chi tiết hóa đơn cho dịch vụ:', serviceName);
 
-    console.log(`[Invoice] Successfully created invoice ${invoiceCode} for appointment ${appointmentId}`);
+    console.log(`[Invoice] Đã tạo thành công hóa đơn ${invoiceCode} cho lịch hẹn ${appointmentId}`);
 
   } catch (error) {
-    console.error('[Invoice] Error handling appointment.created event:', error);
+    console.error('[Invoice] Lỗi xử lý sự kiện appointment.created:', error);
     throw error;
   }
 }
 
 /**
- * Handle appointment.cancelled event
- * Update invoice status to cancelled (or refund)
+ * Xử lý sự kiện appointment.cancelled
+ * Cập nhật trạng thái hóa đơn thành đã hủy (hoặc hoàn tiền)
  */
 async function handleAppointmentCancelled(data) {
   try {
     const { appointmentId, reason, cancelledBy } = data;
 
-    console.log('[Invoice] Processing appointment.cancelled event:', {
+    console.log('[Invoice] Đang xử lý sự kiện appointment.cancelled:', {
       appointmentId,
       reason
     });
 
-    // Find invoice
+    // Tìm hóa đơn
     const invoice = await Invoice.findOne({ appointmentId });
     
     if (!invoice) {
-      console.log('[Invoice] No invoice found for cancelled appointment:', appointmentId);
+      console.log('[Invoice] Không tìm thấy hóa đơn cho lịch hẹn đã hủy:', appointmentId);
       return;
     }
 
-    // Update invoice status
+    // Cập nhật trạng thái hóa đơn
     invoice.status = 'cancelled';
     invoice.notes = `${invoice.notes}\n\nĐã hủy: ${reason || 'Không rõ lý do'}`;
     invoice.cancelledAt = new Date();
     invoice.cancelledBy = cancelledBy;
 
-    // Update payment status
+    // Cập nhật trạng thái thanh toán
     invoice.paymentSummary.paymentStatus = 'refunded';
 
     await invoice.save();
 
-    console.log('[Invoice] Updated invoice status to cancelled:', invoice.invoiceCode);
+    console.log('[Invoice] Đã cập nhật trạng thái hóa đơn thành đã hủy:', invoice.invoiceCode);
 
   } catch (error) {
-    console.error('[Invoice] Error handling appointment.cancelled event:', error);
+    console.error('[Invoice] Lỗi xử lý sự kiện appointment.cancelled:', error);
     throw error;
   }
 }
 
 /**
- * DEPRECATED: Handle payment.success event
- * NOW HANDLED BY: invoice.consumer.js (payment.completed event)
+ * ĐÃ LỖI THỜI: Xử lý sự kiện payment.success
+ * GIỜI ĐƯỢC XỬ LÝ BỞI: invoice.consumer.js (sự kiện payment.completed)
  */
 async function handlePaymentSuccess_DEPRECATED(data) {
   try {
@@ -220,14 +220,14 @@ async function handlePaymentSuccess_DEPRECATED(data) {
       processedByName
     } = data;
 
-    console.log('[Invoice] Processing payment.success event:', {
+    console.log('[Invoice] Đang xử lý sự kiện payment.success:', {
       paymentId,
       paymentCode,
       recordId,
       finalAmount
     });
 
-    // Check if invoice already exists
+    // Kiểm tra xem hóa đơn đã tồn tại chưa
     const existingInvoice = await Invoice.findOne({ 
       $or: [
         { 'paymentSummary.paymentId': paymentId },
@@ -236,46 +236,46 @@ async function handlePaymentSuccess_DEPRECATED(data) {
     });
 
     if (existingInvoice) {
-      console.log('[Invoice] Invoice already exists:', existingInvoice.invoiceCode);
+      console.log('[Invoice] Hóa đơn đã tồn tại:', existingInvoice.invoiceCode);
       
-      // Update record with invoiceId if not set
+      // Cập nhật recordId vào hồ sơ nếu chưa được đặt
       if (recordId && !existingInvoice.recordId) {
         existingInvoice.recordId = recordId;
         await existingInvoice.save();
-        console.log('[Invoice] Updated invoice with recordId');
+        console.log('[Invoice] Đã cập nhật hóa đơn với recordId');
       }
       
       return existingInvoice;
     }
 
-    // Generate invoice code
+    // Tạo mã hóa đơn
     const invoiceCode = await generateInvoiceCode();
 
-    // Create invoice
+    // Tạo hóa đơn
     const invoice = await Invoice.create({
       invoiceCode,
       appointmentId: appointmentId || null,
       recordId: recordId || null,
       
-      // Patient information
+      // Thông tin bệnh nhân
       patientId: patientId || null,
       patientInfo: {
-        name: patientInfo?.name || 'Unknown Patient',
+        name: patientInfo?.name || 'Bệnh nhân không xác định',
         phone: patientInfo?.phone || '0000000000',
         email: patientInfo?.email || '',
         address: patientInfo?.address || '',
         dateOfBirth: null
       },
       
-      // Dentist information (will be updated from record if available)
+      // Thông tin nha sĩ (sẽ được cập nhật từ hồ sơ nếu có)
       dentistId: null,
       dentistInfo: {
-        name: 'TBD',
+        name: 'Chưa xác định',
         specialization: '',
         licenseNumber: ''
       },
       
-      // Financial details
+      // Chi tiết tài chính
       subtotal: originalAmount,
       taxInfo: {
         taxRate: 0,
@@ -290,7 +290,7 @@ async function handlePaymentSuccess_DEPRECATED(data) {
       },
       totalAmount: finalAmount,
       
-      // Payment information
+      // Thông tin thanh toán
       paymentSummary: {
         paidAmount: paidAmount,
         remainingAmount: 0,
@@ -300,18 +300,18 @@ async function handlePaymentSuccess_DEPRECATED(data) {
         transactionId: paymentCode
       },
       
-      // Status
+      // Trạng thái
       status: 'paid',
       
-      // Notes
+      // Ghi chú
       notes: `Hóa đơn thanh toán sau điều trị. Phương thức: ${method === 'cash' ? 'Tiền mặt' : 'VNPay'}`,
       
-      // Dates
+      // Ngày tháng
       invoiceDate: new Date(),
       dueDate: new Date(),
       paidDate: completedAt || new Date(),
       
-      // Created by
+      // Tạo bởi
       createdBy: processedBy || patientId,
       createdByRole: 'staff'
     });
@@ -377,7 +377,7 @@ async function handleInvoiceCreateFromRecord(data) {
       completedAt
     } = data;
 
-    console.log('[Invoice] Processing invoice.create_from_record event:', {
+    console.log('[Invoice] Đang xử lý sự kiện invoice.create_from_record:', {
       recordId,
       appointmentId,
       totalAmount,
@@ -385,24 +385,24 @@ async function handleInvoiceCreateFromRecord(data) {
       finalAmount
     });
 
-    // Validate required data
+    // Kiểm tra dữ liệu bắt buộc
     if (!recordId || !appointmentId || !patientId) {
-      console.error('[Invoice] Missing required fields in invoice.create_from_record event');
+      console.error('[Invoice] Thiếu trường bắt buộc trong sự kiện invoice.create_from_record');
       return;
     }
 
-    // Check if invoice already exists for this record
+    // Kiểm tra xem hóa đơn đã tồn tại cho hồ sơ này chưa
     const existingInvoice = await Invoice.findOne({ recordId });
     if (existingInvoice) {
-      console.log('[Invoice] Invoice already exists for record:', recordId);
+      console.log('[Invoice] Hóa đơn đã tồn tại cho hồ sơ:', recordId);
       return existingInvoice;
     }
 
-    // Generate invoice number (will be auto-generated by pre-save hook)
-    // But we need to generate it here to return in logs
+    // Tạo số hóa đơn (sẽ được tự động tạo bởi pre-save hook)
+    // Nhưng chúng ta cần tạo tại đây để trả về trong logs
     const invoiceNumber = await Invoice.generateInvoiceNumber();
 
-    // Prepare patient info (use embedded data from event)
+    // Chuẩn bị thông tin bệnh nhân (dùng dữ liệu nhúng từ sự kiện)
     const patientInfoData = {
       name: patientInfo?.name || 'Unknown Patient',
       phone: patientInfo?.phone || '0000000000',
@@ -413,14 +413,14 @@ async function handleInvoiceCreateFromRecord(data) {
       identityNumber: patientInfo?.identityNumber || null
     };
 
-    // Prepare dentist info
+    // Chuẩn bị thông tin nha sĩ
     const dentistInfoData = {
-      name: dentistName || 'Unknown Dentist',
+      name: dentistName || 'Nha sĩ không xác định',
       specialization: '',
       licenseNumber: ''
     };
 
-    // Calculate discount info (if deposit was paid)
+    // Tính thông tin giảm giá (nếu đã đặt cọc)
     const discountInfo = depositPaid > 0 ? {
       type: 'fixed_amount',
       value: depositPaid,
@@ -430,7 +430,7 @@ async function handleInvoiceCreateFromRecord(data) {
       value: 0
     };
 
-    // Determine invoice status and payment info
+    // Xác định trạng thái hóa đơn và thông tin thanh toán
     let invoiceStatus = 'pending';
     let paymentSummaryData = {
       totalPaid: 0,
@@ -439,7 +439,7 @@ async function handleInvoiceCreateFromRecord(data) {
       paymentIds: []
     };
 
-    // If final amount is 0 (deposit covered everything), mark as paid
+    // Nếu số tiền cuối là 0 (tiền cọc đã bao gồm tất cả), đánh dấu đã thanh toán
     if (finalAmount === 0 && depositPaid > 0) {
       invoiceStatus = 'paid';
       paymentSummaryData = {
@@ -451,7 +451,7 @@ async function handleInvoiceCreateFromRecord(data) {
       };
     }
 
-    // Create invoice with correct field names matching InvoiceSchema
+    // Tạo hóa đơn với tên trường đúng theo InvoiceSchema
     const invoice = await Invoice.create({
       invoiceNumber,
       appointmentId,
@@ -459,14 +459,14 @@ async function handleInvoiceCreateFromRecord(data) {
       type: 'treatment', // InvoiceType.TREATMENT
       status: invoiceStatus,
       
-      // Patient information
+      // Thông tin bệnh nhân
       patientId,
       patientInfo: patientInfoData,
       
-      // Dentist information
+      // Thông tin nha sĩ
       dentistInfo: dentistInfoData,
       
-      // Financial details
+      // Chi tiết tài chính
       subtotal: totalAmount,
       taxInfo: {
         taxRate: 0,
@@ -476,10 +476,10 @@ async function handleInvoiceCreateFromRecord(data) {
       discountInfo: discountInfo,
       totalAmount: finalAmount,
       
-      // Payment information
+      // Thông tin thanh toán
       paymentSummary: paymentSummaryData,
       
-      // Notes
+      // Ghi chú
       description: `Hóa đơn điều trị sau khám bệnh`,
       notes: `Appointment: ${appointmentCode}
 Record: ${recordCode}
@@ -541,14 +541,14 @@ ${depositPaid > 0 ? `Đã trừ tiền cọc: ${depositPaid.toLocaleString()} VN
             createdBy: createdBy || dentistId || patientId
           });
           
-          console.log('[Invoice] Created invoice detail for service:', service.serviceName);
+          console.log('[Invoice] Đã tạo chi tiết hóa đơn cho dịch vụ:', service.serviceName);
         } catch (detailError) {
-          console.error('[Invoice] Error creating invoice detail:', detailError);
+          console.error('[Invoice] Lỗi tạo chi tiết hóa đơn:', detailError);
         }
       }
     }
 
-    // Publish invoice.created event back to record-service (to update record with invoiceId)
+    // Phát sự kiện invoice.created về record-service (để cập nhật hồ sơ với invoiceId)
     try {
       await rabbitmqClient.publishToQueue('record_queue', {
         event: 'invoice.created',
@@ -561,22 +561,22 @@ ${depositPaid > 0 ? `Đã trừ tiền cọc: ${depositPaid.toLocaleString()} VN
           status: invoice.status
         }
       });
-      console.log('[Invoice] Published invoice.created event to record-service');
+      console.log('[Invoice] Đã phát sự kiện invoice.created tới record-service');
     } catch (publishError) {
-      console.error('[Invoice] Failed to publish invoice.created event:', publishError);
+      console.error('[Invoice] Không thể phát sự kiện invoice.created:', publishError);
     }
 
-    console.log(`[Invoice] Successfully created invoice ${invoice.invoiceNumber} from record ${recordCode}`);
+    console.log(`[Invoice] Đã tạo thành công hóa đơn ${invoice.invoiceNumber} từ hồ sơ ${recordCode}`);
     return invoice;
 
   } catch (error) {
-    console.error('[Invoice] Error handling invoice.create_from_record event:', error);
+    console.error('[Invoice] Lỗi xử lý sự kiện invoice.create_from_record:', error);
     throw error;
   }
 }
 
 /**
- * Generate unique invoice code
+ * Tạo mã hóa đơn duy nhất
  */
 async function generateInvoiceCode() {
   const date = new Date();
@@ -584,7 +584,7 @@ async function generateInvoiceCode() {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   
-  // Count invoices today
+  // Đếm số hóa đơn hôm nay
   const startOfDay = new Date(year, date.getMonth(), day, 0, 0, 0);
   const endOfDay = new Date(year, date.getMonth(), day, 23, 59, 59);
   
@@ -598,27 +598,27 @@ async function generateInvoiceCode() {
 }
 
 /**
- * Setup event listeners for invoice service
+ * Thiết lập các bộ lắng nghe sự kiện cho invoice service
  */
 async function setupEventListeners() {
   try {
-    // Connect to RabbitMQ
+    // Kết nối tới RabbitMQ
     await rabbitmqClient.connect();
 
-    // Listen to appointment.cancelled events (for cache invalidation)
+    // Lắng nghe các sự kiện appointment.cancelled (để vô hiệu hóa cache)
     await rabbitmqClient.consumeQueue('appointment.cancelled', handleAppointmentCancelled);
 
-    // ⚠️ NOTE: invoice_queue consumer moved to invoice.consumer.js
-    // This file only handles appointment.cancelled for cache invalidation
-    console.log('✅ [EventListeners] Listening to appointment.cancelled queue only');
-    console.log('📝 [EventListeners] invoice_queue is handled by invoice.consumer.js');
+    // ⚠️ GHI CHÚ: consumer invoice_queue đã chuyển sang invoice.consumer.js
+    // File này chỉ xử lý appointment.cancelled để vô hiệu hóa cache
+    console.log('✅ [EventListeners] Đang lắng nghe hàng đợi appointment.cancelled duy nhất');
+    console.log('📝 [EventListeners] invoice_queue được xử lý bởi invoice.consumer.js');
 
   } catch (error) {
-    console.error('[Invoice] Error setting up event listeners:', error);
+    console.error('[Invoice] Lỗi thiết lập các bộ lắng nghe sự kiện:', error);
     
-    // Retry after 5 seconds
+    // Thử lại sau 5 giây
     setTimeout(() => {
-      console.log('[Invoice] Retrying event listeners setup...');
+      console.log('[Invoice] Đang thử lại thiết lập các bộ lắng nghe sự kiện...');
       setupEventListeners();
     }, 5000);
   }

@@ -1,15 +1,15 @@
 const recordService = require("../services/record.service");
 
-// Helper function to check permissions
+// Hàm hỗ trợ kiểm tra quyền
 const isDentistOrAbove = (user) => {
   if (!user) return false;
-  const userRoles = user.roles || (user.role ? [user.role] : []); // Support both roles array and legacy role
+  const userRoles = user.roles || (user.role ? [user.role] : []); // Hỗ trợ cả mảng roles và role cũ
   return ['dentist', 'manager', 'admin'].some(role => userRoles.includes(role));
 };
 
 const isManagerOrAdmin = (user) => {
   if (!user) return false;
-  const userRoles = user.roles || (user.role ? [user.role] : []); // Support both roles array and legacy role
+  const userRoles = user.roles || (user.role ? [user.role] : []); // Hỗ trợ cả mảng roles và role cũ
   return userRoles.includes('manager') || userRoles.includes('admin');
 };
 
@@ -54,31 +54,31 @@ class RecordController {
         search: req.query.search
       };
 
-      // 🔒 Filter by activeRole (selected role at login)
-      const activeRole = req.user?.activeRole || req.user?.role; // Use activeRole if available
-      const userRoles = req.user?.roles || [req.user?.role]; // All roles for checking admin/manager
+      // 🔒 Lọc theo activeRole (vai trò được chọn khi đăng nhập)
+      const activeRole = req.user?.activeRole || req.user?.role; // Sử dụng activeRole nếu có
+      const userRoles = req.user?.roles || [req.user?.role]; // Tất cả vai trò để kiểm tra admin/manager
       const userId = req.user?.userId || req.user?._id;
 
       // Debug logs commented out for cleaner output
       // console.log('🔍 [DEBUG] req.user:', JSON.stringify(req.user, null, 2));
 
-      // ✅ Filter based on ACTIVE ROLE (role selected at login)
+      // ✅ Lọc dựa trên VAI TRÒ HOẠT ĐỘNG (vai trò được chọn khi đăng nhập)
       if (activeRole === 'dentist') {
-        // Logged in as dentist - only see their records
+        // Đăng nhập với tư cách nha sĩ - chỉ xem hồ sơ của mình
         filters.dentistId = userId;
         console.log('🔒 [DENTIST FILTER] Applied - dentistId:', userId);
       } else if (activeRole === 'nurse') {
-        // Logged in as nurse - see records from their appointments
+        // Đăng nhập với tư cách y tá - xem hồ sơ từ các cuộc hẹn của họ
         filters.nurseId = userId;
         console.log('🔒 [NURSE FILTER] Applied - nurseId:', userId);
       } else if (activeRole === 'admin' || activeRole === 'manager') {
-        // Logged in as admin/manager - see all records
-        console.log('🔓 [NO FILTER] User logged in as admin/manager');
+        // Đăng nhập với tư cách admin/manager - xem tất cả hồ sơ
+        console.log('🔓 [KHONG LOC] User đăng nhập với tư cách admin/manager');
       } else {
-        console.log('🔓 [NO FILTER] Role:', activeRole);
+        console.log('🔓 [KHONG LOC] Vai trò:', activeRole);
       }
 
-      // Remove undefined values
+      // Xóa các giá trị undefined
       Object.keys(filters).forEach(key => 
         filters[key] === undefined && delete filters[key]
       );
@@ -375,7 +375,7 @@ class RecordController {
     }
   }
 
-  // ✅ Get unused services from exam records (for booking service selection)
+  // ✅ Lấy các dịch vụ chưa sử dụng từ hồ sơ khám (để chọn dịch vụ khi đặt lịch)
   async getUnusedServices(req, res) {
     try {
       const { patientId } = req.params;
@@ -393,7 +393,7 @@ class RecordController {
     }
   }
 
-  // 🆕 Get treatment indications for a patient and service
+  // 🆕 Lấy chỉ định điều trị cho bệnh nhân và dịch vụ
   async getTreatmentIndications(req, res) {
     try {
       const { patientId } = req.params;
@@ -402,7 +402,7 @@ class RecordController {
       if (!serviceId) {
         return res.status(400).json({
           success: false,
-          message: 'serviceId is required'
+          message: 'serviceId là bắt buộc'
         });
       }
 
@@ -420,7 +420,7 @@ class RecordController {
     }
   }
 
-  // ⭐ Add additional service to record
+  // ⭐ Thêm dịch vụ bổ sung vào hồ sơ
   async addAdditionalService(req, res) {
     try {
       if (!isDentistOrAbove(req.user)) {
@@ -449,7 +449,7 @@ class RecordController {
     }
   }
 
-  // ⭐ Remove additional service from record
+  // ⭐ Xóa dịch vụ bổ sung khỏi hồ sơ
   async removeAdditionalService(req, res) {
     try {
       if (!isDentistOrAbove(req.user)) {
@@ -477,7 +477,7 @@ class RecordController {
     }
   }
 
-  // ⭐ Update additional service (quantity/notes)
+  // ⭐ Cập nhật dịch vụ bổ sung (số lượng/ghi chú)
   async updateAdditionalService(req, res) {
     try {
       if (!isDentistOrAbove(req.user)) {
@@ -507,12 +507,12 @@ class RecordController {
   }
 
   /**
-   * Get payment info for record (preview before completing)
-   * Fetches appointment and invoice data to calculate deposit
+   * Lấy thông tin thanh toán cho hồ sơ (xem trước khi hoàn thành)
+   * Lấy dữ liệu cuộc hẹn và hóa đơn để tính tiền cọc
    */
   async getPaymentInfo(req, res) {
     try {
-      const { id } = req.params; // ✅ Changed from recordId to id
+      const { id } = req.params; // ✅ Đã đổi từ recordId thành id
       // console.log(`🔍 [getPaymentInfo] Fetching payment info for record: ${id}`);
 
       const paymentInfo = await recordService.getPaymentInfo(id);
@@ -532,8 +532,8 @@ class RecordController {
   }
 
   /**
-   * 🆕 Get patients with unused indications for a specific dentist
-   * Used for walk-in appointments - dentist can only see their own patients
+   * 🆕 Lấy bệnh nhân có chỉ định chưa sử dụng cho một nha sĩ cụ thể
+   * Dùng cho cuộc hẹn walk-in - nha sĩ chỉ có thể xem bệnh nhân của mình
    */
   async getPatientsWithUnusedIndications(req, res) {
     try {

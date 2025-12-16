@@ -5,10 +5,10 @@ const { uploadSingle, uploadMultiple } = require('../middlewares/upload.middlewa
 const { rateLimiterMiddleware } = require('../middlewares/rateLimiter.middleware');
 const jwt = require('jsonwebtoken');
 
-// Optional auth middleware - Try JWT first, fallback to body or anonymous
+// Middleware xác thực tùy chọn - Thử JWT trước, fallback về body hoặc anonymous
 const optionalAuth = (req, res, next) => {
   try {
-    // Try to get token from header
+    // Thử lấy token từ header
     const authHeader = req.headers.authorization;
     
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -21,45 +21,45 @@ const optionalAuth = (req, res, next) => {
           role: decoded.role,
           email: decoded.email
         };
-        console.log('✅ Authenticated user:', req.user.userId);
+        console.log('✅ User đã xác thực:', req.user.userId);
         return next();
       } catch (error) {
-        console.warn('⚠️ Invalid token, falling back to body userId');
+        console.warn('⚠️ Token không hợp lệ, fallback về body userId');
       }
     }
     
-    // Fallback: Use userId from body or anonymous
+    // Fallback: Sử dụng userId từ body hoặc anonymous
     req.user = {
       userId: req.body.userId || 'anonymous'
     };
-    console.log('ℹ️ Unauthenticated request, userId:', req.user.userId);
+    console.log('ℹ️ Request chưa xác thực, userId:', req.user.userId);
     next();
   } catch (error) {
-    console.error('❌ Optional auth error:', error);
+    console.error('❌ Lỗi xác thực tùy chọn:', error);
     req.user = { userId: 'anonymous' };
     next();
   }
 };
 
-// Chat endpoints (with rate limiting)
+// Các endpoint Chat (có giới hạn tọn suất)
 router.post('/chat', optionalAuth, rateLimiterMiddleware, (req, res) => chatbotController.sendMessage(req, res));
 router.get('/history', optionalAuth, (req, res) => chatbotController.getChatHistory(req, res));
 router.delete('/history', optionalAuth, (req, res) => chatbotController.clearHistory(req, res));
 
-// Image analysis endpoints
+// Các endpoint phân tích ảnh
 router.post('/analyze-image', optionalAuth, uploadSingle, (req, res) => chatbotController.analyzeImage(req, res));
 router.post('/analyze-multiple-images', optionalAuth, uploadMultiple, (req, res) => chatbotController.analyzeMultipleImages(req, res));
 
-// Smart Query endpoint (AI-powered MongoDB query)
+// Endpoint Smart Query (truy vấn MongoDB bằng AI)
 router.post('/smart-query', optionalAuth, (req, res) => chatbotController.smartQuery(req, res));
 
-// Booking endpoints (Chat-based booking flow)
+// Các endpoint Đặt lịch (luồng đặt lịch qua Chat)
 router.post('/booking/start', optionalAuth, (req, res) => chatbotController.startBooking(req, res));
 router.post('/booking/get-dentists', optionalAuth, (req, res) => chatbotController.getBookingDentists(req, res));
 router.post('/booking/get-slots', optionalAuth, (req, res) => chatbotController.getBookingSlots(req, res));
 router.post('/booking/confirm', optionalAuth, (req, res) => chatbotController.confirmBooking(req, res));
 
-// Health check
+// Kiểm tra sức khỏe
 router.get('/health', (req, res) => {
   res.json({
     success: true,

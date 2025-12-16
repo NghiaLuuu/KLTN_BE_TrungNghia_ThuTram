@@ -4,12 +4,12 @@ const redisClient = require('../utils/redis.client');
 const { publishToQueue } = require('../utils/rabbitClient');
 const { sendRpcRequest } = require('../utils/rabbitmq.client'); // ⚡ Import sendRpcRequest
 const { getVietnamDate, toVietnamTime } = require('../utils/vietnamTime.util');
-// Cache helpers removed - now calling APIs directly
+// Các helper cache đã xóa - giờ gọi API trực tiếp
 const mongoose = require('mongoose');
-const Slot = require('../models/slot.model'); // 🆕 Import Slot model for toggleSlotsIsActive
+const Slot = require('../models/slot.model'); // 🆕 Import Slot model cho toggleSlotsIsActive
 const DayClosure = require('../models/dayClosure.model'); // 🆕 Import DayClosure model
 
-// ⭐ Date/Time formatting helpers for Vietnam timezone
+// ⭐ Helper định dạng Date/Time cho múi giờ Việt Nam
 function toVNDateOnlyString(d) {
   const vn = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
   const y = vn.getFullYear();
@@ -34,7 +34,7 @@ function toVNDateTimeString(d) {
   return `${dateStr} ${timeStr}`;
 }
 
-// Helper removed - markUserAsUsed is now idempotent at auth-service level
+// Helper đã xóa - markUserAsUsed giờ là idempotent tại auth-service
 
 function buildShiftOverviewFromConfig(scheduleConfig) {
   if (!scheduleConfig) return {};
@@ -96,7 +96,7 @@ function pickLaterTime(existing, candidate) {
 
 function buildShiftOverviewFromSchedules(schedules, scheduleConfig) {
   if (!Array.isArray(schedules) || schedules.length === 0) {
-    // If no schedules, return overview from config (all 3 shifts)
+    // Nếu không có lịch, trả về tổng quan từ config (cả 3 ca)
     return buildShiftOverviewFromConfig(scheduleConfig);
   }
 
@@ -169,7 +169,7 @@ function buildShiftOverviewFromSchedules(schedules, scheduleConfig) {
           name: displayName,
           startTime: pickEarlierTime(existing.startTime, startTime) || existing.startTime || startTime,
           endTime: pickLaterTime(existing.endTime, endTime) || existing.endTime || endTime,
-          isActive: true // Always true
+          isActive: true // Luôn true
         };
       }
     });
@@ -199,7 +199,7 @@ function buildShiftOverviewFromSchedules(schedules, scheduleConfig) {
   return overview;
 }
 
-// Helper: Get available work shifts from ScheduleConfig
+// Helper: Lấy các ca làm việc khả dụng từ ScheduleConfig
 async function getAvailableShifts() {
   try {
     const { ScheduleConfig } = require('../models/scheduleConfig.model');
@@ -221,7 +221,7 @@ async function getAvailableShifts() {
   }
 }
 
-// Helper: Get room information - call room-service API directly
+// Helper: Lấy thông tin phòng - gọi room-service API trực tiếp
 async function getRoomInfo(roomId) {
   try {
     const roomData = await sendRpcRequest('room_queue', {
@@ -232,14 +232,14 @@ async function getRoomInfo(roomId) {
     if (roomData && roomData.success && roomData.data) {
       return roomData.data;
     } else {
-      throw new Error('Invalid response from room-service');
+      throw new Error('Phản hồi không hợp lệ từ room-service');
     }
   } catch (error) {
-    throw new Error(`Cannot get room info: ${error.message}`);
+    throw new Error(`Không thể lấy thông tin phòng: ${error.message}`);
   }
 }
 
-// Helper: Get all rooms - call room-service API directly
+// Helper: Lấy tất cả phòng - gọi room-service API trực tiếp
 async function getAllRooms() {
   try {
     const roomsData = await sendRpcRequest('room_queue', {
@@ -247,19 +247,19 @@ async function getAllRooms() {
     }, 5000);
     
     if (roomsData && roomsData.success && Array.isArray(roomsData.data)) {
-      console.log(`✅ Fetched ${roomsData.data.length} rooms from room-service`);
+      console.log(`✅ Đã lấy ${roomsData.data.length} phòng từ room-service`);
       return roomsData.data;
     } else {
-      console.error('❌ Invalid response from room-service:', roomsData);
-      throw new Error('Invalid response from room-service: ' + JSON.stringify(roomsData));
+      console.error('❌ Phản hồi không hợp lệ từ room-service:', roomsData);
+      throw new Error('Phản hồi không hợp lệ từ room-service: ' + JSON.stringify(roomsData));
     }
   } catch (error) {
-    console.error('❌ Cannot get rooms from room-service:', error.message);
-    throw new Error(`Cannot get rooms from room-service: ${error.message}`);
+    console.error('❌ Không thể lấy phòng từ room-service:', error.message);
+    throw new Error(`Không thể lấy phòng từ room-service: ${error.message}`);
   }
 }
 
-// Helper: Get all users - call auth-service API directly
+// Helper: Lấy tất cả người dùng - gọi auth-service API trực tiếp
 async function getAllUsers() {
   try {
     const usersData = await sendRpcRequest('auth_queue', {
@@ -267,88 +267,88 @@ async function getAllUsers() {
     }, 5000);
     
     if (usersData && usersData.success && Array.isArray(usersData.data)) {
-      console.log(`✅ Fetched ${usersData.data.length} users from auth-service`);
+      console.log(`✅ Đã lấy ${usersData.data.length} người dùng từ auth-service`);
       return usersData.data;
     } else {
-      console.error('❌ Invalid response from auth-service:', usersData);
-      throw new Error('Invalid response from auth-service: ' + JSON.stringify(usersData));
+      console.error('❌ Phản hồi không hợp lệ từ auth-service:', usersData);
+      throw new Error('Phản hồi không hợp lệ từ auth-service: ' + JSON.stringify(usersData));
     }
   } catch (error) {
-    console.error('❌ Cannot get users from auth-service:', error.message);
-    throw new Error(`Cannot get users from auth-service: ${error.message}`);
+    console.error('❌ Không thể lấy người dùng từ auth-service:', error.message);
+    throw new Error(`Không thể lấy người dùng từ auth-service: ${error.message}`);
   }
 }
 
-// Helper: Mark single user as used
+// Helper: Đánh dấu một người dùng đã sử dụng
 async function markUserAsUsed(userId) {
   try {
     if (!userId) return;
     
-    // ✅ Use RPC request with correct payload format
+    // ✅ Sử dụng RPC request với định dạng payload chính xác
     const result = await sendRpcRequest('auth_queue', {
       action: 'markUserAsUsed',
-      payload: { userId } // ✅ Wrap userId in payload object
-    }, 5000); // 5s timeout
+      payload: { userId } // ✅ Bao userId trong object payload
+    }, 5000); // timeout 5 giây
     
     if (result && result.success) {
-      console.log(`✅ Marked user ${userId} as hasBeenUsed = true`);
+      console.log(`✅ Đã đánh dấu user ${userId} hasBeenUsed = true`);
     } else {
-      console.warn(`⚠️ Failed to mark user ${userId} as used:`, result?.error || 'Unknown error');
+      console.warn(`⚠️ Không thể đánh dấu user ${userId} đã sử dụng:`, result?.error || 'Lỗi không xác định');
     }
   } catch (error) {
-    console.warn(`⚠️ Failed to mark user ${userId} as used:`, error.message);
+    console.warn(`⚠️ Không thể đánh dấu user ${userId} đã sử dụng:`, error.message);
   }
 }
 
-// Helper: Mark entities as used when assigned to slots
+// Helper: Đánh dấu các thực thể đã sử dụng khi phân công vào slots
 async function markEntitiesAsUsed({ roomId, subRoomId, dentistIds, nurseIds }) {
   try {
-    // Mark room as used via RabbitMQ
+    // Đánh dấu phòng đã sử dụng qua RabbitMQ
     if (roomId) {
       await publishToQueue('room_queue', {
         action: 'markRoomAsUsed',
         payload: { roomId }
       });
-      console.log(`📤 Sent markRoomAsUsed message for room ${roomId}`);
+      console.log(`📤 Đã gửi message markRoomAsUsed cho phòng ${roomId}`);
     }
     
-    // Mark subRoom as used via RabbitMQ
+    // Đánh dấu subRoom đã sử dụng qua RabbitMQ
     if (subRoomId) {
       await publishToQueue('room_queue', {
         action: 'markSubRoomAsUsed',
         payload: { roomId, subRoomId }
       });
-      console.log(`📤 Sent markSubRoomAsUsed message for subRoom ${subRoomId}`);
+      console.log(`📤 Đã gửi message markSubRoomAsUsed cho subRoom ${subRoomId}`);
     }
     
-    // ✅ Mark staff as used via RPC (not fire-and-forget)
+    // ✅ Đánh dấu nhân viên đã sử dụng qua RPC (không phải fire-and-forget)
     for (const dentistId of dentistIds) {
       if (dentistId) {
-        await markUserAsUsed(dentistId); // Use helper function
+        await markUserAsUsed(dentistId); // Sử dụng helper function
       }
     }
     
     for (const nurseId of nurseIds) {
       if (nurseId) {
-        await markUserAsUsed(nurseId); // Use helper function
+        await markUserAsUsed(nurseId); // Sử dụng helper function
       }
     }
   } catch (error) {
-    console.warn('⚠️ Failed to mark entities as used:', error.message);
-    // Don't throw error - this is non-critical for slot assignment
+    console.warn('⚠️ Không thể đánh dấu thực thể đã sử dụng:', error.message);
+    // Không throw lỗi - đây không quan trọng cho việc phân công slot
   }
 }
 
-// Helper: Validate staff IDs against auth-service API
+// Helper: Xác thực staff IDs từ auth-service API
 async function validateStaffIds(dentistIds, nurseIds) {
   try {
-    // Get users from auth-service API
+    // Lấy users từ auth-service API
     const users = await getAllUsers();
     if (users.length === 0) {
       throw new Error('Không thể lấy danh sách người dùng từ API');
     }
     
-    // Validate dentist IDs - 🔥 Support multi-role system
+    // Kiểm tra ID nha sĩ - 🔥 Hỗ trợ hệ thống đa vai trò
     for (const dentistId of dentistIds) {
       if (!dentistId) continue;
       const dentist = users.find(u => {
@@ -360,7 +360,7 @@ async function validateStaffIds(dentistIds, nurseIds) {
       }
     }
     
-    // Validate nurse IDs - 🔥 Support multi-role system
+    // Kiểm tra ID y tá - 🔥 Hỗ trợ hệ thống đa vai trò
     for (const nurseId of nurseIds) {
       if (!nurseId) continue;
       const nurse = users.find(u => {
@@ -379,7 +379,7 @@ async function validateStaffIds(dentistIds, nurseIds) {
 // Helper: Validate staff assignment based on room type
 async function validateStaffAssignment(roomId, subRoomId, dentistIds, nurseIds) {
   const room = await getRoomInfo(roomId);
-  // If subRoomId provided, validate it belongs to the given room
+  // Nếu có subRoomId, kiểm tra nó thuộc về phòng đã cho
   if (subRoomId) {
     if (!room.subRooms || room.subRooms.length === 0) {
       throw new Error('Phòng không có subRoom nhưng bạn đã gửi subRoomId');
@@ -389,12 +389,12 @@ async function validateStaffAssignment(roomId, subRoomId, dentistIds, nurseIds) 
       throw new Error('subRoomId không thuộc về roomId đã chỉ định');
     }
 
-    // Room with subrooms - use 1-1 constraint
+    // Phòng có subroom - sử dụng ràng buộc 1-1
     if (dentistIds.length > 1 || nurseIds.length > 1) {
       throw new Error('Phòng có subroom chỉ được phân công 1 nha sĩ và 1 y tá cho mỗi slot');
     }
   } else {
-    // Room without subrooms - use maxDoctor/maxNurse constraint  
+    // Phòng không có subroom - sử dụng ràng buộc maxDoctor/maxNurse  
     if (dentistIds.length > room.maxDoctor) {
       throw new Error(`Phòng này chỉ được phân công tối đa ${room.maxDoctor} nha sĩ`);
     }
@@ -423,15 +423,15 @@ async function assignStaffToSpecificSlots({
       throw new Error('Phải chọn ít nhất 1 nha sĩ hoặc 1 y tá để phân công');
     }
 
-    // Get current time in Vietnam timezone with 15-minute buffer
+    // Lấy thời gian hiện tại theo múi giờ Việt Nam với buffer 15 phút
     const vietnamNow = getVietnamDate();
     vietnamNow.setMinutes(vietnamNow.getMinutes() + 15);
 
-    // Find all slots by IDs and validate they exist and are future slots
+    // Tìm tất cả slots theo IDs và kiểm tra chúng tồn tại và là slots tương lai
     const slots = await slotRepo.find({
       _id: { $in: slotIds },
       isActive: true,
-      startTime: { $gt: vietnamNow } // Only allow assigning to future slots
+      startTime: { $gt: vietnamNow } // Chỉ cho phép phân công cho slots tương lai
     });
 
     
@@ -465,7 +465,7 @@ async function assignStaffToSpecificSlots({
       }
     }
 
-    // Get room info for validation (use first slot's roomId if not provided)
+    // Lấy thông tin phòng để kiểm tra (sử dụng roomId của slot đầu tiên nếu không được cung cấp)
     const targetRoomId = roomId || slots[0].roomId;
     const targetSubRoomId = subRoomId || slots[0].subRoomId;
     
@@ -473,7 +473,7 @@ async function assignStaffToSpecificSlots({
       await validateStaffAssignment(targetRoomId, targetSubRoomId, dentistIds, nurseIds);
     }
 
-    // Update all slots with the assigned staff
+    // Cập nhật tất cả slots với nhân viên được phân công
     let updatedCount = 0;
     const updatedSlots = [];
     
@@ -492,7 +492,7 @@ async function assignStaffToSpecificSlots({
     for (const slot of slots) {
       let hasChanges = false;
 
-      // Get room info once for this slot (with caching)
+      // Lấy thông tin phòng một lần cho slot này (có caching)
       const room = await getCachedRoomInfo(slot.roomId);
       const hasSubRooms = room.subRooms && room.subRooms.length > 0;
 
@@ -500,9 +500,9 @@ async function assignStaffToSpecificSlots({
       console.log(`   Current dentist: ${slot.dentist}`);
       console.log(`   Current nurse: ${slot.nurse}`);
 
-      // Assign dentists
+      // Phân công nha sĩ
       if (dentistIds.length > 0) {
-        // Convert all dentist IDs to ObjectId array
+        // Chuyển tất cả ID nha sĩ thành mảng ObjectId
         const dentistObjectIds = dentistIds.map(id => 
           mongoose.Types.ObjectId.isValid(id) 
             ? new mongoose.Types.ObjectId(id)
@@ -515,9 +515,9 @@ async function assignStaffToSpecificSlots({
         console.log(`  ✏️ Assigned ${dentistObjectIds.length} dentist(s) to slot ${slot._id}:`, dentistObjectIds);
       }
 
-      // Assign nurses
+      // Phân công y tá
       if (nurseIds.length > 0) {
-        // Convert all nurse IDs to ObjectId array
+        // Chuyển tất cả ID y tá thành mảng ObjectId
         const nurseObjectIds = nurseIds.map(id =>
           mongoose.Types.ObjectId.isValid(id)
             ? new mongoose.Types.ObjectId(id)
@@ -549,7 +549,7 @@ async function assignStaffToSpecificSlots({
       }
     }
 
-    // Mark staff as used via RabbitMQ
+    // Đánh dấu nhân viên đã được sử dụng qua RabbitMQ
     const allStaffIds = [...dentistIds, ...nurseIds];
     for (const staffId of allStaffIds) {
       await markUserAsUsed(staffId);
@@ -561,7 +561,7 @@ async function assignStaffToSpecificSlots({
       const affectedSubRooms = new Set();
       
       for (const slot of updatedSlots) {
-        // Collect unique roomId and subRoomId from updated slots
+        // Thu thập roomId và subRoomId duy nhất từ các slots đã cập nhật
         const slotDoc = slots.find(s => s._id.toString() === slot.slotId.toString());
         if (slotDoc) {
           if (slotDoc.roomId) affectedRooms.add(slotDoc.roomId.toString());
@@ -569,9 +569,9 @@ async function assignStaffToSpecificSlots({
         }
       }
 
-      // Delete all calendar cache keys for affected rooms
+      // Xóa tất cả cache lịch phòng cho các phòng bị ảnh hưởng
       for (const roomId of affectedRooms) {
-        // Delete cache for main room and all its subrooms
+        // Xóa cache cho phòng chính và tất cả subroom
         const pattern = `room_calendar:${roomId}:*`;
         const keys = await redisClient.keys(pattern);
         if (keys.length > 0) {
@@ -625,17 +625,17 @@ async function reassignStaffToSpecificSlots({
       throw new Error('role phải là "dentist" hoặc "nurse"');
     }
 
-    // Get current time in Vietnam timezone with 5-minute buffer
+    // Lấy thời gian hiện tại theo múi giờ Việt Nam với buffer 5 phút
     const vietnamNow = getVietnamDate();
     vietnamNow.setMinutes(vietnamNow.getMinutes() + 5);
 
-    // Find all slots by IDs and validate they exist, are future slots, and have the old staff
+    // Tìm tất cả slots theo IDs và kiểm tra chúng tồn tại, là slots tương lai và có nhân viên cũ
     const roleField = role === 'dentist' ? 'dentist' : 'nurse';
     const slots = await slotRepo.find({
       _id: { $in: slotIds },
-      [roleField]: oldStaffId, // Must be assigned to old staff
+      [roleField]: oldStaffId, // Phải được phân công cho nhân viên cũ
       isActive: true,
-      startTime: { $gt: vietnamNow } // Only allow reassigning future slots
+      startTime: { $gt: vietnamNow } // Chỉ cho phép phân công lại slots tương lai
     });
 
     
@@ -650,20 +650,20 @@ async function reassignStaffToSpecificSlots({
       console.warn('⚠️ Some slots not found or not assigned to old staff:', missingIds);
     }
 
-    // Check if new staff has conflicts
+    // Kiểm tra nếu nhân viên mới có xung đột
     const minStart = new Date(Math.min(...slots.map(s => new Date(s.startTime).getTime())));
     const maxEnd = new Date(Math.max(...slots.map(s => new Date(s.endTime).getTime())));
     
     const existingSlots = await slotRepo.findByStaffId(newStaffId, minStart, maxEnd);
     
-    // Check for time overlaps (excluding the slots we're reassigning)
+    // Kiểm tra xung đột thời gian (loại trừ slots đang phân công lại)
     const targetSlotIds = new Set(slots.map(s => s._id.toString()));
     for (const slot of slots) {
       const sStart = new Date(slot.startTime);
       const sEnd = new Date(slot.endTime);
       
       const conflict = existingSlots.find(es => 
-        !targetSlotIds.has(es._id.toString()) && // Different slot
+        !targetSlotIds.has(es._id.toString()) && // Slot khác
         new Date(es.startTime) < sEnd && 
         new Date(es.endTime) > sStart
       );
@@ -673,7 +673,7 @@ async function reassignStaffToSpecificSlots({
       }
     }
 
-    // Update all slots: replace old staff with new staff
+    // Cập nhật tất cả slots: thay thế nhân viên cũ bằng nhân viên mới
     let updatedCount = 0;
     const updatedSlots = [];
 
@@ -681,14 +681,14 @@ async function reassignStaffToSpecificSlots({
       console.log(`\n🔄 Processing slot ${slot._id}:`);
       console.log(`   Current ${roleField}: ${slot[roleField]}`);
 
-      // Convert new staff ID to ObjectId
+      // Chuyển ID nhân viên mới thành ObjectId
       const newStaffObjectId = mongoose.Types.ObjectId.isValid(newStaffId)
         ? new mongoose.Types.ObjectId(newStaffId)
         : newStaffId;
 
-      // Handle array or single value
+      // Xử lý mảng hoặc giá trị đơn
       if (Array.isArray(slot[roleField])) {
-        // Array case: replace old staff with new staff
+        // Trường hợp mảng: thay thế nhân viên cũ bằng nhân viên mới
         const oldIndex = slot[roleField].findIndex(id => 
           id && id.toString() === oldStaffId.toString()
         );
@@ -699,7 +699,7 @@ async function reassignStaffToSpecificSlots({
           console.log(`  ✏️ Replaced ${roleField} in array at index ${oldIndex}`);
         }
       } else {
-        // Single value case: directly replace
+        // Trường hợp giá trị đơn: thay thế trực tiếp
         if (slot[roleField] && slot[roleField].toString() === oldStaffId.toString()) {
           slot[roleField] = newStaffObjectId;
           slot.markModified(roleField);
@@ -725,22 +725,22 @@ async function reassignStaffToSpecificSlots({
       });
     }
 
-    // Mark new staff as used via RabbitMQ
+    // Đánh dấu nhân viên mới đã được sử dụng qua RabbitMQ
     await markUserAsUsed(newStaffId);
 
-    // 🔥 Invalidate Redis cache for affected room calendars
+    // 🔥 Vô hiệu hóa Redis cache cho lịch phòng bị ảnh hưởng
     try {
       const affectedRooms = new Set();
       
       for (const slot of updatedSlots) {
-        // Collect unique roomId from updated slots
+        // Thu thập roomId duy nhất từ các slots đã cập nhật
         const slotDoc = slots.find(s => s._id.toString() === slot.slotId.toString());
         if (slotDoc && slotDoc.roomId) {
           affectedRooms.add(slotDoc.roomId.toString());
         }
       }
 
-      // Delete all calendar cache keys for affected rooms
+      // Xóa tất cả cache lịch phòng cho các phòng bị ảnh hưởng
       for (const roomId of affectedRooms) {
         const pattern = `room_calendar:${roomId}:*`;
         const keys = await redisClient.keys(pattern);
@@ -783,7 +783,7 @@ async function assignStaffToSlots({
   nurseIds = []
 }) {
   try {
-    // Validate input
+    // Kiểm tra đầu vào
     if (!slotIds || slotIds.length === 0) {
       throw new Error('slotIds là bắt buộc và phải là mảng không rỗng');
     }
@@ -792,7 +792,7 @@ async function assignStaffToSlots({
       throw new Error('roomId là bắt buộc');
     }
 
-    // Validate staff assignment based on room type
+    // Kiểm tra phân công nhân viên dựa trên loại phòng
     await validateStaffAssignment(roomId, subRoomId, dentistIds, nurseIds);
     
     // ⚡ Load target slots with lean query
@@ -806,13 +806,13 @@ async function assignStaffToSlots({
       console.warn(`⚠️ Chỉ tìm thấy ${slots.length}/${slotIds.length} slots. Một số slot ID không tồn tại.`);
     }
 
-    // Verify all slots belong to the specified room
+    // Kiểm tra tất cả slots thuộc về phòng đã chỉ định
     const invalidSlots = slots.filter(s => s.roomId.toString() !== roomId.toString());
     if (invalidSlots.length > 0) {
       throw new Error(`${invalidSlots.length} slot không thuộc phòng đã chọn`);
     }
 
-    // Verify subRoomId if provided
+    // Kiểm tra subRoomId nếu được cung cấp
     if (subRoomId) {
       const invalidSubRoomSlots = slots.filter(s => 
         !s.subRoomId || s.subRoomId.toString() !== subRoomId.toString()
@@ -822,14 +822,14 @@ async function assignStaffToSlots({
       }
     }
 
-    // Process each slot individually to only fill missing fields
+    // Xử lý từng slot riêng lẻ để chỉ điền các trường thiếu
     let updatedSlotIds = [];
     let updatedSlots = [];
     const dentistId = dentistIds.length > 0 ? dentistIds[0] : null;
     const nurseId = nurseIds.length > 0 ? nurseIds[0] : null;
 
     if (dentistId || nurseId) {
-      // Check conflicts for dentist and nurse across the time range
+      // Kiểm tra xung đột cho nha sĩ và y tá trong khoảng thời gian
       const minStart = new Date(Math.min(...slots.map(s => new Date(s.startTime).getTime())));
       const maxEnd = new Date(Math.max(...slots.map(s => new Date(s.endTime).getTime())));
 
@@ -842,13 +842,13 @@ async function assignStaffToSlots({
         existingByNurse = await slotRepo.findByStaffId(nurseId, minStart, maxEnd);
       }
 
-      // Process each slot individually to only fill missing fields
+      // Xử lý từng slot riêng lẻ để chỉ điền các trường thiếu
       for (const slot of slots) {
         const slotUpdateData = {};
         
-        // Check if we should assign dentist (only if slot doesn't have dentist yet or array is empty)
+        // Kiểm tra nếu nên phân công nha sĩ (chỉ khi slot chưa có nha sĩ hoặc mảng rỗng)
         if (dentistId && (!slot.dentist || !Array.isArray(slot.dentist) || slot.dentist.length === 0)) {
-          // Check for time conflicts
+          // Kiểm tra xung đột thời gian
           const sStart = new Date(slot.startTime);
           const sEnd = new Date(slot.endTime);
           const conflict = existingByDentist.find(es => 
@@ -860,12 +860,12 @@ async function assignStaffToSlots({
             throw new Error(`Nha sĩ đã được phân công vào slot khác trong cùng khoảng thời gian (${new Date(slot.startTime).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })})`);
           }
           
-          slotUpdateData.dentist = [dentistId]; // Assign as array
+          slotUpdateData.dentist = [dentistId]; // Phân công dạng mảng
         }
         
-        // Check if we should assign nurse (only if slot doesn't have nurse yet or array is empty)
+        // Kiểm tra nếu nên phân công y tá (chỉ khi slot chưa có y tá hoặc mảng rỗng)
         if (nurseId && (!slot.nurse || !Array.isArray(slot.nurse) || slot.nurse.length === 0)) {
-          // Check for time conflicts
+          // Kiểm tra xung đột thời gian
           const sStart = new Date(slot.startTime);
           const sEnd = new Date(slot.endTime);
           const conflict = existingByNurse.find(es => 
@@ -877,17 +877,17 @@ async function assignStaffToSlots({
             throw new Error(`Y tá đã được phân công vào slot khác trong cùng khoảng thời gian (${new Date(slot.startTime).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })})`);
           }
           
-          slotUpdateData.nurse = [nurseId]; // Assign as array
+          slotUpdateData.nurse = [nurseId]; // Phân công dạng mảng
         }
         
-        // Update the slot if there's something to update
+        // Cập nhật slot nếu có gì để cập nhật
         if (Object.keys(slotUpdateData).length > 0) {
           await slotRepo.updateSlot(slot._id, slotUpdateData);
           updatedSlotIds.push(slot._id);
         }
       }
 
-      // Reload updated slots for return data
+      // Tải lại các slots đã cập nhật để trả về
       if (updatedSlotIds.length > 0) {
         updatedSlots = await slotRepo.find({ _id: { $in: updatedSlotIds } });
         
@@ -896,7 +896,7 @@ async function assignStaffToSlots({
       }
     }
     
-    // Clear cache - best effort
+    // Xóa cache - best effort
     try {
       await redisClient.del('slots:*');
     } catch (e) { 
@@ -907,10 +907,10 @@ async function assignStaffToSlots({
     const totalSlotsFound = slots.length;
     const slotsUpdated = updatedSlots.length;
     
-    // 🔥 Invalidate Redis cache for affected room calendars
+    // 🔥 Vô hiệu hóa Redis cache cho lịch phòng bị ảnh hưởng
     if (slotsUpdated > 0) {
       try {
-        // Delete all calendar cache keys for the room
+        // Xóa tất cả cache lịch phòng cho phòng này
         const pattern = `room_calendar:${roomId}:*`;
         const keys = await redisClient.keys(pattern);
         if (keys.length > 0) {
@@ -940,7 +940,7 @@ async function assignStaffToSlots({
   }
 }
 
-// Update staff for single or multiple slots
+// Cập nhật nhân viên cho một hoặc nhiều slots
 async function updateSlotStaff({ slotIds, dentistId, nurseId }) {
   try {
     if (!slotIds || slotIds.length === 0) {
@@ -953,12 +953,12 @@ async function updateSlotStaff({ slotIds, dentistId, nurseId }) {
       throw new Error('Một số slot trong slotIds không tồn tại');
     }
 
-    // Get current time in Vietnam timezone
+    // Lấy thời gian hiện tại theo múi giờ Việt Nam
     const vietnamNow = getVietnamDate();
 
-    // Ensure all slots are updatable (not in the past) 
+    // Đảm bảo tất cả slots có thể cập nhật (được không trong quá khứ) 
     for (const s of targetSlots) {
-      // Check if slot is in the past (Vietnam timezone)
+      // Kiểm tra nếu slot trong quá khứ (múi giờ Việt Nam)
       if (new Date(s.startTime) <= vietnamNow) {
         throw new Error(`Slot ${s._id} đã qua thời điểm hiện tại (${new Date(s.startTime).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}), không thể cập nhật`);
       }
@@ -969,7 +969,7 @@ async function updateSlotStaff({ slotIds, dentistId, nurseId }) {
       }
     }
 
-    // Validate all slots belong to the same room/subroom
+    // Kiểm tra tất cả slots thuộc cùng một phòng/subroom
     const first = targetSlots[0];
     const firstRoomId = first.roomId?.toString();
     const firstSubRoomId = first.subRoomId?.toString() || null;
@@ -989,12 +989,12 @@ async function updateSlotStaff({ slotIds, dentistId, nurseId }) {
       }
     }
 
-    // Validate staff assignment for the room/subroom
+    // Kiểm tra phân công nhân viên cho phòng/subroom
     const dentistIds = dentistId ? [dentistId] : [];
     const nurseIds = nurseId ? [nurseId] : [];
     await validateStaffAssignment(first.roomId, first.subRoomId, dentistIds, nurseIds);
 
-    // Conflict check per slot: ensure dentist/nurse not already assigned to overlapping slots
+    // Kiểm tra xung đột cho từng slot: đảm bảo nha sĩ/y tá chưa được phân công cho slots chồng chéo
     const targetSlotIds = new Set(slotIds.map(id => id.toString()));
     const minStart = new Date(Math.min(...targetSlots.map(s => new Date(s.startTime).getTime())));
     const maxEnd = new Date(Math.max(...targetSlots.map(s => new Date(s.endTime).getTime())));
@@ -1039,13 +1039,13 @@ async function updateSlotStaff({ slotIds, dentistId, nurseId }) {
     const updated = await slotRepo.find({ _id: { $in: slotIds } });
 
     // 🔄 Mark entities as used when successfully assigned
-    const roomId = updated[0]?.roomId; // Get roomId from first slot
-    const subRoomId = updated[0]?.subRoomId; // Get subRoomId from first slot
+    const roomId = updated[0]?.roomId; // Lấy roomId từ slot đầu tiên
+    const subRoomId = updated[0]?.subRoomId; // Lấy subRoomId từ slot đầu tiên
     const markDentistIds = dentistId ? [dentistId] : [];
     const markNurseIds = nurseId ? [nurseId] : [];
     await markEntitiesAsUsed({ roomId, subRoomId, dentistIds: markDentistIds, nurseIds: markNurseIds });
 
-    // Clear cache for affected rooms/days (best effort)
+    // Xóa cache cho các phòng/ngày bị ảnh hưởng (best effort)
     try {
       await Promise.all(updated.map(s => {
         const dateStr = new Date(s.startTime).toLocaleDateString('en-CA'); // YYYY-MM-DD format
@@ -1059,24 +1059,24 @@ async function updateSlotStaff({ slotIds, dentistId, nurseId }) {
   }
 }
 
-// Get slots by shift and date for easy slot selection
+// Lấy slots theo ca và ngày để dễ chọn slot
 async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftName }) {
   try {
-    // Parse date string properly for VN timezone
-    // Input: "2025-10-07" should mean 07/10/2025 in Vietnam timezone
+    // Parse chuỗi ngày đúng cho múi giờ VN
+    // Input: "2025-10-07" có nghĩa là 07/10/2025 theo múi giờ Việt Nam
     const [year, month, day] = date.split('-').map(Number);
     
-    // Create date range for the day in Vietnam timezone
-    // Start: 00:00:00 VN = subtract 7 hours to get UTC
-    // End: 23:59:59 VN = subtract 7 hours to get UTC
+    // Tạo khoảng ngày trong múi giờ Việt Nam
+    // Bắt đầu: 00:00:00 VN = trừ 7 giờ để lấy UTC
+    // Kết thúc: 23:59:59 VN = trừ 7 giờ để lấy UTC
     const startOfDayVN = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - 7 * 60 * 60 * 1000);
     const endOfDayVN = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999) - 7 * 60 * 60 * 1000);
 
-    // Get current time in Vietnam timezone + 5 minutes buffer
+    // Lấy thời gian hiện tại theo múi giờ VN + buffer 5 phút
     const vietnamNow = getVietnamDate();
-    const minStartTime = new Date(vietnamNow.getTime() + 5 * 60 * 1000); // Add 5 minutes
+    const minStartTime = new Date(vietnamNow.getTime() + 5 * 60 * 1000); // Thêm 5 phút
 
-    // Use the later of: start of day or current time + 5 minutes
+    // Sử dụng thời gian muộn hơn: đầu ngày hoặc thời gian hiện tại + 5 phút
     const effectiveStartTime = minStartTime > startOfDayVN ? minStartTime : startOfDayVN;
 
     const queryFilter = {
@@ -1112,7 +1112,7 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
       });
     }
     
-    // Get user info from auth-service for staff details
+    // Lấy thông tin user từ auth-service cho chi tiết nhân viên
     const users = await getAllUsers();
     
     console.log('🔍 Users loaded:', users.length, 'users');
@@ -1121,26 +1121,26 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
     const usersMap = new Map(users.map(u => [u._id?.toString(), u]));
     
     const slotsWithStaffInfo = slots.map(slot => {
-      // Handle dentist/nurse as array or single ObjectId
+      // Xử lý dentist/nurse là mảng hoặc ObjectId đơn
       let dentist = null;
       let nurse = null;
       
       if (Array.isArray(slot.dentist) && slot.dentist.length > 0) {
-        // Array case: get first dentist for display
+        // Trường hợp mảng: lấy nha sĩ đầu tiên để hiển thị
         dentist = usersMap.get(slot.dentist[0].toString());
         console.log('🔍 Looking for dentist:', slot.dentist[0].toString(), 'Found:', !!dentist);
       } else if (slot.dentist) {
-        // Legacy single ObjectId case
+        // Trường hợp ObjectId đơn (legacy)
         dentist = usersMap.get(slot.dentist.toString());
         console.log('🔍 Looking for dentist (single):', slot.dentist.toString(), 'Found:', !!dentist);
       }
       
       if (Array.isArray(slot.nurse) && slot.nurse.length > 0) {
-        // Array case: get first nurse for display
+        // Trường hợp mảng: lấy y tá đầu tiên để hiển thị
         nurse = usersMap.get(slot.nurse[0].toString());
         console.log('🔍 Looking for nurse:', slot.nurse[0].toString(), 'Found:', !!nurse);
       } else if (slot.nurse) {
-        // Legacy single ObjectId case
+        // Trường hợp ObjectId đơn (legacy)
         nurse = usersMap.get(slot.nurse.toString());
         console.log('🔍 Looking for nurse (single):', slot.nurse.toString(), 'Found:', !!nurse);
       }
@@ -1223,26 +1223,26 @@ async function getSlotsByShiftAndDate({ roomId, subRoomId = null, date, shiftNam
   }
 }
 
-// Get room calendar with appointment counts (daily/weekly/monthly view) with pagination
+// Lấy lịch phòng với số lượng cuộc hẹn (xem theo ngày/tuần/tháng) có phân trang
 async function getRoomCalendar({ roomId, subRoomId = null, viewType, startDate = null, page = 0, limit = 10, futureOnly = false }) {
   try {
-    // Get schedule config for shift information
+    // Lấy cấu hình lịch để lấy thông tin ca
     const { ScheduleConfig } = require('../models/scheduleConfig.model');
     const scheduleConfig = await ScheduleConfig.getSingleton();
     if (!scheduleConfig) {
       throw new Error('Cấu hình lịch làm việc chưa được khởi tạo. Vui lòng liên hệ admin để thiết lập.');
     }
     
-    // Use current date if startDate not provided
+    // Sử dụng ngày hiện tại nếu không cung cấp startDate
     const baseDate = startDate ? new Date(startDate) : getVietnamDate();
     
-    // Calculate date ranges for pagination - support negative pages for historical data
+    // Tính khoảng ngày cho phân trang - hỗ trợ trang âm cho dữ liệu lịch sử
     const periods = [];
     for (let i = 0; i < limit; i++) {
-      // For page 0: periodIndex = 0 (current week/day/month)
-      // For page 1: periodIndex = 1 (next period)
-      // For page -1: periodIndex = -1 (previous period)
-      // For page 2: periodIndex = 2 (2 periods ahead)
+      // Trang 0: periodIndex = 0 (tuần/ngày/tháng hiện tại)
+      // Trang 1: periodIndex = 1 (kỳ tiếp theo)
+      // Trang -1: periodIndex = -1 (kỳ trước)
+      // Trang 2: periodIndex = 2 (2 kỳ tiếp)
       let periodIndex = page * limit + i;
       
       let periodStart, periodEnd;
@@ -2231,8 +2231,8 @@ async function getDentistCalendar({ dentistId, viewType, startDate = null, page 
   }
 }
 
-// ⭐ Reassign staff to specific slots (replace staff for specific slots by slotIds)
-// This is for replacing one staff member with another in selected slots
+// ⭐ Phân công lại nhân viên cho các slots cụ thể (thay thế nhân viên cho các slots theo slotIds)
+// Đây là để thay thế một nhân viên bằng nhân viên khác trong các slots đã chọn
 async function reassignStaffToSlots({
   slotIds = [],
   oldStaffId,
@@ -2240,7 +2240,7 @@ async function reassignStaffToSlots({
   role // 'dentist' or 'nurse'
 }) {
   try {
-    // Validate input
+    // Kiểm tra đầu vào
     if (!slotIds || slotIds.length === 0) {
       throw new Error('slotIds là bắt buộc và phải là mảng không rỗng');
     }
@@ -3434,7 +3434,7 @@ async function toggleSlotsIsActive(slotIds, isActive, reason = null) {
     
     const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
     
-    // Validate input
+    // Kiểm tra đầu vào
     if (!slotIds || !Array.isArray(slotIds) || slotIds.length === 0) {
       throw new Error('slotIds array is required and must not be empty');
     }

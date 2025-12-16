@@ -2,14 +2,14 @@ const ChatSession = require('../models/chatSession.model');
 
 class ChatSessionRepository {
   /**
-   * Find session by sessionId
+   * Tìm session theo sessionId
    */
   async findBySessionId(sessionId) {
     return await ChatSession.findOne({ sessionId });
   }
 
   /**
-   * Find active session by userId (get most recent)
+   * Tìm session hoạt động theo userId (lấy mới nhất)
    */
   async findActiveByUserId(userId) {
     return await ChatSession.findOne({ 
@@ -19,7 +19,7 @@ class ChatSessionRepository {
   }
 
   /**
-   * Create new session
+   * Tạo session mới
    */
   async createSession(userId, sessionId) {
     const session = new ChatSession({
@@ -31,7 +31,7 @@ class ChatSessionRepository {
   }
 
   /**
-   * Add message to session
+   * Thêm tin nhắn vào session
    */
   async addMessage(sessionId, role, content, imageUrl = null) {
     const message = { 
@@ -40,7 +40,7 @@ class ChatSessionRepository {
       timestamp: new Date() 
     };
     
-    // Add imageUrl if provided
+    // Thêm imageUrl nếu được cung cấp
     if (imageUrl) {
       message.imageUrl = imageUrl;
     }
@@ -57,7 +57,7 @@ class ChatSessionRepository {
   }
 
   /**
-   * Get chat history by userId
+   * Lấy lịch sử chat theo userId
    */
   async getHistory(userId, limit = 50) {
     const session = await ChatSession.findOne({ userId, isActive: true })
@@ -66,12 +66,12 @@ class ChatSessionRepository {
     
     if (!session) return [];
     
-    // Return last N messages
+    // Trả về N tin nhắn cuối cùng
     return session.messages.slice(-limit);
   }
 
   /**
-   * Clear/deactivate session
+   * Xóa/vô hiệu hóa session
    */
   async deactivateSession(sessionId) {
     return await ChatSession.findOneAndUpdate(
@@ -82,7 +82,7 @@ class ChatSessionRepository {
   }
 
   /**
-   * Get or create session for user
+   * Lấy hoặc tạo session cho user
    */
   async getOrCreateSession(userId) {
     let session = await this.findActiveByUserId(userId);
@@ -96,7 +96,7 @@ class ChatSessionRepository {
   }
 
   /**
-   * Update booking context
+   * Cập nhật booking context
    */
   async updateBookingContext(sessionId, contextUpdate) {
     return await ChatSession.findOneAndUpdate(
@@ -114,7 +114,7 @@ class ChatSessionRepository {
   }
 
   /**
-   * Get booking context
+   * Lấy booking context
    */
   async getBookingContext(sessionId) {
     const session = await ChatSession.findOne({ sessionId }).select('bookingContext');
@@ -122,7 +122,7 @@ class ChatSessionRepository {
   }
 
   /**
-   * Clear booking context
+   * Xóa booking context
    */
   async clearBookingContext(sessionId) {
     return await ChatSession.findOneAndUpdate(

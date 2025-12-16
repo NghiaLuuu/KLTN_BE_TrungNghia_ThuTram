@@ -11,28 +11,28 @@ class RabbitMQClient {
   async connect(url = process.env.RABBITMQ_URL || 'amqp://localhost:5672') {
     try {
       if (this.connection) {
-        return; // ✅ Already connected - no log needed
+        return; // ✅ Đã kết nối - không cần log
       }
 
       this.connection = await amqp.connect(url);
       this.channel = await this.connection.createChannel();
 
-      // ✅ Log in index.js only
+      // ✅ Log trong index.js chỉ
 
-      // Handle connection errors
+      // Xử lý lỗi kết nối
       this.connection.on('error', (err) => {
-        console.error('[Schedule RabbitMQ] Connection error:', err);
+        console.error('[Schedule RabbitMQ] Lỗi kết nối:', err);
         this.handleDisconnect();
       });
 
       this.connection.on('close', () => {
-        console.log('[Schedule RabbitMQ] Connection closed');
+        console.log('[Schedule RabbitMQ] Kết nối đã đóng');
         this.handleDisconnect();
       });
 
       return this.channel;
     } catch (error) {
-      console.error('[Schedule RabbitMQ] Connection failed:', error.message);
+      console.error('[Schedule RabbitMQ] Kết nối thất bại:', error.message);
       this.handleDisconnect();
       throw error;
     }
@@ -42,9 +42,9 @@ class RabbitMQClient {
     this.connection = null;
     this.channel = null;
 
-    // Reconnect after delay
+    // Kết nối lại sau một khoảng thời gian
     if (!this.reconnectTimeout) {
-      console.log(`[Schedule RabbitMQ] Reconnecting in ${this.reconnectDelay / 1000}s...`);
+      console.log(`[Schedule RabbitMQ] Đang kết nối lại sau ${this.reconnectDelay / 1000} giây...`);
       this.reconnectTimeout = setTimeout(() => {
         this.reconnectTimeout = null;
         this.connect();
@@ -60,127 +60,127 @@ class RabbitMQClient {
   }
 
   /**
-   * Publish message to a queue
+   * Gửi message tới một queue
    */
   async publishToQueue(queueName, message) {
     try {
       const channel = await this.getChannel();
       
-      // Assert queue exists
+      // Đảm bảo queue tồn tại
       await channel.assertQueue(queueName, { durable: true });
       
-      // Publish message
+      // Gửi message
       const messageBuffer = Buffer.from(JSON.stringify(message));
       channel.sendToQueue(queueName, messageBuffer, { persistent: true });
       
-      console.log(`📤 Event sent to ${queueName}`);
+      console.log(`📤 Sự kiện đã gửi tới ${queueName}`);
       return true;
     } catch (error) {
-      console.error(`[Schedule RabbitMQ] Error publishing to queue ${queueName}:`, error);
+      console.error(`[Schedule RabbitMQ] Lỗi khi gửi tới queue ${queueName}:`, error);
       throw error;
     }
   }
 
   /**
-   * Consume messages from a queue
+   * Tiêu thụ message từ một queue
    */
   async consumeQueue(queueName, handler) {
     try {
       const channel = await this.getChannel();
       
-      // Assert queue exists
+      // Đảm bảo queue tồn tại
       await channel.assertQueue(queueName, { durable: true });
       
-      // ✅ Set prefetch to 1 - process one message at a time
+      // ✅ Đặt prefetch = 1 - xử lý một message mỗi lần
       await channel.prefetch(1);
       
-      // Consume messages
+      // Tiêu thụ messages
       channel.consume(queueName, async (msg) => {
         if (msg) {
           try {
             const data = JSON.parse(msg.content.toString());
-            console.log(`📥 Received from ${queueName}`);
+            console.log(`📥 Nhận từ ${queueName}`);
             
-            // Process message - handler should return true to ack, false to requeue
+            // Xử lý message - handler trả về true để ack, false để requeue
             const shouldAck = await handler(data, msg);
             
             if (shouldAck !== false) {
-              // Acknowledge message (default behavior)
+              // Xác nhận message (hành vi mặc định)
               channel.ack(msg);
             } else {
-              // Requeue message for another consumer to handle
-              console.log(`🔄 Requeuing message for another consumer`);
+              // Requeue message cho consumer khác xử lý
+              console.log(`🔄 Đang requeue message cho consumer khác`);
               channel.nack(msg, false, true); // requeue = true
             }
           } catch (error) {
-            console.error(`❌ Error processing ${queueName}:`, error.message);
+            console.error(`❌ Lỗi khi xử lý ${queueName}:`, error.message);
             
-            // Reject and don't requeue on error (send to DLQ)
+            // Từ chối và không requeue khi lỗi (gửi tới DLQ)
             channel.nack(msg, false, false);
           }
         }
       });
       
-      // ✅ Log removed - will show in consumer only
+      // ✅ Log đã xóa - sẽ hiển thị trong consumer chỉ
     } catch (error) {
-      console.error(`[Schedule RabbitMQ] Error consuming queue ${queueName}:`, error);
+      console.error(`[Schedule RabbitMQ] Lỗi khi consume queue ${queueName}:`, error);
       throw error;
     }
   }
 
-  // Alias for compatibility
+  // Bí danh để tương thích
   async consumeFromQueue(queueName, handler) {
     return this.consumeQueue(queueName, handler);
   }
 
-  // Alias for compatibility
+  // Bí danh để tương thích
   async connectRabbitMQ(url) {
     return this.connect(url);
   }
 
   /**
-   * Publish event to an exchange
+   * Phát sự kiện tới một exchange
    */
   async publishEvent(exchange, routingKey, event) {
     try {
       const channel = await this.getChannel();
       
-      // Assert exchange exists
+      // Đảm bảo exchange tồn tại
       await channel.assertExchange(exchange, 'topic', { durable: true });
       
-      // Publish event
+      // Phát sự kiện
       const messageBuffer = Buffer.from(JSON.stringify(event));
       channel.publish(exchange, routingKey, messageBuffer, { persistent: true });
       
-      console.log(`[Schedule RabbitMQ] Published event ${routingKey} to ${exchange}`);
+      console.log(`[Schedule RabbitMQ] Đã phát sự kiện ${routingKey} tới ${exchange}`);
       return true;
     } catch (error) {
-      console.error(`[Schedule RabbitMQ] Error publishing event:`, error);
+      console.error(`[Schedule RabbitMQ] Lỗi khi phát sự kiện:`, error);
       throw error;
     }
   }
 
   /**
-   * Send RPC request and wait for response
-   * @param {String} queueName - Target queue name
-   * @param {Object} message - Request message
-   * @param {Number} timeout - Timeout in milliseconds (default: 5000)
-   * @returns {Promise<Object>} - Response from consumer
+   * Gửi yêu cầu RPC và chờ phản hồi
+   * @param {String} queueName - Tên queue đích
+   * @param {Object} message - Message yêu cầu
+   * @param {Number} timeout - Thời gian chờ tối đa tính bằng mili giây (mặc định: 5000)
+   * @returns {Promise<Object>} - Phản hồi từ consumer
    */
   async sendRpcRequest(queueName, message, timeout = 5000) {
     try {
       const channel = await this.getChannel();
       
-      // Create exclusive response queue
+      // Tạo queue phản hồi riêng
       const { queue: replyQueue } = await channel.assertQueue('', { exclusive: true });
       const correlationId = this.generateUuid();
       
       return new Promise((resolve, reject) => {
         const timeoutHandle = setTimeout(() => {
-          reject(new Error(`RPC request to ${queueName} timed out after ${timeout}ms`));
+          reject(new Error(`Yêu cầu RPC tới ${queueName} đã hết thời gian chờ sau ${timeout}ms`));
         }, timeout);
         
-        // Consume response
+        // Tiêu thụ phản hồi
         channel.consume(replyQueue, (msg) => {
           if (msg && msg.properties.correlationId === correlationId) {
             clearTimeout(timeoutHandle);
@@ -190,7 +190,7 @@ class RabbitMQClient {
           }
         }, { noAck: true });
         
-        // Send request
+        // Gửi yêu cầu
         const messageBuffer = Buffer.from(JSON.stringify(message));
         channel.sendToQueue(queueName, messageBuffer, {
           correlationId,
@@ -198,16 +198,16 @@ class RabbitMQClient {
           persistent: true
         });
         
-        console.log(`📤 RPC request sent to ${queueName} (correlationId: ${correlationId})`);
+        console.log(`📤 Yêu cầu RPC đã gửi tới ${queueName} (correlationId: ${correlationId})`);
       });
     } catch (error) {
-      console.error(`[Schedule RabbitMQ] Error sending RPC request to ${queueName}:`, error);
+      console.error(`[Schedule RabbitMQ] Lỗi khi gửi yêu cầu RPC tới ${queueName}:`, error);
       throw error;
     }
   }
 
   /**
-   * Generate UUID for correlation ID
+   * Tạo UUID cho correlation ID
    */
   generateUuid() {
     return Math.random().toString(36).substring(2, 15) + 
@@ -232,17 +232,17 @@ class RabbitMQClient {
         this.connection = null;
       }
 
-      console.log('[Schedule RabbitMQ] Closed successfully');
+      console.log('[Schedule RabbitMQ] Đã đóng thành công');
     } catch (error) {
-      console.error('[Schedule RabbitMQ] Error closing:', error);
+      console.error('[Schedule RabbitMQ] Lỗi khi đóng:', error);
     }
   }
 }
 
-// Export singleton instance
+// Xuất instance singleton
 const rabbitmqClient = new RabbitMQClient();
 
-// Export both instance and sendRpcRequest helper (bind để tránh đệ quy vô hạn)
+// Xuất cả instance và helper sendRpcRequest (bind để tránh đệ quy vô hạn)
 const boundSendRpcRequest = rabbitmqClient.sendRpcRequest.bind(rabbitmqClient);
 module.exports = rabbitmqClient;
 module.exports.sendRpcRequest = boundSendRpcRequest;

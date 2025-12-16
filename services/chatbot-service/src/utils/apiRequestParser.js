@@ -1,8 +1,8 @@
-// Parse API request JSON from GPT responses
+// Phân tích JSON request API từ các phản hồi GPT
 
 /**
- * Parse API request from GPT response
- * Expected format in GPT response:
+ * Phân tích API request từ phản hồi GPT
+ * Định dạng mong đợi trong phản hồi GPT:
  * ```json
  * {
  *   "action": "SEARCH_SERVICES",
@@ -16,63 +16,63 @@
 const { API_ENDPOINTS } = require('../config/apiMapping');
 
 /**
- * Extract API request JSON from GPT response text
- * @param {string} responseText - GPT response text
- * @returns {object|null} Parsed API request or null
+ * Trích xuất JSON API request từ văn bản phản hồi GPT
+ * @param {string} responseText - Văn bản phản hồi GPT
+ * @returns {object|null} API request đã phân tích hoặc null
  */
 function extractApiRequest(responseText) {
   try {
-    // Look for [API_CALL] tags first (new format)
+    // Tìm tag [API_CALL] trước (định dạng mới)
     const apiCallMatch = responseText.match(/\[API_CALL\]([\s\S]*?)\[\/API_CALL\]/);
     if (apiCallMatch) {
-      console.log('[Parser] Found [API_CALL] tag:', apiCallMatch[1].trim());
+      console.log('[Parser] Tìm thấy tag [API_CALL]:', apiCallMatch[1].trim());
       return JSON.parse(apiCallMatch[1].trim());
     }
 
-    // Look for JSON block in markdown code fence
+    // Tìm khối JSON trong markdown code fence
     const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/);
     if (jsonMatch) {
-      console.log('[Parser] Found ```json block:', jsonMatch[1].trim());
+      console.log('[Parser] Tìm thấy khối ```json:', jsonMatch[1].trim());
       return JSON.parse(jsonMatch[1].trim());
     }
 
-    // Look for JSON object directly
+    // Tìm object JSON trực tiếp
     const objectMatch = responseText.match(/\{[\s\S]*"action"[\s\S]*\}/);
     if (objectMatch) {
-      console.log('[Parser] Found JSON object:', objectMatch[0]);
+      console.log('[Parser] Tìm thấy object JSON:', objectMatch[0]);
       return JSON.parse(objectMatch[0]);
     }
 
-    console.log('[Parser] No API request found in:', responseText);
+    console.log('[Parser] Không tìm thấy API request trong:', responseText);
     return null;
   } catch (error) {
-    console.error('[Parser] Error extracting API request:', error.message);
+    console.error('[Parser] Lỗi trích xuất API request:', error.message);
     return null;
   }
 }
 
 /**
- * Validate API request structure
- * @param {object} apiRequest - Parsed API request
- * @returns {boolean} True if valid
+ * Xác thực cấu trúc API request
+ * @param {object} apiRequest - API request đã phân tích
+ * @returns {boolean} True nếu hợp lệ
  */
 function validateApiRequest(apiRequest) {
   if (!apiRequest || typeof apiRequest !== 'object') {
     return false;
   }
 
-  // Must have action field
+  // Phải có trường action
   if (!apiRequest.action || typeof apiRequest.action !== 'string') {
     return false;
   }
 
-  // Action must be valid
+  // Action phải hợp lệ
   if (!API_ENDPOINTS[apiRequest.action]) {
-    console.warn(`Invalid action: ${apiRequest.action}`);
+    console.warn(`Action không hợp lệ: ${apiRequest.action}`);
     return false;
   }
 
-  // Params must be object (can be empty)
+  // Params phải là object (có thể rỗng)
   if (apiRequest.params && typeof apiRequest.params !== 'object') {
     return false;
   }
@@ -81,8 +81,8 @@ function validateApiRequest(apiRequest) {
 }
 
 /**
- * Check if required params are present
- * @param {object} apiRequest - Parsed API request
+ * Kiểm tra xem các params bắt buộc có hiện diện không
+ * @param {object} apiRequest - API request đã phân tích
  * @returns {object} { valid: boolean, missing: string[] }
  */
 function checkRequiredParams(apiRequest) {
@@ -108,38 +108,38 @@ function checkRequiredParams(apiRequest) {
 }
 
 /**
- * Parse and validate full API request
- * @param {string} responseText - GPT response text
+ * Phân tích và xác thực đầy đủ API request
+ * @param {string} responseText - Văn bản phản hồi GPT
  * @returns {object} { success: boolean, apiRequest: object, error: string }
  */
 function parseApiRequest(responseText) {
-  // Extract API request
+  // Trích xuất API request
   const apiRequest = extractApiRequest(responseText);
   
   if (!apiRequest) {
     return {
       success: false,
       apiRequest: null,
-      error: 'No API request found in response'
+      error: 'Không tìm thấy API request trong phản hồi'
     };
   }
 
-  // Validate structure
+  // Xác thực cấu trúc
   if (!validateApiRequest(apiRequest)) {
     return {
       success: false,
       apiRequest: null,
-      error: 'Invalid API request structure'
+      error: 'Cấu trúc API request không hợp lệ'
     };
   }
 
-  // Check required params
+  // Kiểm tra các params bắt buộc
   const paramCheck = checkRequiredParams(apiRequest);
   if (!paramCheck.valid) {
     return {
       success: false,
       apiRequest: null,
-      error: `Missing required params: ${paramCheck.missing.join(', ')}`
+      error: `Thiếu các params bắt buộc: ${paramCheck.missing.join(', ')}`
     };
   }
 
@@ -151,21 +151,21 @@ function parseApiRequest(responseText) {
 }
 
 /**
- * Check if response text contains API request
- * @param {string} responseText - GPT response text
- * @returns {boolean} True if contains API request
+ * Kiểm tra xem văn bản phản hồi có chứa API request không
+ * @param {string} responseText - Văn bản phản hồi GPT
+ * @returns {boolean} True nếu có chứa API request
  */
 function hasApiRequest(responseText) {
   if (!responseText || typeof responseText !== 'string') {
     return false;
   }
 
-  // Check for [API_CALL] tags (priority)
+  // Kiểm tra tag [API_CALL] (ưu tiên)
   if (responseText.includes('[API_CALL]')) {
     return true;
   }
 
-  // Check for JSON markers
+  // Kiểm tra các marker JSON
   return responseText.includes('"action"') && 
          (responseText.includes('```json') || responseText.includes('{'));
 }

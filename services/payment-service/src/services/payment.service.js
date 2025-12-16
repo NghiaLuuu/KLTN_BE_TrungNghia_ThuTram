@@ -19,31 +19,31 @@ class PaymentService {
     this.cacheTTL = 300; // 5 minutes
   }
 
-  // ============ CREATE METHODS ============
+  // ============ CÁC PHƯƠNG THỨC TẠO ============
   async createPayment(paymentData) {
     try {
-      // Validate required fields
+      // Kiểm tra các trường bắt buộc
       this.validatePaymentData(paymentData);
 
-      // Generate payment code if not provided
+      // Tạo mã thanh toán nếu chưa có
       if (!paymentData.paymentCode) {
         paymentData.paymentCode = await this.generatePaymentCode();
       }
 
-      // Set initial status
+      // Đặt trạng thái ban đầu
       if (!paymentData.status) {
         paymentData.status = PaymentStatus.PENDING;
       }
 
-      // Create payment record
+      // Tạo bản ghi thanh toán
       const payment = await paymentRepository.create(paymentData);
 
-      // Process payment based on method
+      // Xử lý thanh toán theo phương thức
       if (paymentData.method !== PaymentMethod.CASH) {
         await this.initiatePaymentGateway(payment);
       }
 
-      // Clear cache for patient payments
+      // Xóa cache cho các thanh toán của bệnh nhân
       if (payment.patientId) {
         await this.clearPatientCache(payment.patientId);
       }
@@ -67,7 +67,7 @@ class PaymentService {
 
   async createRefundPayment(originalPaymentId, refundData) {
     try {
-      // Get original payment
+      // Lấy thanh toán gốc
       const originalPayment = await paymentRepository.findById(originalPaymentId);
       if (!originalPayment) {
         throw new Error('Không tìm thấy thanh toán gốc');
@@ -77,13 +77,13 @@ class PaymentService {
         throw new Error('Chỉ có thể hoàn tiền từ thanh toán đã hoàn thành');
       }
 
-      // Validate refund amount
+      // Kiểm tra số tiền hoàn
       const maxRefundAmount = originalPayment.finalAmount;
       if (refundData.amount > maxRefundAmount) {
         throw new Error('Số tiền hoàn vượt quá số tiền thanh toán gốc');
       }
 
-      // Create refund payment
+      // Tạo thanh toán hoàn tiền
       const refundPaymentData = {
         ...refundData,
         type: PaymentType.REFUND,
@@ -99,7 +99,7 @@ class PaymentService {
 
       const refundPayment = await this.createPayment(refundPaymentData);
 
-      // Process refund through gateway if needed
+      // Xử lý hoàn tiền qua gateway nếu cần
       if (originalPayment.method !== PaymentMethod.CASH) {
         await this.processRefundThroughGateway(refundPayment, originalPayment);
       } else {
@@ -113,55 +113,55 @@ class PaymentService {
   }
 
   /**
-   * Create payment from completed record
-   * Calculate finalAmount based on booking channel (online/offline)
+   * Tạo thanh toán từ hồ sơ đã hoàn tất
+   * Tính finalAmount dựa trên kênh đặt lịch (online/offline)
    * - Offline: finalAmount = totalCost
    * - Online: finalAmount = totalCost - depositAmount
    */
   async createPaymentFromRecord(recordId) {
     try {
-      console.log('📝 [createPaymentFromRecord] Starting for recordId:', recordId);
+      console.log('📝 [createPaymentFromRecord] Bắt đầu cho recordId:', recordId);
 
-      // 1. Get record via RPC
+      // 1. Lấy hồ sơ qua RPC
       const recordResponse = await rpcClient.request('record_rpc_queue', {
         action: 'getRecordById',
         payload: { id: recordId }
       });
 
       if (recordResponse.error) {
-        throw new Error(`RPC Error: ${recordResponse.error}`);
+        throw new Error(`Lỗi RPC: ${recordResponse.error}`);
       }
 
       const record = recordResponse.record;
       if (!record) {
-        throw new Error('Record not found');
+        throw new Error('Không tìm thấy hồ sơ');
       }
 
-      console.log('📋 [createPaymentFromRecord] Record found:', {
+      console.log('📋 [createPaymentFromRecord] Tìm thấy hồ sơ:', {
         recordCode: record.recordCode,
         totalCost: record.totalCost,
         bookingChannel: record.bookingChannel,
         appointmentId: record.appointmentId
       });
 
-      // 2. Validate record status
+      // 2. Kiểm tra trạng thái hồ sơ
       if (record.status !== 'completed') {
-        throw new Error('Record must be completed before creating payment');
+        throw new Error('Hồ sơ phải hoàn tất trước khi tạo thanh toán');
       }
 
       if (!record.totalCost || record.totalCost <= 0) {
-        throw new Error('Record totalCost must be greater than 0');
+        throw new Error('totalCost của hồ sơ phải lớn hơn 0');
       }
 
-      // 3. Calculate payment amount based on booking channel
+      // 3. Tính số tiền thanh toán dựa trên kênh đặt lịch
       let finalAmount = record.totalCost;
       let depositAmount = 0;
       let depositPayment = null;
 
       if (record.bookingChannel === 'online' && record.appointmentId) {
-        console.log('💰 [createPaymentFromRecord] Online booking detected, checking for deposit...');
+        console.log('💰 [createPaymentFromRecord] Phát hiện đặt lịch online, kiểm tra tiền cọc...');
 
-        // Get appointment to find deposit payment
+        // Lấy lịch hẹn để tìm thanh toán cọc
         try {
           const appointmentResponse = await rpcClient.request('appointment_rpc_queue', {
             action: 'getAppointmentById',
@@ -169,46 +169,46 @@ class PaymentService {
           });
 
           if (appointmentResponse.error) {
-            console.warn('⚠️ Could not get appointment:', appointmentResponse.error);
+            console.warn('⚠️ Không thể lấy lịch hẹn:', appointmentResponse.error);
           } else if (appointmentResponse.appointment && appointmentResponse.appointment.paymentId) {
             const appointment = appointmentResponse.appointment;
-            console.log('🎫 [createPaymentFromRecord] Appointment found with paymentId:', appointment.paymentId);
+            console.log('🎫 [createPaymentFromRecord] Tìm thấy lịch hẹn với paymentId:', appointment.paymentId);
 
-            // Get deposit payment
+            // Lấy thanh toán cọc
             depositPayment = await this.getPaymentById(appointment.paymentId);
 
             if (depositPayment && depositPayment.status === PaymentStatus.COMPLETED) {
               depositAmount = depositPayment.finalAmount;
               finalAmount = Math.max(0, record.totalCost - depositAmount);
 
-              console.log('✅ [createPaymentFromRecord] Deposit payment found:', {
+              console.log('✅ [createPaymentFromRecord] Tìm thấy thanh toán cọc:', {
                 depositPaymentId: depositPayment._id,
                 depositAmount: depositAmount,
                 totalCost: record.totalCost,
                 finalAmount: finalAmount
               });
             } else {
-              console.warn('⚠️ Deposit payment exists but not completed:', depositPayment?.status);
+              console.warn('⚠️ Thanh toán cọc tồn tại nhưng chưa hoàn tất:', depositPayment?.status);
             }
           }
         } catch (appointmentError) {
-          console.warn('⚠️ Error fetching appointment:', appointmentError.message);
-          // Continue without deposit - fallback to full amount
+          console.warn('⚠️ Lỗi lấy lịch hẹn:', appointmentError.message);
+          // Tiếp tục không có tiền cọc - fallback về số tiền đầy đủ
         }
       }
 
-      // 4. Create payment
+      // 4. Tạo thanh toán
       const paymentData = {
         recordId: record._id,
         appointmentId: record.appointmentId || null,
         patientId: record.patientId || null,
         patientInfo: record.patientInfo,
         type: PaymentType.PAYMENT,
-        method: PaymentMethod.CASH, // Default, will be changed by user
+        method: PaymentMethod.CASH, // Mặc định, sẽ được người dùng thay đổi
         status: PaymentStatus.PENDING,
         originalAmount: record.totalCost,
-        depositAmount: depositAmount,  // ✅ FIXED: Deposit is separate from discount!
-        discountAmount: 0,  // ✅ FIXED: No discount, only deposit deduction
+        depositAmount: depositAmount,  // ✅ ĐÃ SỬA: Tiền cọc tách biệt khỏi giảm giá!
+        discountAmount: 0,  // ✅ ĐÃ SỬA: Không có giảm giá, chỉ trừ tiền cọc
         taxAmount: 0,
         finalAmount: finalAmount,
         paidAmount: 0,
@@ -225,7 +225,7 @@ class PaymentService {
 
       const payment = await this.createPayment(paymentData);
 
-      console.log('✅ [createPaymentFromRecord] Payment created:', {
+      console.log('✅ [createPaymentFromRecord] Đã tạo thanh toán:', {
         paymentId: payment._id,
         paymentCode: payment.paymentCode,
         finalAmount: payment.finalAmount
@@ -233,29 +233,29 @@ class PaymentService {
 
       return payment;
     } catch (error) {
-      console.error('❌ [createPaymentFromRecord] Error:', error);
+      console.error('❌ [createPaymentFromRecord] Lỗi:', error);
       throw new Error(`Lỗi tạo thanh toán từ record: ${error.message}`);
     }
   }
 
-  // ============ GET METHODS ============
+  // ============ CÁC PHƯƠNG THỨC LẤY DỮ LIỆU ============
   async getPaymentById(id) {
     try {
       const cacheKey = `${this.cachePrefix}${id}`;
       
-      // Check cache first
+      // Kiểm tra cache trước
       const cached = await redisClient.get(cacheKey);
       if (cached) {
         return JSON.parse(cached);
       }
 
-      // Get from database
+      // Lấy từ database
       const payment = await paymentRepository.findById(id);
       if (!payment) {
         throw new Error('Không tìm thấy thanh toán');
       }
 
-      // Cache the result
+      // Cache kết quả
       await redisClient.setEx(cacheKey, this.cacheTTL, JSON.stringify(payment));
       
       return payment;
@@ -268,19 +268,19 @@ class PaymentService {
     try {
       const cacheKey = `${this.cachePrefix}code:${code}`;
       
-      // Check cache first
+      // Kiểm tra cache trước
       const cached = await redisClient.get(cacheKey);
       if (cached) {
         return JSON.parse(cached);
       }
 
-      // Get from database
+      // Lấy từ database
       const payment = await paymentRepository.findByCode(code);
       if (!payment) {
         throw new Error('Không tìm thấy thanh toán');
       }
 
-      // Cache the result
+      // Cache kết quả
       await redisClient.setEx(cacheKey, this.cacheTTL, JSON.stringify(payment));
       
       return payment;
@@ -293,16 +293,16 @@ class PaymentService {
     try {
       const cacheKey = `${this.cachePrefix}patient:${patientId}`;
       
-      // Check cache first
+      // Kiểm tra cache trước
       const cached = await redisClient.get(cacheKey);
       if (cached && !options.page) {
         return JSON.parse(cached);
       }
 
-      // Get from database
+      // Lấy từ database
       const payments = await paymentRepository.findByPatient(patientId, options);
 
-      // Cache the result (only for first page)
+      // Cache kết quả (chỉ cho trang đầu)
       if (!options.page || options.page === 1) {
         await redisClient.setEx(cacheKey, this.cacheTTL, JSON.stringify(payments));
       }
@@ -328,7 +328,7 @@ class PaymentService {
     return payments;
   }
 
-  // ============ LIST & SEARCH METHODS ============
+  // ============ CÁC PHƯƠNG THỨC DANH SÁCH & TÌM KIẾ̂M ============
   async listPayments(filter = {}, options = {}) {
     return await paymentRepository.findAll(filter, options);
   }
@@ -352,7 +352,7 @@ class PaymentService {
   async getTodayPayments() {
     const cacheKey = `${this.cachePrefix}today`;
     
-    // Check cache first
+    // Kiểm tra cache trước
     const cached = await redisClient.get(cacheKey);
     if (cached) {
       return JSON.parse(cached);
@@ -360,19 +360,19 @@ class PaymentService {
 
     const payments = await paymentRepository.findTodayPayments();
     
-    // Cache for 10 minutes
+    // Cache trong 10 phút
     await redisClient.setEx(cacheKey, 600, JSON.stringify(payments));
     
     return payments;
   }
 
-  // ============ UPDATE METHODS ============
+  // ============ CÁC PHƯƠNG THỨC CẬP NHẬT ============
   async updatePayment(id, updateData) {
     try {
       const payment = await paymentRepository.update(id, updateData);
       
       if (payment) {
-        // Clear relevant caches
+        // Xóa các cache liên quan
         await this.clearPaymentCache(id);
         if (payment.patientId) {
           await this.clearPatientCache(payment.patientId);
@@ -390,13 +390,13 @@ class PaymentService {
       const payment = await paymentRepository.updateStatus(id, status, additionalData);
       
       if (payment) {
-        // Clear caches
+        // Xóa các cache
         await this.clearPaymentCache(id);
         if (payment.patientId) {
           await this.clearPatientCache(payment.patientId);
         }
 
-        // Handle status-specific logic
+        // Xử lý logic theo trạng thái
         await this.handleStatusChange(payment, status);
       }
       
@@ -434,17 +434,17 @@ class PaymentService {
     return await paymentRepository.verify(id, verifiedBy);
   }
 
-  // ============ PAYMENT GATEWAY METHODS ============
+  // ============ CÁC PHƯƠNG THỨC CỔNG THANH TOÁN ============
   async initiatePaymentGateway(payment) {
     try {
       let gatewayResponse;
       
-      // Only VNPay is supported
+      // Chỉ hỗ trợ VNPay
       if (payment.method !== PaymentMethod.VNPAY) {
         throw new Error(`Phương thức thanh toán ${payment.method} không được hỗ trợ. Chỉ hỗ trợ VNPay.`);
       }
 
-      // Get IP address from payment data or use default
+      // Lấy địa chỉ IP từ dữ liệu thanh toán hoặc dùng mặc định
       const ipAddr = payment.ipAddress || '127.0.0.1';
       const paymentUrl = createVNPayPayment(
         payment.paymentCode,
@@ -459,7 +459,7 @@ class PaymentService {
         transactionId: payment.paymentCode
       };
 
-      // Update payment with gateway info
+      // Cập nhật thanh toán với thông tin gateway
       await this.updatePayment(payment._id, {
         externalTransactionId: gatewayResponse.transactionId,
         gatewayResponse: gatewayResponse,
@@ -468,7 +468,7 @@ class PaymentService {
 
       return gatewayResponse;
     } catch (error) {
-      // Mark payment as failed
+      // Đánh dấu thanh toán thất bại
       await this.failPayment(payment._id, error.message);
       throw error;
     }
@@ -478,14 +478,14 @@ class PaymentService {
     try {
       const { orderId, status, transactionId, amount } = callbackData;
       
-      console.log('🔍 [processGatewayCallback] Processing:', { orderId, status, transactionId });
+      console.log('🔍 [processGatewayCallback] Đang xử lý:', { orderId, status, transactionId });
       
-      // Check if this is for an existing payment (from record)
+      // Kiểm tra xem đây có phải cho thanh toán đã tồn tại không (từ record)
       const mappingKey = `payment:vnpay:${orderId}`;
       const existingPaymentId = await redisClient.get(mappingKey);
       
       if (existingPaymentId) {
-        console.log('📝 [processGatewayCallback] Found existing payment mapping:', existingPaymentId);
+        console.log('📝 [processGatewayCallback] Tìm thấy mapping thanh toán đã tồn tại:', existingPaymentId);
         return await this.updateExistingPaymentFromVNPay(existingPaymentId, {
           orderId,
           status,
@@ -494,27 +494,27 @@ class PaymentService {
         });
       }
       
-      // Otherwise, process as temporary payment (appointment booking)
+      // Nếu không, xử lý như thanh toán tạm (từ đặt lịch)
       const reservationId = orderId;
       const tempPaymentKey = `payment:temp:${reservationId}`;
       
-      // Get temporary payment from Redis
+      // Lấy thanh toán tạm từ Redis
       const tempPaymentData = await redisClient.get(tempPaymentKey);
       if (!tempPaymentData) {
-        console.error('❌ Temporary payment not found:', tempPaymentKey);
-        throw new Error('Temporary payment not found or expired');
+        console.error('❌ Không tìm thấy thanh toán tạm:', tempPaymentKey);
+        throw new Error('Không tìm thấy hoặc thanh toán tạm đã hết hạn');
       }
       
       const tempPayment = JSON.parse(tempPaymentData);
 
-      // Create permanent payment record in DB
+      // Tạo bản ghi thanh toán vĩnh viễn trong DB
       if (status === 'success') {
-        // Get appointment hold data for patient info and services
+        // Lấy dữ liệu giữ lịch hẹn cho thông tin bệnh nhân và dịch vụ
         const appointmentHoldKey = tempPayment.appointmentHoldKey || reservationId;
         
-        // Try multiple possible Redis keys (different services use different prefixes)
+        // Thử nhiều key Redis có thể (các service khác nhau dùng prefix khác nhau)
         const possibleKeys = [
-          appointmentHoldKey,  // Direct key (e.g., "RSV1760631740748")
+          appointmentHoldKey,  // Key trực tiếp (ví dụ: "RSV1760631740748")
           `appointment_hold:${appointmentHoldKey}`,
           `reservation:${appointmentHoldKey}`,
           `temp_reservation:${appointmentHoldKey}`
@@ -528,30 +528,30 @@ class PaymentService {
         let foundKey = null;
         
         try {
-          // Try each possible key until we find the data
+          // Thử từng key có thể cho đến khi tìm thấy dữ liệu
           for (const key of possibleKeys) {
             const appointmentDataStr = await redisClient.get(key);
             if (appointmentDataStr) {
               appointmentData = JSON.parse(appointmentDataStr);
               foundKey = key;
-              console.log('✅ [DEBUG] Appointment data found in Redis:', {
+              console.log('✅ [DEBUG] Tìm thấy dữ liệu lịch hẹn trong Redis:', {
                 key: foundKey,
                 hasPatientInfo: !!appointmentData.patientInfo,
                 hasSlotIds: !!appointmentData.slotIds,
                 slotCount: appointmentData.slotIds?.length || 0,
                 hasServiceId: !!appointmentData.serviceId,
-                serviceAddOnId: appointmentData.serviceAddOnId || 'none'
+                serviceAddOnId: appointmentData.serviceAddOnId || 'không có'
               });
               break;
             }
           }
           
           if (!appointmentData) {
-            console.error('❌ [DEBUG] No appointment data found in redisClient. Tried keys:', possibleKeys);
-            // Don't throw - continue with limited data
+            console.error('❌ [DEBUG] Không tìm thấy dữ liệu lịch hẹn trong redisClient. Các key đã thử:', possibleKeys);
+            // Không throw - tiếp tục với dữ liệu hạn chế
           }
           
-          // Extract patient info
+          // Trích xuất thông tin bệnh nhân
           if (appointmentData && appointmentData.patientInfo) {
             patientInfo = {
               name: appointmentData.patientInfo.fullName || appointmentData.patientInfo.name || 'Bệnh nhân',
@@ -561,7 +561,7 @@ class PaymentService {
             };
           }
         } catch (err) {
-          console.error('❌ [DEBUG] Error fetching appointment data:', err.message);
+          console.error('❌ [DEBUG] Lỗi lấy dữ liệu lịch hẹn:', err.message);
         }
         
         const paymentAmount = amount || tempPayment.amount;
@@ -602,18 +602,18 @@ class PaymentService {
           verifiedAt: new Date()
         };
         
-        console.log('💾 Payment data includes VNPay URL:', !!tempPayment.vnpayUrl);
+        console.log('💾 Dữ liệu thanh toán bao gồm VNPay URL:', !!tempPayment.vnpayUrl);
         
         const payment = await paymentRepository.create(paymentData);
-        console.log('✅ Payment created:', payment._id);
+        console.log('✅ Đã tạo thanh toán:', payment._id);
         
-        // Delete temp payment from Redis
+        // Xóa thanh toán tạm từ Redis
         await redisClient.del(tempPaymentKey);
         
-        // Publish events after successful payment
+        // Phát sự kiện sau khi thanh toán thành công
         if (appointmentData) {
           try {
-            // STEP 1: Create Invoice FIRST
+            // BƯỚC 1: Tạo Hóa đơn TRƯỚC
             await rabbitmqClient.publishToQueue('invoice_queue', {
               event: 'payment.completed',
               data: {
@@ -626,7 +626,7 @@ class PaymentService {
               }
             });
 
-            // STEP 2: Create Appointment (will query invoice by paymentId)
+            // BƯỚC 2: Tạo Lịch hẹn (sẽ query hóa đơn theo paymentId)
             await rabbitmqClient.publishToQueue('appointment_queue', {
               event: 'payment.completed',
               data: {
@@ -659,7 +659,7 @@ class PaymentService {
               });
             }
 
-            // STEP 3: Mark exam record as used (if needed)
+            // BƯỚC 3: Đánh dấu hồ sơ khám đã sử dụng (nếu cần)
             if (appointmentData.examRecordId) {
               await rabbitmqClient.publishToQueue('record_queue', {
                 event: 'record.mark_as_used',
@@ -676,11 +676,11 @@ class PaymentService {
             }
 
           } catch (eventError) {
-            console.error('⚠️ Error publishing events:', eventError.message);
-            // Don't throw - payment already created successfully
+            console.error('⚠️ Lỗi phát sự kiện:', eventError.message);
+            // Không throw - thanh toán đã tạo thành công
           }
         } else {
-          console.warn('⚠️ [Payment] appointmentData is NULL or UNDEFINED - Events NOT published!', {
+          console.warn('⚠️ [Payment] appointmentData là NULL hoặc UNDEFINED - Sự kiện KHÔNG được phát!', {
             appointmentData,
             reservationId,
             tempPaymentKey,
@@ -690,28 +690,28 @@ class PaymentService {
         
         return payment;
       } else {
-        console.error('❌ Payment failed from gateway');
+        console.error('❌ Thanh toán thất bại từ gateway');
         await redisClient.del(tempPaymentKey);
-        throw new Error('Payment failed from gateway');
+        throw new Error('Thanh toán thất bại từ gateway');
       }
     } catch (error) {
-      console.error('❌ [Process Callback] Error:', error);
+      console.error('❌ [Process Callback] Lỗi:', error);
       throw new Error(`Lỗi xử lý callback: ${error.message}`);
     }
   }
 
   async processRefundThroughGateway(refundPayment, originalPayment) {
-    // Implementation depends on gateway APIs
-    // For now, mark as completed (would need actual gateway integration)
+    // Triển khai phụ thuộc vào API của gateway
+    // Hiện tại, đánh dấu là hoàn tất (cần tích hợp gateway thực tế)
     return await this.completeRefund(refundPayment._id);
   }
 
-  // ============ STATISTICS METHODS ============
+  // ============ CÁC PHƯƠNG THỨC THỐNG KÊ ============
   async getPaymentStatistics(startDate, endDate, groupBy = 'day') {
     try {
       const cacheKey = `${this.cachePrefix}stats:${groupBy}:${startDate.toISOString()}:${endDate.toISOString()}`;
       
-      // Check cache first
+      // Kiểm tra cache trước
       const cached = await redisClient.get(cacheKey);
       if (cached) {
         return JSON.parse(cached);
@@ -719,7 +719,7 @@ class PaymentService {
 
       const stats = await paymentRepository.getStatistics(startDate, endDate, groupBy);
       
-      // Cache for 1 hour
+      // Cache trong 1 giờ
       await redisClient.setEx(cacheKey, 3600, JSON.stringify(stats));
       
       return stats;
@@ -732,7 +732,7 @@ class PaymentService {
     try {
       const cacheKey = `${this.cachePrefix}revenue:${startDate.toISOString()}:${endDate.toISOString()}`;
       
-      // Check cache first
+      // Kiểm tra cache trước
       const cached = await redisClient.get(cacheKey);
       if (cached) {
         return JSON.parse(cached);
@@ -740,7 +740,7 @@ class PaymentService {
 
       const stats = await paymentRepository.getRevenueStats(startDate, endDate);
       
-      // Cache for 30 minutes
+      // Cache trong 30 phút
       await redisClient.setEx(cacheKey, 1800, JSON.stringify(stats));
       
       return stats;
@@ -758,10 +758,10 @@ class PaymentService {
     }
   }
 
-  // ============ RPC METHODS ============
+  // ============ CÁC PHƯƠNG THỨC RPC ============
   async createTemporaryPayment(payload) {
     const { appointmentHoldKey, amount } = payload;
-    if (!appointmentHoldKey) throw new Error('appointmentHoldKey is required');
+    if (!appointmentHoldKey) throw new Error('appointmentHoldKey là bắt buộc');
 
     const tempPaymentId = `payment:temp:${appointmentHoldKey}`;
 
@@ -789,28 +789,28 @@ class PaymentService {
     };
 
     // Lưu tạm vào Redis với TTL 3 phút
-    await redisClient.setEx(tempPaymentId, 180, JSON.stringify(data)); // 3 minutes
+    await redisClient.setEx(tempPaymentId, 180, JSON.stringify(data)); // 3 phút
 
-    // Return frontend payment selection URL
+    // Trả về URL chọn phương thức thanh toán frontend
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     data.paymentUrl = `${frontendUrl}/patient/payment/select?reservationId=${appointmentHoldKey}&orderId=${orderId}`;
 
-    console.log('✅ Temporary payment created:', { orderId, tempPaymentId, amount: data.amount });
+    console.log('✅ Đã tạo thanh toán tạm:', { orderId, tempPaymentId, amount: data.amount });
     return data;
   }
 
   /**
-   * Create VNPay payment URL for appointment
-   * Called from frontend when user selects VNPay on payment selection page
+   * Tạo URL thanh toán VNPay cho lịch hẹn
+   * Gọi từ frontend khi người dùng chọn VNPay trên trang chọn phương thức thanh toán
    */
   async createVNPayPaymentUrl(orderId, amount, orderInfo, ipAddr, bankCode = '', locale = 'vn', userRole = 'patient') {
     try {
       console.log('='.repeat(60));
-      console.log('🔍 [Create VNPay URL] ROLE STORAGE DEBUG');
+      console.log('🔍 [Tạo VNPay URL] DEBUG LƯU TRỮ ROLE');
       console.log('='.repeat(60));
       console.log('📋 Order ID:', orderId);
-      console.log('👤 User Role (received):', userRole);
-      console.log('📊 Role Type:', typeof userRole);
+      console.log('👤 User Role (nhận được):', userRole);
+      console.log('📊 Kiểu Role:', typeof userRole);
       
       const paymentUrl = createVNPayPayment(
         orderId,
@@ -821,81 +821,81 @@ class PaymentService {
         locale
       );
       
-      // Store user role in Redis for later use in return URL redirect
-      // TTL: 30 minutes (enough time for payment process)
+      // Lưu user role vào Redis để sử dụng sau trong redirect return URL
+      // TTL: 30 phút (đủ thời gian cho quá trình thanh toán)
       const roleKey = `payment:role:${orderId}`;
       const roleToStore = userRole || 'patient';
       
       console.log('🔑 Redis Key:', roleKey);
-      console.log('💾 Storing Role:', roleToStore);
+      console.log('💾 Đang lưu Role:', roleToStore);
       
       await redisClient.setEx(roleKey, 1800, roleToStore);
       
-      console.log('✅ Role stored in Redis successfully');
+      console.log('✅ Đã lưu role vào Redis thành công');
       
-      // Verify storage
+      // Xác minh lưu trữ
       const verifyRole = await redisClient.get(roleKey);
-      console.log('✔️  Verification - Role retrieved:', verifyRole);
+      console.log('✔️  Xác minh - Role lấy được:', verifyRole);
       
-      // Store VNPay URL in temp payment for later persistence
+      // Lưu VNPay URL vào thanh toán tạm để lưu trữ sau
       const tempPaymentKey = `payment:temp:${orderId}`;
       const tempPaymentData = await redisClient.get(tempPaymentKey);
       if (tempPaymentData) {
         const tempPayment = JSON.parse(tempPaymentData);
         tempPayment.vnpayUrl = paymentUrl;
         tempPayment.vnpayCreatedAt = new Date().toISOString();
-        await redisClient.setEx(tempPaymentKey, 180, JSON.stringify(tempPayment)); // 3 minutes
-        console.log('💾 VNPay URL saved to temp payment:', tempPaymentKey);
+        await redisClient.setEx(tempPaymentKey, 180, JSON.stringify(tempPayment)); // 3 phút
+        console.log('💾 Đã lưu VNPay URL vào thanh toán tạm:', tempPaymentKey);
       } else {
-        console.warn('⚠️  Temp payment not found, VNPay URL not saved:', tempPaymentKey);
+        console.warn('⚠️  Không tìm thấy thanh toán tạm, VNPay URL không được lưu:', tempPaymentKey);
       }
       
       console.log('='.repeat(60));
       
-      console.log('✅ VNPay payment URL created:', { orderId, amount, userRole: roleToStore });
+      console.log('✅ Đã tạo URL thanh toán VNPay:', { orderId, amount, userRole: roleToStore });
       return { paymentUrl, orderId };
     } catch (err) {
-      console.error('❌ Failed to create VNPay payment URL:', err);
-      throw new Error('Cannot create VNPay payment link');
+      console.error('❌ Tạo URL thanh toán VNPay thất bại:', err);
+      throw new Error('Không thể tạo liên kết thanh toán VNPay');
     }
   }
 
   /**
-   * Create VNPay URL for existing payment (from record)
-   * Used when staff wants to create VNPay payment for a cash payment
+   * Tạo URL VNPay cho thanh toán đã tồn tại (từ record)
+   * Sử dụng khi nhân viên muốn tạo thanh toán VNPay cho thanh toán tiền mặt
    */
   async createVNPayUrlForExistingPayment(paymentId, ipAddr, userRole = 'patient') {
     try {
-      console.log('🔍 [Create VNPay URL for Existing Payment]:', { paymentId });
+      console.log('🔍 [Tạo VNPay URL cho Thanh Toán Đã Tồn Tại]:', { paymentId });
       
-      // Get payment from database
+      // Lấy thanh toán từ database
       const payment = await paymentRepository.findById(paymentId);
       if (!payment) {
-        throw new Error('Payment not found');
+        throw new Error('Không tìm thấy thanh toán');
       }
       
-      // Validate payment status
+      // Kiểm tra trạng thái thanh toán
       if (payment.status === 'completed') {
-        throw new Error('Payment already completed');
+        throw new Error('Thanh toán đã hoàn tất');
       }
       
       if (payment.status === 'cancelled') {
-        throw new Error('Cannot create VNPay URL for cancelled payment');
+        throw new Error('Không thể tạo URL VNPay cho thanh toán đã hủy');
       }
       
-      // Create unique orderId for VNPay
+      // Tạo orderId duy nhất cho VNPay
       const orderId = `PAY${Date.now()}${payment._id.toString().slice(-6)}`;
       const amount = payment.finalAmount;
       const orderInfo = `Thanh toán ${payment.paymentCode}`;
       
-      console.log('📝 [Create VNPay URL] Payment details:', {
+      console.log('📝 [Tạo VNPay URL] Chi tiết thanh toán:', {
         paymentCode: payment.paymentCode,
         orderId,
         amount,
         status: payment.status
       });
       
-      // Create VNPay payment URL
+      // Tạo URL thanh toán VNPay
       const paymentUrl = createVNPayPayment(
         orderId,
         amount,
@@ -905,26 +905,26 @@ class PaymentService {
         'vn' // locale
       );
       
-      // Store mapping between orderId and paymentId in Redis
+      // Lưu mapping giữa orderId và paymentId trong Redis
       const mappingKey = `payment:vnpay:${orderId}`;
-      await redisClient.setEx(mappingKey, 1800, paymentId.toString()); // 30 min TTL
+      await redisClient.setEx(mappingKey, 1800, paymentId.toString()); // TTL 30 phút
       
-      // Store user role for redirect
+      // Lưu user role để redirect
       const roleKey = `payment:role:${orderId}`;
       await redisClient.setEx(roleKey, 1800, userRole);
       
-      // Update payment with VNPay URL and orderId
+      // Cập nhật thanh toán với VNPay URL và orderId
       payment.gatewayResponse = payment.gatewayResponse || {};
       payment.gatewayResponse.additionalData = payment.gatewayResponse.additionalData || {};
       payment.gatewayResponse.additionalData.vnpayUrl = paymentUrl;
       payment.gatewayResponse.additionalData.vnpayOrderId = orderId;
       payment.gatewayResponse.additionalData.vnpayCreatedAt = new Date();
-      payment.method = 'vnpay'; // Update method to VNPay
-      payment.status = 'processing'; // Update status
+      payment.method = 'vnpay'; // Cập nhật phương thức thành VNPay
+      payment.status = 'processing'; // Cập nhật trạng thái
       
       await payment.save();
       
-      console.log('✅ [Create VNPay URL] URL created and saved:', { orderId, paymentId });
+      console.log('✅ [Tạo VNPay URL] Đã tạo và lưu URL:', { orderId, paymentId });
       
       return {
         paymentUrl,
@@ -933,42 +933,42 @@ class PaymentService {
         amount
       };
     } catch (err) {
-      console.error('❌ [Create VNPay URL for Existing Payment] Error:', err);
+      console.error('❌ [Tạo VNPay URL cho Thanh Toán Đã Tồn Tại] Lỗi:', err);
       throw err;
     }
   }
 
   /**
-   * Create Stripe URL for existing payment (from record)
-   * Used when staff wants to create Stripe payment for a cash payment
+   * Tạo URL Stripe cho thanh toán đã tồn tại (từ record)
+   * Sử dụng khi nhân viên muốn tạo thanh toán Stripe cho thanh toán tiền mặt
    */
   async createStripeUrlForExistingPayment(paymentId, userRole = 'patient') {
     try {
-      console.log('🔍 [Create Stripe URL for Existing Payment]:', { paymentId });
+      console.log('🔍 [Tạo Stripe URL cho Thanh Toán Đã Tồn Tại]:', { paymentId });
       
-      // Get payment from database
+      // Lấy thanh toán từ database
       const payment = await paymentRepository.findById(paymentId);
       if (!payment) {
-        throw new Error('Payment not found');
+        throw new Error('Không tìm thấy thanh toán');
       }
       
-      // Validate payment status
+      // Kiểm tra trạng thái thanh toán
       if (payment.status === 'completed') {
-        throw new Error('Payment already completed');
+        throw new Error('Thanh toán đã hoàn tất');
       }
       
       if (payment.status === 'cancelled') {
-        throw new Error('Cannot create Stripe URL for cancelled payment');
+        throw new Error('Không thể tạo URL Stripe cho thanh toán đã hủy');
       }
       
-      // Create unique orderId for Stripe
+      // Tạo orderId duy nhất cho Stripe
       const orderId = `PAY${Date.now()}${payment._id.toString().slice(-6)}`;
       
-      // Get amount - fetch from record if payment.finalAmount is 0 (dashboard payment)
+      // Lấy số tiền - nếu payment.finalAmount là 0 (thanh toán dashboard), lấy từ record
       let amount = payment.finalAmount;
       
       if (amount === 0 && payment.recordId) {
-        console.log('⚠️ [Create Stripe URL] Amount is 0, fetching from record:', payment.recordId);
+        console.log('⚠️ [Tạo Stripe URL] Số tiền là 0, đang lấy từ record:', payment.recordId);
         
         try {
           const recordServiceUrl = process.env.RECORD_SERVICE_URL || 'http://localhost:3010';
@@ -977,14 +977,14 @@ class PaymentService {
           );
           
           const recordData = recordResponse.data?.data || recordResponse.data;
-          console.log('📋 [Create Stripe URL] Record data:', {
+          console.log('📋 [Tạo Stripe URL] Dữ liệu record:', {
             recordId: payment.recordId,
             serviceAmount: recordData.serviceAmount,
             serviceAddOnPrice: recordData.serviceAddOnPrice,
             depositPaid: recordData.depositPaid
           });
           
-          // 🔥 FIX: Use serviceAddOnPrice (actual variant price) instead of servicePrice (base price)
+          // 🔥 SỬA: Sử dụng serviceAddOnPrice (giá variant thực tế) thay vì servicePrice (giá gốc)
           const serviceAmount = recordData.serviceAddOnPrice || recordData.serviceAmount || 0;
           const depositAmount = recordData.depositPaid || 0;
           amount = Math.max(0, serviceAmount - depositAmount);
@@ -993,21 +993,21 @@ class PaymentService {
             throw new Error('Không thể tính toán số tiền thanh toán. Vui lòng kiểm tra lại thông tin dịch vụ.');
           }
           
-          // Update payment with calculated amounts
+          // Cập nhật thanh toán với số tiền đã tính
           payment.originalAmount = serviceAmount;
-          payment.depositAmount = depositAmount;  // ✅ FIXED: Correct field!
-          payment.discountAmount = 0;  // ✅ FIXED: No real discount
+          payment.depositAmount = depositAmount;  // ✅ ĐÃ SỬA: Trường đúng!
+          payment.discountAmount = 0;  // ✅ ĐÃ SỬA: Không có giảm giá thực tế
           payment.taxAmount = 0;
           payment.finalAmount = amount;
           await payment.save();
           
-          console.log('✅ [Create Stripe URL] Amount calculated from record:', { 
+          console.log('✅ [Tạo Stripe URL] Số tiền tính từ record:', { 
             serviceAmount, 
             depositAmount, 
             finalAmount: amount 
           });
         } catch (error) {
-          console.error('❌ [Create Stripe URL] Failed to fetch amount from record:', error.message);
+          console.error('❌ [Tạo Stripe URL] Lấy số tiền từ record thất bại:', error.message);
           throw new Error('Không thể lấy thông tin số tiền từ hồ sơ. Vui lòng thử lại.');
         }
       }
@@ -1018,17 +1018,17 @@ class PaymentService {
       
       const orderInfo = `Thanh toan ${payment.paymentCode}`;
       
-      console.log('📝 [Create Stripe URL] Payment details:', {
+      console.log('📝 [Tạo Stripe URL] Chi tiết thanh toán:', {
         paymentCode: payment.paymentCode,
         orderId,
         amount,
         status: payment.status
       });
       
-      // Get patient email from payment
+      // Lấy email bệnh nhân từ thanh toán
       const customerEmail = payment.patientInfo?.email || '';
       
-      // Create Stripe payment link
+      // Tạo liên kết thanh toán Stripe
       const result = await stripeService.createPaymentLink(
         orderId,
         amount,
@@ -1042,23 +1042,23 @@ class PaymentService {
         userRole
       );
       
-      // Store mapping between orderId and paymentId in Redis
+      // Lưu mapping giữa orderId và paymentId trong Redis
       const mappingKey = `payment:stripe:${orderId}`;
-      await redisClient.setEx(mappingKey, 1800, paymentId.toString()); // 30 min TTL
+      await redisClient.setEx(mappingKey, 1800, paymentId.toString()); // TTL 30 phút
       
-      // Update payment with Stripe URL and orderId
+      // Cập nhật thanh toán với Stripe URL và orderId
       payment.gatewayResponse = payment.gatewayResponse || {};
       payment.gatewayResponse.additionalData = payment.gatewayResponse.additionalData || {};
       payment.gatewayResponse.additionalData.stripeUrl = result.paymentUrl;
       payment.gatewayResponse.additionalData.stripeOrderId = orderId;
       payment.gatewayResponse.additionalData.stripeSessionId = result.sessionId;
       payment.gatewayResponse.additionalData.stripeCreatedAt = new Date();
-      payment.method = 'stripe'; // Update method to Stripe
-      payment.status = 'processing'; // Update status
+      payment.method = 'stripe'; // Cập nhật phương thức thành Stripe
+      payment.status = 'processing'; // Cập nhật trạng thái
       
       await payment.save();
       
-      console.log('✅ [Create Stripe URL] URL created and saved:', { orderId, paymentId, sessionId: result.sessionId });
+      console.log('✅ [Tạo Stripe URL] Đã tạo và lưu URL:', { orderId, paymentId, sessionId: result.sessionId });
       
       return {
         paymentUrl: result.paymentUrl,
@@ -1068,28 +1068,28 @@ class PaymentService {
         amount
       };
     } catch (err) {
-      console.error('❌ [Create Stripe URL for Existing Payment] Error:', err);
+      console.error('❌ [Tạo Stripe URL cho Thanh Toán Đã Tồn Tại] Lỗi:', err);
       throw err;
     }
   }
 
   /**
-   * Update existing payment from VNPay callback
-   * Used when payment was created from record
+   * Cập nhật thanh toán đã tồn tại từ VNPay callback
+   * Sử dụng khi thanh toán được tạo từ record
    */
   async updateExistingPaymentFromVNPay(paymentId, callbackData) {
     try {
       const { orderId, status, transactionId, amount } = callbackData;
       
-      console.log('🔄 [Update Existing Payment] Starting:', { paymentId, orderId, status });
+      console.log('🔄 [Cập Nhật Thanh Toán Đã Tồn Tại] Bắt đầu:', { paymentId, orderId, status });
       
-      // Get payment from database
+      // Lấy thanh toán từ database
       const payment = await paymentRepository.findById(paymentId);
       if (!payment) {
-        throw new Error('Payment not found');
+        throw new Error('Không tìm thấy thanh toán');
       }
       
-      console.log('📝 [Update Existing Payment] Current payment:', {
+      console.log('📝 [Cập Nhật Thanh Toán Đã Tồn Tại] Thanh toán hiện tại:', {
         paymentCode: payment.paymentCode,
         status: payment.status,
         method: payment.method,
@@ -1097,9 +1097,9 @@ class PaymentService {
         recordId: payment.recordId
       });
       
-      // ✅ If finalAmount is 0 and has recordId, fetch from record service
+      // ✅ Nếu finalAmount là 0 và có recordId, lấy từ record service
       if (payment.finalAmount === 0 && payment.recordId) {
-        console.log('⚠️ [Update Existing Payment] finalAmount is 0, fetching from record:', payment.recordId);
+        console.log('⚠️ [Cập Nhật Thanh Toán Đã Tồn Tại] finalAmount là 0, đang lấy từ record:', payment.recordId);
         
         try {
           const recordServiceUrl = process.env.RECORD_SERVICE_URL || 'http://localhost:3010';
@@ -1108,71 +1108,71 @@ class PaymentService {
           );
           
           const recordData = recordResponse.data?.data || recordResponse.data;
-          console.log('📋 [Update Existing Payment] Record data:', {
+          console.log('📋 [Cập Nhật Thanh Toán Đã Tồn Tại] Dữ liệu record:', {
             recordId: payment.recordId,
             serviceAmount: recordData.serviceAmount,
             serviceAddOnPrice: recordData.serviceAddOnPrice,
             depositPaid: recordData.depositPaid
           });
           
-          // 🔥 FIX: Use serviceAddOnPrice (actual variant price) instead of servicePrice (base price)
+          // 🔥 SỬA: Sử dụng serviceAddOnPrice (giá variant thực tế) thay vì servicePrice (giá gốc)
           const serviceAmount = recordData.serviceAddOnPrice || recordData.serviceAmount || 0;
           const depositAmount = recordData.depositPaid || 0;
           const calculatedAmount = Math.max(0, serviceAmount - depositAmount);
           
-          // Update payment amounts
+          // Cập nhật số tiền thanh toán
           payment.originalAmount = serviceAmount;
-          payment.depositAmount = depositAmount;  // ✅ FIXED: Correct field!
-          payment.discountAmount = 0;  // ✅ FIXED: No real discount
+          payment.depositAmount = depositAmount;  // ✅ ĐÃ SỬA: Trường đúng!
+          payment.discountAmount = 0;  // ✅ ĐÃ SỬA: Không có giảm giá thực tế
           payment.taxAmount = 0;
           payment.finalAmount = calculatedAmount;
           
-          console.log('✅ [Update Existing Payment] Amount calculated from record:', { 
+          console.log('✅ [Cập Nhật Thanh Toán Đã Tồn Tại] Số tiền tính từ record:', { 
             serviceAmount, 
             depositAmount, 
             finalAmount: calculatedAmount 
           });
         } catch (error) {
-          console.error('❌ [Update Existing Payment] Failed to fetch amount from record:', error.message);
+          console.error('❌ [Cập Nhật Thanh Toán Đã Tồn Tại] Lấy số tiền từ record thất bại:', error.message);
         }
       }
       
-      // Update payment based on VNPay response
+      // Cập nhật thanh toán dựa trên phản hồi VNPay
       if (status === 'success') {
         payment.status = 'completed';
         payment.externalTransactionId = transactionId;
-        payment.paidAmount = payment.finalAmount;  // ✅ Now this will be correct
+        payment.paidAmount = payment.finalAmount;  // ✅ Bây giờ sẽ đúng
         payment.processedAt = new Date();
         payment.completedAt = new Date();
         
-        // Update gateway response
+        // Cập nhật phản hồi gateway
         payment.gatewayResponse = payment.gatewayResponse || {};
         payment.gatewayResponse.responseCode = '00';
-        payment.gatewayResponse.responseMessage = 'Success';
+        payment.gatewayResponse.responseMessage = 'Thành công';
         payment.gatewayResponse.transactionId = transactionId;
         payment.gatewayResponse.completedAt = new Date();
         
-        console.log('✅ [Update Existing Payment] Payment completed successfully');
+        console.log('✅ [Cập Nhật Thanh Toán Đã Tồn Tại] Thanh toán hoàn tất thành công');
       } else {
         payment.status = 'failed';
         payment.gatewayResponse = payment.gatewayResponse || {};
         payment.gatewayResponse.responseCode = 'FAILED';
-        payment.gatewayResponse.responseMessage = 'Payment failed';
+        payment.gatewayResponse.responseMessage = 'Thanh toán thất bại';
         payment.gatewayResponse.failedAt = new Date();
         
-        console.log('❌ [Update Existing Payment] Payment failed');
+        console.log('❌ [Cập Nhật Thanh Toán Đã Tồn Tại] Thanh toán thất bại');
       }
       
       await payment.save();
       
-      // Clean up Redis mapping
+      // Dọn dẹp Redis mapping
       const mappingKey = `payment:vnpay:${orderId}`;
       await redisClient.del(mappingKey);
       
-      // If payment completed and has recordId, trigger invoice creation
+      // Nếu thanh toán hoàn tất và có recordId, kích hoạt tạo hóa đơn
       if (status === 'success' && payment.recordId) {
         try {
-          console.log('📄 [Update Existing Payment] Triggering invoice creation for record:', payment.recordId);
+          console.log('📄 [Cập Nhật Thanh Toán Đã Tồn Tại] Kích hoạt tạo hóa đơn cho record:', payment.recordId);
           
           const eventData = {
             paymentId: payment._id.toString(),
@@ -1183,46 +1183,46 @@ class PaymentService {
             patientInfo: payment.patientInfo,
             method: payment.method,
             originalAmount: payment.originalAmount,
-            depositAmount: payment.depositAmount || 0,  // ✅ Add deposit amount
-            discountAmount: payment.discountAmount || 0, // ✅ Real discount (not deposit)
-            taxAmount: payment.taxAmount || 0,  // ✅ Add tax amount
+            depositAmount: payment.depositAmount || 0,  // ✅ Thêm số tiền cọc
+            discountAmount: payment.discountAmount || 0, // ✅ Giảm giá thực tế (không phải cọc)
+            taxAmount: payment.taxAmount || 0,  // ✅ Thêm thuế
             finalAmount: payment.finalAmount,
             paidAmount: payment.paidAmount,
             changeAmount: payment.changeAmount || 0,
             completedAt: payment.completedAt,
             processedBy: payment.processedBy ? payment.processedBy.toString() : null,
-            processedByName: payment.processedByName || 'System'
+            processedByName: payment.processedByName || 'Hệ thống'
           };
           
-          console.log('📤 [Update Existing Payment] Publishing payment.success event:', eventData);
+          console.log('📤 [Cập Nhật Thanh Toán Đã Tồn Tại] Đang phát sự kiện payment.success:', eventData);
           
           await rabbitmqClient.publishToQueue('invoice_queue', {
             event: 'payment.success',
             data: eventData
           });
           
-          console.log('✅ [Update Existing Payment] Invoice creation event sent');
+          console.log('✅ [Cập Nhật Thanh Toán Đã Tồn Tại] Đã gửi sự kiện tạo hóa đơn');
         } catch (err) {
-          console.error('❌ [Update Existing Payment] Failed to send invoice event:', err);
+          console.error('❌ [Cập Nhật Thanh Toán Đã Tồn Tại] Gửi sự kiện hóa đơn thất bại:', err);
         }
       }
       
-      console.log('✅ [Update Existing Payment] Completed:', payment._id);
+      console.log('✅ [Cập Nhật Thanh Toán Đã Tồn Tại] Hoàn tất:', payment._id);
       return payment;
     } catch (err) {
-      console.error('❌ [Update Existing Payment] Error:', err);
+      console.error('❌ [Cập Nhật Thanh Toán Đã Tồn Tại] Lỗi:', err);
       throw err;
     }
   }
 
-  // RPC: confirm payment (từ Redis -> DB + notify Appointment Service)
+  // RPC: xác nhận thanh toán (từ Redis -> DB + thông báo Appointment Service)
   async confirmPaymentRPC(payload) {
-    if (!payload || !payload.id) throw new Error('Payment ID is required');
+    if (!payload || !payload.id) throw new Error('Payment ID là bắt buộc');
 
     // 1️⃣ Nếu temp payment
     if (payload.id.startsWith('payment:temp:')) {
       const raw = await redisClient.get(payload.id);
-      if (!raw) throw new Error('Temporary payment not found or expired');
+      if (!raw) throw new Error('Không tìm thấy hoặc thanh toán tạm đã hết hạn');
       const tempData = JSON.parse(raw);
 
       const savedPayment = await this.createPayment({
@@ -1232,14 +1232,14 @@ class PaymentService {
 
       await redisClient.del(payload.id);
 
-      // Xử lý appointment
+      // Xử lý lịch hẹn
       if (tempData.appointmentHoldKey) {
         const appointmentRaw = await redisClient.get(tempData.appointmentHoldKey);
         if (appointmentRaw) {
           const appointmentData = JSON.parse(appointmentRaw);
           appointmentData.status = 'confirmed';
           await redisClient.setEx(tempData.appointmentHoldKey, 600, JSON.stringify(appointmentData));
-          console.log(`✅ Temporary appointment updated to confirmed in Redis for holdKey ${tempData.appointmentHoldKey}`);
+          console.log(`✅ Lịch hẹn tạm đã cập nhật thành confirmed trong Redis cho holdKey ${tempData.appointmentHoldKey}`);
         }
 
         try {
@@ -1250,39 +1250,39 @@ class PaymentService {
               paymentId: String(savedPayment._id)
             }
           });
-          console.log(`✅ Appointment creation triggered for holdKey ${tempData.appointmentHoldKey}`);
+          console.log(`✅ Đã kích hoạt tạo lịch hẹn cho holdKey ${tempData.appointmentHoldKey}`);
         } catch (err) {
-          console.error('❌ Failed to notify Appointment Service:', err.message);
+          console.error('❌ Thông báo Appointment Service thất bại:', err.message);
         }
       }
 
       return savedPayment;
     }
 
-    // 2️⃣ Nếu payload.id là ObjectId hợp lệ, confirm MongoDB Payment
+    // 2️⃣ Nếu payload.id là ObjectId hợp lệ, xác nhận MongoDB Payment
     if (payload.id.match(/^[0-9a-fA-F]{24}$/)) {
       return this.confirmPayment(payload.id);
     }
 
     // 3️⃣ Nếu không phải temp payment và không phải ObjectId → lỗi hợp lệ
-    throw new Error('Invalid Payment ID format');
+    throw new Error('Định dạng Payment ID không hợp lệ');
   }
 
   async getPaymentByIdRPC(payload) {
-    console.log('🔍 [getPaymentByIdRPC] Called with payload:', payload);
-    if (!payload.id) throw new Error('Payment ID is required');
+    console.log('🔍 [getPaymentByIdRPC] Được gọi với payload:', payload);
+    if (!payload.id) throw new Error('Payment ID là bắt buộc');
     
     if (payload.id.startsWith('payment:temp:')) {
-      console.log('📦 [getPaymentByIdRPC] Fetching temp payment from Redis:', payload.id);
+      console.log('📦 [getPaymentByIdRPC] Lấy thanh toán tạm từ Redis:', payload.id);
       const raw = await redisClient.get(payload.id);
       const result = raw ? JSON.parse(raw) : null;
-      console.log('✅ [getPaymentByIdRPC] Temp payment result:', result ? 'Found' : 'Not found');
+      console.log('✅ [getPaymentByIdRPC] Kết quả thanh toán tạm:', result ? 'Tìm thấy' : 'Không tìm thấy');
       return result;
     }
     
-    console.log('📊 [getPaymentByIdRPC] Fetching payment from DB:', payload.id);
+    console.log('📊 [getPaymentByIdRPC] Lấy thanh toán từ DB:', payload.id);
     const result = await this.getPaymentById(payload.id);
-    console.log('✅ [getPaymentByIdRPC] DB payment result:', result ? 'Found' : 'Not found');
+    console.log('✅ [getPaymentByIdRPC] Kết quả thanh toán DB:', result ? 'Tìm thấy' : 'Không tìm thấy');
     return result;
   }
 
@@ -1304,9 +1304,9 @@ class PaymentService {
       throw new Error('paymentId và appointmentCode là bắt buộc');
     }
 
-    // 🔹 Lấy payment trước khi update
+    // 🔹 Lấy payment trước khi cập nhật
     const paymentBefore = await paymentRepository.findById(paymentId);
-    console.log('🔹 Payment trước khi update:', paymentBefore);
+    console.log('🔹 Payment trước khi cập nhật:', paymentBefore);
 
     if (!paymentBefore) {
       throw new Error(`Không tìm thấy payment với id: ${paymentId}`);
@@ -1316,12 +1316,12 @@ class PaymentService {
     const paymentAfter = await paymentRepository.update(paymentId, {
       appointmentCode: String(appointmentCode)
     });
-    console.log('🔹 Payment sau khi update:', paymentAfter);
+    console.log('🔹 Payment sau khi cập nhật:', paymentAfter);
 
     return paymentAfter;
   }
 
-  // ============ HELPER METHODS ============
+  // ============ CÁC PHƯƠNG THỨC HỖ TRỢ ============
   validatePaymentData(paymentData) {
     if (!paymentData.amount || paymentData.amount <= 0) {
       throw new Error('Số tiền thanh toán phải lớn hơn 0');
@@ -1361,7 +1361,7 @@ class PaymentService {
   }
 
   async handlePaymentCompleted(payment) {
-    // Notify other services about payment completion
+    // Thông báo các service khác về việc thanh toán hoàn tất
     try {
       if (payment.appointmentId) {
         await rpcClient.request('appointment_queue', {
@@ -1377,18 +1377,18 @@ class PaymentService {
         });
       }
     } catch (error) {
-      console.error('Error notifying services about payment completion:', error);
+      console.error('Lỗi thông báo các service về việc thanh toán hoàn tất:', error);
     }
   }
 
   async handlePaymentFailed(payment) {
-    // Handle failed payment logic
-    console.log(`Payment ${payment._id} failed`);
+    // Xử lý logic khi thanh toán thất bại
+    console.log(`Thanh toán ${payment._id} thất bại`);
   }
 
   async handlePaymentCancelled(payment) {
-    // Handle cancelled payment logic
-    console.log(`Payment ${payment._id} cancelled`);
+    // Xử lý logic khi thanh toán bị hủy
+    console.log(`Thanh toán ${payment._id} đã hủy`);
   }
 
   async clearPaymentCache(id) {
@@ -1399,11 +1399,11 @@ class PaymentService {
     await redisClient.del(`${this.cachePrefix}patient:${patientId}`);
   }
 
-  // ============ VISA PAYMENT PROCESSING ============
+  // ============ Xử LÝ THANH TOÁN VISA ============
   /**
-   * Process Visa card payment through sandbox gateway
-   * @param {Object} paymentData - Payment data including card info and reservation
-   * @returns {Object} Payment result with transaction details
+   * Xử lý thanh toán thẻ Visa qua cổng sandbox
+   * @param {Object} paymentData - Dữ liệu thanh toán bao gồm thông tin thẻ và reservation
+   * @returns {Object} Kết quả thanh toán với chi tiết giao dịch
    */
   async processVisaPayment(paymentData) {
     try {
@@ -1419,12 +1419,12 @@ class PaymentService {
         patientInfo
       } = paymentData;
 
-      // Validate required fields
+      // Kiểm tra các trường bắt buộc
       if (!reservationId || !cardNumber || !cardHolder || !expiryMonth || !expiryYear || !cvv) {
         throw new BadRequestError('Thiếu thông tin thanh toán');
       }
 
-      // Get reservation from Redis
+      // Lấy reservation từ Redis
       const reservationKey = `temp_reservation:${reservationId}`;
       const reservationData = await redisClient.get(reservationKey);
       
@@ -1434,13 +1434,13 @@ class PaymentService {
 
       const reservation = JSON.parse(reservationData);
 
-      // Validate amount matches reservation
+      // Kiểm tra số tiền khớp với reservation
       if (amount && Math.abs(amount - reservation.totalAmount) > 0.01) {
         throw new BadRequestError('Số tiền thanh toán không khớp với đặt khám');
       }
 
-      // Process payment through Visa gateway
-      console.log('Processing Visa payment:', {
+      // Xử lý thanh toán qua cổng Visa
+      console.log('Đang xử lý thanh toán Visa:', {
         reservationId,
         amount: reservation.totalAmount,
         cardLast4: cardNumber.slice(-4)
@@ -1463,12 +1463,12 @@ class PaymentService {
         }
       });
 
-      // Check payment result
+      // Kiểm tra kết quả thanh toán
       if (!paymentResult.success) {
-        // Payment failed - publish event
+        // Thanh toán thất bại - phát sự kiện
         await rabbitmqClient.publishToQueue('payment.failed', {
           reservationId,
-          reason: paymentResult.message || 'Payment declined by gateway',
+          reason: paymentResult.message || 'Thanh toán bị từ chối bởi gateway',
           errorCode: paymentResult.errorCode,
           timestamp: new Date().toISOString()
         });
@@ -1478,7 +1478,7 @@ class PaymentService {
         );
       }
 
-      // Payment successful - create payment record
+      // Thanh toán thành công - tạo bản ghi thanh toán
       const paymentCode = await this.generatePaymentCode();
       
       const payment = await Payment.create({
@@ -1525,13 +1525,13 @@ class PaymentService {
         verifiedAt: new Date()
       });
 
-      console.log('Payment record created:', payment._id);
+      console.log('Đã tạo bản ghi thanh toán:', payment._id);
 
-      // Store payment in Redis temporarily (for tracking)
+      // Lưu thanh toán vào Redis tạm thời (để theo dõi)
       const paymentRedisKey = `temp_payment:${reservationId}`;
       await redisClient.setEx(
         paymentRedisKey,
-        900, // 15 minutes TTL
+        900, // TTL 15 phút
         JSON.stringify({
           paymentId: payment._id,
           transactionId: paymentResult.transactionId,
@@ -1540,7 +1540,7 @@ class PaymentService {
         })
       );
 
-      // Publish payment.completed event to RabbitMQ
+      // Phát sự kiện payment.completed đến RabbitMQ
       await rabbitmqClient.publishToQueue('payment.completed', {
         reservationId,
         paymentId: payment._id.toString(),
@@ -1561,9 +1561,9 @@ class PaymentService {
         timestamp: new Date().toISOString()
       });
 
-      console.log('payment.completed event published for reservation:', reservationId);
+      console.log('Đã phát sự kiện payment.completed cho reservation:', reservationId);
 
-      // Return success response
+      // Trả về phản hồi thành công
       return {
         success: true,
         payment: {
@@ -1587,9 +1587,9 @@ class PaymentService {
       };
 
     } catch (error) {
-      console.error('Error processing Visa payment:', error);
+      console.error('Lỗi xử lý thanh toán Visa:', error);
       
-      // If it's not a BadRequestError, wrap it
+      // Nếu không phải BadRequestError, bao bọc lại
       if (error instanceof BadRequestError) {
         throw error;
       }
@@ -1599,8 +1599,8 @@ class PaymentService {
   }
 
   /**
-   * Confirm cash payment
-   * Used when staff confirms cash payment after treatment completion
+   * Xác nhận thanh toán tiền mặt
+   * Sử dụng khi nhân viên xác nhận thanh toán tiền mặt sau khi hoàn tất điều trị
    */
   async confirmCashPayment(paymentId, confirmData, processedBy) {
     try {
@@ -1617,12 +1617,12 @@ class PaymentService {
         throw new BadRequestError('Chỉ áp dụng cho thanh toán tiền mặt');
       }
 
-      // Update payment
+      // Cập nhật thanh toán
       payment.status = PaymentStatus.COMPLETED;
       payment.paidAmount = confirmData.paidAmount || payment.finalAmount;
       payment.changeAmount = Math.max(0, payment.paidAmount - payment.finalAmount);
       payment.processedBy = processedBy._id || processedBy;
-      payment.processedByName = processedBy.fullName || processedBy.name || 'Staff';
+      payment.processedByName = processedBy.fullName || processedBy.name || 'Nhân viên';
       payment.completedAt = new Date();
       payment.notes = payment.notes 
         ? `${payment.notes}\n${confirmData.notes || ''}` 
@@ -1630,8 +1630,8 @@ class PaymentService {
 
       await payment.save();
 
-      console.log(`✅ Cash payment confirmed: ${payment.paymentCode}`);
-      console.log('💰 [confirmCashPayment] Payment details before publishing event:', {
+      console.log(`✅ Đã xác nhận thanh toán tiền mặt: ${payment.paymentCode}`);
+      console.log('💰 [confirmCashPayment] Chi tiết thanh toán trước khi phát sự kiện:', {
         paymentId: payment._id.toString(),
         paymentCode: payment.paymentCode,
         originalAmount: payment.originalAmount,
@@ -1642,7 +1642,7 @@ class PaymentService {
         paidAmount: payment.paidAmount
       });
 
-      // Publish payment.success event to invoice-service (non-blocking)
+      // Phát sự kiện payment.success đến invoice-service (không chặn)
       setImmediate(async () => {
         try {
           const eventData = {
@@ -1654,9 +1654,9 @@ class PaymentService {
             patientInfo: payment.patientInfo,
             method: payment.method,
             originalAmount: payment.originalAmount,
-            depositAmount: payment.depositAmount || 0,  // ✅ Add deposit amount
-            discountAmount: payment.discountAmount || 0, // ✅ Keep discount amount (real discount)
-            taxAmount: payment.taxAmount || 0,  // ✅ Add tax amount
+            depositAmount: payment.depositAmount || 0,  // ✅ Thêm số tiền cọc
+            discountAmount: payment.discountAmount || 0, // ✅ Giữ số tiền giảm (giảm thực tế)
+            taxAmount: payment.taxAmount || 0,  // ✅ Thêm thuế
             finalAmount: payment.finalAmount,
             paidAmount: payment.paidAmount,
             changeAmount: payment.changeAmount,
@@ -1665,22 +1665,22 @@ class PaymentService {
             processedByName: payment.processedByName
           };
           
-          console.log('📤 [confirmCashPayment] Publishing payment.success event:', eventData);
+          console.log('📤 [confirmCashPayment] Đang phát sự kiện payment.success:', eventData);
           
           await rabbitmqClient.publishToQueue('invoice_queue', {
             event: 'payment.success',
             data: eventData
           });
-          console.log(`✅ Published payment.success for ${payment.paymentCode}`);
+          console.log(`✅ Đã phát payment.success cho ${payment.paymentCode}`);
         } catch (publishError) {
-          console.error('❌ Failed to publish payment.success:', publishError.message);
-          // Don't fail - payment is already confirmed
+          console.error('❌ Phát payment.success thất bại:', publishError.message);
+          // Không thất bại - thanh toán đã được xác nhận
         }
       });
 
       return payment;
     } catch (error) {
-      console.error('❌ Error confirming cash payment:', error);
+      console.error('❌ Lỗi xác nhận thanh toán tiền mặt:', error);
       throw error;
     }
   }

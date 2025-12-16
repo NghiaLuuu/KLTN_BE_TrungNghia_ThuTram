@@ -3,8 +3,8 @@ const { Server } = require('socket.io');
 let io;
 
 /**
- * Initialize Socket.IO server
- * @param {Object} server - HTTP server instance
+ * Khởi tạo máy chủ Socket.IO
+ * @param {Object} server - Instance HTTP server
  */
 function initializeSocket(server) {
   io = new Server(server, {
@@ -19,7 +19,7 @@ function initializeSocket(server) {
   io.on('connection', (socket) => {
     console.log('✅ Client connected:', socket.id);
 
-    // Join room for queue updates
+    // Tham gia phòng để cập nhật hàng đợi
     socket.on('join:room', (data) => {
       const { roomId, date } = data;
       const roomKey = `room:${roomId}:${date}`;
@@ -27,7 +27,7 @@ function initializeSocket(server) {
       console.log(`🚪 Socket ${socket.id} joined ${roomKey}`);
     });
 
-    // Leave room
+    // Rời phòng
     socket.on('leave:room', (data) => {
       const { roomId, date } = data;
       const roomKey = `room:${roomId}:${date}`;
@@ -45,7 +45,7 @@ function initializeSocket(server) {
 }
 
 /**
- * Get Socket.IO instance
+ * Lấy instance Socket.IO
  */
 function getIO() {
   if (!io) {
@@ -55,11 +55,11 @@ function getIO() {
 }
 
 /**
- * Emit record update to specific room
- * @param {String} roomId - Room ID
- * @param {String} date - Date (YYYY-MM-DD)
- * @param {String} event - Event name
- * @param {Object} data - Event data
+ * Phát cập nhật hồ sơ đến phòng cụ thể
+ * @param {String} roomId - ID phòng
+ * @param {String} date - Ngày (YYYY-MM-DD)
+ * @param {String} event - Tên sự kiện
+ * @param {Object} data - Dữ liệu sự kiện
  */
 function emitToRoom(roomId, date, event, data) {
   if (!io) {
@@ -79,7 +79,7 @@ function emitToRoom(roomId, date, event, data) {
 }
 
 /**
- * Emit record status change
+ * Phát thay đổi trạng thái hồ sơ
  */
 function emitRecordStatusChange(record) {
   if (!record || !record.roomId || !record.date) return;
@@ -95,7 +95,7 @@ function emitRecordStatusChange(record) {
 }
 
 /**
- * Emit queue update
+ * Phát cập nhật hàng đợi
  */
 function emitQueueUpdate(roomId, date, message = 'Hàng đợi đã cập nhật') {
   // console.log('🔔 [emitQueueUpdate] Called with:', { roomId, date, message });
@@ -113,7 +113,7 @@ function emitQueueUpdate(roomId, date, message = 'Hàng đợi đã cập nhật
 }
 
 /**
- * Emit record update
+ * Phát cập nhật hồ sơ
  */
 function emitRecordUpdate(record, message) {
   if (!record || !record.roomId || !record.date) return;

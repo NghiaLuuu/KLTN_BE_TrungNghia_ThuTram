@@ -13,10 +13,10 @@ const slotSchema = new mongoose.Schema({
   },
   subRoomId: {
     type: mongoose.Schema.Types.ObjectId,
-    default: null, // null for rooms without subrooms
+    default: null, // null cho phòng không có subroom
     index: true
   },
-  // Deprecated day marker; startTime encodes the day/time in UTC. Keep optional for BC.
+  // Đánh dấu ngày đã lỗi thời; startTime mã hóa ngày/giờ theo UTC. Giữ tùy chọn để tương thích ngược.
   date: {
     type: Date,
     required: false,
@@ -35,9 +35,9 @@ const slotSchema = new mongoose.Schema({
     type: Date,
     required: true
   },
-  // 🔄 Staff assignment - Arrays to support multiple dentists/nurses for rooms without subrooms
-  // For rooms WITH subrooms: assign 1 dentist + 1 nurse (length = 1)
-  // For rooms WITHOUT subrooms: can assign multiple (up to maxDoctor/maxNurse)
+  // 🔄 Phân công nhân viên - Mảng để hỗ trợ nhiều nha sĩ/y tá cho phòng không có phòng con
+  // Phòng CÓ phòng con: phân 1 nha sĩ + 1 y tá (length = 1)
+  // Phòng KHÔNG CÓ phòng con: có thể phân nhiều (tới maxDoctor/maxNurse)
   dentist: {
     type: [mongoose.Schema.Types.ObjectId],
     default: []
@@ -46,7 +46,7 @@ const slotSchema = new mongoose.Schema({
     type: [mongoose.Schema.Types.ObjectId],
     default: []
   },
-  // 🔄 Booking status - Single source of truth
+  // 🔄 Trạng thái đặt chỗ - Nguồn dữ liệu duy nhất
   // 'available': Slot sẵn sàng, chưa ai đặt
   // 'locked': Đang giữ chỗ tạm (reserve nhưng chưa thanh toán, có 15 phút)
   // 'booked': Đã thanh toán xong, appointment đã được tạo
@@ -62,7 +62,7 @@ const slotSchema = new mongoose.Schema({
     default: null,
     index: true
   },
-  // Locked timestamp - for debugging locked slots
+  // Thời gian khóa - để debug các slot bị khóa
   lockedAt: {
     type: Date,
     default: null
@@ -75,7 +75,7 @@ const slotSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
-  // 🆕 Duration in minutes
+  // 🆕 Thời lượng tính bằng phút
   duration: {
     type: Number,
     default: 30
@@ -90,64 +90,64 @@ const slotSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Compound indexes for performance - ⚡ OPTIMIZED for calendar & details queries
-// Room calendar query: roomId + isActive + startTime
+// Index kết hợp cho hiệu suất - ⚡ TỐI ƯU cho truy vấn lịch & chi tiết
+// Truy vấn lịch phòng: roomId + isActive + startTime
 slotSchema.index({ roomId: 1, isActive: 1, startTime: 1 });
-slotSchema.index({ roomId: 1, subRoomId: 1, isActive: 1, startTime: 1 }); // With subRoom
+slotSchema.index({ roomId: 1, subRoomId: 1, isActive: 1, startTime: 1 }); // Với subRoom
 
-// ⚡ NEW: Optimized for calendar with futureOnly filter
+// ⚡ MỚI: Tối ưu cho lịch với bộ lọc chỉ tương lai
 slotSchema.index({ roomId: 1, subRoomId: 1, isActive: 1, startTime: 1 }, { 
   name: 'room_calendar_future' 
 });
 
-slotSchema.index({ roomId: 1, shiftName: 1, isActive: 1, startTime: 1 }); // Room details
+slotSchema.index({ roomId: 1, shiftName: 1, isActive: 1, startTime: 1 }); // Chi tiết phòng
 
-// Staff calendar queries: dentist/nurse + isActive + startTime
+// Truy vấn lịch nhân viên: dentist/nurse + isActive + startTime
 slotSchema.index({ dentist: 1, isActive: 1, startTime: 1 });
 slotSchema.index({ nurse: 1, isActive: 1, startTime: 1 });
 
-// Staff details queries: dentist/nurse + shiftName + isActive + startTime
+// Truy vấn chi tiết nhân viên: dentist/nurse + shiftName + isActive + startTime
 slotSchema.index({ dentist: 1, shiftName: 1, isActive: 1, startTime: 1 });
 slotSchema.index({ nurse: 1, shiftName: 1, isActive: 1, startTime: 1 });
 
-// Appointment lookup
+// Tra cứu cuộc hẹn
 slotSchema.index({ appointmentId: 1 });
 
-// ⚡ Utilization statistics query optimization
-// Order: equality → $in → range → additional fields
+// ⚡ Tối ưu truy vấn thống kê sử dụng
+// Thứ tự: bằng → $in → khoảng → các trường bổ sung
 slotSchema.index({ isActive: 1, roomId: 1, startTime: 1, shiftName: 1 }, {
   name: 'utilization_stats_query_v2'
 });
 
-// General queries - Updated for status field
+// Truy vấn chung - Cập nhật cho trường status
 slotSchema.index({ status: 1, startTime: 1, isActive: 1 });
 slotSchema.index({ roomId: 1, status: 1, startTime: 1 });
 slotSchema.index({ dentist: 1, status: 1, startTime: 1 });
 
-// Virtual to get Vietnam timezone date
+// Virtual để lấy ngày theo múi giờ Việt Nam
 slotSchema.virtual('dateVN').get(function() {
-  // Derive VN date from startTime if available
+  // Lấy ngày VN từ startTime nếu có
   const base = this.startTime || this.date;
   if (!base) return null;
   const vnTime = new Date(base.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
   return vnTime.toISOString().split('T')[0];
 });
 
-// Virtual to get Vietnam timezone start time
+// Virtual để lấy giờ bắt đầu theo múi giờ Việt Nam
 slotSchema.virtual('startTimeVN').get(function() {
   if (!this.startTime) return null;
   const vnTime = new Date(this.startTime.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
   return vnTime.toTimeString().substr(0, 5);
 });
 
-// Virtual to get Vietnam timezone end time
+// Virtual để lấy giờ kết thúc theo múi giờ Việt Nam
 slotSchema.virtual('endTimeVN').get(function() {
   if (!this.endTime) return null;
   const vnTime = new Date(this.endTime.toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
   return vnTime.toTimeString().substr(0, 5);
 });
 
-// Ensure virtuals are included in JSON output
+// Đảm bảo virtuals được bao gồm trong kết quả JSON
 slotSchema.set('toJSON', { virtuals: true });
 slotSchema.set('toObject', { virtuals: true });
 

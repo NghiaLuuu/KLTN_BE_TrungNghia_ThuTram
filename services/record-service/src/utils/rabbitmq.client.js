@@ -12,7 +12,7 @@ async function connectRabbitMQ(url) {
     connection = await amqp.connect(url);
     channel = await connection.createChannel();
     
-    // Handle connection errors
+    // Xử lý lỗi kết nối
     connection.on('error', (err) => {
       console.error('❌ RabbitMQ connection error:', err.message);
     });
@@ -23,7 +23,7 @@ async function connectRabbitMQ(url) {
       connection = null;
     });
     
-    // Handle channel errors - Recreate channel on error
+    // Xử lý lỗi kênh - Tạo lại kênh khi có lỗi
     channel.on('error', async (err) => {
       console.error('❌ RabbitMQ channel error:', err.message);
       console.log('🔄 Recreating channel...');
@@ -37,7 +37,7 @@ async function connectRabbitMQ(url) {
     
     channel.on('close', () => {
       console.warn('⚠️  RabbitMQ channel closed');
-      // Don't set channel = null here, let error handler recreate it
+      // Không đặt channel = null ở đây, để bộ xử lý lỗi tạo lại
     });
     
     console.log('✅ record-service: RabbitMQ connected');
@@ -54,7 +54,7 @@ function getChannel() {
 }
 
 /**
- * Publish message to queue
+ * Phát message đến queue
  */
 async function publishToQueue(queueName, message) {
   try {
@@ -71,17 +71,17 @@ async function publishToQueue(queueName, message) {
 }
 
 /**
- * Consume messages from queue
+ * Tiêu thụ message từ queue
  */
 async function consumeQueue(queueName, handler) {
   try {
     const ch = getChannel();
     
-    // Create queue if it doesn't exist
-    console.log(`📋 [record-service] Ensuring queue exists: ${queueName}`);
+    // Tạo queue nếu chưa tồn tại
+    console.log(`📋 [record-service] Đảm bảo queue tồn tại: ${queueName}`);
     await ch.assertQueue(queueName, { durable: true });
     
-    // Set prefetch to 1 - process one message at a time
+    // Đặt prefetch là 1 - xử lý từng message một
     await ch.prefetch(1);
     
     console.log(`👂 [record-service] Listening to ${queueName}...`);

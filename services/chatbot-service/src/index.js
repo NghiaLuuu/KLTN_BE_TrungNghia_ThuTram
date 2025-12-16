@@ -1,4 +1,4 @@
-﻿// Load environment variables first
+﻿// Tải biến môi trường trước tiên
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -10,7 +10,7 @@ const chatbotRoutes = require('./routes/chatbot.route');
 const app = express();
 const PORT = process.env.PORT || 3013;
 
-// Middleware
+// Middleware CORS
 app.use(cors({
   origin: function(origin, callback) {
     if (!origin) return callback(null, true);
@@ -25,8 +25,8 @@ app.use(cors({
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.warn('🚫 CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
+      console.warn('🚫 CORS chặn origin:', origin);
+      callback(new Error('Không được phép bởi CORS'));
     }
   },
   credentials: true,
@@ -36,25 +36,25 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// MongoDB connection
+// Kết nối MongoDB
 const connectDB = async () => {
   try {
     const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
     if (!MONGODB_URI) {
-      console.warn('⚠️  MongoDB URI not found, running without database');
+      console.warn('⚠️  Không tìm thấy MongoDB URI, chạy không có database');
       return;
     }
     
     await mongoose.connect(MONGODB_URI);
-    console.log('✅ MongoDB connected successfully');
+    console.log('✅ MongoDB đã kết nối thành công');
   } catch (error) {
-    console.error('❌ MongoDB connection error:', error);
+    console.error('❌ Lỗi kết nối MongoDB:', error);
   }
 };
 
 connectDB();
 
-// Health check endpoint
+// Endpoint kiểm tra health
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'OK', 
@@ -64,12 +64,12 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Root endpoint
+// Endpoint gốc
 app.get('/', (req, res) => {
   res.json({
     service: 'SmileCare AI Chatbot Service',
     version: '1.0.0',
-    status: 'Running',
+    status: 'Đang chạy',
     endpoints: {
       chat: 'POST /api/ai/chat',
       history: 'GET /api/ai/history',
@@ -78,15 +78,15 @@ app.get('/', (req, res) => {
   });
 });
 
-// Chatbot routes
+// Routes chatbot
 app.use('/api/ai', chatbotRoutes);
 
-// Error handling middleware
+// Middleware xử lý lỗi
 app.use((err, req, res, next) => {
-  console.error('❌ Server error:', err);
+  console.error('❌ Lỗi server:', err);
   res.status(500).json({
     success: false,
-    message: err.message || 'Internal server error'
+    message: err.message || 'Lỗi server nội bộ'
   });
 });
 

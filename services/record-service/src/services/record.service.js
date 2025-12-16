@@ -25,7 +25,7 @@ class RecordService {
       priority = 'normal'
     } = data;
 
-    // Validate required fields
+    // Kiểm tra các trường bắt buộc
     if (!serviceId) {
       throw new Error("Service ID là bắt buộc");
     }
@@ -34,7 +34,7 @@ class RecordService {
       throw new Error("Type phải là 'exam' hoặc 'treatment'");
     }
 
-    // Determine patient information
+    // Xác định thông tin bệnh nhân
     let finalPatientId = null;
     let finalPatientInfo = null;
 
@@ -52,13 +52,13 @@ class RecordService {
       throw new Error("Cần có patientId hoặc patientInfo");
     }
 
-    // Determine dentist
+    // Xác định nha sĩ
     const finalDentistId = dentistId || preferredDentistId;
     if (!finalDentistId) {
       throw new Error("dentistId không được để trống");
     }
 
-    // Create record data
+    // Tạo dữ liệu hồ sơ
     const recordData = {
       appointmentId: appointmentId || null,
       patientId: finalPatientId,
@@ -67,10 +67,10 @@ class RecordService {
       dentistName: dentistName || 'Unknown Dentist',
       serviceId,
       serviceName: serviceName || 'Unknown Service',
-      serviceAddOnId: data.serviceAddOnId || null, // 🔥 FIX: Include serviceAddOnId
-      serviceAddOnName: data.serviceAddOnName || null, // 🔥 FIX: Include serviceAddOnName
-      serviceAddOnPrice: data.serviceAddOnPrice || 0, // 🔥 FIX: Include serviceAddOnPrice (critical for invoices!)
-      servicePrice: data.servicePrice || 0, // Base price
+      serviceAddOnId: data.serviceAddOnId || null, // 🔥 SỬa: Bao gồm serviceAddOnId
+      serviceAddOnName: data.serviceAddOnName || null, // 🔥 SỬa: Bao gồm serviceAddOnName
+      serviceAddOnPrice: data.serviceAddOnPrice || 0, // 🔥 SỬa: Bao gồm serviceAddOnPrice (quan trọng cho hóa đơn!)
+      servicePrice: data.servicePrice || 0, // Giá gốc
       type,
       notes: notes || "",
       createdBy: createdBy || finalDentistId,
@@ -83,7 +83,7 @@ class RecordService {
 
     const record = await recordRepo.create(recordData);
 
-    // ✅ Mark the main service as used when creating record
+    // ✅ Đánh dấu dịch vụ chính là đã sử dụng khi tạo hồ sơ
     if (serviceId) {
       try {
         await publishToQueue('service_queue', {
@@ -100,7 +100,7 @@ class RecordService {
         console.log(`✅ Published service.mark_as_used for new record ${record.recordCode}`);
       } catch (queueError) {
         console.warn('⚠️ Could not publish service mark_as_used event:', queueError.message);
-        // Don't throw - record already created
+        // Không throw - hồ sơ đã được tạo
       }
     }
 
@@ -110,7 +110,7 @@ class RecordService {
 
   async getRecordById(id) {
     if (!id) {
-      throw new Error('Record ID is required');
+      throw new Error('Record ID là bắt buộc');
     }
 
     const record = await recordRepo.findById(id);
@@ -123,7 +123,7 @@ class RecordService {
 
   async getRecordByCode(recordCode) {
     if (!recordCode) {
-      throw new Error('Record code is required');
+      throw new Error('Mã hồ sơ là bắt buộc');
     }
 
     const record = await recordRepo.findByRecordCode(recordCode);
@@ -141,7 +141,7 @@ class RecordService {
 
   async updateRecord(id, updateData, modifiedBy) {
     if (!id) {
-      throw new Error('Record ID is required');
+      throw new Error('Record ID là bắt buộc');
     }
 
     const existingRecord = await recordRepo.findById(id);
@@ -149,26 +149,26 @@ class RecordService {
       throw new Error('Không tìm thấy hồ sơ');
     }
 
-    // ✅ Collect all services that need to be marked as used
+    // ✅ Thu thập tất cả dịch vụ cần được đánh dấu đã sử dụng
     const servicesToMark = [];
 
-    // 🔹 Check if main service or serviceAddOn changed
+    // 🔹 Kiểm tra nếu dịch vụ chính hoặc serviceAddOn thay đổi
     const oldServiceId = existingRecord.serviceId?.toString();
     const oldServiceAddOnId = existingRecord.serviceAddOnId?.toString();
     const newServiceId = updateData.serviceId?.toString();
     const newServiceAddOnId = updateData.serviceAddOnId?.toString();
 
-    // Case 1: Service ID changed → mark new service (with its addon if provided)
+    // Trường hợp 1: Service ID thay đổi → đánh dấu dịch vụ mới (với addon nếu được cung cấp)
     if (newServiceId && newServiceId !== oldServiceId) {
       servicesToMark.push({
         serviceId: newServiceId,
         serviceAddOnId: newServiceAddOnId || null
       });
     }
-    // Case 2: Service ID same (or not provided), but addon changed → mark service with new addon
-    // Note: FE may not send serviceId when only changing addon, so use existing serviceId
+    // Trường hợp 2: Service ID giữ nguyên (hoặc không được gửi), nhưng addon thay đổi → đánh dấu dịch vụ với addon mới
+    // Lưu ý: FE có thể không gửi serviceId khi chỉ thay đổi addon, nên sử dụng serviceId hiện tại
     else if (newServiceAddOnId && newServiceAddOnId !== oldServiceAddOnId) {
-      const serviceIdToMark = newServiceId || oldServiceId; // Use new or fall back to old
+      const serviceIdToMark = newServiceId || oldServiceId; // Sử dụng mới hoặc dự phòng cũ
       if (serviceIdToMark) {
         servicesToMark.push({
           serviceId: serviceIdToMark,
@@ -177,18 +177,18 @@ class RecordService {
       }
     }
 
-    // 🔹 Check for new treatment indications
+    // 🔹 Kiểm tra các chỉ định điều trị mới
     if (updateData.treatmentIndications && Array.isArray(updateData.treatmentIndications)) {
       const existingIndicationIds = new Set(
         (existingRecord.treatmentIndications || [])
-          .filter(ind => ind.serviceId) // ✅ Filter out items without serviceId
+          .filter(ind => ind.serviceId) // ✅ Lọc bỏ các phần tử không có serviceId
           .map(ind => 
             ind.serviceId.toString() + '_' + (ind.serviceAddOnId?.toString() || '')
           )
       );
 
       updateData.treatmentIndications.forEach(indication => {
-        if (!indication.serviceId) return; // ✅ Skip if no serviceId
+        if (!indication.serviceId) return; // ✅ Bỏ qua nếu không có serviceId
         
         const indicationKey = indication.serviceId.toString() + '_' + (indication.serviceAddOnId?.toString() || '');
         if (!existingIndicationIds.has(indicationKey)) {
@@ -200,18 +200,18 @@ class RecordService {
       });
     }
 
-    // 🔹 Check for new additional services
+    // 🔹 Kiểm tra các dịch vụ bổ sung mới
     if (updateData.additionalServices && Array.isArray(updateData.additionalServices)) {
       const existingAdditionalIds = new Set(
         (existingRecord.additionalServices || [])
-          .filter(svc => svc.serviceId) // ✅ Filter out items without serviceId
+          .filter(svc => svc.serviceId) // ✅ Lọc bỏ các phần tử không có serviceId
           .map(svc => 
             svc.serviceId.toString() + '_' + (svc.serviceAddOnId?.toString() || '')
           )
       );
 
       updateData.additionalServices.forEach(svc => {
-        if (!svc.serviceId) return; // ✅ Skip if no serviceId
+        if (!svc.serviceId) return; // ✅ Bỏ qua nếu không có serviceId
         
         const svcKey = svc.serviceId.toString() + '_' + (svc.serviceAddOnId?.toString() || '');
         if (!existingAdditionalIds.has(svcKey)) {
@@ -223,7 +223,7 @@ class RecordService {
       });
     }
 
-    // ✅ Mark all collected services as used
+    // ✅ Đánh dấu tất cả dịch vụ đã thu thập là đã sử dụng
     if (servicesToMark.length > 0) {
       try {
         await publishToQueue('service_queue', {
@@ -237,20 +237,20 @@ class RecordService {
         console.log(`✅ Published service.mark_as_used for ${servicesToMark.length} services in record ${existingRecord.recordCode}`);
       } catch (queueError) {
         console.warn('⚠️ Could not publish service mark_as_used event:', queueError.message);
-        // Don't throw - allow update to continue
+        // Không throw - cho phép cập nhật tiếp tục
       }
     }
 
-    // ✅ Trust totalCost from FE - DO NOT recalculate
-    // FE has full context of all changes (service addon, quantity, additional services)
-    // and calculates totalCost correctly before sending to BE
+    // ✅ Tin tưởng totalCost từ FE - KHÔNG tính lại
+    // FE có toàn bộ ngữ cảnh về tất cả thay đổi (addon dịch vụ, số lượng, dịch vụ bổ sung)
+    // và tính toán totalCost chính xác trước khi gửi lên BE
 
     const updatedRecord = await recordRepo.update(id, {
       ...updateData,
       modifiedBy
     });
 
-    // 🔥 If record is already completed, republish event to update invoice
+    // 🔥 Nếu hồ sơ đã hoàn thành, phát lại sự kiện để cập nhật hóa đơn
     if (updatedRecord.status === 'completed') {
       try {
         await publishToQueue('appointment_queue', {
@@ -270,10 +270,10 @@ class RecordService {
             serviceId: updatedRecord.serviceId.toString(),
             serviceName: updatedRecord.serviceName,
             serviceType: updatedRecord.type, // 'exam' or 'treatment'
-            bookingChannel: 'offline', // Default for records
+            bookingChannel: 'offline', // Mặc định cho các hồ sơ
             type: updatedRecord.type,
             treatmentIndications: updatedRecord.treatmentIndications || [],
-            additionalServices: updatedRecord.additionalServices || [], // ⭐ Additional services
+            additionalServices: updatedRecord.additionalServices || [], // ⭐ Các dịch vụ bổ sung
             prescription: updatedRecord.prescription || null,
             totalCost: updatedRecord.totalCost || 0,
             completedAt: updatedRecord.completedAt,
@@ -283,7 +283,7 @@ class RecordService {
         console.log(`✅ Republished record.completed event after update for record ${updatedRecord.recordCode}`);
       } catch (publishError) {
         console.error('❌ Failed to republish record.completed event:', publishError);
-        // Don't throw - update already successful
+        // Không throw - cập nhật đã thành công
       }
     }
 
@@ -292,23 +292,23 @@ class RecordService {
 
   async updateRecordStatus(id, status, modifiedBy) {
     if (!id) {
-      throw new Error('Record ID is required');
+      throw new Error('Record ID là bắt buộc');
     }
 
     if (!['pending', 'in-progress', 'completed', 'cancelled'].includes(status)) {
       throw new Error('Trạng thái không hợp lệ');
     }
 
-    // Get record first to check appointmentId
+    // Lấy hồ sơ trước để kiểm tra appointmentId
     const existingRecord = await recordRepo.findById(id);
     if (!existingRecord) {
       throw new Error('Không tìm thấy hồ sơ');
     }
 
-    // Update record status
+    // Cập nhật trạng thái hồ sơ
     const record = await recordRepo.updateStatus(id, status, modifiedBy);
 
-    // 🔥 Publish events and update appointment based on status
+    // 🔥 Phát sự kiện và cập nhật cuộc hẹn dựa trên trạng thái
     try {
       if (status === 'in-progress') {
         console.log('🔥🔥🔥 [Record Service] About to publish record.in-progress event');
@@ -321,7 +321,7 @@ class RecordService {
           startedAt: record.startedAt
         });
         
-        // Emit record.in-progress event
+        // Phát sự kiện record.in-progress
         await publishToQueue('appointment_queue', {
           event: 'record.in-progress',
           data: {
@@ -346,7 +346,7 @@ class RecordService {
           additionalServicesCount: record.additionalServices?.length || 0
         });
         
-        // Emit record.completed event
+        // Phát sự kiện record.completed
         await publishToQueue('appointment_queue', {
           event: 'record.completed',
           data: {
@@ -358,9 +358,9 @@ class RecordService {
             dentistId: record.dentistId.toString(),
             serviceId: record.serviceId.toString(),
             serviceName: record.serviceName,
-            type: record.type, // 'exam' or 'treatment'
-            treatmentIndications: record.treatmentIndications || [], // Service addons used
-            additionalServices: record.additionalServices || [], // ⭐ Additional services used during treatment
+            type: record.type, // 'exam' hoặc 'treatment'
+            treatmentIndications: record.treatmentIndications || [], // Các addon dịch vụ đã sử dụng
+            additionalServices: record.additionalServices || [], // ⭐ Các dịch vụ bổ sung đã sử dụng trong điều trị
             prescription: record.prescription || null,
             totalCost: record.totalCost || 0,
             completedAt: record.completedAt,
@@ -369,16 +369,16 @@ class RecordService {
         });
         console.log(`✅✅✅ Published record.completed event for record ${record.recordCode}. Total cost: ${record.totalCost}đ (including ${record.additionalServices?.length || 0} additional services)`);
         
-        // 🆕 Publish payment.create event to payment-service
+        // 🆕 Phát sự kiện payment.create đến payment-service
         const publishTimestamp = new Date().toISOString();
         console.log(`\n💰💰💰 [${publishTimestamp}] [Record Service] About to publish payment.create event`);
         console.log(`📝 Record: ${record.recordCode} (${record._id.toString()})`);
         
-        // Calculate deposit deduction (if from online booking)
+        // Tính trừ tiền cọc (nếu từ đặt lịch online)
         let depositDeducted = 0;
         if (record.appointmentId) {
-          // We'll let payment-service fetch deposit from appointment-service
-          // For now, just pass the appointmentId
+          // Chúng ta sẽ để payment-service lấy tiền cọc từ appointment-service
+          // Hiện tại, chỉ cần truyền appointmentId
         }
         
         await publishToQueue('payment_event_queue', {
@@ -389,13 +389,13 @@ class RecordService {
             appointmentId: record.appointmentId ? record.appointmentId.toString() : null,
             patientId: record.patientId ? record.patientId.toString() : null,
             patientInfo: record.patientInfo,
-            // Main service details
+            // Chi tiết dịch vụ chính
             serviceName: record.serviceName,
             serviceAddOnName: record.serviceAddOnName || null,
             serviceAddOnUnit: record.serviceAddOnUnit || null,
             serviceAddOnPrice: record.serviceAddOnPrice || 0,
             quantity: record.quantity || 1,
-            // Additional services with full details
+            // Các dịch vụ bổ sung với đầy đủ chi tiết
             additionalServices: (record.additionalServices || []).map(svc => ({
               serviceId: svc.serviceId,
               serviceName: svc.serviceName,
@@ -405,11 +405,11 @@ class RecordService {
               quantity: svc.quantity,
               totalPrice: svc.totalPrice
             })),
-            // Cost breakdown
+            // Chi tiết chi phí
             originalAmount: record.totalCost || 0,
-            depositDeducted: depositDeducted, // Will be calculated by payment-service
+            depositDeducted: depositDeducted, // Sẽ được payment-service tính
             finalAmount: (record.totalCost || 0) - depositDeducted,
-            // Metadata
+            // Metadata - Dữ liệu mô tả
             createdBy: modifiedBy ? modifiedBy.toString() : null
           }
         });
@@ -422,7 +422,7 @@ class RecordService {
     } catch (publishError) {
       console.error('❌❌❌ Failed to publish record status event:', publishError);
       console.error('Error stack:', publishError.stack);
-      // Don't throw - status update already successful
+      // Không throw - cập nhật trạng thái đã thành công
     }
 
     return record;
@@ -430,7 +430,7 @@ class RecordService {
 
   async deleteRecord(id) {
     if (!id) {
-      throw new Error('Record ID is required');
+      throw new Error('Record ID là bắt buộc');
     }
 
     const record = await recordRepo.delete(id);
@@ -440,7 +440,7 @@ class RecordService {
 
   async getRecordsByPatient(patientId, limit = 10) {
     if (!patientId) {
-      throw new Error('Patient ID is required');
+      throw new Error('Patient ID là bắt buộc');
     }
 
     const records = await recordRepo.findByPatient(patientId, limit);
@@ -449,7 +449,7 @@ class RecordService {
 
   async getRecordsByDentist(dentistId, startDate, endDate) {
     if (!dentistId) {
-      throw new Error('Dentist ID is required');
+      throw new Error('Dentist ID là bắt buộc');
     }
 
     const records = await recordRepo.findByDentist(dentistId, startDate, endDate);
@@ -463,11 +463,11 @@ class RecordService {
 
   async addPrescription(id, prescription, prescribedBy) {
     if (!id) {
-      throw new Error('Record ID is required');
+      throw new Error('Record ID là bắt buộc');
     }
 
-    // ✅ No validation - accept empty or incomplete data
-    // If prescription is empty or has no medicines, still update
+    // ✅ Không cần kiểm tra - chấp nhận dữ liệu trống hoặc không đầy đủ
+    // Nếu đơn thuốc trống hoặc không có thuốc, vẫn cập nhật
 
     const record = await recordRepo.addPrescription(id, prescription, prescribedBy);
 
@@ -476,7 +476,7 @@ class RecordService {
 
   async updateTreatmentIndication(id, indicationId, used, notes, modifiedBy) {
     if (!id || !indicationId) {
-      throw new Error('Record ID and indication ID are required');
+      throw new Error('Record ID và indication ID là bắt buộc');
     }
 
     const record = await recordRepo.updateTreatmentIndication(id, indicationId, used, notes, modifiedBy);
@@ -490,7 +490,7 @@ class RecordService {
   }
 
   async completeRecord(id, modifiedBy) {
-    // ✅ Validate record trước khi complete
+    // ✅ Kiểm tra hồ sơ trước khi hoàn thành
     const record = await recordRepo.findById(id);
     
     if (!record) {
@@ -518,7 +518,7 @@ class RecordService {
 
     // Nếu là type='exam' và có treatmentIndications, kiểm tra notes
     if (record.type === 'exam' && record.treatmentIndications && record.treatmentIndications.length > 0) {
-      // Có thể không cần validate treatmentIndications vì đây chỉ là chỉ định
+      // Có thể không cần kiểm tra treatmentIndications vì đây chỉ là chỉ định
     }
 
     // ✅ QUAN TRỌNG: Phải có totalCost (giá dịch vụ)
@@ -530,10 +530,10 @@ class RecordService {
       throw new Error(`Không thể hoàn thành hồ sơ:\n- ${errors.join('\n- ')}`);
     }
 
-    // ✅ Mark all services in record as used before completing
+    // ✅ Đánh dấu tất cả dịch vụ trong hồ sơ là đã sử dụng trước khi hoàn thành
     const servicesToMark = [];
 
-    // Main service
+    // Dịch vụ chính
     if (record.serviceId) {
       servicesToMark.push({
         serviceId: record.serviceId.toString(),
@@ -541,7 +541,7 @@ class RecordService {
       });
     }
 
-    // Treatment indications
+    // Chỉ định điều trị
     if (record.treatmentIndications && record.treatmentIndications.length > 0) {
       record.treatmentIndications.forEach(indication => {
         if (indication.serviceId) {
@@ -553,7 +553,7 @@ class RecordService {
       });
     }
 
-    // Additional services
+    // Dịch vụ bổ sung
     if (record.additionalServices && record.additionalServices.length > 0) {
       record.additionalServices.forEach(svc => {
         if (svc.serviceId) {
@@ -565,7 +565,7 @@ class RecordService {
       });
     }
 
-    // Publish event to mark all services as used
+    // Phát sự kiện để đánh dấu tất cả dịch vụ là đã sử dụng
     if (servicesToMark.length > 0) {
       try {
         await publishToQueue('service_queue', {
@@ -579,12 +579,12 @@ class RecordService {
         console.log(`✅ Published service.mark_as_used for ${servicesToMark.length} services in completed record ${record.recordCode}`);
       } catch (queueError) {
         console.warn('⚠️ Could not publish service mark_as_used event:', queueError.message);
-        // Don't throw - allow completion to continue
+        // Không throw - cho phép hoàn thành tiếp tục
       }
     }
 
-    // ✅ Nếu validate pass, proceed to complete
-    // console.log('✅ [completeRecord] Validation passed, updating status to completed...');
+    // ✅ Nếu kiểm tra đạt, tiến hành hoàn thành
+    // console.log('✅ [completeRecord] Kiểm tra thành công, cập nhật trạng thái thành completed...');
     const completedRecord = await this.updateRecordStatus(id, 'completed', modifiedBy);
     // console.log('✅ [completeRecord] Record completed successfully:', completedRecord.recordCode);
     return completedRecord;
@@ -600,33 +600,33 @@ class RecordService {
 
   async markAsUsed(id) {
     if (!id) {
-      throw new Error('Record ID is required');
+      throw new Error('Record ID là bắt buộc');
     }
 
     return await recordRepo.markAsUsed(id);
   }
 
-  // ✅ Get unused services from exam records for booking selection
+  // ✅ Lấy các dịch vụ chưa sử dụng từ hồ sơ khám để chọn khi đặt lịch
   async getUnusedServices(patientId) {
     if (!patientId) {
-      throw new Error('Patient ID is required');
+      throw new Error('Patient ID là bắt buộc');
     }
 
-    // Find exam records with treatment indications (regardless of hasBeenUsed)
-    // Because we only care about individual indication.used status
+    // Tìm các hồ sơ khám có chỉ định điều trị (không quan tâm hasBeenUsed)
+    // Vì chúng ta chỉ quan tâm đến trạng thái indication.used riêng lẻ
     const records = await recordRepo.findAll({
       patientId,
       type: 'exam'
     });
 
-    // Extract unique unused treatment indications (serviceAddOn)
+    // Trích xuất các chỉ định điều trị chưa sử dụng duy nhất (serviceAddOn)
     const servicesMap = new Map();
     
     records.forEach(record => {
       if (record.treatmentIndications && record.treatmentIndications.length > 0) {
         record.treatmentIndications.forEach(indication => {
           if (!indication.used && indication.serviceId) {
-            // 🆕 Create unique key including serviceAddOnId to handle multiple addons for same service
+            // 🆕 Tạo key duy nhất bao gồm serviceAddOnId để xử lý nhiều addon cho cùng một dịch vụ
             const key = indication.serviceAddOnId 
               ? `${indication.serviceId.toString()}_${indication.serviceAddOnId.toString()}`
               : indication.serviceId.toString();
@@ -655,13 +655,13 @@ class RecordService {
     return Array.from(servicesMap.values());
   }
 
-  // 🆕 Get treatment indications for a patient and service (with serviceAddOn details)
+  // 🆕 Lấy chỉ định điều trị cho bệnh nhân và dịch vụ (với chi tiết serviceAddOn)
   async getTreatmentIndications(patientId, serviceId) {
     if (!patientId || !serviceId) {
-      throw new Error('Patient ID and Service ID are required');
+      throw new Error('Patient ID và Service ID là bắt buộc');
     }
 
-    // Find exam records with treatment indications for the specified service
+    // Tìm các hồ sơ khám có chỉ định điều trị cho dịch vụ chỉ định
     const records = await recordRepo.findAll({
       patientId,
       type: 'exam'
@@ -672,7 +672,7 @@ class RecordService {
     records.forEach(record => {
       if (record.treatmentIndications && record.treatmentIndications.length > 0) {
         record.treatmentIndications.forEach(indication => {
-          // Match by serviceId and not used yet
+          // Khớp theo serviceId và chưa sử dụng
           if (indication.serviceId && 
               indication.serviceId.toString() === serviceId && 
               !indication.used) {
@@ -697,10 +697,10 @@ class RecordService {
     return indications;
   }
 
-  // ⭐ Add additional service to record
+  // ⭐ Thêm dịch vụ bổ sung vào hồ sơ
   async addAdditionalService(recordId, serviceData, addedBy) {
     if (!recordId || !serviceData) {
-      throw new Error('Record ID and service data are required');
+      throw new Error('Record ID và thông tin dịch vụ là bắt buộc');
     }
 
     const record = await recordRepo.findById(recordId);
@@ -712,7 +712,7 @@ class RecordService {
       throw new Error('Không thể thêm dịch vụ cho hồ sơ đã hoàn thành');
     }
 
-    // Validate service data
+    // Kiểm tra dữ liệu dịch vụ
     const { serviceId, serviceName, serviceType, serviceAddOnId, serviceAddOnName, serviceAddOnUnit, price, quantity = 1, notes } = serviceData;
     
     if (!serviceId || !serviceName || !serviceType || !price || price < 0) {
@@ -736,13 +736,13 @@ class RecordService {
       addedAt: new Date()
     };
 
-    // Add to additionalServices array
+    // Thêm vào mảng additionalServices
     if (!record.additionalServices) {
       record.additionalServices = [];
     }
     record.additionalServices.push(newService);
 
-    // ✅ Mark service as used
+    // ✅ Đánh dấu dịch vụ là đã sử dụng
     if (serviceId) {
       try {
         await publishToQueue('service_queue', {
@@ -759,13 +759,13 @@ class RecordService {
         console.log(`✅ Published service.mark_as_used for additional service ${serviceName} in record ${record.recordCode}`);
       } catch (queueError) {
         console.warn('⚠️ Could not publish service mark_as_used event:', queueError.message);
-        // Don't throw - allow add service to continue
+        // Không throw - cho phép thêm dịch vụ tiếp tục
       }
     }
 
-    // ⚠️ DO NOT recalculate totalCost here
-    // FE will send the correct totalCost via updateRecord API
-    // This function only adds the service to the array
+    // ⚠️ KHÔNG tính lại totalCost ở đây
+    // FE sẽ gửi đúng totalCost qua updateRecord API
+    // Hàm này chỉ thêm dịch vụ vào mảng
 
     await record.save();
 
@@ -774,10 +774,10 @@ class RecordService {
     return record;
   }
 
-  // ⭐ Remove additional service from record
+  // ⭐ Xóa dịch vụ bổ sung khỏi hồ sơ
   async removeAdditionalService(recordId, serviceItemId, removedBy) {
     if (!recordId || !serviceItemId) {
-      throw new Error('Record ID and service item ID are required');
+      throw new Error('Record ID và ID mục dịch vụ là bắt buộc');
     }
 
     const record = await recordRepo.findById(recordId);
@@ -789,7 +789,7 @@ class RecordService {
       throw new Error('Không thể xóa dịch vụ khỏi hồ sơ đã hoàn thành');
     }
 
-    // Find and remove service
+    // Tìm và xóa dịch vụ
     const serviceIndex = record.additionalServices.findIndex(
       svc => svc._id.toString() === serviceItemId
     );
@@ -801,9 +801,9 @@ class RecordService {
     const removedService = record.additionalServices[serviceIndex];
     record.additionalServices.splice(serviceIndex, 1);
 
-    // ⚠️ DO NOT recalculate totalCost here
-    // FE will send the correct totalCost via updateRecord API
-    // This function only removes the service from the array
+    // ⚠️ KHÔNG tính lại totalCost ở đây
+    // FE sẽ gửi đúng totalCost qua updateRecord API
+    // Hàm này chỉ xóa dịch vụ khỏi mảng
 
     record.lastModifiedBy = removedBy;
     await record.save();
@@ -813,10 +813,10 @@ class RecordService {
     return record;
   }
 
-  // ⭐ Update additional service quantity/notes
+  // ⭐ Cập nhật số lượng/ghi chú dịch vụ bổ sung
   async updateAdditionalService(recordId, serviceItemId, updateData, updatedBy) {
     if (!recordId || !serviceItemId) {
-      throw new Error('Record ID and service item ID are required');
+      throw new Error('Record ID và ID mục dịch vụ là bắt buộc');
     }
 
     const record = await recordRepo.findById(recordId);
@@ -828,7 +828,7 @@ class RecordService {
       throw new Error('Không thể cập nhật dịch vụ cho hồ sơ đã hoàn thành');
     }
 
-    // Find service
+    // Tìm dịch vụ
     const service = record.additionalServices.find(
       svc => svc._id.toString() === serviceItemId
     );
@@ -837,7 +837,7 @@ class RecordService {
       throw new Error('Không tìm thấy dịch vụ trong hồ sơ');
     }
 
-    // Update quantity if provided
+    // Cập nhật số lượng nếu được cung cấp
     if (updateData.quantity !== undefined) {
       if (updateData.quantity < 1) {
         throw new Error('Số lượng phải lớn hơn 0');
@@ -846,14 +846,14 @@ class RecordService {
       service.totalPrice = service.price * service.quantity;
     }
 
-    // Update notes if provided
+    // Cập nhật ghi chú nếu được cung cấp
     if (updateData.notes !== undefined) {
       service.notes = updateData.notes;
     }
 
-    // ⚠️ DO NOT recalculate totalCost here
-    // FE will send the correct totalCost via updateRecord API
-    // This function only updates the service details
+    // ⚠️ KHÔNG tính lại totalCost ở đây
+    // FE sẽ gửi đúng totalCost qua updateRecord API
+    // Hàm này chỉ cập nhật chi tiết dịch vụ
 
     record.lastModifiedBy = updatedBy;
     await record.save();
@@ -864,14 +864,14 @@ class RecordService {
   }
 
   /**
-   * Get payment info for record (preview before completing)
-   * Fetches appointment and invoice data to calculate deposit
+   * Lấy thông tin thanh toán cho hồ sơ (xem trước khi hoàn thành)
+   * Lấy dữ liệu cuộc hẹn và hóa đơn để tính tiền cọc
    */
   async getPaymentInfo(recordId) {
     try {
       // console.log(`🔍 [getPaymentInfo] Starting for record: ${recordId}`);
       
-      // 1. Get record details
+      // 1. Lấy chi tiết hồ sơ
       const record = await recordRepo.findById(recordId);
       if (!record) {
         throw new Error('Không tìm thấy hồ sơ');
@@ -883,7 +883,7 @@ class RecordService {
       //   totalCost: record.totalCost
       // });
 
-      // 2. Initialize payment info
+      // 2. Khởi tạo thông tin thanh toán
       const paymentInfo = {
         recordId: record._id,
         recordCode: record.recordCode,
@@ -896,13 +896,13 @@ class RecordService {
         appointmentId: record.appointmentId || null
       };
 
-      // 3. If no appointment, return immediately
+      // 3. Nếu không có cuộc hẹn, trả về ngay
       if (!record.appointmentId) {
         // console.log(`ℹ️ [getPaymentInfo] No appointment linked - no deposit`);
         return paymentInfo;
       }
 
-      // 4. Fetch appointment details
+      // 4. Lấy chi tiết cuộc hẹn
       try {
         const axios = require('axios');
         const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
@@ -922,9 +922,9 @@ class RecordService {
           //   invoiceId: invoiceId
           // });
 
-          // 5. If appointment has invoiceId, fetch invoice details
+          // 5. Nếu cuộc hẹn có invoiceId, lấy chi tiết hóa đơn
           if (invoiceId) {
-            // ✅ Has invoice → Online booking with deposit
+            // ✅ Có hóa đơn → Đặt lịch online có tiền cọc
             paymentInfo.bookingChannel = 'online';
             
             try {
@@ -950,17 +950,17 @@ class RecordService {
               }
             } catch (invoiceError) {
               console.error('⚠️ [getPaymentInfo] Failed to fetch invoice:', invoiceError.message);
-              // Continue without invoice info
+              // Tiếp tục mà không có thông tin hóa đơn
             }
           } else {
-            // ✅ No invoice → Offline booking (walk-in or phone booking without deposit)
+            // ✅ Không có hóa đơn → Đặt lịch offline (walk-in hoặc đặt qua điện thoại không cọc)
             paymentInfo.bookingChannel = 'offline';
             // console.log(`ℹ️ [getPaymentInfo] Appointment has no invoice - Offline booking`);
           }
         }
       } catch (appointmentError) {
         console.error('⚠️ [getPaymentInfo] Failed to fetch appointment:', appointmentError.message);
-        // Continue without appointment info
+        // Tiếp tục mà không có thông tin cuộc hẹn
       }
 
       // console.log(`🎯 [getPaymentInfo] Final payment info:`, paymentInfo);
@@ -972,13 +972,13 @@ class RecordService {
     }
   }
 
-  // 🆕 Get patients with unused indications for a specific dentist
+  // 🆕 Lấy bệnh nhân có chỉ định chưa sử dụng cho nha sĩ cụ thể
   async getPatientsWithUnusedIndications(dentistId) {
     if (!dentistId) {
-      throw new Error('Dentist ID is required');
+      throw new Error('Dentist ID là bắt buộc');
     }
 
-    // Find exam records by this dentist with unused indications
+    // Tìm các hồ sơ khám của nha sĩ này có chỉ định chưa sử dụng
     const records = await recordRepo.findAll({
       dentistId,
       type: 'exam'
@@ -986,11 +986,11 @@ class RecordService {
 
     console.log(`🔍 [getPatientsWithUnusedIndications] Found ${records.length} exam records for dentist ${dentistId}`);
 
-    // Extract unique patients with unused indications
+    // Trích xuất các bệnh nhân duy nhất có chỉ định chưa sử dụng
     const patientsMap = new Map();
     
     records.forEach(record => {
-      // ⭐ Skip if patientId is null or undefined
+      // ⭐ Bỏ qua nếu patientId là null hoặc undefined
       if (!record.patientId) {
         console.warn('⚠️ Record has no patientId:', record._id);
         return;
@@ -1017,13 +1017,13 @@ class RecordService {
             patientsMap.set(patientId, {
               _id: record.patientId, // ⭐ Thêm _id để frontend dễ xử lý
               patientId: record.patientId,
-              fullName: patientName, // ⭐ Use patientInfo.name or fallback
-              patientName: patientName, // ⭐ Use patientInfo.name or fallback
+              fullName: patientName, // ⭐ Dùng patientInfo.name hoặc dự phòng
+              patientName: patientName, // ⭐ Dùng patientInfo.name hoặc dự phòng
               recordId: record._id,
               recordCode: record.recordCode,
               createdAt: record.createdAt,
               unusedIndicationsCount: record.treatmentIndications.filter(ind => !ind.used).length,
-              // ⭐ Note: phone, email sẽ được populate từ frontend nếu cần
+              // ⭐ Lưu ý: phone, email sẽ được populate từ frontend nếu cần
               // hoặc có thể gọi auth-service để lấy thông tin đầy đủ (tốn performance)
             });
           }

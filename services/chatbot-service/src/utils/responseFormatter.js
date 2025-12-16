@@ -1,10 +1,10 @@
 /**
- * Response Formatter
- * Format API responses consistently
+ * Bộ định dạng Response
+ * Định dạng các phản hồi API nhất quán
  */
 
 /**
- * Format success response
+ * Định dạng phản hồi thành công
  */
 const formatSuccessResponse = (message, data = null) => {
   const response = {
@@ -21,12 +21,12 @@ const formatSuccessResponse = (message, data = null) => {
 };
 
 /**
- * Format error response
+ * Định dạng phản hồi lỗi
  */
 const formatErrorResponse = (error, statusCode = 500) => {
   return {
     success: false,
-    message: error.message || 'An error occurred',
+    message: error.message || 'Có lỗi xảy ra',
     error: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     timestamp: new Date().toISOString(),
     statusCode
@@ -34,7 +34,7 @@ const formatErrorResponse = (error, statusCode = 500) => {
 };
 
 /**
- * Format chatbot response
+ * Định dạng phản hồi chatbot
  */
 const formatChatbotResponse = (assistantMessage, apiData = null) => {
   return {

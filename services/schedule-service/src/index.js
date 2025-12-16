@@ -1,4 +1,4 @@
-﻿// Load environment variables first
+﻿// Tải biến môi trường trước tiên
 const dotenv = require('dotenv');
 dotenv.config();
 const express = require('express');
@@ -20,7 +20,7 @@ connectDB();
 
 const app = express();
 
-// CORS Configuration
+// Cấu hình CORS
 app.use(cors({
   origin: function(origin, callback) {
     if (!origin) return callback(null, true);
@@ -44,10 +44,10 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Cache-Control', 'Pragma', 'Expires', 'X-Selected-Role']
 }));
 
-// ✅ Increase body size limit for bulk operations (e.g., bulk create schedules)
+// ✅ Tăng giới hạn kích thước body cho các thao tác hàng loạt (ví dụ: tạo lịch hàng loạt)
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-// Routes
+// Các Routes
 app.use('/api/schedule', scheduleRoutes);
 app.use('/api/slot', slotRoutes);
 app.use('/api/schedule/config', scheduleConfigRoutes);
@@ -55,28 +55,28 @@ app.use('/api/day-closure', dayClosureRoutes);
 
 startRpcServer();
 
-// 🔥 Clear all caches on startup to ensure fresh data
+// 🔥 Xóa toàn bộ cache khi khởi động để đảm bảo dữ liệu mới
 setTimeout(async () => {
   try {
-    console.log('🧹 Clearing all caches on startup...');
+    console.log('🧹 Đang xóa toàn bộ cache khi khởi động...');
     
-    // Clear calendar cache
+    // Xóa cache lịch
     const calendarPattern = 'room_calendar:*';
     const calendarKeys = await redisClient.keys(calendarPattern);
     if (calendarKeys.length > 0) {
       await redisClient.del(calendarKeys);
-      console.log(`✅ Cleared ${calendarKeys.length} calendar cache keys`);
+      console.log(`✅ Đã xóa ${calendarKeys.length} khóa cache lịch`);
     }
     
-    // Clear schedule config cache
+    // Xóa cache cấu hình lịch trình
     const scheduleConfigKey = 'schedule_config_cache';
     const hasScheduleConfig = await redisClient.exists(scheduleConfigKey);
     if (hasScheduleConfig) {
       await redisClient.del(scheduleConfigKey);
-      console.log(`✅ Cleared schedule config cache`);
+      console.log(`✅ Đã xóa cache cấu hình lịch trình`);
     }
     
-    // Clear holiday config cache
+    // Xóa cache cấu hình ngày nghỉ
     const holidayConfigKey = 'holiday_config_cache';
     const hasHolidayConfig = await redisClient.exists(holidayConfigKey);
     if (hasHolidayConfig) {
@@ -84,34 +84,34 @@ setTimeout(async () => {
       console.log(`✅ Cleared holiday config cache`);
     }
     
-    console.log('✅ All caches cleared on startup');
+    console.log('✅ Đã xóa toàn bộ cache khi khởi động');
   } catch (error) {
-    console.error('❌ Error clearing caches on startup:', error.message);
+    console.error('❌ Lỗi khi xóa cache khi khởi động:', error.message);
   }
-}, 1000); // Wait 1s for Redis connection
+}, 1000); // Đợi 1 giây cho kết nối Redis
 
-// 🆕 Auto-initialize default config and holidays on startup
+// 🆕 Tự động khởi tạo cấu hình mặc định và ngày nghỉ khi khởi động
 setTimeout(async () => {
   await scheduleConfigService.autoInitializeDefaults();
-}, 2000); // Wait 2s for DB connection to be ready
+}, 2000); // Đợi 2 giây cho kết nối DB sẵn sàng
 
-// 🆕 Setup RabbitMQ event listeners
+// 🆕 Cài đặt bộ lắng nghe sự kiện RabbitMQ
 setTimeout(async () => {
   await setupEventListeners();
-}, 3000); // Wait 3s after DB is ready
+}, 3000); // Đợi 3 giây sau khi DB sẵn sàng
 
-// 🆕 Start RabbitMQ consumer for payment events
+// 🆕 Khởi động consumer RabbitMQ cho các sự kiện thanh toán
 setTimeout(async () => {
   try {
     await rabbitmqClient.connectRabbitMQ(process.env.RABBITMQ_URL || 'amqp://localhost');
     console.log('✅ RabbitMQ connected');
     
     await startConsumer();
-    console.log('✅ Consumer started');
+    console.log('✅ Consumer đã khởi động');
   } catch (err) {
-    console.error('❌ Failed to start consumer:', err);
+    console.error('❌ Không thể khởi động consumer:', err);
   }
-}, 4000); // Wait 4s to ensure RabbitMQ is ready
+}, 4000); // Đợi 4 giây để đảm bảo RabbitMQ sẵn sàng
 
 // Server
 

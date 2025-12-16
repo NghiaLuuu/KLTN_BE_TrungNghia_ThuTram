@@ -1,34 +1,34 @@
-// Internal API Client - Call other microservices
+// Client API nội bộ - Gọi các microservice khác
 
 const axios = require('axios');
 const { API_ENDPOINTS } = require('../config/apiMapping');
 
 /**
- * Create axios instance for internal API calls
+ * Tạo instance axios cho các cuộc gọi API nội bộ
  */
 const internalAxios = axios.create({
-  timeout: 10000, // 10 seconds
+  timeout: 10000, // 10 giây
   headers: {
     'Content-Type': 'application/json',
-    'X-Internal-Call': 'true' // Mark as internal service call
+    'X-Internal-Call': 'true' // Đánh dấu là cuộc gọi service nội bộ
   }
 });
 
 /**
- * Build URL with path parameters
- * @param {string} path - URL path with :param placeholders
- * @param {object} params - Parameters object
- * @returns {string} Complete URL
+ * Xây dựng URL với các path parameters
+ * @param {string} path - Đường dẫn URL với các placeholder :param
+ * @param {object} params - Object các tham số
+ * @returns {string} URL hoàn chỉnh
  */
 function buildUrl(path, params) {
   let url = path;
   
-  // Replace path parameters (:id, :doctorId, etc.)
+  // Thay thế các path parameters (:id, :doctorId, v.v.)
   Object.keys(params).forEach(key => {
     const placeholder = `:${key}`;
     if (url.includes(placeholder)) {
       url = url.replace(placeholder, params[key]);
-      delete params[key]; // Remove from params after using in path
+      delete params[key]; // Xóa khỏi params sau khi sử dụng trong path
     }
   });
   
@@ -36,32 +36,32 @@ function buildUrl(path, params) {
 }
 
 /**
- * Call internal API endpoint
- * @param {string} action - Action name from API_ENDPOINTS
- * @param {object} params - API parameters
- * @param {string} authToken - Optional JWT token for authenticated requests
- * @returns {Promise<object>} API response data
+ * Gọi API endpoint nội bộ
+ * @param {string} action - Tên action từ API_ENDPOINTS
+ * @param {object} params - Các tham số API
+ * @param {string} authToken - JWT token tùy chọn cho các request cần xác thực
+ * @returns {Promise<object>} Dữ liệu phản hồi API
  */
 async function callInternalApi(action, params = {}, authToken = null) {
   try {
-    // Get endpoint config
+    // Lấy cấu hình endpoint
     const endpoint = API_ENDPOINTS[action];
     
     if (!endpoint) {
-      throw new Error(`Unknown API action: ${action}`);
+      throw new Error(`Action API không xác định: ${action}`);
     }
 
-    // Build URL
+    // Xây dựng URL
     const path = buildUrl(endpoint.path, { ...params });
     const url = `${endpoint.baseUrl}${path}`;
 
-    // Prepare request config
+    // Chuẩn bị cấu hình request
     const config = {
       method: endpoint.method,
       url
     };
 
-    // Add auth token if provided
+    // Thêm auth token nếu có
     if (authToken) {
       config.headers = {
         ...config.headers,
@@ -69,21 +69,21 @@ async function callInternalApi(action, params = {}, authToken = null) {
       };
     }
 
-    // Add query params for GET requests
+    // Thêm query params cho các request GET
     if (endpoint.method === 'GET' && Object.keys(params).length > 0) {
       config.params = params;
     }
 
-    // Add body for POST/PUT requests
+    // Thêm body cho các request POST/PUT
     if (['POST', 'PUT', 'PATCH'].includes(endpoint.method)) {
       config.data = params;
     }
 
-    // Make API call
-    console.log(`[Internal API] Calling ${action}: ${config.method} ${url}`);
+    // Thực hiện gọi API
+    console.log(`[Internal API] Đang gọi ${action}: ${config.method} ${url}`);
     const response = await internalAxios(config);
 
-    // Return data
+    // Trả về dữ liệu
     return {
       success: true,
       data: response.data?.data || response.data,
@@ -91,25 +91,25 @@ async function callInternalApi(action, params = {}, authToken = null) {
     };
 
   } catch (error) {
-    console.error(`[Internal API] Error calling ${action}:`, error.message);
+    console.error(`[Internal API] Lỗi khi gọi ${action}:`, error.message);
     
-    // Handle different error types
+    // Xử lý các loại lỗi khác nhau
     if (error.response) {
-      // Server responded with error status
+      // Server phản hồi với trạng thái lỗi
       return {
         success: false,
         error: error.response.data?.message || error.message,
         statusCode: error.response.status
       };
     } else if (error.request) {
-      // Request made but no response
+      // Request được gửi nhưng không có phản hồi
       return {
         success: false,
-        error: 'Service unavailable. Please try again later.',
+        error: 'Dịch vụ không khả dụng. Vui lòng thử lại sau.',
         statusCode: 503
       };
     } else {
-      // Error in request setup
+      // Lỗi trong thiết lập request
       return {
         success: false,
         error: error.message,
@@ -120,10 +120,10 @@ async function callInternalApi(action, params = {}, authToken = null) {
 }
 
 /**
- * Call multiple APIs in parallel
- * @param {Array<{action: string, params: object}>} requests - Array of API requests
- * @param {string} authToken - Optional JWT token
- * @returns {Promise<Array<object>>} Array of API responses
+ * Gọi nhiều API song song
+ * @param {Array<{action: string, params: object}>} requests - Mảng các API request
+ * @param {string} authToken - JWT token tùy chọn
+ * @returns {Promise<Array<object>>} Mảng các phản hồi API
  */
 async function callMultipleApis(requests, authToken = null) {
   try {
@@ -137,25 +137,25 @@ async function callMultipleApis(requests, authToken = null) {
       if (result.status === 'fulfilled') {
         return result.value;
       } else {
-        console.error(`[Internal API] Request ${index} failed:`, result.reason);
+        console.error(`[Internal API] Request ${index} thất bại:`, result.reason);
         return {
           success: false,
-          error: result.reason?.message || 'Unknown error',
+          error: result.reason?.message || 'Lỗi không xác định',
           statusCode: 500
         };
       }
     });
 
   } catch (error) {
-    console.error('[Internal API] Error in parallel calls:', error.message);
+    console.error('[Internal API] Lỗi trong các cuộc gọi song song:', error.message);
     throw error;
   }
 }
 
 /**
- * Health check for a service
- * @param {string} serviceUrl - Service base URL
- * @returns {Promise<boolean>} True if service is healthy
+ * Kiểm tra sức khỏe dịch vụ
+ * @param {string} serviceUrl - URL gốc của dịch vụ
+ * @returns {Promise<boolean>} True nếu dịch vụ hoạt động tốt
  */
 async function checkServiceHealth(serviceUrl) {
   try {

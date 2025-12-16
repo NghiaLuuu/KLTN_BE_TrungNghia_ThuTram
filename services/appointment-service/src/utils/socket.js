@@ -3,8 +3,8 @@ const socketIO = require('socket.io');
 let io = null;
 
 /**
- * Initialize Socket.IO
- * @param {Object} server - HTTP server instance
+ * Khởi tạo Socket.IO
+ * @param {Object} server - Instance HTTP server
  */
 function initializeSocket(server) {
   io = socketIO(server, {
@@ -16,66 +16,66 @@ function initializeSocket(server) {
   });
 
   io.on('connection', (socket) => {
-    console.log(`✅ Socket client connected: ${socket.id}`);
+    console.log(`✅ Socket client kết nối: ${socket.id}`);
 
-    // Join room for specific queue updates (legacy)
+    // Tham gia room cho cập nhật hàng đợi cụ thể (legacy)
     socket.on('join_queue', (roomId) => {
       socket.join(`queue_${roomId}`);
-      console.log(`👤 Client ${socket.id} joined queue room: ${roomId}`);
+      console.log(`👤 Client ${socket.id} tham gia room hàng đợi: ${roomId}`);
     });
 
-    // Join room with date (new format: room:roomId:date)
+    // Tham gia room với ngày (định dạng mới: room:roomId:date)
     socket.on('join:room', (data) => {
       const { roomId, date } = data;
       const roomKey = `room:${roomId}:${date}`;
       socket.join(roomKey);
-      console.log(`🚪 Socket ${socket.id} joined ${roomKey}`);
+      console.log(`🚪 Socket ${socket.id} tham gia ${roomKey}`);
     });
 
-    // Leave queue room (legacy)
+    // Rời room hàng đợi (legacy)
     socket.on('leave_queue', (roomId) => {
       socket.leave(`queue_${roomId}`);
-      console.log(`👋 Client ${socket.id} left queue room: ${roomId}`);
+      console.log(`👋 Client ${socket.id} rời room hàng đợi: ${roomId}`);
     });
 
-    // Leave room with date
+    // Rời room với ngày
     socket.on('leave:room', (data) => {
       const { roomId, date } = data;
       const roomKey = `room:${roomId}:${date}`;
       socket.leave(roomKey);
-      console.log(`🚪 Socket ${socket.id} left ${roomKey}`);
+      console.log(`🚪 Socket ${socket.id} rời ${roomKey}`);
     });
 
     socket.on('disconnect', () => {
-      console.log(`❌ Socket client disconnected: ${socket.id}`);
+      console.log(`❌ Socket client ngắt kết nối: ${socket.id}`);
     });
   });
 
-  console.log('🔌 Socket.IO initialized for appointment service');
+  console.log('🔌 Socket.IO đã khởi tạo cho appointment service');
   return io;
 }
 
 /**
- * Get Socket.IO instance
- * @returns {Object} Socket.IO instance
+ * Lấy instance Socket.IO
+ * @returns {Object} Instance Socket.IO
  */
 function getIO() {
   if (!io) {
-    console.warn('⚠️ Socket.IO not initialized yet');
+    console.warn('⚠️ Socket.IO chưa được khởi tạo');
   }
   return io;
 }
 
 /**
- * Emit event to specific room
- * @param {String} roomId - Room ID
- * @param {String} date - Date (YYYY-MM-DD)
- * @param {String} event - Event name
- * @param {Object} data - Event data
+ * Emit sự kiện đến room cụ thể
+ * @param {String} roomId - ID phòng khám
+ * @param {String} date - Ngày (YYYY-MM-DD)
+ * @param {String} event - Tên sự kiện
+ * @param {Object} data - Dữ liệu sự kiện
  */
 function emitToRoom(roomId, date, event, data) {
   if (!io) {
-    console.warn('⚠️ Socket.IO not initialized, skipping emit');
+    console.warn('⚠️ Socket.IO chưa khởi tạo, bỏ qua emit');
     return;
   }
   
@@ -87,16 +87,16 @@ function emitToRoom(roomId, date, event, data) {
     timestamp: new Date().toISOString()
   });
   
-  console.log(`📤 [Appointment Socket] Emitted ${event} to ${roomKey}:`, data);
+  console.log(`📤 [Appointment Socket] Đã emit ${event} đến ${roomKey}:`, data);
 }
 
 /**
- * Emit appointment status change
- * When appointment status changes (from record events), notify the queue dashboard
+ * Emit thay đổi trạng thái lịch hẹn
+ * Khi trạng thái lịch hẹn thay đổi (từ record events), thông báo cho queue dashboard
  */
 function emitAppointmentStatusChange(appointment) {
   if (!appointment || !appointment.roomId || !appointment.date) {
-    console.warn('⚠️ Missing roomId or date in appointment, skipping emit');
+    console.warn('⚠️ Thiếu roomId hoặc date trong appointment, bỏ qua emit');
     return;
   }
   
@@ -112,12 +112,12 @@ function emitAppointmentStatusChange(appointment) {
 }
 
 /**
- * Emit appointment update
- * General appointment update (create, modify, etc.)
+ * Emit cập nhật lịch hẹn
+ * Cập nhật lịch hẹn chung (tạo, sửa, v.v.)
  */
 function emitAppointmentUpdate(appointment, message) {
   if (!appointment || !appointment.roomId || !appointment.date) {
-    console.warn('⚠️ Missing roomId or date in appointment, skipping emit');
+    console.warn('⚠️ Thiếu roomId hoặc date trong appointment, bỏ qua emit');
     return;
   }
   
@@ -133,8 +133,8 @@ function emitAppointmentUpdate(appointment, message) {
 }
 
 /**
- * Emit queue update
- * Notify all clients in the room that queue has changed
+ * Emit cập nhật hàng đợi
+ * Thông báo tất cả clients trong room rằng hàng đợi đã thay đổi
  */
 function emitQueueUpdate(roomId, date, message = 'Hàng đợi đã cập nhật') {
   emitToRoom(roomId, date, 'queue:updated', { message });

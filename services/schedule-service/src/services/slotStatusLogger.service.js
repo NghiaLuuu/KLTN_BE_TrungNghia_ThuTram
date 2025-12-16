@@ -1,6 +1,6 @@
 /**
- * Slot Status Logger Service
- * Centralized logging for ALL slot enable/disable operations
+ * Dịch vụ Ghi log Trạng thái Slot
+ * Ghi log tập trung cho TẤT CẢ các thao tác bật/tắt slot
  */
 
 const SlotStatusChange = require('../models/dayClosure.model');
@@ -12,16 +12,16 @@ const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://l
 const ROOM_SERVICE_URL = process.env.ROOM_SERVICE_URL || 'http://localhost:3009';
 
 /**
- * Log slot status change operation
+ * Ghi log thay đổi trạng thái slot
  * @param {Object} params
- * @param {String} params.operationType - Type of operation
- * @param {String} params.action - 'enable' or 'disable'
- * @param {Object} params.criteria - Criteria used for operation
- * @param {String} params.reason - Reason for change
- * @param {Object} params.currentUser - User performing operation
- * @param {Array} params.affectedSlotIds - Array of affected slot IDs
- * @param {Array} params.affectedSlots - Optional: Pre-fetched slots (useful when slots already loaded)
- * @param {Object} params.stats - Operation statistics
+ * @param {String} params.operationType - Loại thao tác
+ * @param {String} params.action - 'enable' hoặc 'disable'
+ * @param {Object} params.criteria - Tiêu chí dùng cho thao tác
+ * @param {String} params.reason - Lý do thay đổi
+ * @param {Object} params.currentUser - Người thực hiện thao tác
+ * @param {Array} params.affectedSlotIds - Mảng ID các slot bị ảnh hưởng
+ * @param {Array} params.affectedSlots - Tùy chọn: Các slots đã lấy trước (hữu ích khi slots đã được tải)
+ * @param {Object} params.stats - Thống kê thao tác
  */
 async function logSlotStatusChange({
   operationType,
@@ -30,43 +30,43 @@ async function logSlotStatusChange({
   reason,
   currentUser,
   affectedSlotIds = [],
-  affectedSlots = null, // 🆕 Allow passing pre-fetched slots
+  affectedSlots = null, // 🆕 Cho phép truyền slots đã lấy trước
   stats = {}
 }) {
   try {
-    console.log(`📝 Logging slot status change: ${operationType}, action: ${action}, slots: ${affectedSlotIds.length}`);
+    console.log(`📝 Ghi log thay đổi trạng thái slot: ${operationType}, action: ${action}, slots: ${affectedSlotIds.length}`);
 
-    // Get affected slots - use provided slots or fetch from DB
+    // Lấy các slots bị ảnh hưởng - dùng slots đã cung cấp hoặc lấy từ DB
     const slots = affectedSlots || await Slot.find({ _id: { $in: affectedSlotIds } })
       .select('roomId subRoomId dentist nurse startTime endTime shiftName appointmentId date')
       .lean();
 
     if (slots.length === 0) {
-      console.warn('⚠️ No slots found for logging');
+      console.warn('⚠️ Không tìm thấy slots để ghi log');
       return null;
     }
 
-    // Calculate date range
+    // Tính khoảng ngày
     const dates = slots.map(s => new Date(s.startTime || s.date));
     const dateFrom = new Date(Math.min(...dates));
     const dateTo = new Date(Math.max(...dates));
 
-    // Fetch external data
+    // Lấy dữ liệu bên ngoài
     const [usersCache, roomsCache, appointments] = await Promise.all([
       fetchUsers(),
       fetchRooms(),
       fetchAppointmentsBySlots(slots)
     ]);
 
-    // Get unique room IDs
+    // Lấy các room ID duy nhất
     const roomIds = [...new Set(slots.map(s => s.roomId?.toString()).filter(Boolean))];
 
-    // Build affected rooms data with slot details
+    // Xây dựng dữ liệu các phòng bị ảnh hưởng với chi tiết slot
     const affectedRooms = roomIds.map(roomId => {
       const room = roomsCache.get(roomId);
       const roomSlots = slots.filter(s => s.roomId?.toString() === roomId);
       
-      // Build detailed slot information
+      // Xây dựng thông tin slot chi tiết
       const slotDetails = roomSlots.map(slot => {
         const dentistIds = Array.isArray(slot.dentist) ? slot.dentist : (slot.dentist ? [slot.dentist] : []);
         const dentistNames = dentistIds.map(dentistId => {
@@ -108,7 +108,7 @@ async function logSlotStatusChange({
       };
     });
 
-    // Build cancelled appointments data (only for slots with appointments)
+    // Xây dựng dữ liệu cuộc hẹn bị hủy (chỉ cho slots có cuộc hẹn)
     const slotsWithAppointments = slots.filter(s => s.appointmentId);
     const cancelledAppointments = [];
 
@@ -120,7 +120,7 @@ async function logSlotStatusChange({
       if (!appointment) {
         console.warn(`⚠️ Logger: Slot ${slot._id} has appointmentId ${slot.appointmentId} but appointment not found!`);
         
-        // Still log with basic info from slot (appointment was likely just cancelled)
+        // Vẫn ghi log với thông tin cơ bản từ slot (cuộc hẹn có thể vừa bị hủy)
         const room = roomsCache.get(slot.roomId?.toString());
         
         const dentistIds = Array.isArray(slot.dentist) ? slot.dentist : (slot.dentist ? [slot.dentist] : []);
@@ -182,7 +182,7 @@ async function logSlotStatusChange({
       const patient = usersCache.find(u => u._id.toString() === appointment.patientId?.toString());
       const room = roomsCache.get(slot.roomId?.toString());
 
-      // Get dentist info
+      // Lấy thông tin nha sĩ
       const dentistIds = Array.isArray(slot.dentist) ? slot.dentist : (slot.dentist ? [slot.dentist] : []);
       const dentistsData = dentistIds.map(dentistId => {
         const dentist = usersCache.find(u => u._id.toString() === dentistId.toString());
@@ -196,7 +196,7 @@ async function logSlotStatusChange({
         };
       });
 
-      // Get nurse info
+      // Lấy thông tin y tá
       const nurseIds = Array.isArray(slot.nurse) ? slot.nurse : (slot.nurse ? [slot.nurse] : []);
       const nursesData = nurseIds.map(nurseId => {
         const nurse = usersCache.find(u => u._id.toString() === nurseId.toString());
@@ -210,7 +210,7 @@ async function logSlotStatusChange({
         };
       });
 
-      // Format time
+      // Định dạng thời gian
       const startDate = new Date(slot.startTime || slot.date);
       const endDate = new Date(slot.endTime || slot.date);
       
@@ -220,29 +220,29 @@ async function logSlotStatusChange({
       const vnEndDate = new Date(endDate.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
       const endTimeStr = `${String(vnEndDate.getHours()).padStart(2, '0')}:${String(vnEndDate.getMinutes()).padStart(2, '0')}`;
 
-      // Get patient info - support both registered users and guest patients
-      // ⚠️ IMPORTANT: usersCache does NOT include patients (only staff), so we must use patientInfo first!
+      // Lấy thông tin bệnh nhân - hỗ trợ cả người dùng đã đăng ký và khách vãng lai
+      // ⚠️ QUAN TRỌNG: usersCache KHÔNG bao gồm bệnh nhân (chỉ nhân viên), nên phải dùng patientInfo trước!
       let patientName = 'Unknown';
       let patientEmail = '';
       let patientPhone = '';
       
-      // Priority 1: Use patientInfo from appointment (embedded data - most reliable)
+      // Ưu tiên 1: Dùng patientInfo từ cuộc hẹn (dữ liệu nhúng - đáng tin cậy nhất)
       if (appointment.patientInfo && appointment.patientInfo.name) {
         patientName = appointment.patientInfo.name || 'Unknown';
         patientEmail = appointment.patientInfo.email || '';
         patientPhone = appointment.patientInfo.phone || '';
-        console.log(`📋 Logger: Using patientInfo from appointment: ${patientName}`);
+        console.log(`📋 Logger: Dùng patientInfo từ cuộc hẹn: ${patientName}`);
       } 
-      // Priority 2: Try to find in usersCache (for staff who also book appointments)
+      // Ưu tiên 2: Thử tìm trong usersCache (cho nhân viên cũng đặt lịch hẹn)
       else if (appointment.patientId && patient) {
         patientName = patient.fullName || patient.name || 'Unknown';
         patientEmail = patient.email || '';
         patientPhone = patient.phone || patient.phoneNumber || '';
-        console.log(`📋 Logger: Using usersCache for patient: ${patientName}`);
+        console.log(`📋 Logger: Dùng usersCache cho bệnh nhân: ${patientName}`);
       }
-      // Priority 3: If patientId exists but patient not in cache (normal case for patients)
+      // Ưu tiên 3: Nếu có patientId nhưng không có trong cache (trường hợp bình thường cho bệnh nhân)
       else if (appointment.patientId) {
-        // Try to fetch patient info directly from auth-service
+        // Thử lấy thông tin bệnh nhân trực tiếp từ auth-service
         try {
           const patientResponse = await axios.get(
             `${AUTH_SERVICE_URL}/api/user/${appointment.patientId}`,
@@ -253,10 +253,10 @@ async function logSlotStatusChange({
             patientName = patientData.fullName || patientData.name || 'Unknown';
             patientEmail = patientData.email || '';
             patientPhone = patientData.phone || patientData.phoneNumber || '';
-            console.log(`📋 Logger: Fetched patient from auth-service: ${patientName}`);
+            console.log(`📋 Logger: Lấy bệnh nhân từ auth-service: ${patientName}`);
           }
         } catch (fetchError) {
-          console.warn(`⚠️ Logger: Could not fetch patient ${appointment.patientId}:`, fetchError.message);
+          console.warn(`⚠️ Logger: Không thể lấy bệnh nhân ${appointment.patientId}:`, fetchError.message);
         }
       }
       
@@ -299,8 +299,8 @@ async function logSlotStatusChange({
         emailSentAt: undefined
       });
       
-      // Debug: Log payment/invoice info
-      console.log('💰 Payment/Invoice for appointment:', {
+      // Debug: Log thông tin thanh toán/hóa đơn
+      console.log('💰 Thanh toán/Hóa đơn cho cuộc hẹn:', {
         appointmentId: appointment._id,
         paymentId: appointment.paymentId?.toString() || 'null',
         invoiceId: appointment.invoiceId?.toString() || 'null',
@@ -309,13 +309,13 @@ async function logSlotStatusChange({
       });
     }
 
-    // Build affected staff without appointments
+    // Xây dựng nhân viên bị ảnh hưởng không có cuộc hẹn
     const slotsWithoutAppointments = slots.filter(s => !s.appointmentId);
     const affectedStaffData = [];
     const staffSet = new Set();
 
     for (const slot of slotsWithoutAppointments) {
-      // Add dentists
+      // Thêm nha sĩ
       const dentistIds = Array.isArray(slot.dentist) ? slot.dentist : (slot.dentist ? [slot.dentist] : []);
       for (const dentistId of dentistIds) {
         const key = dentistId.toString();
@@ -334,7 +334,7 @@ async function logSlotStatusChange({
         }
       }
 
-      // Add nurses
+      // Thêm y tá
       const nurseIds = Array.isArray(slot.nurse) ? slot.nurse : (slot.nurse ? [slot.nurse] : []);
       for (const nurseId of nurseIds) {
         const key = nurseId.toString();
@@ -354,7 +354,7 @@ async function logSlotStatusChange({
       }
     }
 
-    // Create log record
+    // Tạo bản ghi log
     const logRecord = new SlotStatusChange({
       operationType,
       action,
@@ -386,14 +386,14 @@ async function logSlotStatusChange({
     return logRecord;
 
   } catch (error) {
-    console.error('❌ Error logging slot status change:', error);
+    console.error('❌ Lỗi khi ghi log thay đổi trạng thái slot:', error);
     console.error(error.stack);
-    // Don't throw - logging failure shouldn't break the main operation
+    // Không throw - lỗi ghi log không nên làm hỏng thao tác chính
     return null;
   }
 }
 
-// Helper: Fetch users cache
+// Hỗ trợ: Lấy cache users
 async function fetchUsers() {
   try {
     const response = await axios.get(`${AUTH_SERVICE_URL}/api/user/cache/all`, { timeout: 5000 });
@@ -410,12 +410,12 @@ async function fetchUsers() {
 async function fetchRooms() {
   const roomsMap = new Map();
   try {
-    // Fetch all rooms without pagination limit
+    // Lấy tất cả phòng không giới hạn phân trang
     const url = `${ROOM_SERVICE_URL}/api/room?limit=1000`;
     console.log(`🏥 Fetching rooms from: ${url}`);
     const response = await axios.get(url, { timeout: 5000 });
     
-    // Room service returns: { total, page, limit, totalPages, rooms }
+    // Room service trả về: { total, page, limit, totalPages, rooms }
     const rooms = response.data?.rooms || [];
     console.log(`🏥 Fetched ${rooms.length} rooms (total: ${response.data?.total || 0})`);
     

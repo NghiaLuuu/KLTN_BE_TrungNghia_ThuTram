@@ -7,7 +7,7 @@ class RecordRepository {
   }
 
   async findById(id) {
-    // ✅ Don't populate - record already has patientInfo & dentistName
+    // ✅ Không populate - hồ sơ đã có sẵn patientInfo & dentistName
     return await Record.findById(id);
   }
 
@@ -19,7 +19,7 @@ class RecordRepository {
     }
     
     if (filters.dentistId) {
-      // ✅ Convert to ObjectId if it's a string
+      // ✅ Chuyển đổi sang ObjectId nếu là chuỗi
       const mongoose = require('mongoose');
       query.dentistId = mongoose.Types.ObjectId.isValid(filters.dentistId) 
         ? new mongoose.Types.ObjectId(filters.dentistId)
@@ -27,13 +27,13 @@ class RecordRepository {
       // console.log('🔍 [REPO] dentistId filter:', query.dentistId);
     }
 
-    // 🔒 Nurse filter: Need to find appointments with this nurseId first
+    // 🔒 Bộ lọc Nurse: Cần tìm các cuộc hẹn có nurseId này trước
     if (filters.nurseId) {
       try {
         const axios = require('axios');
         const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
         
-        // Get appointments where nurse is assigned
+        // Lấy các cuộc hẹn mà nurse được phân công
         const response = await axios.get(`${APPOINTMENT_SERVICE_URL}/api/appointments`, {
           params: { nurseId: filters.nurseId }
         });
@@ -44,7 +44,7 @@ class RecordRepository {
           if (appointmentIds.length > 0) {
             query.appointmentId = { $in: appointmentIds };
           } else {
-            // No appointments found for this nurse, return empty
+            // Không tìm thấy cuộc hẹn nào cho nurse này, trả về rỗng
             return [];
           }
         } else {
@@ -88,14 +88,14 @@ class RecordRepository {
     // console.log('📊 [REPO] Found records:', results.length);
     // console.log('🔍 [DEBUG] About to populate appointment times...');
     
-    // 🕐 Populate appointment times (startTime & endTime)
+    // 🕐 Populate thời gian cuộc hẹn (startTime & endTime)
     if (results.length > 0) {
       // console.log('🔍 [DEBUG] results.length > 0, proceeding...');
       try {
         const axios = require('axios');
         const APPOINTMENT_SERVICE_URL = process.env.APPOINTMENT_SERVICE_URL || 'http://localhost:3006';
         
-        // Get unique appointmentIds
+        // Lấy các appointmentIds duy nhất
         const appointmentIds = results
           .filter(r => r.appointmentId)
           .map(r => r.appointmentId.toString())
@@ -106,7 +106,7 @@ class RecordRepository {
           // console.log('🕐 Appointment IDs:', appointmentIds);
           // console.log('🕐 URL:', `${APPOINTMENT_SERVICE_URL}/api/appointment/by-ids`);
           
-          // Fetch appointments in bulk
+          // Lấy các cuộc hẹn theo batch
           const response = await axios.get(`${APPOINTMENT_SERVICE_URL}/api/appointments/by-ids`, {
             params: { ids: appointmentIds.join(',') }
           });
@@ -120,15 +120,15 @@ class RecordRepository {
               appointmentsMap[apt._id.toString()] = {
                 startTime: apt.startTime,
                 endTime: apt.endTime,
-                bookingChannel: apt.bookingChannel, // online or walk-in
+                bookingChannel: apt.bookingChannel, // online hoặc walk-in
                 deposit: apt.deposit || 0, // Tiền cọc (nếu có)
-                paymentStatus: apt.paymentStatus // pending, paid, etc.
+                paymentStatus: apt.paymentStatus // pending, paid, v.v.
               };
             });
             
             // console.log('🕐 Appointments map:', JSON.stringify(appointmentsMap, null, 2));
             
-            // Add times to records
+            // Thêm thời gian vào hồ sơ
             results.forEach(record => {
               if (record.appointmentId) {
                 const aptData = appointmentsMap[record.appointmentId.toString()];
@@ -189,7 +189,7 @@ class RecordRepository {
   async delete(id) {
     const record = await Record.findById(id);
     if (!record) {
-      throw new Error('Record not found');
+      throw new Error('Không tìm thấy hồ sơ');
     }
 
     if (record.hasBeenUsed) {
@@ -200,7 +200,7 @@ class RecordRepository {
   }
 
   async findByPatient(patientId, limit = 10) {
-    // ✅ Don't populate - record already has dentistName & patientInfo
+    // ✅ Không populate - hồ sơ đã có sẵn dentistName & patientInfo
     return await Record.find({ patientId })
       .sort({ date: -1 })
       .limit(limit);
@@ -216,18 +216,18 @@ class RecordRepository {
       };
     }
     
-    // ✅ Don't populate - record already has patientInfo & dentistName
+    // ✅ Không populate - hồ sơ đã có sẵn patientInfo & dentistName
     return await Record.find(query)
       .sort({ date: -1 });
   }
 
   async findByRecordCode(recordCode) {
-    // ✅ Don't populate - record already has patientInfo & dentistName
+    // ✅ Không populate - hồ sơ đã có sẵn patientInfo & dentistName
     return await Record.findOne({ recordCode });
   }
 
   async findPending() {
-    // ✅ Don't populate - record already has patientInfo & dentistName
+    // ✅ Không populate - hồ sơ đã có sẵn patientInfo & dentistName
     return await Record.find({ status: 'pending' })
       .sort({ priority: -1, createdAt: 1 });
   }

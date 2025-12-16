@@ -103,18 +103,18 @@ class AppointmentService {
   }
   
   formatTime(dateTime) {
-    // Slot startTime/endTime are stored as UTC Date in schedule-service
-    // We need to convert to Vietnam timezone (UTC+7) before storing as "HH:MM" string
+    // Slot startTime/endTime được lưu dạng UTC Date trong schedule-service
+    // Cần chuyển sang múi giờ Việt Nam (UTC+7) trước khi lưu dạng "HH:MM"
     const date = new Date(dateTime);
     
-    // Get UTC components
+    // Lấy các thành phần UTC
     const utcHours = date.getUTCHours();
     const utcMinutes = date.getUTCMinutes();
     
-    // Convert to Vietnam timezone (UTC+7)
+    // Chuyển sang múi giờ Việt Nam (UTC+7)
     let vnHours = utcHours + 7;
     
-    // Handle day overflow (e.g., 23:00 UTC + 7 = 06:00 next day)
+    // Xử lý tràn ngày (vd: 23:00 UTC + 7 = 06:00 ngày hôm sau)
     if (vnHours >= 24) {
       vnHours -= 24;
     }
@@ -125,23 +125,23 @@ class AppointmentService {
   }
   
   /**
-   * Check if slot is temporarily locked in Redis (during 15-min reservation window)
-   * This is NOT checking DB slot.isBooked - that's done in validateSlotsAvailable
+   * Kiểm tra slot có đang bị khóa tạm trong Redis không (trong 3 phút giữ chỗ)
+   * KHÔNG phải kiểm tra slot.isBooked trong DB - việc đó thực hiện trong validateSlotsAvailable
    * @param {String} slotId 
-   * @returns {Boolean} true if locked in Redis
+   * @returns {Boolean} true nếu đang bị khóa trong Redis
    */
   async isSlotLocked(slotId) {
     try {
       const lock = await redisClient.get('temp_slot_lock:' + slotId);
       if (lock) {
-        // Check if it's our own lock (allow same user to retry)
+        // Kiểm tra xem có phải lock của chính mình không (cho phép retry cùng user)
         const lockData = JSON.parse(lock);
-        console.log(`⏳ Slot ${slotId} is locked by reservation ${lockData.reservationId}`);
+        console.log(`⏳ Slot ${slotId} đang bị khóa bởi reservation ${lockData.reservationId}`);
       }
       return lock !== null;
     } catch (error) {
-      console.warn('⚠️ Redis check failed, assuming not locked:', error);
-      return false; // Fail open - allow reservation if Redis is down
+      console.warn('⚠️ Kiểm tra Redis thất bại, giả sử không bị khóa:', error);
+      return false; // Fail open - cho phép đặt chỗ nếu Redis không hoạt động
     }
   }
   
@@ -152,28 +152,28 @@ class AppointmentService {
         dentistId, slotIds, date, notes
       } = reservationData;
       
-      // Normalize currentUser role (support both role and roles)
+      // Chuẩn hóa role của currentUser (hỗ trợ cả role và roles)
       const userRole = currentUser.activeRole || currentUser.role || currentUser.roles?.[0] || 'unknown';
       
-      // 1️⃣ Get schedule config for deposit amount
+      // 1️⃣ Lấy cấu hình lịch để lấy số tiền cọc
       const scheduleConfig = await serviceClient.getScheduleConfig();
-      const depositAmount = scheduleConfig.depositAmount || 100000; // Default 50k VND
+      const depositAmount = scheduleConfig.depositAmount || 100000; // Mặc định 100k VND
       
-      // Validate slots and get slot details (query once, reuse result)
+      // Xác thực slot và lấy thông tin chi tiết (query một lần, tái sử dụng)
       const slots = await this.validateSlotsAvailable(slotIds);
       const serviceInfo = await this.getServiceInfo(serviceId, serviceAddOnId);
       const dentistInfo = await this.getDentistInfo(dentistId);
       
       const reservationId = 'RSV' + Date.now();
       
-      // Sort slots by time
+      // Sắp xếp slot theo thời gian
       slots.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
       
-      const firstSlot = slots[0]; // Use first slot from sorted array
+      const firstSlot = slots[0]; // Sử dụng slot đầu tiên từ mảng đã sắp xếp
       
-      // 🔧 Extract roomId and subRoomId (handle both populated and non-populated cases)
-      // When populated: roomId/subRoomId are objects { _id, name }
-      // When not populated: roomId/subRoomId are strings (ObjectId)
+      // 🔧 Trích xuất roomId và subRoomId (xử lý cả trường hợp đã populate và chưa populate)
+      // Khi đã populate: roomId/subRoomId là objects { _id, name }
+      // Khi chưa populate: roomId/subRoomId là strings (ObjectId)
       const extractId = (field) => {
         if (!field) return null;
         return typeof field === 'object' && field._id ? field._id.toString() : field.toString();
@@ -193,10 +193,10 @@ class AppointmentService {
       const startTime = this.formatTime(firstSlot.startTime);
       const endTime = this.formatTime(slots[slots.length - 1].endTime);
       
-      // 💰 Calculate total deposit: depositAmount × number of slots
+      // 💰 Tính tổng tiền cọc: depositAmount × số lượng slot
       const totalDepositAmount = depositAmount * slotIds.length;
       
-      // 🏠 Fetch room/subroom names from room-service
+      // 🏠 Lấy tên phòng/phòng con từ room-service
       const roomInfo = await this.getRoomInfo(roomId, subRoomId);
       console.log('🔍 [reserveAppointment] roomInfo result:', JSON.stringify(roomInfo, null, 2));
       
@@ -228,7 +228,7 @@ class AppointmentService {
         subroomName: reservation.subroomName
       }, null, 2));
       
-      // 2️⃣ Lock slots in DB (set status='locked')
+      // 2️⃣ Khóa slot trong DB (đặt status='locked')
       try {
         const scheduleServiceUrl = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
         await axios.put(`${scheduleServiceUrl}/api/slot/bulk-update`, {
@@ -239,14 +239,14 @@ class AppointmentService {
             lockedBy: reservationId
           }
         });
-        console.log('✅ Locked slots in DB (status=locked)');
+        console.log('✅ Đã khóa slot trong DB (status=locked)');
       } catch (error) {
-        console.error('❌ Failed to lock slots in DB:', error.message);
-        // Continue anyway - Redis lock is primary
+        console.error('❌ Không thể khóa slot trong DB:', error.message);
+        // Tiếp tục anyway - Redis lock là chính
       }
       
-      // 3️⃣ Store reservation + locks in Redis (3 min TTL)
-      const ttl = 3 * 60; // 180 seconds = 3 minutes
+      // 3️⃣ Lưu reservation + locks trong Redis (TTL 3 phút)
+      const ttl = 3 * 60; // 180 giây = 3 phút
       await redisClient.setEx(
         'temp_reservation:' + reservationId,
         ttl,
@@ -261,22 +261,22 @@ class AppointmentService {
         );
       }
       
-      // 4️⃣ Create temporary payment with deposit amount (replaced RPC)
+      // 4️⃣ Tạo thanh toán tạm với số tiền cọc (thay thế RPC)
       const paymentResult = await serviceClient.createTemporaryPayment(
         reservationId, // appointmentHoldKey
-        totalDepositAmount // 💰 Use deposit amount: depositAmount × slotCount
+        totalDepositAmount // 💰 Sử dụng số tiền cọc: depositAmount × slotCount
       );
       
       return {
         reservationId,
-        orderId: reservationId, // For payment
+        orderId: reservationId, // Cho thanh toán
         paymentUrl: paymentResult.paymentUrl,
-        amount: totalDepositAmount, // 💰 Return deposit amount
-        servicePrice: totalDepositAmount, // For display
-        depositPerSlot: depositAmount, // 🆕 Show deposit per slot
-        slotCount: slotIds.length, // 🆕 Show number of slots
+        amount: totalDepositAmount, // 💰 Trả về số tiền cọc
+        servicePrice: totalDepositAmount, // Để hiển thị
+        depositPerSlot: depositAmount, // 🆕 Hiển thị tiền cọc mỗi slot
+        slotCount: slotIds.length, // 🆕 Hiển thị số lượng slot
         expiresAt: reservation.expiresAt,
-        // ✅ Add full reservation details for display
+        // ✅ Thêm đầy đủ chi tiết reservation để hiển thị
         serviceName: serviceInfo.serviceName,
         serviceAddOnName: serviceInfo.serviceAddOnName,
         dentistName: dentistInfo.name,
@@ -294,20 +294,20 @@ class AppointmentService {
   }
   
   /**
-   * Validate slots are available and return slot details
+   * Xác thực slot khả dụng và trả về chi tiết slot
    * @param {Array<String>} slotIds 
-   * @returns {Array<Object>} slots - Array of slot objects
+   * @returns {Array<Object>} slots - Mảng các object slot
    */
   async validateSlotsAvailable(slotIds) {
-    // 1️⃣ Query all slots once (parallel query for performance)
+    // 1️⃣ Query tất cả slot một lần (query song song cho hiệu năng)
     const slots = await Promise.all(slotIds.map(id => this.getSlotInfo(id)));
     
-    // 2️⃣ Validate each slot
+    // 2️⃣ Xác thực từng slot
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i];
       const slotId = slotIds[i];
       
-      // Check if already booked or locked in database
+      // Kiểm tra đã đặt hoặc bị khóa trong database
       if (slot.status === 'booked') {
         throw new Error('Khung giờ này đã được đặt. Vui lòng chọn khung giờ khác.');
       }
@@ -316,31 +316,31 @@ class AppointmentService {
         throw new Error('Khung giờ này đang được giữ chỗ. Vui lòng chọn khung giờ khác hoặc đợi 3 phút để đặt lại nếu bạn đang trong quá trình thanh toán.');
       }
       
-      // 3️⃣ Check temporary lock in Redis (backup check)
+      // 3️⃣ Kiểm tra khóa tạm trong Redis (kiểm tra dự phòng)
       const isLocked = await this.isSlotLocked(slotId);
       if (isLocked) {
         throw new Error('Khung giờ này đang được giữ chỗ. Vui lòng chọn khung giờ khác hoặc đợi 3 phút để đặt lại nếu bạn đang trong quá trình thanh toán.');
       }
     }
     
-    // Return validated slots for reuse
+    // Trả về slot đã xác thực để tái sử dụng
     return slots;
   }
   
   async getServiceInfo(serviceId, serviceAddOnId) {
     try {
-      // ✅ If no serviceAddOnId, get service only
+      // ✅ Nếu không có serviceAddOnId, chỉ lấy service
       if (!serviceAddOnId) {
-        console.log('⚠️ [getServiceInfo] No serviceAddOnId provided, getting service only');
+        console.log('⚠️ [getServiceInfo] Không có serviceAddOnId, chỉ lấy service');
         
         const serviceResult = await rpcClient.call('service-service', 'getService', {
           serviceId
         });
         
-        console.log('📦 [getServiceInfo] Service-only result:', JSON.stringify(serviceResult));
+        console.log('📦 [getServiceInfo] Kết quả chỉ có service:', JSON.stringify(serviceResult));
         
         if (!serviceResult || !serviceResult.service) {
-          throw new Error('Service not found');
+          throw new Error('Không tìm thấy dịch vụ');
         }
         
         const service = serviceResult.service;
@@ -349,7 +349,7 @@ class AppointmentService {
           serviceId: service._id,
           serviceName: service.name,
           serviceType: service.type,
-          serviceDuration: 30, // Default duration
+          serviceDuration: 30, // Thời lượng mặc định
           servicePrice: service.price || 0,
           serviceAddOnId: null,
           serviceAddOnName: null,
@@ -357,73 +357,73 @@ class AppointmentService {
         };
       }
       
-      // 🔥 Call service-service API with serviceAddOnId
+      // 🔥 Gọi API service-service với serviceAddOnId
       const result = await rpcClient.call('service-service', 'getServiceAddOn', {
         serviceId, serviceAddOnId
       });
       
-      console.log('📦 [getServiceInfo] Raw RPC result:', JSON.stringify(result));
+      console.log('📦 [getServiceInfo] Kết quả RPC thô:', JSON.stringify(result));
       
       if (!result || !result.service || !result.addOn) {
-        throw new Error('Service or ServiceAddOn not found');
+        throw new Error('Không tìm thấy Service hoặc ServiceAddOn');
       }
       
       const { service, addOn } = result;
       
-      // ✅ Build proper response with all required fields
+      // ✅ Build response đầy đủ với tất cả các trường cần thiết
       return {
         serviceId: service._id,
         serviceName: service.name,
-        serviceType: service.type, // ⭐ Service model uses 'type' not 'serviceType'
-        serviceDuration: addOn.durationMinutes || addOn.duration, // ⭐ ServiceAddOn uses 'durationMinutes'
+        serviceType: service.type, // ⭐ Service model dùng 'type' không phải 'serviceType'
+        serviceDuration: addOn.durationMinutes || addOn.duration, // ⭐ ServiceAddOn dùng 'durationMinutes'
         servicePrice: service.price || 0,
         serviceAddOnId: addOn._id,
         serviceAddOnName: addOn.name,
         serviceAddOnPrice: addOn.effectivePrice || addOn.basePrice || addOn.price || 0
       };
     } catch (error) {
-      console.error('❌ [getServiceInfo] Error:', error);
-      throw new Error('Cannot get service info: ' + error.message);
+      console.error('❌ [getServiceInfo] Lỗi:', error);
+      throw new Error('Không thể lấy thông tin dịch vụ: ' + error.message);
     }
   }
   
   async getDentistInfo(dentistId) {
     try {
-      // 🔥 Call auth-service API directly (no more Redis cache)
+      // 🔥 Gọi API auth-service trực tiếp (không còn cache Redis)
       const { sendRpcRequest } = require('../utils/rabbitmq.client');
       
-      console.log(`🔍 [Appointment] Requesting dentist info for ID: ${dentistId}`);
+      console.log(`🔍 [Appointment] Đang yêu cầu thông tin nha sĩ với ID: ${dentistId}`);
       
       const userResult = await sendRpcRequest('auth_queue', {
         action: 'getUserById',
         payload: { userId: dentistId.toString() }
       }, 20000); // Tăng timeout lên 20s
       
-      console.log(`📥 [Appointment] Auth-service response:`, JSON.stringify(userResult));
+      console.log(`📥 [Appointment] Phản hồi từ auth-service:`, JSON.stringify(userResult));
       
       if (!userResult || !userResult.success || !userResult.data) {
-        console.error('❌ [Appointment] Invalid response from auth-service:', userResult);
-        throw new Error('Dentist not found');
+        console.error('❌ [Appointment] Phản hồi không hợp lệ từ auth-service:', userResult);
+        throw new Error('Không tìm thấy nha sĩ');
       }
       
       const dentist = userResult.data;
       
-      // ⭐ Return normalized object with 'name' field
+      // ⭐ Trả về object đã chuẩn hóa với trường 'name'
       return {
         _id: dentist._id,
-        name: dentist.fullName || dentist.name, // Support both fullName and name
+        name: dentist.fullName || dentist.name, // Hỗ trợ cả fullName và name
         specialization: dentist.specializations?.[0] || dentist.specialization
       };
     } catch (error) {
-      console.error('❌ [Appointment] getDentistInfo error:', error);
-      throw new Error('Cannot get dentist info: ' + error.message);
+      console.error('❌ [Appointment] Lỗi getDentistInfo:', error);
+      throw new Error('Không thể lấy thông tin nha sĩ: ' + error.message);
     }
   }
 
   /**
-   * Get room and subroom names from Redis cache (populated by room-service)
-   * @param {String} roomId - Room ID
-   * @param {String|null} subroomId - Subroom ID (optional)
+   * Lấy tên phòng và phòng con từ room-service (gọi API trực tiếp)
+   * @param {String} roomId - ID phòng
+   * @param {String|null} subroomId - ID phòng con (tùy chọn)
    * @returns {Object} { roomName, subroomName }
    */
   async getRoomInfo(roomId, subroomId = null) {
@@ -431,7 +431,7 @@ class AppointmentService {
       let roomName = 'Phòng khám';
       let subroomName = null;
 
-      // 🔥 Call room-service API directly (no more Redis cache)
+      // 🔥 Gọi API room-service trực tiếp (không còn cache Redis)
       if (roomId) {
         const { sendRpcRequest } = require('../utils/rabbitmq.client');
         const roomResult = await sendRpcRequest('room_queue', {
@@ -443,7 +443,7 @@ class AppointmentService {
           const room = roomResult.data;
           roomName = room.name || roomName;
           
-          // Find subroom if exists
+          // Tìm phòng con nếu có
           if (subroomId && room.subRooms && Array.isArray(room.subRooms)) {
             const subroom = room.subRooms.find(sr => sr._id.toString() === subroomId.toString());
             if (subroom) {
@@ -456,31 +456,31 @@ class AppointmentService {
       console.log(`🏠 [getRoomInfo] roomId=${roomId}, subroomId=${subroomId} → roomName="${roomName}", subroomName="${subroomName}"`);
       return { roomName, subroomName };
     } catch (error) {
-      console.warn('⚠️ Could not fetch room info from API:', error.message);
-      // Return fallback values if API is down
+      console.warn('⚠️ Không thể lấy thông tin phòng từ API:', error.message);
+      // Trả về giá trị mặc định nếu API không hoạt động
       return { roomName: 'Phòng khám', subroomName: null };
     }
   }
   
   /**
-   * Get slot info from schedule-service DB (source of truth)
-   * Checks actual slot.status in database, not Redis
+   * Lấy thông tin slot từ schedule-service DB (nguồn dữ liệu chính)
+   * Kiểm tra slot.status thực tế trong database, không phải Redis
    * @param {String} slotId 
-   * @returns {Object} slot with status, appointmentId, dentist, etc.
+   * @returns {Object} slot với status, appointmentId, dentist, v.v.
    */
   async getSlotInfo(slotId) {
     try {
-      // Use HTTP call to schedule-service to get real-time DB status
+      // Sử dụng HTTP call đến schedule-service để lấy status DB thời gian thực
       const slot = await serviceClient.getSlot(slotId);
       if (!slot) {
-        throw new Error('Slot not found');
+        throw new Error('Không tìm thấy slot');
       }
       
       console.log(`📅 Slot ${slotId} DB status: ${slot.status}, appointmentId: ${slot.appointmentId || 'null'}`);
       return slot;
     } catch (error) {
-      console.error('[AppointmentService] getSlotInfo error:', error.message);
-      throw new Error('Cannot get slot info: ' + error.message);
+      console.error('[AppointmentService] Lỗi getSlotInfo:', error.message);
+      throw new Error('Không thể lấy thông tin slot: ' + error.message);
     }
   }
   
@@ -505,13 +505,13 @@ class AppointmentService {
         subroomName: reservation.subroomName
       }, null, 2));
       
-      // 🔧 FIX: If reservation is missing serviceType/serviceDuration, re-fetch from service-service
+      // 🔧 FIX: Nếu reservation thiếu serviceType/serviceDuration, lấy lại từ service-service
       if (!reservation.serviceType || !reservation.serviceDuration) {
-        console.warn('⚠️ [createAppointmentFromPayment] Missing serviceType or serviceDuration in reservation, re-fetching...');
+        console.warn('⚠️ [createAppointmentFromPayment] Thiếu serviceType hoặc serviceDuration trong reservation, đang lấy lại...');
         const serviceInfo = await this.getServiceInfo(reservation.serviceId, reservation.serviceAddOnId);
         reservation.serviceType = serviceInfo.serviceType;
         reservation.serviceDuration = serviceInfo.serviceDuration;
-        console.log('✅ [createAppointmentFromPayment] Re-fetched serviceInfo:', { 
+        console.log('✅ [createAppointmentFromPayment] Đã lấy lại serviceInfo:', { 
           serviceType: serviceInfo.serviceType, 
           serviceDuration: serviceInfo.serviceDuration 
         });
@@ -573,7 +573,7 @@ class AppointmentService {
         appointmentId: appointment._id
       });
       
-      // Mark service as used via Queue (non-blocking)
+      // Đánh dấu dịch vụ đã sử dụng qua Queue (không blocking)
       try {
         await publishToQueue('service_queue', {
           event: 'service.mark_as_used',
@@ -584,30 +584,30 @@ class AppointmentService {
             }]
           }
         });
-        console.log('✅ Published service mark_as_used event (from reservation)');
+        console.log('✅ Đã publish event đánh dấu dịch vụ đã sử dụng (từ reservation)');
       } catch (queueError) {
-        console.warn('⚠️ Could not publish service event:', queueError.message);
-        // Don't throw - allow appointment creation to continue
+        console.warn('⚠️ Không thể publish event dịch vụ:', queueError.message);
+        // Không throw - cho phép tạo lịch hẹn tiếp tục
       }
       
-      // 🔓 Cleanup reservation and slot locks from Redis (idempotent - safe to call multiple times)
+      // 🔓 Dọn dẹp reservation và slot locks từ Redis (idempotent - an toàn khi gọi nhiều lần)
       try {
         await redisClient.del('temp_reservation:' + reservationId);
-        console.log('✅ Deleted reservation from Redis:', reservationId);
+        console.log('✅ Đã xóa reservation từ Redis:', reservationId);
       } catch (error) {
-        console.warn('⚠️ Failed to delete reservation from Redis:', error.message);
+        console.warn('⚠️ Không thể xóa reservation từ Redis:', error.message);
       }
       
       for (const slotId of reservation.slotIds) {
         try {
           const deleted = await redisClient.del('temp_slot_lock:' + slotId);
           if (deleted > 0) {
-            console.log(`🔓 [Payment Success] Removed Redis lock for slot ${slotId}`);
+            console.log(`🔓 [Thanh toán thành công] Đã xóa Redis lock cho slot ${slotId}`);
           } else {
-            console.log(`ℹ️ [Payment Success] No Redis lock for slot ${slotId} (already removed or expired)`);
+            console.log(`ℹ️ [Thanh toán thành công] Không có Redis lock cho slot ${slotId} (đã xóa hoặc hết hạn)`);
           }
         } catch (redisError) {
-          console.warn(`⚠️ Failed to remove Redis lock for slot ${slotId}:`, redisError.message);
+          console.warn(`⚠️ Không thể xóa Redis lock cho slot ${slotId}:`, redisError.message);
         }
       }
       
@@ -637,17 +637,17 @@ class AppointmentService {
         }
       });
       
-      console.log('Appointment created: ' + appointmentCode);
+      console.log('Đã tạo lịch hẹn: ' + appointmentCode);
       return appointment;
       
     } catch (error) {
-      console.error('Error creating appointment from payment:', error);
+      console.error('Lỗi tạo lịch hẹn từ thanh toán:', error);
       throw error;
     }
   }
   
-  // cancelReservation() removed - reservations auto-expire after 15 minutes (Redis TTL)
-  // If patient doesn't pay, Redis will auto-delete temp_reservation and temp_slot_lock keys
+  // cancelReservation() đã xóa - reservations tự hết hạn sau 3 phút (Redis TTL)
+  // Nếu bệnh nhân không thanh toán, Redis sẽ tự xóa temp_reservation và temp_slot_lock keys
   
   async getByCode(appointmentCode) {
     const appointment = await Appointment.findByCode(appointmentCode);
@@ -674,14 +674,14 @@ class AppointmentService {
       appointmentCode: appointment.appointmentCode
     });
     
-    // If already checked-in/in-progress/completed, return success (idempotent)
+    // Nếu đã check-in/in-progress/completed, trả về thành công (idempotent)
     if (['checked-in', 'in-progress', 'completed'].includes(appointment.status)) {
-      console.log('⚠️ [CheckIn] Already checked-in/in-progress/completed, skipping...');
+      console.log('⚠️ [CheckIn] Đã check-in/in-progress/completed, bỏ qua...');
       return appointment;
     }
     
     if (!appointment.canCheckIn()) {
-      throw new Error(`Cannot check-in this appointment. Current status: ${appointment.status}`);
+      throw new Error(`Không thể check-in lịch hẹn này. Trạng thái hiện tại: ${appointment.status}`);
     }
     
   // ✅ Check-in: chuyển trạng thái sang 'checked-in'
@@ -690,33 +690,33 @@ class AppointmentService {
   appointment.checkedInBy = userId;
     await appointment.save();
     
-    // 🔥 DIRECT SOCKET EMIT: Notify Queue Dashboard immediately
-    // Queue Dashboard connects to BOTH appointment-service (3006) AND record-service (3010)
+    // 🔥 EMIT SOCKET TRỰC TIẾP: Thông báo Queue Dashboard ngay lập tức
+    // Queue Dashboard kết nối với CẢ appointment-service (3006) VÀ record-service (3010)
     try {
       const { emitAppointmentStatusChange, emitQueueUpdate } = require('../utils/socket');
       
       if (appointment.roomId && appointment.appointmentDate) {
         const date = new Date(appointment.appointmentDate).toISOString().split('T')[0];
         
-        // Populate for socket emit
+        // Populate cho socket emit
         const appointmentWithDate = {
           ...appointment.toObject(),
           date: date
         };
         
-        // Emit directly to appointment-service socket (port 3006)
+        // Emit trực tiếp đến socket appointment-service (port 3006)
         emitAppointmentStatusChange(appointmentWithDate);
         emitQueueUpdate(appointment.roomId, date, `${appointment.patientInfo?.name || 'Bệnh nhân'} đã check-in`);
         
-        console.log(`📡 [CheckIn] Emitted socket events directly from appointment-service`);
+        console.log(`📡 [CheckIn] Đã emit socket events trực tiếp từ appointment-service`);
       }
     } catch (socketError) {
-      console.warn('⚠️ Failed to emit socket:', socketError.message);
+      console.warn('⚠️ Không thể emit socket:', socketError.message);
     }
     
     const bookingChannel = resolveBookingChannel(appointment.bookedByRole);
 
-    // 🔥 Publish event to record-service to auto-create record
+    // 🔥 Publish event đến record-service để tự động tạo hồ sơ khám
     try {
       await publishToQueue('record_queue', {
         event: 'appointment_checked-in',
@@ -745,10 +745,10 @@ class AppointmentService {
           checkedInBy: userId.toString()
         }
       });
-      console.log(`✅ Published appointment_checked-in event for appointment ${appointment.appointmentCode}`);
+      console.log(`✅ Đã publish event appointment_checked-in cho lịch hẹn ${appointment.appointmentCode}`);
     } catch (publishError) {
-      console.error('❌ Failed to publish appointment_checked-in event:', publishError);
-      // Don't throw error - appointment check-in still successful
+      console.error('❌ Không thể publish event appointment_checked-in:', publishError);
+      // Không throw lỗi - appointment check-in vẫn thành công
     }
     
     return appointment;
@@ -756,10 +756,10 @@ class AppointmentService {
   
   async complete(appointmentId, userId, completionData) {
     const appointment = await Appointment.findById(appointmentId);
-    if (!appointment) throw new Error('Appointment not found');
+    if (!appointment) throw new Error('Không tìm thấy lịch hẹn');
     
     if (!appointment.canComplete()) {
-      throw new Error('Cannot complete this appointment');
+      throw new Error('Không thể hoàn thành lịch hẹn này');
     }
     
     appointment.status = 'completed';
@@ -775,7 +775,7 @@ class AppointmentService {
     
     await appointment.save();
     
-    // 🔥 PUBLISH TO RECORD SERVICE: Let record-service emit socket
+    // 🔥 PUBLISH ĐẾN RECORD SERVICE: Để record-service emit socket
     try {
       if (appointment.roomId && appointment.appointmentDate) {
         const date = new Date(appointment.appointmentDate).toISOString().split('T')[0];
@@ -793,13 +793,13 @@ class AppointmentService {
           }
         });
         
-        console.log(`📡 [Complete] Published status change to record-service for socket emit`);
+        console.log(`📡 [Complete] Đã publish thay đổi trạng thái đến record-service để emit socket`);
       }
     } catch (socketError) {
-      console.warn('⚠️ Failed to publish status change:', socketError.message);
+      console.warn('⚠️ Không thể publish thay đổi trạng thái:', socketError.message);
     }
     
-    // 🔥 Publish appointment.completed event (RabbitMQ for other services)
+    // 🔥 Publish event appointment.completed (RabbitMQ cho các service khác)
     try {
       await publishToQueue('appointment_queue', {
         event: 'appointment.completed',
@@ -819,17 +819,17 @@ class AppointmentService {
           actualDuration: appointment.actualDuration
         }
       });
-      console.log(`✅ Published appointment.completed event for ${appointment.appointmentCode}`);
+      console.log(`✅ Đã publish event appointment.completed cho ${appointment.appointmentCode}`);
     } catch (publishError) {
-      console.error('❌ Failed to publish appointment.completed event:', publishError);
+      console.error('❌ Không thể publish event appointment.completed:', publishError);
     }
     
     return appointment;
   }
   
   /**
-   * Request cancellation for online appointments
-   * Patient can request if appointment is >= 1 day away
+   * Yêu cầu hủy lịch hẹn cho đặt online
+   * Bệnh nhân có thể yêu cầu nếu lịch hẹn >= 1 ngày trước
    */
   async requestCancellation(appointmentId, patientId, reason) {
     const appointment = await Appointment.findById(appointmentId);
@@ -838,26 +838,26 @@ class AppointmentService {
       throw new Error('Không tìm thấy phiếu khám');
     }
     
-    // Check if patient owns this appointment
+    // Kiểm tra bệnh nhân có sở hữu lịch hẹn này không
     if (appointment.patientId.toString() !== patientId.toString()) {
       throw new Error('Bạn không có quyền yêu cầu hủy phiếu khám này');
     }
     
-    // Check if can request cancellation
+    // Kiểm tra có thể yêu cầu hủy không
     const canRequest = appointment.canRequestCancellation();
     if (!canRequest.canRequest) {
       throw new Error(canRequest.reason);
     }
     
-    // Update status to pending-cancellation and save reason to notes
+    // Cập nhật status sang pending-cancellation và lưu lý do vào notes
     appointment.status = 'pending-cancellation';
     appointment.cancellationRequestedAt = new Date();
     appointment.cancellationRequestedBy = patientId;
     appointment.cancellationRequestReason = reason || 'Không có lý do';
-    appointment.notes = reason || 'Không có lý do'; // ✅ Save reason to notes field
+    appointment.notes = reason || 'Không có lý do'; // ✅ Lưu lý do vào trường notes
     await appointment.save();
     
-    // 🔥 Publish event for notification
+    // 🔥 Publish event để thông báo
     try {
       await publishToQueue('appointment_queue', {
         event: 'cancellation_requested',
@@ -872,17 +872,17 @@ class AppointmentService {
         }
       });
       
-      console.log(`📡 [Request Cancellation] Published event for ${appointment.appointmentCode}`);
+      console.log(`📡 [Yêu cầu hủy] Đã publish event cho ${appointment.appointmentCode}`);
     } catch (error) {
-      console.warn('⚠️ Failed to publish cancellation request event:', error.message);
+      console.warn('⚠️ Không thể publish event yêu cầu hủy:', error.message);
     }
     
     return appointment;
   }
 
   /**
-   * Admin/Manager/Receptionist cancel appointment
-   * No time restrictions - can cancel anytime
+   * Admin/Manager/Receptionist hủy lịch hẹn
+   * Không giới hạn thời gian - có thể hủy bất cứ lúc nào
    */
   async adminCancelAppointment(appointmentId, staffId, staffRole, reason, currentUser = null) {
     const appointment = await Appointment.findById(appointmentId)
@@ -904,7 +904,7 @@ class AppointmentService {
       patientInfo: appointment.patientInfo
     });
     
-    // Check if appointment can be cancelled
+    // Kiểm tra lịch hẹn có thể hủy không
     if (appointment.status === 'cancelled') {
       throw new Error('Phiếu khám đã bị hủy trước đó');
     }
@@ -913,27 +913,27 @@ class AppointmentService {
       throw new Error('Không thể hủy phiếu khám đã hoàn thành');
     }
 
-    // 🔥 Get patient email for notification
+    // 🔥 Lấy email bệnh nhân để thông báo
     let patientEmail = null;
     let patientName = null;
     let patientPhone = null;
     let patientIdStr = null;
     
-    // Try to get from populated patientId first
+    // Thử lấy từ patientId đã populate trước
     if (appointment.patientId) {
-      // Check if patientId is populated (object) or just an ObjectId
+      // Kiểm tra patientId đã được populate (object) hay chỉ là ObjectId
       if (typeof appointment.patientId === 'object' && appointment.patientId._id) {
         patientIdStr = appointment.patientId._id.toString();
         patientEmail = appointment.patientId.email;
         patientName = appointment.patientId.fullName || appointment.patientId.name;
         patientPhone = appointment.patientId.phoneNumber;
       } else {
-        // Just an ObjectId, not populated
+        // Chỉ là ObjectId, chưa populate
         patientIdStr = appointment.patientId.toString();
       }
     }
     
-    // Fallback to patientInfo
+    // Fallback sang patientInfo
     if (!patientEmail && appointment.patientInfo?.email) {
       patientEmail = appointment.patientInfo.email;
     }
@@ -944,14 +944,14 @@ class AppointmentService {
       patientPhone = appointment.patientInfo.phone;
     }
     
-    console.log('📧 [adminCancelAppointment] Extracted patient info:', {
+    console.log('📧 [adminCancelAppointment] Đã trích xuất thông tin bệnh nhân:', {
       patientEmail,
       patientName,
       patientPhone,
       patientIdStr
     });
     
-    // Update status to cancelled
+    // Cập nhật status sang cancelled
     const cancelledAt = new Date();
     appointment.status = 'cancelled';
     appointment.cancellationRequestedAt = cancelledAt;
@@ -966,36 +966,36 @@ class AppointmentService {
     const appointmentIdStr = appointment._id.toString();
     const appointmentCode = appointment.appointmentCode;
     
-    console.log(`✅ [Admin Cancel] Appointment ${appointmentCode} cancelled by ${staffRole}`);
+    console.log(`✅ [Admin Cancel] Lịch hẹn ${appointmentCode} đã bị hủy bởi ${staffRole}`);
 
-    // 🔥 Release slots back to available
+    // 🔥 Giải phóng slot về trạng thái available
     if (appointment.slotIds && appointment.slotIds.length > 0) {
       try {
         await serviceClient.bulkUpdateSlots(appointment.slotIds, {
           status: 'available',
           appointmentId: null
         });
-        console.log(`🔓 [Admin Cancel] Released ${appointment.slotIds.length} slots back to available`);
+        console.log(`🔓 [Admin Cancel] Đã giải phóng ${appointment.slotIds.length} slot về trạng thái available`);
         
-        // 🔥 IMPORTANT: Remove Redis locks for these slots (even if not found, no error)
+        // 🔥 QUAN TRỌNG: Xóa Redis locks cho các slot này (dù không tìm thấy cũng không lỗi)
         for (const slotId of appointment.slotIds) {
           try {
             const deleted = await redisClient.del('temp_slot_lock:' + slotId);
             if (deleted > 0) {
-              console.log(`🔓 [Admin Cancel] Removed Redis lock for slot ${slotId}`);
+              console.log(`🔓 [Admin Cancel] Đã xóa Redis lock cho slot ${slotId}`);
             } else {
-              console.log(`ℹ️ [Admin Cancel] No Redis lock found for slot ${slotId} (already expired or not locked)`);
+              console.log(`ℹ️ [Admin Cancel] Không tìm thấy Redis lock cho slot ${slotId} (đã hết hạn hoặc không bị khóa)`);
             }
           } catch (redisError) {
-            console.warn(`⚠️ Failed to remove Redis lock for slot ${slotId}:`, redisError.message);
+            console.warn(`⚠️ Không thể xóa Redis lock cho slot ${slotId}:`, redisError.message);
           }
         }
       } catch (slotError) {
-        console.warn('⚠️ Failed to release slots:', slotError.message);
+        console.warn('⚠️ Không thể giải phóng slot:', slotError.message);
       }
     }
 
-    // 🔥 Log cancellation to DayClosure (for tracking individual appointment cancellations by staff)
+    // 🔥 Ghi log hủy vào DayClosure (để theo dõi từng hủy lịch hẹn bởi nhân viên)
     try {
       await publishToQueue('schedule_queue', {
         event: 'log_appointment_cancellation',
@@ -1031,12 +1031,12 @@ class AppointmentService {
           reason: reason || 'Hủy bởi ' + staffRole
         }
       });
-      console.log(`📝 [Admin Cancel] Published cancellation log to schedule-service`);
+      console.log(`📝 [Admin Cancel] Đã publish log hủy đến schedule-service`);
     } catch (logError) {
-      console.warn('⚠️ Failed to log cancellation to DayClosure:', logError.message);
+      console.warn('⚠️ Không thể ghi log hủy vào DayClosure:', logError.message);
     }
 
-    // 🔥 1. Send email to patient if email exists
+    // 🔥 1. Gửi email đến bệnh nhân nếu có email
     if (patientEmail) {
       try {
         await publishToQueue('email_notifications', {
@@ -1066,15 +1066,15 @@ class AppointmentService {
             action: 'cancelled_by_admin'
           }
         });
-        console.log(`📧 [Admin Cancel] Queued email to patient: ${patientEmail}`);
+        console.log(`📧 [Admin Cancel] Đã đưa email vào hàng đợi cho bệnh nhân: ${patientEmail}`);
       } catch (emailError) {
-        console.warn('⚠️ Failed to queue patient email:', emailError.message);
+        console.warn('⚠️ Không thể đưa email bệnh nhân vào hàng đợi:', emailError.message);
       }
     } else {
-      console.warn(`⚠️ [Admin Cancel] No patient email found for appointment ${appointmentCode}`);
+      console.warn(`⚠️ [Admin Cancel] Không tìm thấy email bệnh nhân cho lịch hẹn ${appointmentCode}`);
     }
 
-    // 🔥 2. Cancel Invoice and InvoiceDetails if exists
+    // 🔥 2. Hủy Invoice và InvoiceDetails nếu có
     if (appointment.invoiceId) {
       try {
         await publishToQueue('invoice_queue', {
@@ -1088,13 +1088,13 @@ class AppointmentService {
             cancelledAt: cancelledAt
           }
         });
-        console.log(`📡 [Admin Cancel] Published invoice cancellation event for invoice ${appointment.invoiceId}`);
+        console.log(`📡 [Admin Cancel] Đã publish event hủy hóa đơn cho invoice ${appointment.invoiceId}`);
       } catch (error) {
-        console.warn('⚠️ Failed to publish invoice cancellation event:', error.message);
+        console.warn('⚠️ Không thể publish event hủy hóa đơn:', error.message);
       }
     }
     
-    // 🔥 3. Cancel Payment if exists
+    // 🔥 3. Hủy Payment nếu có
     if (appointment.paymentId) {
       try {
         await publishToQueue('payment_queue', {
@@ -1108,13 +1108,13 @@ class AppointmentService {
             cancelledAt: cancelledAt
           }
         });
-        console.log(`📡 [Admin Cancel] Published payment cancellation event for payment ${appointment.paymentId}`);
+        console.log(`📡 [Admin Cancel] Đã publish event hủy thanh toán cho payment ${appointment.paymentId}`);
       } catch (error) {
-        console.warn('⚠️ Failed to publish payment cancellation event:', error.message);
+        console.warn('⚠️ Không thể publish event hủy thanh toán:', error.message);
       }
     }
     
-    // 🔥 4. Delete Records linked to this appointment
+    // 🔥 4. Xóa Records liên kết với lịch hẹn này
     try {
       await publishToQueue('record_queue', {
         event: 'delete_records_by_appointment',
@@ -1122,18 +1122,18 @@ class AppointmentService {
           appointmentId: appointmentIdStr,
           deletedBy: staffId,
           deletedByRole: staffRole,
-          reason: 'Appointment cancelled by ' + staffRole,
+          reason: 'Lịch hẹn bị hủy bởi ' + staffRole,
           deletedAt: cancelledAt
         }
       });
-      console.log(`📡 [Admin Cancel] Published record deletion event for appointment ${appointmentIdStr}`);
+      console.log(`📡 [Admin Cancel] Đã publish event xóa hồ sơ cho lịch hẹn ${appointmentIdStr}`);
     } catch (error) {
-      console.warn('⚠️ Failed to publish record deletion event:', error.message);
+      console.warn('⚠️ Không thể publish event xóa hồ sơ:', error.message);
     }
 
-    // Note: DayClosure logging removed - only for bulk clinic-initiated slot cancellations
+    // Ghi chú: DayClosure logging đã xóa - chỉ dành cho hủy slot hàng loạt do phòng khám chủ động
     
-    // 🔥 5. Publish general appointment cancellation event for notifications
+    // 🔥 5. Publish event hủy lịch hẹn chung để thông báo
     try {
       await publishToQueue('appointment_queue', {
         event: 'admin_cancelled',
@@ -1150,17 +1150,17 @@ class AppointmentService {
         }
       });
       
-      console.log(`📡 [Admin Cancel] Published notification event for ${appointmentCode} by ${staffRole}`);
+      console.log(`📡 [Admin Cancel] Đã publish event thông báo cho ${appointmentCode} bởi ${staffRole}`);
     } catch (error) {
-      console.warn('⚠️ Failed to publish admin cancellation notification event:', error.message);
+      console.warn('⚠️ Không thể publish event thông báo hủy bởi admin:', error.message);
     }
     
     return appointment;
   }
 
   /**
-   * 🆕 Cancel appointment due to slot toggle (does NOT clear appointmentId in slots)
-   * Used when disabling slots - allows restoration when slots are re-enabled
+   * 🆕 Hủy lịch hẹn do slot bị tắt (KHÔNG xóa appointmentId trong slots)
+   * Sử dụng khi tắt slot - cho phép khôi phục khi slot được bật lại
    */
   async slotCancelAppointment(appointmentId, reason = null) {
     const appointment = await Appointment.findById(appointmentId)
@@ -1170,7 +1170,7 @@ class AppointmentService {
       throw new Error('Không tìm thấy phiếu khám');
     }
     
-    console.log('🔄 [slotCancelAppointment] Appointment data:', {
+    console.log('🔄 [slotCancelAppointment] Dữ liệu lịch hẹn:', {
       _id: appointment._id,
       appointmentCode: appointment.appointmentCode,
       status: appointment.status,
@@ -1178,22 +1178,22 @@ class AppointmentService {
       paymentId: appointment.paymentId
     });
     
-    // Only cancel appointments that can be cancelled
+    // Chỉ hủy những lịch hẹn có thể hủy
     if (appointment.status === 'cancelled') {
-      console.log(`ℹ️ [slotCancelAppointment] Appointment ${appointment.appointmentCode} already cancelled, skipping`);
+      console.log(`ℹ️ [slotCancelAppointment] Lịch hẹn ${appointment.appointmentCode} đã bị hủy, bỏ qua`);
       return appointment;
     }
     
     if (appointment.status === 'completed') {
-      console.log(`ℹ️ [slotCancelAppointment] Appointment ${appointment.appointmentCode} already completed, cannot cancel`);
+      console.log(`ℹ️ [slotCancelAppointment] Lịch hẹn ${appointment.appointmentCode} đã hoàn thành, không thể hủy`);
       return appointment;
     }
 
-    // Update status to cancelled
+    // Cập nhật status sang cancelled
     const cancelledAt = new Date();
     appointment.status = 'cancelled';
     appointment.cancelledAt = cancelledAt;
-    appointment.cancelledBy = null; // System action
+    appointment.cancelledBy = null; // Hành động hệ thống
     appointment.cancellationReason = reason || 'Slot bị tắt';
     
     await appointment.save();
@@ -1201,11 +1201,11 @@ class AppointmentService {
     const appointmentIdStr = appointment._id.toString();
     const appointmentCode = appointment.appointmentCode;
     
-    console.log(`✅ [Slot Cancel] Appointment ${appointmentCode} cancelled due to slot toggle`);
+    console.log(`✅ [Slot Cancel] Lịch hẹn ${appointmentCode} đã bị hủy do slot bị tắt`);
 
-    // 🔥 NOTE: Do NOT release slots - keep appointmentId for restoration
+    // 🔥 GHI CHÚ: KHÔNG giải phóng slot - giữ appointmentId để khôi phục
 
-    // Cancel Invoice if exists
+    // Hủy Invoice nếu có
     if (appointment.invoiceId) {
       try {
         await publishToQueue('invoice_queue', {
@@ -1219,15 +1219,15 @@ class AppointmentService {
             cancelledAt: cancelledAt
           }
         });
-        console.log(`📡 [Slot Cancel] Published invoice cancellation event`);
+        console.log(`📡 [Slot Cancel] Đã publish event hủy hóa đơn`);
       } catch (error) {
-        console.warn('⚠️ Failed to publish invoice cancellation event:', error.message);
+        console.warn('⚠️ Không thể publish event hủy hóa đơn:', error.message);
       }
     } else {
-      console.log(`ℹ️ [Slot Cancel] No invoiceId found for appointment ${appointmentCode}`);
+      console.log(`ℹ️ [Slot Cancel] Không có invoiceId cho lịch hẹn ${appointmentCode}`);
     }
     
-    // Cancel Payment if exists
+    // Hủy Payment nếu có
     if (appointment.paymentId) {
       try {
         await publishToQueue('payment_queue', {
@@ -1241,20 +1241,20 @@ class AppointmentService {
             cancelledAt: cancelledAt
           }
         });
-        console.log(`📡 [Slot Cancel] Published payment cancellation event`);
+        console.log(`📡 [Slot Cancel] Đã publish event hủy thanh toán`);
       } catch (error) {
-        console.warn('⚠️ Failed to publish payment cancellation event:', error.message);
+        console.warn('⚠️ Không thể publish event hủy thanh toán:', error.message);
       }
     } else {
-      console.log(`ℹ️ [Slot Cancel] No paymentId found for appointment ${appointmentCode}`);
+      console.log(`ℹ️ [Slot Cancel] Không có paymentId cho lịch hẹn ${appointmentCode}`);
     }
     
     return appointment;
   }
 
   /**
-   * 🆕 Restore appointment when slot is re-enabled
-   * Changes status from 'cancelled' back to 'confirmed'
+   * 🆕 Khôi phục lịch hẹn khi slot được bật lại
+   * Thay đổi status từ 'cancelled' về 'confirmed'
    */
   async slotRestoreAppointment(appointmentId, reason = null) {
     const appointment = await Appointment.findById(appointmentId)
@@ -1264,7 +1264,7 @@ class AppointmentService {
       throw new Error('Không tìm thấy phiếu khám');
     }
     
-    console.log('🔄 [slotRestoreAppointment] Appointment data:', {
+    console.log('🔄 [slotRestoreAppointment] Dữ liệu lịch hẹn:', {
       _id: appointment._id,
       appointmentCode: appointment.appointmentCode,
       status: appointment.status,
@@ -1272,24 +1272,24 @@ class AppointmentService {
       paymentId: appointment.paymentId
     });
     
-    // Only restore cancelled appointments
+    // Chỉ khôi phục lịch hẹn đã bị hủy
     if (appointment.status !== 'cancelled') {
-      console.log(`ℹ️ [slotRestoreAppointment] Appointment ${appointment.appointmentCode} is not cancelled (status: ${appointment.status}), skipping`);
+      console.log(`ℹ️ [slotRestoreAppointment] Lịch hẹn ${appointment.appointmentCode} không bị hủy (status: ${appointment.status}), bỏ qua`);
       return appointment;
     }
     
-    // Check if appointment date is in the future
+    // Kiểm tra ngày lịch hẹn có trong tương lai không
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const appointmentDate = new Date(appointment.appointmentDate);
     appointmentDate.setHours(0, 0, 0, 0);
     
     if (appointmentDate < today) {
-      console.log(`ℹ️ [slotRestoreAppointment] Appointment ${appointment.appointmentCode} is in the past, cannot restore`);
+      console.log(`ℹ️ [slotRestoreAppointment] Lịch hẹn ${appointment.appointmentCode} đã qua, không thể khôi phục`);
       return appointment;
     }
 
-    // Restore status to confirmed
+    // Khôi phục status về confirmed
     appointment.status = 'confirmed';
     appointment.cancelledAt = null;
     appointment.cancelledBy = null;
@@ -1300,9 +1300,9 @@ class AppointmentService {
     const appointmentIdStr = appointment._id.toString();
     const appointmentCode = appointment.appointmentCode;
     
-    console.log(`✅ [Slot Restore] Appointment ${appointmentCode} restored to confirmed`);
+    console.log(`✅ [Slot Restore] Lịch hẹn ${appointmentCode} đã được khôi phục về confirmed`);
 
-    // Restore Invoice if exists
+    // Khôi phục Invoice nếu có
     if (appointment.invoiceId) {
       try {
         await publishToQueue('invoice_queue', {
@@ -1316,15 +1316,15 @@ class AppointmentService {
             restoredAt: new Date()
           }
         });
-        console.log(`📡 [Slot Restore] Published invoice restoration event`);
+        console.log(`📡 [Slot Restore] Đã publish event khôi phục hóa đơn`);
       } catch (error) {
-        console.warn('⚠️ Failed to publish invoice restoration event:', error.message);
+        console.warn('⚠️ Không thể publish event khôi phục hóa đơn:', error.message);
       }
     } else {
-      console.log(`ℹ️ [Slot Restore] No invoiceId found for appointment ${appointmentCode}`);
+      console.log(`ℹ️ [Slot Restore] Không có invoiceId cho lịch hẹn ${appointmentCode}`);
     }
     
-    // Restore Payment if exists
+    // Khôi phục Payment nếu có
     if (appointment.paymentId) {
       try {
         await publishToQueue('payment_queue', {
@@ -1338,20 +1338,20 @@ class AppointmentService {
             restoredAt: new Date()
           }
         });
-        console.log(`📡 [Slot Restore] Published payment restoration event`);
+        console.log(`📡 [Slot Restore] Đã publish event khôi phục thanh toán`);
       } catch (error) {
-        console.warn('⚠️ Failed to publish payment restoration event:', error.message);
+        console.warn('⚠️ Không thể publish event khôi phục thanh toán:', error.message);
       }
     } else {
-      console.log(`ℹ️ [Slot Restore] No paymentId found for appointment ${appointmentCode}`);
+      console.log(`ℹ️ [Slot Restore] Không có paymentId cho lịch hẹn ${appointmentCode}`);
     }
     
     return appointment;
   }
 
   /**
-   * Admin/Manager/Receptionist reject cancellation request
-   * Changes status from 'pending-cancellation' back to 'confirmed'
+   * Admin/Manager/Receptionist từ chối yêu cầu hủy
+   * Thay đổi status từ 'pending-cancellation' về 'confirmed'
    */
   async rejectCancellation(appointmentId, staffId, staffRole, reason = null) {
     const appointment = await Appointment.findById(appointmentId)
@@ -1361,34 +1361,34 @@ class AppointmentService {
       throw new Error('Không tìm thấy phiếu khám');
     }
     
-    // Check if appointment is in pending-cancellation status
+    // Kiểm tra lịch hẹn có đang ở trạng thái pending-cancellation không
     if (appointment.status !== 'pending-cancellation') {
       throw new Error('Phiếu khám không ở trạng thái chờ duyệt hủy');
     }
 
-    console.log(`🔄 [Reject Cancellation] Processing appointment ${appointment.appointmentCode}`);
+    console.log(`🔄 [Từ chối hủy] Đang xử lý lịch hẹn ${appointment.appointmentCode}`);
 
-    // 🔥 Get patient email for notification
+    // 🔥 Lấy email bệnh nhân để thông báo
     let patientEmail = null;
     let patientName = null;
     let patientPhone = null;
     let patientIdStr = null;
     
-    // Try to get from populated patientId first
+    // Thử lấy từ patientId đã populate trước
     if (appointment.patientId) {
-      // Check if patientId is populated (object) or just an ObjectId
+      // Kiểm tra patientId đã được populate (object) hay chỉ là ObjectId
       if (typeof appointment.patientId === 'object' && appointment.patientId._id) {
         patientIdStr = appointment.patientId._id.toString();
         patientEmail = appointment.patientId.email;
         patientName = appointment.patientId.fullName || appointment.patientId.name;
         patientPhone = appointment.patientId.phoneNumber;
       } else {
-        // Just an ObjectId, not populated
+        // Chỉ là ObjectId, chưa populate
         patientIdStr = appointment.patientId.toString();
       }
     }
     
-    // Fallback to patientInfo
+    // Fallback sang patientInfo
     if (!patientEmail && appointment.patientInfo?.email) {
       patientEmail = appointment.patientInfo.email;
     }
@@ -1399,17 +1399,17 @@ class AppointmentService {
       patientPhone = appointment.patientInfo.phone;
     }
     
-    console.log('📧 [Reject Cancellation] Extracted patient info:', {
+    console.log('📧 [Từ chối hủy] Đã trích xuất thông tin bệnh nhân:', {
       patientEmail,
       patientName,
       patientPhone,
       patientIdStr
     });
 
-    // Update status back to confirmed
+    // Cập nhật status về confirmed
     appointment.status = 'confirmed';
     
-    // Clear cancellation request fields
+    // Xóa các trường yêu cầu hủy
     appointment.cancellationRequestedAt = null;
     appointment.cancellationRequestedBy = null;
     appointment.cancellationRequestReason = null;
@@ -1417,9 +1417,9 @@ class AppointmentService {
     await appointment.save();
     
     const appointmentCode = appointment.appointmentCode;
-    console.log(`✅ [Reject Cancellation] Appointment ${appointmentCode} status changed back to confirmed by ${staffRole}`);
+    console.log(`✅ [Từ chối hủy] Lịch hẹn ${appointmentCode} đã đổi status về confirmed bởi ${staffRole}`);
 
-    // 🔥 Send email to patient if email exists
+    // 🔥 Gửi email đến bệnh nhân nếu có email
     if (patientEmail) {
       try {
         await publishToQueue('email_notifications', {
@@ -1449,12 +1449,12 @@ class AppointmentService {
             action: 'cancellation_rejected'
           }
         });
-        console.log(`📧 [Reject Cancellation] Queued email to patient: ${patientEmail}`);
+        console.log(`📧 [Từ chối hủy] Đã đưa email vào hàng đợi cho bệnh nhân: ${patientEmail}`);
       } catch (emailError) {
-        console.warn('⚠️ Failed to queue patient email:', emailError.message);
+        console.warn('⚠️ Không thể đưa email bệnh nhân vào hàng đợi:', emailError.message);
       }
     } else {
-      console.warn(`⚠️ [Reject Cancellation] No patient email found for appointment ${appointmentCode}`);
+      console.warn(`⚠️ [Từ chối hủy] Không tìm thấy email bệnh nhân cho lịch hẹn ${appointmentCode}`);
     }
 
     return appointment;
@@ -1462,10 +1462,10 @@ class AppointmentService {
   
   async cancel(appointmentId, userId, reason) {
     const appointment = await Appointment.findById(appointmentId);
-    if (!appointment) throw new Error('Appointment not found');
+    if (!appointment) throw new Error('Không tìm thấy lịch hẹn');
     
     if (!appointment.canBeCancelled()) {
-      throw new Error('Cannot cancel this appointment');
+      throw new Error('Không thể hủy lịch hẹn này');
     }
     
     appointment.status = 'cancelled';
@@ -1474,7 +1474,7 @@ class AppointmentService {
     appointment.cancellationReason = reason;
     await appointment.save();
     
-    // 🔥 PUBLISH TO RECORD SERVICE: Let record-service emit socket
+    // 🔥 PUBLISH ĐẾN RECORD SERVICE: Để record-service emit socket
     try {
       if (appointment.roomId && appointment.appointmentDate) {
         const date = new Date(appointment.appointmentDate).toISOString().split('T')[0];
@@ -1492,10 +1492,10 @@ class AppointmentService {
           }
         });
         
-        console.log(`📡 [Cancel] Published status change to record-service for socket emit`);
+        console.log(`📡 [Cancel] Đã publish thay đổi trạng thái đến record-service để emit socket`);
       }
     } catch (socketError) {
-      console.warn('⚠️ Failed to publish status change:', socketError.message);
+      console.warn('⚠️ Không thể publish thay đổi trạng thái:', socketError.message);
     }
     
     await serviceClient.bulkUpdateSlots(appointment.slotIds, {
@@ -1503,17 +1503,17 @@ class AppointmentService {
       appointmentId: null
     });
     
-    // 🔓 Remove Redis locks for all slots (idempotent - user cancel)
+    // 🔓 Xóa Redis locks cho tất cả slot (idempotent - user cancel)
     for (const slotId of appointment.slotIds) {
       try {
         const deleted = await redisClient.del('temp_slot_lock:' + slotId);
         if (deleted > 0) {
-          console.log(`🔓 [User Cancel] Removed Redis lock for slot ${slotId}`);
+          console.log(`🔓 [User Cancel] Đã xóa Redis lock cho slot ${slotId}`);
         } else {
-          console.log(`ℹ️ [User Cancel] No Redis lock for slot ${slotId} (already removed or expired)`);
+          console.log(`ℹ️ [User Cancel] Không có Redis lock cho slot ${slotId} (đã xóa hoặc hết hạn)`);
         }
       } catch (redisError) {
-        console.warn(`⚠️ Failed to remove Redis lock for slot ${slotId}:`, redisError.message);
+        console.warn(`⚠️ Không thể xóa Redis lock cho slot ${slotId}:`, redisError.message);
       }
     }
     
@@ -1530,12 +1530,12 @@ class AppointmentService {
     return appointment;
   }
   
-  // Create appointment directly (for staff/admin - offline booking)
+  // Tạo lịch hẹn trực tiếp (cho nhân viên/admin - đặt offline)
   async createAppointmentDirectly(appointmentData, currentUser) {
     try {
-      // Validate required fields
+      // Xác thực các trường bắt buộc
       if (!appointmentData.patientInfo || !appointmentData.patientInfo.name || !appointmentData.patientInfo.phone) {
-        throw new Error('Patient info (name, phone) is required');
+        throw new Error('Thông tin bệnh nhân (tên, số điện thoại) là bắt buộc');
       }
       
       const {
@@ -1543,22 +1543,22 @@ class AppointmentService {
         dentistId, slotIds, date, notes, paymentMethod, examRecordId
       } = appointmentData;
       
-      // Validate slots available and get slot details (query once, reuse result)
+      // Xác thực slot khả dụng và lấy thông tin chi tiết (query một lần, tái sử dụng)
       const slots = await this.validateSlotsAvailable(slotIds);
       
-      // Get service info
+      // Lấy thông tin dịch vụ
       const serviceInfo = await this.getServiceInfo(serviceId, serviceAddOnId);
       console.log('📦 [createOffline] Service Info:', JSON.stringify(serviceInfo, null, 2));
       
-      // Get dentist info
+      // Lấy thông tin nha sĩ
       const dentistInfo = await this.getDentistInfo(dentistId);
       console.log('👨‍⚕️ Dentist Info:', dentistInfo);
       
-      // Sort slots by time
+      // Sắp xếp slot theo thời gian
       slots.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
       const firstSlot = slots[0];
       
-      // 🔧 Extract roomId and subRoomId (handle both populated and non-populated cases)
+      // 🔧 Trích xuất roomId và subRoomId (xử lý cả trường hợp đã populate và chưa populate)
       const extractId = (field) => {
         if (!field) return null;
         return typeof field === 'object' && field._id ? field._id.toString() : field.toString();
@@ -1570,17 +1570,17 @@ class AppointmentService {
       const startTime = this.formatTime(slots[0].startTime);
       const endTime = this.formatTime(slots[slots.length - 1].endTime);
       
-      // Generate appointment code
+      // Tạo mã lịch hẹn
       const appointmentDate = new Date(date);
       const appointmentCode = await Appointment.generateAppointmentCode(appointmentDate);
       
-      // 🏠 Fetch room/subroom names from room-service
+      // 🏠 Lấy tên phòng/phòng con từ room-service
       const roomInfo = await this.getRoomInfo(roomId, subRoomId);
       
-      // Create appointment directly (no payment required for offline booking)
+      // Tạo lịch hẹn trực tiếp (không cần thanh toán cho đặt offline)
       const appointment = new Appointment({
         appointmentCode,
-        patientId: patientId || null, // null for walk-in patients
+        patientId: patientId || null, // null cho bệnh nhân walk-in
         patientInfo,
         serviceId,
         serviceName: serviceInfo.serviceName,
@@ -1589,7 +1589,7 @@ class AppointmentService {
         serviceAddOnName: serviceInfo.serviceAddOnName,
         serviceDuration: serviceInfo.serviceDuration,
         servicePrice: serviceInfo.servicePrice,
-        serviceAddOnPrice: serviceInfo.serviceAddOnPrice || 0, // ✅ Add serviceAddOnPrice
+        serviceAddOnPrice: serviceInfo.serviceAddOnPrice || 0, // ✅ Thêm serviceAddOnPrice
         dentistId,
         dentistName: dentistInfo.name,
         slotIds,
@@ -1600,47 +1600,47 @@ class AppointmentService {
         roomName: roomInfo.roomName,
         subroomId: subRoomId || null,
         subroomName: roomInfo.subroomName,
-        paymentId: null, // Will be created later if needed
-        totalAmount: (serviceInfo.servicePrice || 0) + (serviceInfo.serviceAddOnPrice || 0), // ✅ Total = service + addon
-        status: 'confirmed', // ⭐ Start with confirmed, then check-in
+        paymentId: null, // Sẽ tạo sau nếu cần
+        totalAmount: (serviceInfo.servicePrice || 0) + (serviceInfo.serviceAddOnPrice || 0), // ✅ Tổng = service + addon
+        status: 'confirmed', // ⭐ Bắt đầu với confirmed, sau đó check-in
         bookedAt: new Date(),
-        bookedBy: currentUser.userId || currentUser._id, // ⭐ Support both userId and _id
+        bookedBy: currentUser.userId || currentUser._id, // ⭐ Hỗ trợ cả userId và _id
         bookedByRole: currentUser.activeRole || currentUser.role || (Array.isArray(currentUser.roles) ? currentUser.roles[0] : 'staff'),
-        examRecordId: examRecordId || null, // 🆕 Store exam record ID
+        examRecordId: examRecordId || null, // 🆕 Lưu exam record ID
         notes: notes || ''
       });
       
-      // Save appointment (model will auto-retry on duplicate code)
+      // Lưu lịch hẹn (model sẽ tự động retry nếu code bị trùng)
       await appointment.save();
-      console.log('✅ Walk-in appointment created:', appointment.appointmentCode);
+      console.log('✅ Đã tạo lịch hẹn walk-in:', appointment.appointmentCode);
       
-      // ✅ Auto check-in for walk-in appointments (triggers record creation event)
+      // ✅ Tự động check-in cho lịch hẹn walk-in (trigger event tạo record)
       const userId = currentUser.userId || currentUser._id;
       await this.checkIn(appointment._id, userId);
-      console.log('✅ Walk-in appointment auto checked-in:', appointmentCode);
+      console.log('✅ Đã tự động check-in lịch hẹn walk-in:', appointmentCode);
       
-      // Update slots as booked
+      // Cập nhật slot sang booked
       await serviceClient.bulkUpdateSlots(slotIds, {
         status: 'booked',
         appointmentId: appointment._id
       });
       
-      // 🔓 Remove Redis locks for all slots (critical for offline appointments)
+      // 🔓 Xóa Redis locks cho tất cả slot (quan trọng cho lịch hẹn offline)
       for (const slotId of slotIds) {
         try {
           const deleted = await redisClient.del('temp_slot_lock:' + slotId);
           if (deleted > 0) {
-            console.log(`🔓 [Offline Appointment] Removed Redis lock for slot ${slotId}`);
+            console.log(`🔓 [Offline Appointment] Đã xóa Redis lock cho slot ${slotId}`);
           } else {
-            console.log(`ℹ️ [Offline Appointment] No Redis lock for slot ${slotId} (never locked or expired)`);
+            console.log(`ℹ️ [Offline Appointment] Không có Redis lock cho slot ${slotId} (chưa từng bị khóa hoặc đã hết hạn)`);
           }
         } catch (redisError) {
-          console.warn(`⚠️ Failed to remove Redis lock for slot ${slotId}:`, redisError.message);
-          // Don't throw - appointment already created successfully
+          console.warn(`⚠️ Không thể xóa Redis lock cho slot ${slotId}:`, redisError.message);
+          // Không throw - lịch hẹn đã tạo thành công
         }
       }
       
-      // Mark service as used via Queue (non-blocking)
+      // Đánh dấu dịch vụ đã sử dụng qua Queue (không blocking)
       try {
         await publishToQueue('service_queue', {
           event: 'service.mark_as_used',
@@ -1651,14 +1651,14 @@ class AppointmentService {
             }]
           }
         });
-        console.log('✅ Published service mark_as_used event');
+        console.log('✅ Đã publish event đánh dấu dịch vụ đã sử dụng');
       } catch (queueError) {
-        console.warn('⚠️ Could not publish service event (RabbitMQ may be down):', queueError.message);
-        // Don't throw - allow appointment creation to continue
+        console.warn('⚠️ Không thể publish event dịch vụ (RabbitMQ có thể không hoạt động):', queueError.message);
+        // Không throw - cho phép tạo lịch hẹn tiếp tục
       }
       
-      // 🆕 Publish event to record-service to mark treatment indication as used
-      // This should happen AFTER check-in to ensure record is created first
+      // 🆕 Publish event đến record-service để đánh dấu chỉ định điều trị đã sử dụng
+      // Nên xảy ra SAU check-in để đảm bảo record được tạo trước
       if (patientId && serviceId) {
         try {
           const eventData = {
@@ -1674,21 +1674,21 @@ class AppointmentService {
             }
           };
           
-          console.log('📤 Publishing appointment.service_booked event:', JSON.stringify(eventData, null, 2));
+          console.log('📤 Đang publish event appointment.service_booked:', JSON.stringify(eventData, null, 2));
           
           await publishToQueue('record_queue', eventData);
           
-          console.log('✅ Published appointment.service_booked event to record-service');
+          console.log('✅ Đã publish event appointment.service_booked đến record-service');
         } catch (eventError) {
-          console.error('⚠️ Failed to publish to record-service:', eventError.message);
+          console.error('⚠️ Không thể publish đến record-service:', eventError.message);
           console.error('Event data:', { patientId, serviceId, serviceAddOnId });
-          // Don't throw - appointment already created
+          // Không throw - lịch hẹn đã tạo
         }
       } else {
-        console.warn('⚠️ Skipping appointment.service_booked event - missing patientId or serviceId:', { patientId, serviceId });
+        console.warn('⚠️ Bỏ qua event appointment.service_booked - thiếu patientId hoặc serviceId:', { patientId, serviceId });
       }
       
-      // Publish event to create invoice (non-blocking)
+      // Publish event để tạo hóa đơn (không blocking)
       try {
         await publishToQueue('invoice_queue', {
           event: 'appointment_created',
@@ -1716,47 +1716,47 @@ class AppointmentService {
             paymentMethod: paymentMethod || 'cash'
           }
         });
-        console.log('✅ Invoice event published');
+        console.log('✅ Đã publish event hóa đơn');
       } catch (queueError) {
-        console.warn('⚠️ Could not publish invoice event (RabbitMQ may be down):', queueError.message);
-        // Don't throw - allow appointment creation to continue
+        console.warn('⚠️ Không thể publish event hóa đơn (RabbitMQ có thể không hoạt động):', queueError.message);
+        // Không throw - cho phép tạo lịch hẹn tiếp tục
       }
       
-      console.log('✅ Offline appointment created and checked-in: ' + appointmentCode);
+      console.log('✅ Đã tạo và check-in lịch hẹn offline: ' + appointmentCode);
       
-      // Refetch appointment to get updated status and check-in info
+      // Lấy lại lịch hẹn để có status và thông tin check-in cập nhật
       const updatedAppointment = await Appointment.findById(appointment._id);
       return updatedAppointment;
       
     } catch (error) {
-      console.error('Error creating offline appointment:', error);
-      throw new Error('Cannot create offline appointment: ' + error.message);
+      console.error('Lỗi tạo lịch hẹn offline:', error);
+      throw new Error('Không thể tạo lịch hẹn offline: ' + error.message);
     }
   }
   
   /**
-   * Create appointment from reservation after payment completed
+   * Tạo lịch hẹn từ reservation sau khi thanh toán hoàn tất
    * @param {String} reservationId 
    * @param {Object} paymentInfo 
-   * @returns {Object} Created appointment
+   * @returns {Object} Lịch hẹn đã tạo
    */
   async createFromReservation(reservationId, paymentInfo) {
     try {
-      console.log('Creating appointment from reservation:', reservationId);
+      console.log('Đang tạo lịch hẹn từ reservation:', reservationId);
       
-      // Get reservation from Redis
+      // Lấy reservation từ Redis
       const reservationData = await redisClient.get('temp_reservation:' + reservationId);
       if (!reservationData) {
-        throw new Error('Reservation not found or expired');
+        throw new Error('Không tìm thấy reservation hoặc đã hết hạn');
       }
       
       const reservation = JSON.parse(reservationData);
       
-      // Generate appointment code (with automatic retry/increment on duplicate)
+      // Tạo mã lịch hẹn (với tự động retry/tăng số nếu trùng)
       const appointmentDate = new Date(reservation.appointmentDate);
       const appointmentCode = await Appointment.generateAppointmentCode(appointmentDate);
       
-      // Create appointment
+      // Tạo lịch hẹn
       const appointment = new Appointment({
         appointmentCode,
         patientId: reservation.patientId,
@@ -1789,45 +1789,45 @@ class AppointmentService {
         transactionId: paymentInfo.transactionId
       });
       
-      // Save appointment (model will auto-retry on duplicate code)
+      // Lưu lịch hẹn (model sẽ tự động retry nếu code bị trùng)
       try {
         await appointment.save();
-        console.log('✅ Online appointment created:', appointment.appointmentCode);
+        console.log('✅ Đã tạo lịch hẹn online:', appointment.appointmentCode);
       } catch (saveError) {
-        // Handle duplicate paymentId error (idempotent - same payment processed twice)
+        // Xử lý lỗi duplicate paymentId (idempotent - cùng một payment xử lý 2 lần)
         if (saveError.code === 11000 && saveError.keyPattern?.paymentId) {
-          console.log('⚠️ Duplicate paymentId detected - payment already processed');
+          console.log('⚠️ Phát hiện paymentId trùng - payment đã được xử lý');
           const existingAppointment = await Appointment.findOne({
             paymentId: paymentInfo.paymentId
           });
           if (existingAppointment) {
-            console.log('✅ Returning existing appointment:', existingAppointment.appointmentCode);
+            console.log('✅ Trả về lịch hẹn đã tồn tại:', existingAppointment.appointmentCode);
             return existingAppointment;
           }
         }
         throw saveError;
       }
       
-      // Update slots: set status='booked' and appointmentId
-      // Use HTTP instead of RPC for better debugging
+      // Cập nhật slot: đặt status='booked' và appointmentId
+      // Sử dụng HTTP thay vì RPC để debug tốt hơn
       try {
         const scheduleServiceUrl = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
         await axios.put(`${scheduleServiceUrl}/api/slot/bulk-update`, {
           slotIds: reservation.slotIds,
           updates: {
-            status: 'booked', // Change from 'locked' to 'booked'
+            status: 'booked', // Thay đổi từ 'locked' sang 'booked'
             appointmentId: appointment._id
           }
         });
-        console.log('✅ Updated slots to booked (status=booked) via HTTP');
+        console.log('✅ Đã cập nhật slot sang booked (status=booked) qua HTTP');
       } catch (error) {
-        console.error('❌ Failed to update slots via HTTP:', error.message);
-        // This is critical - if slot update fails, we have a problem
-        // But appointment is already created, so log error for manual fix
-        console.error('⚠️ CRITICAL: Appointment created but slots not updated to booked!');
+        console.error('❌ Không thể cập nhật slot qua HTTP:', error.message);
+        // Đây là lỗi quan trọng - nếu cập nhật slot thất bại, sẽ có vấn đề
+        // Nhưng lịch hẹn đã được tạo, nên ghi log lỗi để sửa thủ công
+        console.error('⚠️ QUAN TRỌNG: Lịch hẹn đã tạo nhưng slot chưa được cập nhật sang booked!');
       }
       
-      // Mark service as used via Queue (non-blocking)
+      // Đánh dấu dịch vụ đã sử dụng qua Queue (không blocking)
       try {
         await publishToQueue('service_queue', {
           event: 'service.mark_as_used',
@@ -1838,67 +1838,62 @@ class AppointmentService {
             }]
           }
         });
-        console.log('✅ Published service mark_as_used event (payment flow)');
+        console.log('✅ Đã publish event đánh dấu dịch vụ đã sử dụng (payment flow)');
       } catch (queueError) {
-        console.warn('⚠️ Could not publish service event:', queueError.message);
-        // Don't throw - allow appointment creation to continue
+        console.warn('⚠️ Không thể publish event dịch vụ:', queueError.message);
+        // Không throw - cho phép tạo lịch hẹn tiếp tục
       }
       
-      // 🔓 Cleanup reservation và slot locks from Redis (idempotent - safe to call multiple times)
+      // 🔓 Dọn dẹp reservation và slot locks từ Redis (idempotent - an toàn khi gọi nhiều lần)
       try {
         await redisClient.del('temp_reservation:' + reservationId);
-        console.log('✅ Deleted reservation from Redis:', reservationId);
+        console.log('✅ Đã xóa reservation từ Redis:', reservationId);
       } catch (error) {
-        console.warn('⚠️ Failed to delete reservation from Redis:', error.message);
+        console.warn('⚠️ Không thể xóa reservation từ Redis:', error.message);
       }
       
       for (const slotId of reservation.slotIds) {
         try {
           const deleted = await redisClient.del('temp_slot_lock:' + slotId);
           if (deleted > 0) {
-            console.log(`🔓 [Payment Success] Removed Redis lock for slot ${slotId}`);
+            console.log(`🔓 [Thanh toán thành công] Đã xóa Redis lock cho slot ${slotId}`);
           } else {
-            console.log(`ℹ️ [Payment Success] No Redis lock for slot ${slotId} (already removed or expired)`);
+            console.log(`ℹ️ [Thanh toán thành công] Không có Redis lock cho slot ${slotId} (đã xóa hoặc hết hạn)`);
           }
         } catch (redisError) {
-          console.warn(`⚠️ Failed to remove Redis lock for slot ${slotId}:`, redisError.message);
+          console.warn(`⚠️ Không thể xóa Redis lock cho slot ${slotId}:`, redisError.message);
         }
       }
       
-      console.log('✅ Appointment created from reservation:', appointmentCode);
+      console.log('✅ Đã tạo lịch hẹn từ reservation:', appointmentCode);
       return appointment;
       
     } catch (error) {
-      console.error('❌ Error creating appointment from reservation:', error);
+      console.error('❌ Lỗi tạo lịch hẹn từ reservation:', error);
       throw error;
     }
   }
   
   /**
-   * Cancel reservation and unlock slots
-   * @param {String} reservationId 
-   * @param {String} reason 
-   */
-  /**
-   * Cancel reservation and unlock slots
-   * Called when: payment fails, payment timeout, user cancels
+   * Hủy reservation và mở khóa slot
+   * Được gọi khi: thanh toán thất bại, hết thời gian thanh toán, user hủy
    */
   async cancelReservation(reservationId, reason) {
     try {
-      console.log('🚫 Cancelling reservation:', reservationId, 'Reason:', reason);
+      console.log('🚫 Đang hủy reservation:', reservationId, 'Lý do:', reason);
       
-      // Get reservation from Redis
+      // Lấy reservation từ Redis
       const reservationData = await redisClient.get('temp_reservation:' + reservationId);
       if (!reservationData) {
-        console.log('⚠️ Reservation not found or already expired:', reservationId);
+        console.log('⚠️ Không tìm thấy reservation hoặc đã hết hạn:', reservationId);
         
-        // 🔥 Even if reservation not found, try to clean up any orphaned slot locks
-        // This handles cases where reservation expired but locks remained
+        // 🔥 Dù không tìm thấy reservation, vẫn thử dọn dẹp slot locks orphan
+        // Xử lý trường hợp reservation hết hạn nhưng locks vẫn còn
         try {
-          // We don't have slotIds, but Redis lock will auto-expire after TTL
-          console.log('ℹ️ Reservation data not available, slot locks will auto-expire via Redis TTL');
+          // Không có slotIds, nhưng Redis lock sẽ tự hết hạn qua TTL
+          console.log('ℹ️ Không có dữ liệu reservation, slot locks sẽ tự hết hạn qua Redis TTL');
         } catch (error) {
-          console.warn('⚠️ Error during orphaned lock cleanup:', error);
+          console.warn('⚠️ Lỗi khi dọn dẹp orphan lock:', error);
         }
         
         return;
@@ -1906,7 +1901,7 @@ class AppointmentService {
       
       const reservation = JSON.parse(reservationData);
       
-      // 1️⃣ Unlock slots in DB (set status='available')
+      // 1️⃣ Mở khóa slot trong DB (đặt status='available')
       try {
         const scheduleServiceUrl = process.env.SCHEDULE_SERVICE_URL || 'http://localhost:3005';
         await axios.put(`${scheduleServiceUrl}/api/slot/bulk-update`, {
@@ -1917,43 +1912,43 @@ class AppointmentService {
             lockedBy: null
           }
         });
-        console.log('✅ Unlocked slots in DB (status=available)');
+        console.log('✅ Đã mở khóa slot trong DB (status=available)');
       } catch (error) {
-        console.error('❌ Failed to unlock slots in DB:', error.message);
+        console.error('❌ Không thể mở khóa slot trong DB:', error.message);
       }
       
-      // 2️⃣ Unlock slots in Redis (even if not found, no error)
+      // 2️⃣ Mở khóa slot trong Redis (dù không tìm thấy cũng không lỗi)
       for (const slotId of reservation.slotIds) {
         try {
           const deleted = await redisClient.del('temp_slot_lock:' + slotId);
           if (deleted > 0) {
-            console.log(`🔓 Unlocked slot in Redis: ${slotId}`);
+            console.log(`🔓 Đã mở khóa slot trong Redis: ${slotId}`);
           } else {
-            console.log(`ℹ️ No Redis lock found for slot ${slotId} (already expired)`);
+            console.log(`ℹ️ Không tìm thấy Redis lock cho slot ${slotId} (đã hết hạn)`);
           }
         } catch (error) {
-          console.warn(`⚠️ Failed to unlock slot ${slotId}:`, error.message);
+          console.warn(`⚠️ Không thể mở khóa slot ${slotId}:`, error.message);
         }
       }
       
-      // 3️⃣ Delete reservation from Redis (idempotent)
+      // 3️⃣ Xóa reservation từ Redis (idempotent)
       try {
         await redisClient.del('temp_reservation:' + reservationId);
-        console.log('✅ Deleted reservation from Redis:', reservationId);
+        console.log('✅ Đã xóa reservation từ Redis:', reservationId);
       } catch (error) {
-        console.warn('⚠️ Failed to delete reservation from Redis:', error.message);
+        console.warn('⚠️ Không thể xóa reservation từ Redis:', error.message);
       }
       
-      console.log('✅ Reservation cancelled:', reservationId);
+      console.log('✅ Đã hủy reservation:', reservationId);
       
     } catch (error) {
-      console.error('❌ Error cancelling reservation:', error);
+      console.error('❌ Lỗi hủy reservation:', error);
       throw error;
     }
   }
 
   /**
-   * Get all appointments with filters (Admin/Manager)
+   * Lấy tất cả lịch hẹn với bộ lọc (Admin/Manager)
    * @param {Object} filters - { status, dentistId, startDate, endDate, page, limit }
    * @returns {Object} - { appointments, total, page, limit }
    */
@@ -1994,7 +1989,7 @@ class AppointmentService {
         }
       }
 
-      // Execute query with pagination
+      // Thực thi query với phân trang
       const skip = (page - 1) * limit;
       const appointments = await Appointment.find(query)
         .sort({ appointmentDate: -1, startTime: 1 })
@@ -2004,7 +1999,7 @@ class AppointmentService {
 
       const total = await Appointment.countDocuments(query);
 
-      console.log(`✅ Retrieved ${appointments.length} appointments (total: ${total})`);
+      console.log(`✅ Đã lấy ${appointments.length} lịch hẹn (tổng: ${total})`);
 
       return {
         appointments,
@@ -2014,16 +2009,16 @@ class AppointmentService {
         totalPages: Math.ceil(total / limit)
       };
     } catch (error) {
-      console.error('❌ Error getting all appointments:', error);
+      console.error('❌ Lỗi lấy tất cả lịch hẹn:', error);
       throw error;
     }
   }
 
   /**
-   * Get appointments by staff (dentist or nurse) for specific date
-   * @param {String} staffId - ID of dentist or nurse
-   * @param {String} date - Date in yyyy-MM-dd format
-   * @returns {Array} - Array of appointments with full details
+   * Lấy lịch hẹn theo nhân viên (nha sĩ hoặc y tá) cho ngày cụ thể
+   * @param {String} staffId - ID của nha sĩ hoặc y tá
+   * @param {String} date - Ngày định dạng yyyy-MM-dd
+   * @returns {Array} - Mảng lịch hẹn với đầy đủ chi tiết
    */
   async getByStaff(staffId, date) {
     try {
@@ -2032,7 +2027,7 @@ class AppointmentService {
       const endOfDay = new Date(date);
       endOfDay.setHours(23, 59, 59, 999);
 
-      // Query appointments where staff is dentist OR nurse
+      // Query lịch hẹn mà nhân viên là nha sĩ HOẶC y tá
       const query = {
         appointmentDate: { $gte: startOfDay, $lte: endOfDay },
         $or: [
@@ -2046,15 +2041,15 @@ class AppointmentService {
         .sort({ startTime: 1 })
         .lean();
 
-      console.log(`✅ Retrieved ${appointments.length} appointments for staff ${staffId} on ${date}`);
+      console.log(`✅ Đã lấy ${appointments.length} lịch hẹn cho nhân viên ${staffId} ngày ${date}`);
 
-      // Return full appointment details including:
-      // - Patient info (name, phone, birthYear)
-      // - Service info (serviceName, serviceAddOnName, serviceDuration)
-      // - Slot time (startTime, endTime)
-      // - Room info (roomId, roomName)
+      // Trả về chi tiết đầy đủ lịch hẹn bao gồm:
+      // - Thông tin bệnh nhân (tên, SĐT, năm sinh)
+      // - Thông tin dịch vụ (serviceName, serviceAddOnName, serviceDuration)
+      // - Thời gian slot (startTime, endTime)
+      // - Thông tin phòng (roomId, roomName)
       // - Status
-      // - Record ID if exists
+      // - Record ID nếu có
       return appointments.map(apt => ({
         appointmentId: apt._id,
         appointmentCode: apt.appointmentCode,
@@ -2093,12 +2088,12 @@ class AppointmentService {
         notes: apt.notes || null
       }));
     } catch (error) {
-      console.error('❌ Error getting appointments by staff:', error);
+      console.error('❌ Lỗi lấy lịch hẹn theo nhân viên:', error);
       throw error;
     }
   }
 
-  // 🆕 GET APPOINTMENTS BY IDS (for schedule-service to get patient info for email, and record-service for times)
+  // 🆕 LẤY LỊCH HẸN THEO IDS (cho schedule-service lấy thông tin bệnh nhân gửi email, và record-service lấy thời gian)
   async getAppointmentsByIds(appointmentIds) {
     try {
       if (!Array.isArray(appointmentIds) || appointmentIds.length === 0) {
@@ -2120,24 +2115,24 @@ class AppointmentService {
         cancelledAt: apt.cancelledAt,
         startTime: apt.startTime,
         endTime: apt.endTime,
-        bookingChannel: apt.bookingChannel, // online or walk-in
+        bookingChannel: apt.bookingChannel, // online hoặc walk-in
         deposit: apt.deposit || 0, // Tiền cọc
-        paymentStatus: apt.paymentStatus // pending, paid, etc.
+        paymentStatus: apt.paymentStatus // pending, paid, v.v.
       }));
     } catch (error) {
-      console.error('❌ Error getting appointments by IDs:', error);
+      console.error('❌ Lỗi lấy lịch hẹn theo IDs:', error);
       throw error;
     }
   }
 
   /**
-   * ✅ Get booking channel statistics (Online vs Offline)
+   * ✅ Lấy thống kê kênh đặt lịch (Online vs Offline)
    */
   async getBookingChannelStats(startDate, endDate, groupBy = 'day') {
     try {
       return await appointmentRepo.getBookingChannelStats(startDate, endDate, groupBy);
     } catch (error) {
-      console.error('❌ Error getting booking channel stats:', error);
+      console.error('❌ Lỗi lấy thống kê kênh đặt lịch:', error);
       throw error;
     }
   }

@@ -2,7 +2,7 @@ const { InvoiceDetail, ServiceType, ServiceCategory, ToothType } = require("../m
 const { enrichDentistData } = require("../utils/userHelper");
 
 class InvoiceDetailRepository {
-  // ============ CREATE METHODS ============
+  // ============ CÁC PHƯƠNG THỨC TẠO ============
   async create(detailData) {
     const detail = new InvoiceDetail(detailData);
     return await detail.save();
@@ -12,7 +12,7 @@ class InvoiceDetailRepository {
     return await InvoiceDetail.insertMany(detailsArray);
   }
 
-  // ============ READ METHODS ============
+  // ============ CÁC PHƯƠNG THỨC ĐỌC ============
   async findById(id) {
     return await InvoiceDetail.findById(id);
   }
@@ -22,7 +22,7 @@ class InvoiceDetailRepository {
     
     
     
-    // Ensure invoiceId is an ObjectId
+    // Đảm bảo invoiceId là ObjectId
     const objectId = mongoose.Types.ObjectId.isValid(invoiceId) 
       ? new mongoose.Types.ObjectId(invoiceId) 
       : invoiceId;
@@ -108,7 +108,7 @@ class InvoiceDetailRepository {
     }).sort({ 'treatmentInfo.followUpDate': 1 });
   }
 
-  // ============ UPDATE METHODS ============
+  // ============ CÁC PHƯƠNG THỨC CẬP NHẬT ============
   async update(id, updateData) {
     return await InvoiceDetail.findByIdAndUpdate(
       id,
@@ -120,7 +120,7 @@ class InvoiceDetailRepository {
   async updateQuantity(id, quantity) {
     const detail = await InvoiceDetail.findById(id);
     if (!detail) {
-      throw new Error('Invoice detail not found');
+      throw new Error('Không tìm thấy chi tiết hóa đơn');
     }
 
     detail.quantity = quantity;
@@ -132,7 +132,7 @@ class InvoiceDetailRepository {
   async updateUnitPrice(id, unitPrice) {
     const detail = await InvoiceDetail.findById(id);
     if (!detail) {
-      throw new Error('Invoice detail not found');
+      throw new Error('Không tìm thấy chi tiết hóa đơn');
     }
 
     detail.unitPrice = unitPrice;
@@ -144,7 +144,7 @@ class InvoiceDetailRepository {
   async updateDiscount(id, discountInfo) {
     const detail = await InvoiceDetail.findById(id);
     if (!detail) {
-      throw new Error('Invoice detail not found');
+      throw new Error('Không tìm thấy chi tiết hóa đơn');
     }
 
     detail.discountInfo = { ...detail.discountInfo, ...discountInfo };
@@ -153,7 +153,7 @@ class InvoiceDetailRepository {
     return await detail.save();
   }
 
-  // ============ TREATMENT TRACKING METHODS ============
+  // ============ CÁC PHƯƠNG THỨC THEO DÕI ĐIỀU TRỊ ============
   async markTreatmentCompleted(id, completionData = {}) {
     const updateData = {
       'treatmentInfo.isCompleted': true,
@@ -192,7 +192,7 @@ class InvoiceDetailRepository {
     return await this.update(id, updateData);
   }
 
-  // ============ BULK OPERATIONS ============
+  // ============ CÁC THAO TÁC HÀNG LOẠT ============
   async updateMultiple(invoiceId, updates) {
     const bulkOperations = updates.map(update => ({
       updateOne: {
@@ -211,7 +211,7 @@ class InvoiceDetailRepository {
     );
   }
 
-  // ============ DENTAL-SPECIFIC METHODS ============
+  // ============ CÁC PHƯƠNG THỨC DÀNH RIÊNG CHO NHA KHOA ============
   async findByToothNumber(toothNumber, options = {}) {
     const filter = {
       'toothInfo.toothNumbers': toothNumber,
@@ -226,7 +226,7 @@ class InvoiceDetailRepository {
   }
 
   async findToothTreatmentHistory(toothNumber, patientId) {
-    // This would need to join with invoice to get patient info
+    // Phương thức này cần join với invoice để lấy thông tin bệnh nhân
     return await InvoiceDetail.aggregate([
       {
         $match: {
@@ -266,10 +266,10 @@ class InvoiceDetailRepository {
     return await this.update(id, updateData);
   }
 
-  // ============ STATISTICS METHODS ============
+  // ============ CÁC PHƯƠNG THỨC THỐNG KÊ ============
   
   /**
-   * Get revenue summary statistics
+   * Lấy thống kê tổng hợp doanh thu
    */
   async getRevenueSummary(startDate, endDate, filters = {}) {
     const matchFilter = {
@@ -334,7 +334,7 @@ class InvoiceDetailRepository {
   }
 
   /**
-   * Get revenue trends grouped by time period
+   * Lấy xu hướng doanh thu theo khoảng thời gian
    */
   async getRevenueTrends(startDate, endDate, groupBy = 'day', filters = {}) {
     const matchFilter = {
@@ -440,10 +440,10 @@ class InvoiceDetailRepository {
   }
 
   /**
-   * Get revenue breakdown by dentist
+   * Lấy phân tích doanh thu theo nha sĩ
    */
   async getRevenueByDentist(startDate, endDate, filters = {}) {
-    console.log('\n========== GET REVENUE BY DENTIST ==========');
+    console.log('\n========== LẤY DOANH THU THEO NHA SĨ ==========');
     
     const matchFilter = {
       completedDate: { $gte: startDate, $lte: endDate },
@@ -517,7 +517,7 @@ class InvoiceDetailRepository {
   }
 
   /**
-   * Get revenue breakdown by service
+   * Lấy phân tích doanh thu theo dịch vụ
    */
   async getRevenueByService(startDate, endDate, filters = {}) {
     const matchFilter = {
@@ -587,8 +587,8 @@ class InvoiceDetailRepository {
   }
 
   /**
-   * ✅ Get raw revenue details with both dentistId and serviceId
-   * For frontend cross-filtering when both filters are applied
+   * ✅ Lấy chi tiết doanh thu thô với cả dentistId và serviceId
+   * Dùng cho frontend lọc chéo khi cả hai bộ lọc được áp dụng
    */
   async getRawRevenueDetails(startDate, endDate, filters = {}) {
     const matchFilter = {
@@ -738,7 +738,7 @@ class InvoiceDetailRepository {
     ]);
   }
 
-  // ============ DELETE METHODS ============
+  // ============ CÁC PHƯƠNG THỨC XÓA ============
   async softDelete(id, deletedBy) {
     return await this.update(id, {
       isActive: false,
@@ -751,7 +751,7 @@ class InvoiceDetailRepository {
     return await InvoiceDetail.findByIdAndDelete(id);
   }
 
-  // ============ HELPER METHODS ============
+  // ============ CÁC PHƯƠNG THỨC HỖ TRỢ ============
   async findWithFilter(filter, options = {}) {
     const {
       page = 1,
@@ -795,22 +795,22 @@ class InvoiceDetailRepository {
       detail.calculateAmounts();
     });
 
-    // Save all details with recalculated amounts
+    // Lưu tất cả chi tiết với số tiền đã tính lại
     const savePromises = details.map(detail => detail.save());
     return await Promise.all(savePromises);
   }
 
-  // ============ HELPER METHODS FOR CONSUMER ============
+  // ============ CÁC PHƯƠNG THỨC HỖ TRỢ CHO CONSUMER ============
   
   /**
-   * Create invoice detail from consumer event
+   * Tạo chi tiết hóa đơn từ sự kiện consumer
    */
   async createInvoiceDetail(detailData) {
     return await this.create(detailData);
   }
 
   /**
-   * Update appointmentId for invoice details after appointment creation
+   * Cập nhật appointmentId cho chi tiết hóa đơn sau khi tạo lịch hẹn
    */
   async updateAppointmentId(invoiceId, appointmentId) {
     return await InvoiceDetail.updateMany(

@@ -1,13 +1,17 @@
 const { validationResult } = require('express-validator');
 
+/**
+ * Middleware kiểm tra validation
+ * Sử dụng express-validator để validate dữ liệu đầu vào
+ */
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   
   if (!errors.isEmpty()) {
-    // ⭐ Debug: Log request body and errors
-    console.log('❌ Validation failed for:', req.path);
+    // ⭐ Debug: Log request body và errors
+    console.log('❌ Validation thất bại cho:', req.path);
     console.log('📦 Request body:', JSON.stringify(req.body, null, 2));
-    console.log('❌ Validation errors:', JSON.stringify(errors.array(), null, 2));
+    console.log('❌ Các lỗi validation:', JSON.stringify(errors.array(), null, 2));
     
     const errorMessages = errors.array().map(error => ({
       field: error.path || error.param,
