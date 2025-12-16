@@ -5,6 +5,78 @@ const { validateImageFile, optimizeImage } = require('../utils/imageValidator');
 const { handleQuery } = require('../services/queryEngine.service');
 const bookingService = require('../services/booking.service');
 const axios = require('axios');
+const { DENTAL_ASSISTANT_PROMPT, buildBookingContextPrompt } = require('../config/systemPrompts');
+
+/**
+ * Kiểm tra tin nhắn của user có phải là xác nhận đặt lịch không
+ * Hỗ trợ nhiều cách nói tự nhiên của người Việt
+ * @param {String} message - Tin nhắn của user
+ * @returns {Boolean}
+ */
+function isConfirmationMessage(message) {
+  const input = message.trim().toLowerCase();
+  
+  // Các từ khóa xác nhận trực tiếp
+  const confirmKeywords = [
+    'có', 'yes', 'ok', 'oke', 'okie', 'okay',
+    'đồng ý', 'xác nhận', 'được', 'đc',
+    'ừ', 'ửm', 'um', 'uhm', 'u', // Các cách nói ngắn
+    'đặt', 'đặt đi', 'đặt luôn', 'đặt ngay',
+    'muốn đặt', 'tôi muốn đặt', 'em muốn đặt',
+    'tiếp tục', 'tiếp', 'go', 'làm đi', 'chốt',
+    'book', 'confirm', 'agree', 'sure', 'yê', 'ye',
+    'rồi', 'xong', 'đúng rồi', 'đúng', 'chuẩn'
+  ];
+  
+  // Kiểm tra từ khóa trực tiếp
+  for (const keyword of confirmKeywords) {
+    if (input === keyword || input.includes(keyword)) {
+      return true;
+    }
+  }
+  
+  // Kiểm tra các pattern xác nhận tự nhiên
+  const confirmPatterns = [
+    /^(có|ok|yes|\u0111c|\u01b0|\u01b0m|u|um)$/i, // Trả lời ngắn gọn
+    /muốn.*đặt/i, // "tôi muốn đặt", "em muốn đặt lịch"
+    /đặt.*lịch/i, // "đặt lịch đi", "đặt lịch ngay"
+    /xác.*nhận/i, // "xác nhận giùm", "xác nhận đi"
+    /đồng.*ý/i, // "đồng ý", "em đồng ý"
+    /chốt.*đơn/i, // "chốt đơn", "chốt luôn"
+  ];
+  
+  for (const pattern of confirmPatterns) {
+    if (pattern.test(input)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Kiểm tra tin nhắn của user có phải là từ chối đặt lịch không
+ * @param {String} message - Tin nhắn của user
+ * @returns {Boolean}
+ */
+function isRejectionMessage(message) {
+  const input = message.trim().toLowerCase();
+  
+  const rejectKeywords = [
+    'không', 'ko', 'k', 'no', 'nope',
+    'thôi', 'hủy', 'bỏ', 'cancel',
+    'không muốn', 'không đặt', 'không cần',
+    'lúc khác', 'để sau', 'chưa', 'chưa muốn'
+  ];
+  
+  for (const keyword of rejectKeywords) {
+    if (input === keyword || input.includes(keyword)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
 
 class ChatbotController {
   /**
@@ -28,14 +100,14 @@ class ChatbotController {
 
       // Kiểm tra booking context để xem user có đang trong luồng đặt lịch không
       const bookingContext = await chatSessionRepo.getBookingContext(session.sessionId);
-      const isInBookingFlowContext = bookingContext && bookingContext.isInBookingFlow;
+      const isInBookingFlow = bookingContext && bookingContext.isInBookingFlow;
 
       // Kiểm tra tin nhắn có liên quan đến nha khoa không
       const isDentalRelated = aiService.isDentalRelated(message);
       
-      // Kiểm tra user có đang trong luồng đặt lịch không (mới nhận danh sách dịch vụ)
+      // Kiểm tra user có đang trong luồng đặt lịch không (mới nhận danh sách dịch vụ) - từ messages
       const recentMessages = session.messages.slice(-7); // 7 tin nhắn gần nhất cho ngữ cảnh tốt hơn
-      const isInBookingFlow = recentMessages.some(msg => 
+      const hasRecentBookingMessages = recentMessages.some(msg => 
         msg.role === 'assistant' && 
         (msg.content.includes('Dịch vụ khám và điều trị') || 
          msg.content.includes('Dịch vụ được Nha sĩ chỉ định') ||
@@ -57,7 +129,7 @@ class ChatbotController {
         message.toLowerCase().includes(kw)
       );
       
-      if (!isDentalRelated && !isInBookingFlowContext && !isInBookingFlow && !isNumberSelection && !hasBookingKeywords && !looksLikePersonName) {
+      if (!isDentalRelated && !isInBookingFlow && !hasRecentBookingMessages && !isNumberSelection && !hasBookingKeywords && !looksLikePersonName) {
         // Tăng số lần lạc chủ đề (rate limiting)
         if (req.rateLimit && req.rateLimit.incrementOffTopicCount) {
           const rateStatus = await req.rateLimit.incrementOffTopicCount(userId);
@@ -110,9 +182,8 @@ class ChatbotController {
       let historyLimit = 5; // Mặc định cho hầu hết các bước
       
       if (bookingContext && bookingContext.step === 'CONFIRMATION') {
-        const input = message.trim().toLowerCase();
-        // Nếu user xác nhận (Có), đọc nhiều lịch sử hơn để đảm bảo có đủ dữ liệu đặt lịch
-        if (input.includes('có') || input.includes('yes') || input.includes('ok') || input.includes('đồng ý') || input.includes('xác nhận')) {
+        // Nếu user xác nhận, đọc nhiều lịch sử hơn để đảm bảo có đủ dữ liệu đặt lịch
+        if (isConfirmationMessage(message)) {
           historyLimit = 20; // Đọc đầy đủ ngữ cảnh khi xác nhận
         } else {
           historyLimit = 10; // Bước xác nhận bình thường
@@ -125,8 +196,17 @@ class ChatbotController {
       // Lấy auth token từ request (cho các API call có xác thực)
       const authToken = req.headers.authorization?.split(' ')[1] || null;
 
-      // Lấy phản hồi GPT (với tích hợp Query Engine)
-      const result = await aiService.sendMessageToGPT(formattedMessages, undefined, authToken);
+      // Tạo dynamic system prompt với booking context để GPT hiểu user đang ở step nào
+      const bookingContextPrompt = buildBookingContextPrompt(bookingContext);
+      const dynamicSystemPrompt = DENTAL_ASSISTANT_PROMPT + bookingContextPrompt;
+      
+      console.log('📦 Booking context step:', bookingContext?.step || 'NONE');
+      if (bookingContextPrompt) {
+        console.log('🎯 Đã thêm booking context prompt cho GPT');
+      }
+
+      // Lấy phản hồi GPT (với tích hợp Query Engine và booking context)
+      const result = await aiService.sendMessageToGPT(formattedMessages, dynamicSystemPrompt, authToken);
 
       // Kiểm tra user có đang chọn dịch vụ không (sau khi xem danh sách dịch vụ)
       // bookingContext đã được lấy ở trên
@@ -184,6 +264,7 @@ class ChatbotController {
       // Kiểm tra user có đang chọn ngày không
       if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'DATE_SELECTION') {
         console.log('🎯 User đang ở bước DATE_SELECTION');
+        console.log('📦 availableDates:', bookingContext.availableDates?.length || 0, 'ngày');
         
         // Thử khớp lựa chọn ngày
         const selectedDate = await this.matchDateSelection(
@@ -206,11 +287,27 @@ class ChatbotController {
             authToken
           );
         }
+        
+        // Fallback: Nếu user nhập số nhưng không khớp ngày nào
+        const isNumberInput = /^\d+$/.test(message.trim());
+        if (isNumberInput && bookingContext.availableDates && bookingContext.availableDates.length > 0) {
+          const errorMessage = `❌ Số "${message}" không hợp lệ. Vui lòng chọn từ 1 đến ${bookingContext.availableDates.length}!\n\n💡 Gợi ý: Chọn ngày bằng số (1, 2, 3...) hoặc gõ định dạng DD/MM/YYYY`;
+          
+          await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
+          
+          return res.json({
+            success: true,
+            response: errorMessage,
+            sessionId: session.sessionId,
+            timestamp: new Date().toISOString()
+          });
+        }
       }
 
       // Kiểm tra user có đang chọn slot không
       if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'SLOT_SELECTION') {
         console.log('🎯 User đang ở bước SLOT_SELECTION');
+        console.log('📦 availableSlotGroups:', bookingContext.availableSlotGroups?.length || 0, 'slots');
         
         // Thử khớp lựa chọn nhóm slot
         const selectedSlotGroup = await this.matchSlotGroupSelection(
@@ -236,17 +333,32 @@ class ChatbotController {
             authToken
           );
         }
+        
+        // Fallback: Nếu user nhập số nhưng không khớp, thông báo và yêu cầu chọn lại
+        const isNumberInput = /^\d+$/.test(message.trim());
+        if (isNumberInput && bookingContext.availableSlotGroups && bookingContext.availableSlotGroups.length > 0) {
+          const errorMessage = `❌ Số "${message}" không hợp lệ. Vui lòng chọn từ 1 đến ${bookingContext.availableSlotGroups.length}!\n\n💡 Gợi ý: Chọn khung giờ bằng số (1, 2, 3...)`;
+          
+          await chatSessionRepo.addMessage(session.sessionId, 'assistant', errorMessage);
+          
+          return res.json({
+            success: true,
+            response: errorMessage,
+            sessionId: session.sessionId,
+            timestamp: new Date().toISOString()
+          });
+        }
       }
 
       // Kiểm tra user có đang xác nhận đặt lịch không
       if (bookingContext && bookingContext.isInBookingFlow && bookingContext.step === 'CONFIRMATION') {
         console.log('🎯 User đang ở bước CONFIRMATION');
+        console.log('📝 Tin nhắn user:', message);
         
-        const input = message.trim().toLowerCase();
-        
-        if (input.includes('có') || input.includes('yes') || input.includes('ok') || input.includes('đồng ý') || input.includes('xác nhận')) {
+        // Kiểm tra xác nhận bằng helper function thông minh
+        if (isConfirmationMessage(message)) {
           // User xác nhận - Lấy lại booking context để đảm bảo có dữ liệu mới nhất
-          console.log('✅ User xác nhận đặt lịch, đang lấy lại booking context...');
+          console.log('✅ User xác nhận đặt lịch (nhận diện: "' + message + '"), đang lấy lại booking context...');
           
           const latestContext = await chatSessionRepo.getBookingContext(session.sessionId);
           
@@ -376,8 +488,9 @@ class ChatbotController {
             bookingData: bookingData, // 🔥 Trả về booking data cho frontend xử lý
             redirectToPayment: true // Flag chỉ ra frontend nên chuyển hướng
           });
-        } else if (input.includes('không') || input.includes('no') || input.includes('hủy') || input.includes('cancel')) {
+        } else if (isRejectionMessage(message)) {
           // User hủy
+          console.log('❌ User từ chối đặt lịch (nhận diện: "' + message + '")');
           const cancelMessage = '❌ Đã hủy đặt lịch.\n\nNếu bạn cần đặt lại, vui lòng nói "đặt lịch" hoặc liên hệ hotline! 📞';
           
           // Xóa booking context
@@ -394,13 +507,16 @@ class ChatbotController {
       }
 
       // Kiểm tra tin nhắn user có chứa ý định đặt lịch không (trước khi xử lý GPT)
-      const bookingKeywords = [
+      // CHỈ khi user KHÔNG đang trong booking flow
+      const newBookingKeywords = [
         'đặt lịch', 'dat lich', 'book', 'hẹn khám', 'muốn khám',
         'dịch vụ được chỉ định', 'dịch vụ chỉ định', 'chỉ định nha sĩ',
         'có dịch vụ nào', 'dịch vụ gì'
       ];
       
-      const hasBookingIntent = bookingKeywords.some(keyword => 
+      // Chỉ detect booking intent khi user KHÔNG đang trong booking flow
+      // Nếu đang trong booking flow, các keywords như "muốn đặt" là để xác nhận, không phải bắt đầu mới
+      const hasBookingIntent = !isInBookingFlow && newBookingKeywords.some(keyword => 
         message.toLowerCase().includes(keyword)
       );
       
@@ -587,9 +703,10 @@ class ChatbotController {
       }
       
       // GPT Booking Action Handler - xử lý các tag [BOOKING_*] từ phản hồi GPT
+      // CHỈ xử lý khi user KHÔNG đang trong booking flow (vì handlers đã xử lý)
       // Khi user nhập text như "số 4", "một", GPT trả về các tag như [BOOKING_GET_DENTISTS serviceId=4...]
       // Handler này phân tích các tag đó và chuyển user đến bước đặt lịch phù hợp
-      if (result.usedBooking && result.bookingAction) {
+      if (result.usedBooking && result.bookingAction && !isInBookingFlow) {
         console.log('📅 Đang xử lý GPT booking action:', result.bookingAction);
         
         try {
@@ -632,12 +749,20 @@ class ChatbotController {
         }
       }
 
+      // Clean up response nếu có booking tags (xóa các tags không được xử lý)
+      let cleanedResponse = result.response;
+      if (isInBookingFlow && result.usedBooking) {
+        // Xóa các booking tags vì đang trong flow và handlers đã xử lý
+        cleanedResponse = cleanedResponse.replace(/\[BOOKING_[^\]]+\]/g, '').trim();
+        console.log('🧹 Đã clean up booking tags từ GPT response (user đang trong booking flow)');
+      }
+
       // Save assistant response
-      await chatSessionRepo.addMessage(session.sessionId, 'assistant', result.response);
+      await chatSessionRepo.addMessage(session.sessionId, 'assistant', cleanedResponse);
 
       res.json({
         success: true,
-        response: result.response,
+        response: cleanedResponse,
         sessionId: session.sessionId,
         timestamp: new Date().toISOString(),
         usedQuery: result.usedQuery || false,
