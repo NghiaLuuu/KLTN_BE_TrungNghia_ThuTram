@@ -191,8 +191,6 @@ exports.getStaffSchedule = getStaffSchedule;
 // 🆕 SERVICE: Kiểm tra xung đột cho các slots đã chọn (Cách tiếp cận tối ưu)
 async function checkConflictsForSlots({ slots }) {
   try {
-    const slotRepo = require('../repositories/slot.repository');
-    
     if (!slots || !Array.isArray(slots) || slots.length === 0) {
       throw new Error('slots array is required');
     }
@@ -209,32 +207,82 @@ async function checkConflictsForSlots({ slots }) {
     
     console.log(`📌 Selected slot IDs:`, Array.from(selectedSlotIds));
     
-    // Xây dựng các truy vấn OR cho các slots chồng chéo
-    const conflictQueries = slots.map(slot => {
-      const slotDate = new Date(slot.date);
+    // ⚡ TỐI ƯU: Tính toán min/max time một lần
+    let minStartTime = null;
+    let maxEndTime = null;
+    
+    const slotTimeRanges = [];
+    
+    for (const slot of slots) {
+      // Validate slot có startTime và endTime
+      if (!slot.startTime || !slot.endTime) {
+        console.warn(`⚠️ Slot thiếu startTime/endTime:`, slot);
+        continue;
+      }
+      
       const slotStart = new Date(slot.startTime);
       const slotEnd = new Date(slot.endTime);
       
-      return {
-        startTime: { 
-          $gte: new Date(slotDate.setHours(0, 0, 0, 0)),
-          $lt: new Date(slotDate.setHours(23, 59, 59, 999))
-        },
-        // Chồng chéo thời gian: existing.start < new.end AND new.start < existing.end
-        $and: [
-          { startTime: { $lt: slotEnd } },
-          { endTime: { $gt: slotStart } }
-        ]
-      };
-    });
+      // Validate Date hợp lệ
+      if (isNaN(slotStart.getTime()) || isNaN(slotEnd.getTime())) {
+        console.warn(`⚠️ Slot có startTime/endTime không hợp lệ:`, slot);
+        continue;
+      }
+      
+      if (!minStartTime || slotStart < minStartTime) minStartTime = slotStart;
+      if (!maxEndTime || slotEnd > maxEndTime) maxEndTime = slotEnd;
+      
+      slotTimeRanges.push({ start: slotStart, end: slotEnd });
+    }
     
-    // Truy vấn: Tìm tất cả slots chồng chéo với các slots đã chọn
+    // ⚠️ GUARD: Nếu không có slot hợp lệ nào, trả về kết quả rỗng
+    if (slotTimeRanges.length === 0 || !minStartTime || !maxEndTime) {
+      console.warn('⚠️ Không có slot nào có thời gian hợp lệ để kiểm tra xung đột');
+      return {
+        conflictingDentists: [],
+        conflictingNurses: [],
+        conflictDetails: {},
+        staffStats: {},
+        totalConflictingSlots: 0
+      };
+    }
+    
+    console.log(`📅 Kiểm tra xung đột từ ${minStartTime.toISOString()} đến ${maxEndTime.toISOString()}`);
+    
+    // ⚡ TỐI ƯU: Query đơn giản hơn, tận dụng index tốt hơn
+    // 1. Lấy tất cả slots trong khoảng thời gian tổng (sử dụng index startTime)
+    // 2. Filter chính xác trong memory (nhanh hơn $or với nhiều conditions)
     const Slot = require('../models/slot.model');
-    const allOverlappingSlots = await Slot.find({
-      $or: conflictQueries
+    
+    // Query chính: lấy slots trong khoảng thời gian có thể xung đột
+    // Index: startTime được đánh index
+    const potentialConflicts = await Slot.find({
+      startTime: { $lt: maxEndTime },  // Slot bắt đầu trước khi selections kết thúc
+      endTime: { $gt: minStartTime },  // Slot kết thúc sau khi selections bắt đầu
+      isActive: true,
+      $or: [
+        { dentist: { $exists: true, $ne: [] } },  // Có nha sĩ được phân
+        { nurse: { $exists: true, $ne: [] } }     // Hoặc có y tá được phân
+      ]
     })
-    .select('_id dentist nurse startTime endTime date shiftName roomId subRoomId')
+    .select('_id dentist nurse startTime endTime shiftName roomId subRoomId')
     .lean();
+    
+    console.log(`🔍 Tìm thấy ${potentialConflicts.length} slots tiềm năng trong khoảng thời gian`);
+    
+    // ⚡ TỐI ƯU: Filter chính xác trong memory (rất nhanh)
+    const allOverlappingSlots = potentialConflicts.filter(potentialSlot => {
+      const pStart = new Date(potentialSlot.startTime).getTime();
+      const pEnd = new Date(potentialSlot.endTime).getTime();
+      
+      // Kiểm tra có overlap với BẤT KỲ slot nào được chọn không
+      return slotTimeRanges.some(selected => {
+        const sStart = selected.start.getTime();
+        const sEnd = selected.end.getTime();
+        // Overlap: pStart < sEnd AND sStart < pEnd
+        return pStart < sEnd && sStart < pEnd;
+      });
+    });
     
     
     

@@ -124,6 +124,11 @@ slotSchema.index({ status: 1, startTime: 1, isActive: 1 });
 slotSchema.index({ roomId: 1, status: 1, startTime: 1 });
 slotSchema.index({ dentist: 1, status: 1, startTime: 1 });
 
+// ⚡ TỐI ƯU: Index cho checkConflictsForSlots - compound index trên startTime + endTime + isActive
+slotSchema.index({ startTime: 1, endTime: 1, isActive: 1 }, {
+  name: 'conflict_check_optimized'
+});
+
 // Virtual để lấy ngày theo múi giờ Việt Nam
 slotSchema.virtual('dateVN').get(function() {
   // Lấy ngày VN từ startTime nếu có
