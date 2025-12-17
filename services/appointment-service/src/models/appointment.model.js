@@ -474,9 +474,9 @@ appointmentSchema.methods.canRequestCancellation = function() {
 
 // Instance: Kiểm tra có thể check-in không
 appointmentSchema.methods.canCheckIn = function() {
-  // Cho phép check-in nếu status là 'confirmed' bất kể ngày nào
+  // Cho phép check-in nếu status là 'confirmed' hoặc 'no-show' (châm chước cho bệnh nhân đến muộn)
   // Nhân viên có thể check-in lịch hẹn từ ngày quá khứ hoặc tương lai
-  return this.status === 'confirmed';
+  return ['confirmed', 'no-show'].includes(this.status);
 };
 
 // Instance: Kiểm tra có thể hoàn thành không
