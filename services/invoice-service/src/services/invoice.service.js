@@ -317,10 +317,11 @@ class InvoiceService {
       
       // 🔥 SỬa: Lấy dịch vụ từ hồ sơ nếu có recordId
       let invoiceDetails = [];
+      let record = null; // 🔥 SỬa: Khai báo record ở ngoài scope để dùng cho dentistInfo
       if (paymentData.recordId) {
         try {
           console.log('📋 Lấy hồ sơ:', paymentData.recordId);
-          const record = await this.rpcClient.call('record-service', 'getRecordById', {
+          record = await this.rpcClient.call('record-service', 'getRecordById', {
             id: paymentData.recordId
           });
 
@@ -402,6 +403,7 @@ class InvoiceService {
                 notes: depositAmount > 0 
                   ? `Dịch vụ chính: ${record.serviceName}${record.serviceAddOnName ? ' - ' + record.serviceAddOnName : ''} (Đã trừ cọc ${depositAmount.toLocaleString('vi-VN')}đ)`
                   : `Dịch vụ chính: ${record.serviceName}${record.serviceAddOnName ? ' - ' + record.serviceAddOnName : ''}`,
+                dentistId: record.dentistId || null, // 🔥 SỬa: Thêm dentistId để thống kê doanh thu theo nha sĩ
                 status: 'completed',
                 completedDate: new Date() // 🔥 SỬa: Thêm completedDate để thống kê doanh thu hoạt động đúng
                 // 🔥 SỬa: Không set createdBy ở đây, sẽ được set sau
@@ -436,6 +438,7 @@ class InvoiceService {
                   discountAmount: 0,
                   totalPrice: totalPrice,
                   notes: service.notes || '',
+                  dentistId: record.dentistId || null, // 🔥 SỬa: Thêm dentistId để thống kê doanh thu theo nha sĩ
                   status: 'completed',
                   completedDate: new Date() // 🔥 SỬa: Thêm completedDate để thống kê doanh thu hoạt động đúng
                   // 🔥 SỬa: Không set createdBy ở đây, sẽ được set sau
@@ -468,16 +471,46 @@ class InvoiceService {
 
       // 🔥 SỬa: Lấy thông tin nha sĩ từ thanh toán hoặc hồ sơ
       let dentistInfo = null;
-      if (paymentData.processedBy && paymentData.processedByName) {
+      let dentistId = null;
+      let dentistName = null;
+
+      // Ưu tiên 1: Lấy từ payment
+      if (paymentData.processedBy) {
+        dentistId = paymentData.processedBy;
+        dentistName = paymentData.processedByName || null;
+      }
+      
+      // Ưu tiên 2: Lấy từ record nếu chưa có
+      if (!dentistId && record && record.dentistId) {
+        dentistId = record.dentistId;
+        dentistName = record.dentistName || null;
+      }
+
+      // 🔥 SỬa: Nếu có dentistId nhưng không có tên, gọi auth-service để lấy tên
+      if (dentistId && !dentistName) {
+        try {
+          console.log('🔍 Lấy thông tin nha sĩ từ auth-service:', dentistId);
+          const dentistData = await this.rpcClient.call('auth-service', 'getUserById', {
+            id: dentistId
+          });
+          if (dentistData) {
+            dentistName = dentistData.fullName || dentistData.name || `Nha sĩ ${dentistData.employeeCode || ''}`;
+            console.log('✅ Đã lấy tên nha sĩ:', dentistName);
+          }
+        } catch (error) {
+          console.warn('⚠️ Không thể lấy thông tin nha sĩ từ auth-service:', error.message);
+          dentistName = 'Nha sĩ'; // Fallback
+        }
+      }
+
+      if (dentistId) {
         dentistInfo = {
-          dentistId: paymentData.processedBy,
-          name: paymentData.processedByName
+          dentistId: dentistId,
+          name: dentistName || 'Nha sĩ'
         };
-      } else if (record && record.dentistId && record.dentistName) {
-        dentistInfo = {
-          dentistId: record.dentistId,
-          name: record.dentistName
-        };
+        console.log('✅ DentistInfo:', dentistInfo);
+      } else {
+        console.warn('⚠️ Không tìm thấy dentistId từ payment hoặc record');
       }
 
       // 🔥 SỬa: Tính subtotal từ chi tiết hóa đơn (sau khi trừ cọc ở dịch vụ chính)
