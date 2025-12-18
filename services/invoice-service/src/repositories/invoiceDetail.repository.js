@@ -457,11 +457,11 @@ class InvoiceDetailRepository {
     console.log('\n========== LẤY DOANH THU THEO NHA SĨ ==========');
     
     // 🔥 SỬa: Dùng createdAt thay vì completedDate
+    // 🔥 SỬa: KHÔNG filter dentistId ở đây - sẽ lấy từ invoice nếu cần
     const matchFilter = {
       createdAt: { $gte: startDate, $lte: endDate },
       status: 'completed',
       isActive: true,
-      dentistId: { $exists: true, $ne: null },
       ...filters
     };
 
@@ -469,7 +469,7 @@ class InvoiceDetailRepository {
 
     const byDentist = await InvoiceDetail.aggregate([
       { $match: matchFilter },
-      // ✅ Join with Invoice to check invoice status
+      // ✅ Join with Invoice to check invoice status AND get dentistInfo
       {
         $lookup: {
           from: 'invoices',
@@ -486,9 +486,23 @@ class InvoiceDetailRepository {
       },
       // ✅ Filter: only include if Invoice.status is 'completed' or 'paid'
       { $match: { 'invoice.status': { $in: ['completed', 'paid'] } } },
+      // 🔥 SỬa: Lấy dentistId từ invoiceDetail HOẶC từ invoice.dentistInfo.dentistId
+      {
+        $addFields: {
+          effectiveDentistId: {
+            $cond: {
+              if: { $and: [{ $ne: ['$dentistId', null] }, { $ne: ['$dentistId', ''] }] },
+              then: '$dentistId',
+              else: '$invoice.dentistInfo.dentistId'
+            }
+          }
+        }
+      },
+      // 🔥 SỬa: Chỉ lấy records có dentistId (từ invoiceDetail hoặc invoice)
+      { $match: { effectiveDentistId: { $exists: true, $ne: null } } },
       {
         $group: {
-          _id: '$dentistId',
+          _id: '$effectiveDentistId',
           totalRevenue: { $sum: '$totalPrice' },
           appointmentCount: { $addToSet: '$invoiceId' },
           serviceCount: { $sum: 1 }
@@ -605,11 +619,11 @@ class InvoiceDetailRepository {
    */
   async getRawRevenueDetails(startDate, endDate, filters = {}) {
     // 🔥 SỬa: Dùng createdAt thay vì completedDate
+    // 🔥 SỬa: KHÔNG filter dentistId ở đây - sẽ lấy từ invoice nếu cần
     const matchFilter = {
       createdAt: { $gte: startDate, $lte: endDate },
       status: 'completed',
       isActive: true,
-      dentistId: { $exists: true, $ne: null },
       ...filters
     };
 
@@ -617,7 +631,7 @@ class InvoiceDetailRepository {
 
     const rawDetails = await InvoiceDetail.aggregate([
       { $match: matchFilter },
-      // ✅ Join with Invoice to check invoice status
+      // ✅ Join with Invoice to check invoice status AND get dentistInfo
       {
         $lookup: {
           from: 'invoices',
@@ -634,10 +648,24 @@ class InvoiceDetailRepository {
       },
       // ✅ Filter: only include if Invoice.status is 'completed' or 'paid'
       { $match: { 'invoice.status': { $in: ['completed', 'paid'] } } },
+      // 🔥 SỬa: Lấy dentistId từ invoiceDetail HOẶC từ invoice.dentistInfo.dentistId
+      {
+        $addFields: {
+          effectiveDentistId: {
+            $cond: {
+              if: { $and: [{ $ne: ['$dentistId', null] }, { $ne: ['$dentistId', ''] }] },
+              then: '$dentistId',
+              else: '$invoice.dentistInfo.dentistId'
+            }
+          }
+        }
+      },
+      // 🔥 SỬa: Chỉ lấy records có dentistId (từ invoiceDetail hoặc invoice)
+      { $match: { effectiveDentistId: { $exists: true, $ne: null } } },
       {
         $group: {
           _id: {
-            dentistId: '$dentistId',
+            dentistId: '$effectiveDentistId',
             serviceId: '$serviceId'
           },
           revenue: { $sum: '$totalPrice' },
