@@ -362,6 +362,7 @@ class InvoiceDetailRepository {
     const invoiceStatusMatch = { $match: { 'invoice.status': { $in: ['completed', 'paid'] } } };
 
     let groupStage = {};
+    const vnTimezone = 'Asia/Ho_Chi_Minh';
     
     switch (groupBy) {
       case 'day':
@@ -369,7 +370,8 @@ class InvoiceDetailRepository {
           _id: {
             $dateToString: {
               format: '%Y-%m-%d',
-              date: '$completedDate'
+              date: '$completedDate',
+              timezone: vnTimezone
             }
           }
         };
@@ -379,7 +381,8 @@ class InvoiceDetailRepository {
           _id: {
             $dateToString: {
               format: '%Y-%m',
-              date: '$completedDate'
+              date: '$completedDate',
+              timezone: vnTimezone
             }
           }
         };
@@ -392,12 +395,12 @@ class InvoiceDetailRepository {
               {
                 $toString: {
                   $ceil: {
-                    $divide: [{ $month: '$completedDate' }, 3]
+                    $divide: [{ $month: { date: '$completedDate', timezone: vnTimezone } }, 3]
                   }
                 }
               },
               '-',
-              { $toString: { $year: '$completedDate' } }
+              { $toString: { $year: { date: '$completedDate', timezone: vnTimezone } } }
             ]
           }
         };
@@ -407,7 +410,8 @@ class InvoiceDetailRepository {
           _id: {
             $dateToString: {
               format: '%Y',
-              date: '$completedDate'
+              date: '$completedDate',
+              timezone: vnTimezone
             }
           }
         };

@@ -75,7 +75,9 @@ class InvoiceService {
         const detailsWithInvoiceId = invoiceData.details.map(detail => ({
           ...detail,
           invoiceId: invoice._id,
-          createdBy: detail.createdBy || userId || 'system' // Ensure createdBy is set
+          createdBy: detail.createdBy || userId || 'system', // Ensure createdBy is set
+          // 🔥 SỬa: Đảm bảo completedDate được thiết lập để thống kê doanh thu hoạt động đúng
+          completedDate: detail.completedDate || (detail.status === 'completed' ? new Date() : null)
         }));
 
         console.log('💾 Creating', detailsWithInvoiceId.length, 'invoice details');
@@ -400,7 +402,8 @@ class InvoiceService {
                 notes: depositAmount > 0 
                   ? `Dịch vụ chính: ${record.serviceName}${record.serviceAddOnName ? ' - ' + record.serviceAddOnName : ''} (Đã trừ cọc ${depositAmount.toLocaleString('vi-VN')}đ)`
                   : `Dịch vụ chính: ${record.serviceName}${record.serviceAddOnName ? ' - ' + record.serviceAddOnName : ''}`,
-                status: 'completed'
+                status: 'completed',
+                completedDate: new Date() // 🔥 SỬa: Thêm completedDate để thống kê doanh thu hoạt động đúng
                 // 🔥 SỬa: Không set createdBy ở đây, sẽ được set sau
               });
               
@@ -433,7 +436,8 @@ class InvoiceService {
                   discountAmount: 0,
                   totalPrice: totalPrice,
                   notes: service.notes || '',
-                  status: 'completed'
+                  status: 'completed',
+                  completedDate: new Date() // 🔥 SỬa: Thêm completedDate để thống kê doanh thu hoạt động đúng
                   // 🔥 SỬa: Không set createdBy ở đây, sẽ được set sau
                 };
               });

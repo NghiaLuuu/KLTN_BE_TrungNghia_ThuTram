@@ -376,13 +376,14 @@ class AppointmentRepository {
       console.log('📊 Offline theo vai trò:', offlineByRole);
 
     // 3. Lấy xu hướng theo khoảng thời gian
+    const vnTimezone = 'Asia/Ho_Chi_Minh';
     let groupByDateFormat;
     if (groupBy === 'month') {
-      groupByDateFormat = { $dateToString: { format: '%Y-%m', date: '$appointmentDate' } };
+      groupByDateFormat = { $dateToString: { format: '%Y-%m', date: '$appointmentDate', timezone: vnTimezone } };
     } else if (groupBy === 'year') {
-      groupByDateFormat = { $dateToString: { format: '%Y', date: '$appointmentDate' } };
+      groupByDateFormat = { $dateToString: { format: '%Y', date: '$appointmentDate', timezone: vnTimezone } };
     } else {
-      groupByDateFormat = { $dateToString: { format: '%Y-%m-%d', date: '$appointmentDate' } };
+      groupByDateFormat = { $dateToString: { format: '%Y-%m-%d', date: '$appointmentDate', timezone: vnTimezone } };
     }
 
     const trends = await Appointment.aggregate([

@@ -425,23 +425,25 @@ async function startRpcServer() {
             // Generate timeline based on timeRange
             const timeline = [];
             const byDateMap = {};
+            const momentTz = require('moment-timezone');
+            const VN_TIMEZONE = 'Asia/Ho_Chi_Minh';
             
             slots.forEach(slot => {
               let dateKey;
-              const slotDate = new Date(slot.startTime);
+              const slotMoment = momentTz(slot.startTime).tz(VN_TIMEZONE);
               
               if (timeRange === 'day') {
-                dateKey = slotDate.toISOString().split('T')[0]; // YYYY-MM-DD
+                dateKey = slotMoment.format('YYYY-MM-DD'); // YYYY-MM-DD theo VN timezone
               } else if (timeRange === 'month') {
-                dateKey = `${slotDate.getFullYear()}-${String(slotDate.getMonth() + 1).padStart(2, '0')}`; // YYYY-MM
+                dateKey = slotMoment.format('YYYY-MM'); // YYYY-MM
               } else if (timeRange === 'quarter') {
-                const quarter = Math.floor(slotDate.getMonth() / 3) + 1;
-                dateKey = `${slotDate.getFullYear()}-Q${quarter}`; // YYYY-Q1
+                const quarter = Math.floor(slotMoment.month() / 3) + 1;
+                dateKey = `${slotMoment.year()}-Q${quarter}`; // YYYY-Q1
               } else if (timeRange === 'year') {
-                dateKey = String(slotDate.getFullYear()); // YYYY
+                dateKey = slotMoment.format('YYYY'); // YYYY
               } else {
                 // Mặc định sang định dạng ngày nếu timeRange không hợp lệ
-                dateKey = slotDate.toISOString().split('T')[0];
+                dateKey = slotMoment.format('YYYY-MM-DD');
               }
               
               if (!byDateMap[dateKey]) {
