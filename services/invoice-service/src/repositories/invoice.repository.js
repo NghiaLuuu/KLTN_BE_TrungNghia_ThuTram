@@ -307,12 +307,9 @@ class InvoiceRepository {
     const InvoiceDetailRepo = require('./invoiceDetail.repository');
     const { getServiceAddOnIds } = require('../utils/serviceHelper');
     
-    // Xây dựng bộ lọc cho aggregation InvoiceDetail
-    const filters = {
-      completedDate: { $gte: startDate, $lte: endDate },
-      status: 'completed',
-      isActive: true
-    };
+    // 🔥 SỬa: Không truyền date filter vào filters nữa, vì các hàm thống kê đã tự filter theo createdAt
+    // Chỉ truyền các filter bổ sung như dentistId, serviceId
+    const filters = {};
     
     if (dentistId) {
       const mongoose = require('mongoose');
