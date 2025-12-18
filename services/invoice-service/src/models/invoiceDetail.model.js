@@ -233,6 +233,8 @@ InvoiceDetailSchema.index({ dentistId: 1 });
 InvoiceDetailSchema.index({ status: 1 });
 InvoiceDetailSchema.index({ completedDate: -1 });
 InvoiceDetailSchema.index({ createdAt: -1 });
+// 🔥 Compound index cho thống kê doanh thu (completedDate + status + isActive)
+InvoiceDetailSchema.index({ completedDate: -1, status: 1, isActive: 1 });
 
 // Virtual fields
 InvoiceDetailSchema.virtual('finalDiscountAmount').get(function() {

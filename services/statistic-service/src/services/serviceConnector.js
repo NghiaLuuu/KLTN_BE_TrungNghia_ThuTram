@@ -47,7 +47,8 @@ class ServiceConnector {
         }
       };
 
-      const result = await rabbitClient.request('invoice-service_rpc_queue', message);
+      // 🔥 SỬa: Tăng timeout lên 60s cho query thống kê doanh thu phức tạp
+      const result = await rabbitClient.request('invoice-service_rpc_queue', message, 60000);
       
       if (!result.success) {
         throw new Error(result.error || 'Failed to get revenue stats');

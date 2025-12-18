@@ -185,6 +185,14 @@ class InvoiceRPCServer {
           break;
 
         case 'getRevenueStatistics':
+          console.log('📊 [RPC] getRevenueStatistics called:', {
+            startDate: params.startDate,
+            endDate: params.endDate,
+            groupBy: params.groupBy,
+            dentistId: params.dentistId,
+            serviceId: params.serviceId
+          });
+          const startTime = Date.now();
           response.result = await invoiceService.getRevenueStats(
             params.startDate,
             params.endDate,
@@ -192,6 +200,7 @@ class InvoiceRPCServer {
             params.dentistId,
             params.serviceId
           );
+          console.log(`⏱️ [RPC] getRevenueStatistics completed in ${Date.now() - startTime}ms`);
           response.success = true;
           break;
 
