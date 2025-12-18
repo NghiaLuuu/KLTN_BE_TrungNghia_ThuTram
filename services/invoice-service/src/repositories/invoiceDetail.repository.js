@@ -272,12 +272,17 @@ class InvoiceDetailRepository {
    * Lấy thống kê tổng hợp doanh thu
    */
   async getRevenueSummary(startDate, endDate, filters = {}) {
+    console.log('📊 [getRevenueSummary] Params:', { startDate, endDate, filters });
+    
+    // 🔥 SỬa: Dùng createdAt thay vì completedDate vì createdAt luôn tồn tại
     const matchFilter = {
-      completedDate: { $gte: startDate, $lte: endDate },
+      createdAt: { $gte: startDate, $lte: endDate },
       status: 'completed',
       isActive: true,
       ...filters
     };
+    
+    console.log('🔍 [getRevenueSummary] Match filter:', JSON.stringify(matchFilter, null, 2));
 
     const result = await InvoiceDetail.aggregate([
       { $match: matchFilter },
@@ -337,8 +342,9 @@ class InvoiceDetailRepository {
    * Lấy xu hướng doanh thu theo khoảng thời gian
    */
   async getRevenueTrends(startDate, endDate, groupBy = 'day', filters = {}) {
+    // 🔥 SỬa: Dùng createdAt thay vì completedDate
     const matchFilter = {
-      completedDate: { $gte: startDate, $lte: endDate },
+      createdAt: { $gte: startDate, $lte: endDate },
       status: 'completed',
       isActive: true,
       ...filters
@@ -364,13 +370,14 @@ class InvoiceDetailRepository {
     let groupStage = {};
     const vnTimezone = 'Asia/Ho_Chi_Minh';
     
+    // 🔥 SỬa: Dùng createdAt thay vì completedDate trong groupBy
     switch (groupBy) {
       case 'day':
         groupStage = {
           _id: {
             $dateToString: {
               format: '%Y-%m-%d',
-              date: '$completedDate',
+              date: '$createdAt',
               timezone: vnTimezone
             }
           }
@@ -381,7 +388,7 @@ class InvoiceDetailRepository {
           _id: {
             $dateToString: {
               format: '%Y-%m',
-              date: '$completedDate',
+              date: '$createdAt',
               timezone: vnTimezone
             }
           }
@@ -395,12 +402,12 @@ class InvoiceDetailRepository {
               {
                 $toString: {
                   $ceil: {
-                    $divide: [{ $month: { date: '$completedDate', timezone: vnTimezone } }, 3]
+                    $divide: [{ $month: { date: '$createdAt', timezone: vnTimezone } }, 3]
                   }
                 }
               },
               '-',
-              { $toString: { $year: { date: '$completedDate', timezone: vnTimezone } } }
+              { $toString: { $year: { date: '$createdAt', timezone: vnTimezone } } }
             ]
           }
         };
@@ -410,7 +417,7 @@ class InvoiceDetailRepository {
           _id: {
             $dateToString: {
               format: '%Y',
-              date: '$completedDate',
+              date: '$createdAt',
               timezone: vnTimezone
             }
           }
@@ -449,8 +456,9 @@ class InvoiceDetailRepository {
   async getRevenueByDentist(startDate, endDate, filters = {}) {
     console.log('\n========== LẤY DOANH THU THEO NHA SĨ ==========');
     
+    // 🔥 SỬa: Dùng createdAt thay vì completedDate
     const matchFilter = {
-      completedDate: { $gte: startDate, $lte: endDate },
+      createdAt: { $gte: startDate, $lte: endDate },
       status: 'completed',
       isActive: true,
       dentistId: { $exists: true, $ne: null },
@@ -524,8 +532,9 @@ class InvoiceDetailRepository {
    * Lấy phân tích doanh thu theo dịch vụ
    */
   async getRevenueByService(startDate, endDate, filters = {}) {
+    // 🔥 SỬa: Dùng createdAt thay vì completedDate
     const matchFilter = {
-      completedDate: { $gte: startDate, $lte: endDate },
+      createdAt: { $gte: startDate, $lte: endDate },
       status: 'completed',
       isActive: true,
       ...filters
@@ -595,8 +604,9 @@ class InvoiceDetailRepository {
    * Dùng cho frontend lọc chéo khi cả hai bộ lọc được áp dụng
    */
   async getRawRevenueDetails(startDate, endDate, filters = {}) {
+    // 🔥 SỬa: Dùng createdAt thay vì completedDate
     const matchFilter = {
-      completedDate: { $gte: startDate, $lte: endDate },
+      createdAt: { $gte: startDate, $lte: endDate },
       status: 'completed',
       isActive: true,
       dentistId: { $exists: true, $ne: null },
