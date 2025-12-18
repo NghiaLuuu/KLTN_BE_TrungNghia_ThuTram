@@ -429,7 +429,7 @@ class InvoiceRepository {
             const dentistRevenueMap = new Map();
             
             // Lấy invoice details để tính doanh thu
-            const InvoiceDetail = require('../models/invoiceDetail.model');
+            const { InvoiceDetail } = require('../models/invoiceDetail.model');
             const invoiceIds = invoicesWithRecords.map(inv => inv._id);
             
             const invoiceDetails = await InvoiceDetail.find({
