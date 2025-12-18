@@ -358,10 +358,150 @@ class InvoiceRepository {
       InvoiceDetailRepo.getRawRevenueDetails(startDate, endDate, filters)
     ]);
 
+    // 🔥 SỬa: Nếu byDentist rỗng nhưng có doanh thu, cần enrich dentistId từ record
+    let enrichedByDentist = byDentist;
+    let enrichedRawDetails = rawDetails;
+    
+    if (byDentist.length === 0 && summary && summary.totalRevenue > 0) {
+      console.log('⚠️ byDentist rỗng nhưng có doanh thu, cần enrich từ record...');
+      
+      try {
+        // Lấy tất cả invoices trong khoảng thời gian có recordId
+        const invoicesWithRecords = await Invoice.find({
+          createdAt: { $gte: startDate, $lte: endDate },
+          status: { $in: ['completed', 'paid'] },
+          isActive: true,
+          recordId: { $exists: true, $ne: null }
+        }).select('_id recordId totalAmount').lean();
+        
+        console.log(`📋 Tìm thấy ${invoicesWithRecords.length} invoices có recordId`);
+        
+        if (invoicesWithRecords.length > 0) {
+          // Lấy danh sách recordIds
+          const recordIds = invoicesWithRecords.map(inv => inv.recordId.toString());
+          
+          // Call RPC để lấy records với dentistId
+          const rpcClient = require('../config/rpc.config'); // 🔥 SỬa: Dùng đúng path và singleton
+          
+          // Đảm bảo RPC client đã kết nối
+          if (!rpcClient.isConnected) {
+            await rpcClient.connect();
+          }
+          
+          const records = await rpcClient.call('record-service', 'getRecordsByIds', {
+            ids: recordIds
+          });
+          
+          console.log(`📋 Lấy được ${records?.length || 0} records từ record-service`);
+          
+          if (records && records.length > 0) {
+            // Tạo map recordId -> dentistId, dentistName
+            const recordMap = new Map();
+            records.forEach(record => {
+              if (record && record._id && record.dentistId) {
+                recordMap.set(record._id.toString(), {
+                  dentistId: record.dentistId.toString(),
+                  dentistName: record.dentistName || 'Nha sĩ'
+                });
+              }
+            });
+            
+            // Tạo map invoiceId -> dentistId
+            const invoiceDentistMap = new Map();
+            invoicesWithRecords.forEach(inv => {
+              const recordInfo = recordMap.get(inv.recordId.toString());
+              if (recordInfo) {
+                invoiceDentistMap.set(inv._id.toString(), recordInfo);
+              }
+            });
+            
+            // Aggregate theo dentistId từ records
+            const dentistRevenueMap = new Map();
+            
+            // Lấy invoice details để tính doanh thu
+            const InvoiceDetail = require('../models/invoiceDetail.model');
+            const invoiceIds = invoicesWithRecords.map(inv => inv._id);
+            
+            const invoiceDetails = await InvoiceDetail.find({
+              invoiceId: { $in: invoiceIds },
+              status: 'completed',
+              isActive: true,
+              createdAt: { $gte: startDate, $lte: endDate }
+            }).lean();
+            
+            invoiceDetails.forEach(detail => {
+              const dentistInfo = invoiceDentistMap.get(detail.invoiceId.toString());
+              if (dentistInfo) {
+                const { dentistId } = dentistInfo;
+                if (!dentistRevenueMap.has(dentistId)) {
+                  dentistRevenueMap.set(dentistId, {
+                    dentistId,
+                    totalRevenue: 0,
+                    appointmentSet: new Set(),
+                    serviceCount: 0
+                  });
+                }
+                const dentistData = dentistRevenueMap.get(dentistId);
+                dentistData.totalRevenue += detail.totalPrice || 0;
+                dentistData.appointmentSet.add(detail.invoiceId.toString());
+                dentistData.serviceCount += 1;
+              }
+            });
+            
+            // Convert to array format
+            enrichedByDentist = Array.from(dentistRevenueMap.values()).map(d => ({
+              dentistId: d.dentistId,
+              totalRevenue: d.totalRevenue,
+              appointmentCount: d.appointmentSet.size,
+              serviceCount: d.serviceCount,
+              avgRevenuePerAppointment: d.appointmentSet.size > 0 
+                ? Math.floor(d.totalRevenue / d.appointmentSet.size) 
+                : 0
+            }));
+            
+            // Enrich rawDetails
+            const rawDetailsMap = new Map();
+            invoiceDetails.forEach(detail => {
+              const dentistInfo = invoiceDentistMap.get(detail.invoiceId.toString());
+              if (dentistInfo) {
+                const key = `${dentistInfo.dentistId}_${detail.serviceId?.toString() || 'unknown'}`;
+                if (!rawDetailsMap.has(key)) {
+                  rawDetailsMap.set(key, {
+                    dentistId: dentistInfo.dentistId,
+                    serviceId: detail.serviceId?.toString() || null,
+                    revenue: 0,
+                    count: 0,
+                    invoiceSet: new Set()
+                  });
+                }
+                const rawData = rawDetailsMap.get(key);
+                rawData.revenue += detail.totalPrice || 0;
+                rawData.count += detail.quantity || 1;
+                rawData.invoiceSet.add(detail.invoiceId.toString());
+              }
+            });
+            
+            enrichedRawDetails = Array.from(rawDetailsMap.values()).map(r => ({
+              dentistId: r.dentistId,
+              serviceId: r.serviceId,
+              revenue: r.revenue,
+              count: r.count,
+              invoiceCount: r.invoiceSet.size
+            }));
+            
+            console.log(`✅ Enriched: ${enrichedByDentist.length} dentists, ${enrichedRawDetails.length} rawDetails`);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error enriching dentistId from records:', error.message);
+        // Fallback to original empty arrays
+      }
+    }
+
     console.log('✅ getRevenueStats trả về:', {
-      hasRawDetails: !!rawDetails,
-      rawDetailsLength: rawDetails?.length,
-      byDentistLength: byDentist?.length,
+      hasRawDetails: !!enrichedRawDetails,
+      rawDetailsLength: enrichedRawDetails?.length,
+      byDentistLength: enrichedByDentist?.length,
       byServiceLength: byService?.length
     });
 
@@ -373,9 +513,9 @@ class InvoiceRepository {
       },
       summary,
       trends,
-      byDentist,
+      byDentist: enrichedByDentist,
       byService,
-      rawDetails // ✅ Mảng các { dentistId, serviceId, revenue, count }
+      rawDetails: enrichedRawDetails // ✅ Mảng các { dentistId, serviceId, revenue, count }
     };
   }
 

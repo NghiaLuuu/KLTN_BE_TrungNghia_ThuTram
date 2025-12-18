@@ -41,6 +41,10 @@ async function startRecordRpcServer() {
             response = await handleSearchRecords(payload);
             break;
 
+          case "getRecordsByIds":
+            response = await handleGetRecordsByIds(payload);
+            break;
+
           default:
             response = { error: `Unknown action: ${action}` };
         }
@@ -113,4 +117,32 @@ async function handleSearchRecords(payload) {
   const filter = payload || {};
   const records = await recordService.searchRecords(filter);
   return { records };
+}
+
+// 🔥 SỬa: Thêm handler để lấy nhiều records theo IDs (dùng cho thống kê doanh thu)
+async function handleGetRecordsByIds(payload) {
+  if (!payload.ids || !Array.isArray(payload.ids)) {
+    throw new Error("ids array is required");
+  }
+  
+  const mongoose = require('mongoose');
+  const Record = require('../models/record.model');
+  
+  // Convert string IDs to ObjectIds
+  const objectIds = payload.ids
+    .filter(id => mongoose.Types.ObjectId.isValid(id))
+    .map(id => new mongoose.Types.ObjectId(id));
+  
+  if (objectIds.length === 0) {
+    return { records: [] }; // 🔥 SỬa: Trả về object { records: [] } để consistent với extractResult
+  }
+  
+  const records = await Record.find({ 
+    _id: { $in: objectIds },
+    isActive: true
+  }).select('_id dentistId dentistName patientId patientName').lean();
+  
+  console.log(`📤 [RPC Server] getRecordsByIds: Found ${records.length}/${payload.ids.length} records`);
+  
+  return { records }; // 🔥 SỬa: Trả về object { records: [...] } để consistent với extractResult
 }
