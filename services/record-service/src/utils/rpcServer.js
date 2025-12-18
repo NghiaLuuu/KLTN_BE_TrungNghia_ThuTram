@@ -128,21 +128,47 @@ async function handleGetRecordsByIds(payload) {
   const mongoose = require('mongoose');
   const Record = require('../models/record.model');
   
-  // Convert string IDs to ObjectIds
-  const objectIds = payload.ids
-    .filter(id => mongoose.Types.ObjectId.isValid(id))
-    .map(id => new mongoose.Types.ObjectId(id));
+  console.log(`📥 [RPC Server] getRecordsByIds received ${payload.ids.length} IDs`);
+  console.log(`📥 [RPC Server] IDs:`, JSON.stringify(payload.ids));
   
-  if (objectIds.length === 0) {
-    return { records: [] }; // 🔥 SỬa: Trả về object { records: [] } để consistent với extractResult
+  // 🔥 SỬa: Xử lý cả string và ObjectId
+  const validIds = [];
+  for (const id of payload.ids) {
+    // Nếu id là object với $oid (BSON format)
+    if (id && typeof id === 'object' && id.$oid) {
+      validIds.push(new mongoose.Types.ObjectId(id.$oid));
+      console.log(`   - Converted BSON: ${id.$oid}`);
+    }
+    // Nếu id là string hex 24 ký tự
+    else if (typeof id === 'string' && /^[a-fA-F0-9]{24}$/.test(id)) {
+      validIds.push(new mongoose.Types.ObjectId(id));
+      console.log(`   - Converted string: ${id}`);
+    }
+    // Nếu id đã là ObjectId
+    else if (id instanceof mongoose.Types.ObjectId) {
+      validIds.push(id);
+      console.log(`   - Already ObjectId: ${id}`);
+    }
+    else {
+      console.log(`   ⚠️ Invalid ID format: ${JSON.stringify(id)} (type: ${typeof id})`);
+    }
   }
   
+  console.log(`📥 [RPC Server] Valid IDs: ${validIds.length}`);
+  
+  if (validIds.length === 0) {
+    return { records: [] };
+  }
+  
+  // Query records
   const records = await Record.find({ 
-    _id: { $in: objectIds },
-    isActive: true
+    _id: { $in: validIds }
   }).select('_id dentistId dentistName patientId patientName').lean();
   
   console.log(`📤 [RPC Server] getRecordsByIds: Found ${records.length}/${payload.ids.length} records`);
+  records.forEach(r => {
+    console.log(`   - Record ${r._id}: dentistId=${r.dentistId}, dentistName=${r.dentistName}`);
+  });
   
-  return { records }; // 🔥 SỬa: Trả về object { records: [...] } để consistent với extractResult
+  return { records };
 }

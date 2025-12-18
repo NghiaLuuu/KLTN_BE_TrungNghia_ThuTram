@@ -376,6 +376,11 @@ class InvoiceRepository {
         
         console.log(`📋 Tìm thấy ${invoicesWithRecords.length} invoices có recordId`);
         
+        // 🔥 DEBUG: Log chi tiết invoices và recordIds
+        invoicesWithRecords.forEach(inv => {
+          console.log(`   - Invoice ${inv._id}: recordId=${inv.recordId} (type: ${typeof inv.recordId})`);
+        });
+        
         if (invoicesWithRecords.length > 0) {
           // Lấy danh sách recordIds
           const recordIds = invoicesWithRecords.map(inv => inv.recordId.toString());
