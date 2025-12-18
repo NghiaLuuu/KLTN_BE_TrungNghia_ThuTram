@@ -304,6 +304,7 @@ class InvoiceRepository {
   }
 
   async getRevenueStats(startDate, endDate, groupBy = 'day', dentistId = null, serviceId = null) {
+    try {
     const InvoiceDetailRepo = require('./invoiceDetail.repository');
     const { getServiceAddOnIds } = require('../utils/serviceHelper');
     
@@ -384,20 +385,24 @@ class InvoiceRepository {
         if (invoicesWithRecords.length > 0) {
           // Lấy danh sách recordIds
           const recordIds = invoicesWithRecords.map(inv => inv.recordId.toString());
+          console.log(`📤 Gửi ${recordIds.length} recordIds qua RPC:`, recordIds);
           
           // Call RPC để lấy records với dentistId
           const rpcClient = require('../config/rpc.config'); // 🔥 SỬa: Dùng đúng path và singleton
           
           // Đảm bảo RPC client đã kết nối
           if (!rpcClient.isConnected) {
+            console.log('⏳ RPC client chưa kết nối, đang kết nối...');
             await rpcClient.connect();
           }
           
+          console.log('📤 Calling record-service.getRecordsByIds...');
           const records = await rpcClient.call('record-service', 'getRecordsByIds', {
             ids: recordIds
-          });
+          }, 15000); // 15s timeout
           
           console.log(`📋 Lấy được ${records?.length || 0} records từ record-service`);
+          console.log('📋 Records response:', JSON.stringify(records)?.substring(0, 500));
           
           if (records && records.length > 0) {
             // Tạo map recordId -> dentistId, dentistName
@@ -499,7 +504,8 @@ class InvoiceRepository {
         }
       } catch (error) {
         console.error('❌ Error enriching dentistId from records:', error.message);
-        // Fallback to original empty arrays
+        console.error('❌ Error stack:', error.stack);
+        // Fallback to original empty arrays - không throw để API vẫn trả về data
       }
     }
 
@@ -522,6 +528,11 @@ class InvoiceRepository {
       byService,
       rawDetails: enrichedRawDetails // ✅ Mảng các { dentistId, serviceId, revenue, count }
     };
+    } catch (error) {
+      console.error('❌ [getRevenueStats] Error:', error.message);
+      console.error('❌ [getRevenueStats] Stack:', error.stack);
+      throw error; // Re-throw để RPC handler xử lý
+    }
   }
 
   // ============ CÁC PHƯƠNG THỨC XÓA ============
