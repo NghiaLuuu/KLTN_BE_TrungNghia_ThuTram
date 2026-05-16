@@ -1,4 +1,11 @@
 {
+  "name": "kltn-be-trungnghia-thutram",
+  "private": true,
+  "scripts": {
+    "dev:all": "node scripts/dev-all.js",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down"
+  },
   "dependencies": {
     "axios": "^1.13.2",
     "dotenv": "^17.2.3",
